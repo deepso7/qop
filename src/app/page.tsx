@@ -1,15 +1,10 @@
-import { Inter } from "next/font/google";
-import { cn } from "@/utils/cn";
-import dynamic from "next/dynamic";
-
-const Lobby = dynamic(() => import("@/components/Lobby"), { ssr: false });
-
-const inter = Inter({ subsets: ["latin"] });
+import Lobby from "@/components/Lobby";
 
 export default function Home() {
   return (
-    <main className={cn(inter.className, "min-h-screen w-full bg-slate-300")}>
-      <div>Hello from RSC</div>
+    <main className="">
+      <h1 className="text-4xl font-bold">QOP</h1>
+      <h2 className="text-2xl">Where Q meets P</h2>
       <Lobby />
     </main>
   );

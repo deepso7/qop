@@ -1,4 +1,8 @@
 import "./globals.css";
+import { Roboto_Mono } from "next/font/google";
+import { cn } from "@/utils/cn";
+
+const rm = Roboto_Mono({ subsets: ["latin"] });
 
 export const metadata = {
   title: "Create Next App",
@@ -12,7 +16,14 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body
+        className={cn(
+          rm.className,
+          "flex min-h-screen w-full items-center justify-center bg-orange-100"
+        )}
+      >
+        {children}
+      </body>
     </html>
   );
 }
