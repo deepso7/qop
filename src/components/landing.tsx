@@ -15,7 +15,7 @@ const Landing = () => {
   const { toast, dismiss } = useToast();
 
   return (
-    <div className="mt-4 flex gap-4">
+    <div className="mt-4 flex justify-center gap-4 px-4">
       {input ? (
         <>
           <Input
