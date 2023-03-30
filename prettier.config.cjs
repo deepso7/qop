@@ -1,8 +1,10 @@
 /** @type {import("@ianvs/prettier-plugin-sort-imports").PrettierConfig} */
+/** @typedef  {import("prettier").Config} PrettierConfig*/
+/** @typedef  {{ tailwindConfig: string }} TailwindConfig*/
 const config = {
   plugins: [
-    require.resolve("prettier-plugin-tailwindcss"),
-    require.resolve("@ianvs/prettier-plugin-sort-imports"),
+    "@ianvs/prettier-plugin-sort-imports",
+    "prettier-plugin-tailwindcss",
   ],
   importOrder: [
     "^react",

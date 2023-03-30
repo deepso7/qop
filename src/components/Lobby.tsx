@@ -33,7 +33,7 @@ const Lobby = () => {
   if (error) return <div>Error</div>;
 
   return (
-    <div className="flex justify-center flex-col items-center gap-4">
+    <div className="flex flex-col items-center justify-center gap-4">
       <div>lobby</div>
       <Video />
     </div>
