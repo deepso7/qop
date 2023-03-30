@@ -44,7 +44,7 @@ const Landing = () => {
       ) : (
         <div className="mt-4 flex justify-center gap-4 px-4">
           <Button
-            className="w-1/2 bg-orange-300 hover:bg-orange-500 active:translate-y-[1px]"
+            className="w-1/2 bg-orange-300 hover:bg-orange-500"
             variant="subtle"
             onClick={() => {
               dismiss();
@@ -54,7 +54,7 @@ const Landing = () => {
             Enter
           </Button>
           <Button
-            className="w-1/2 bg-orange-300 hover:bg-orange-500 active:translate-y-[1px]"
+            className="w-1/2 bg-orange-300 hover:bg-orange-500"
             variant="subtle"
             onClick={() => toast({ description: "Not implemented yet" })}
           >

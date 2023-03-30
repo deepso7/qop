@@ -5,6 +5,8 @@ import { useEffect } from "react";
 import { useHuddle01, useLobby } from "@huddle01/react/hooks";
 import { usePathname, useRouter } from "next/navigation";
 
+import Video from "./video";
+
 const Lobby = () => {
   const { joinLobby, isLoading, isLobbyJoined, error } = useLobby();
   const { isInitialized } = useHuddle01();
@@ -31,9 +33,10 @@ const Lobby = () => {
   if (error) return <div>Error</div>;
 
   return (
-    <>
-      <div>Lobby</div>
-    </>
+    <div className="flex justify-center flex-col items-center gap-4">
+      <div>lobby</div>
+      <Video />
+    </div>
   );
 };
 
