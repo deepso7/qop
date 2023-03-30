@@ -1,11 +1,8 @@
-import dynamic from "next/dynamic";
-
-const Lobby = dynamic(() => import("@/components/Lobby"), { ssr: false });
+import Lobby from "@/components/lobby";
 
 export default function Page() {
   return (
     <>
-      <div>Lobby</div>;
       <Lobby />
     </>
   );

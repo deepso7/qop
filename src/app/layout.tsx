@@ -1,7 +1,10 @@
 import "./globals.css";
+
 import { Roboto_Mono } from "next/font/google";
+
+import Huddle01Provider from "@/components/Huddle01Provider";
+import { Toaster } from "@/components/ui/toaster";
 import { cn } from "@/utils/cn";
-import { Toaster } from "../components/ui/toaster";
 
 const rm = Roboto_Mono({ subsets: ["latin"] });
 
@@ -23,7 +26,7 @@ export default function RootLayout({
           "flex min-h-screen w-full items-center justify-center bg-orange-100"
         )}
       >
-        {children}
+        <Huddle01Provider>{children}</Huddle01Provider>
         <Toaster />
       </body>
     </html>
