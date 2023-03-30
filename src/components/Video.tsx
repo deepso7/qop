@@ -1,20 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
 import { useAudio, useVideo } from "@huddle01/react/hooks";
 import { Camera, CameraOff, Mic, MicOff } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
+import { useCamState, useMicState, useNameState } from "../atoms";
 import { AspectRatio } from "./ui/aspect-ratio";
 import { Button } from "./ui/button";
-import { Input } from "./ui/input";
 
 export default function Video() {
-  const [mic, setMic] = useState(true);
-  const [camera, setCamera] = useState(true);
-  const [name, setName] = useState("");
+  const [mic, setMic] = useMicState();
+  const [camera, setCamera] = useCamState();
+  const [name] = useNameState();
 
   // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
   const { fetchVideoStream, isLoading, error, stopVideoStream, stream } =
@@ -80,16 +80,6 @@ export default function Video() {
         <Button onClick={() => setMic((prev) => !prev)}>
           {mic ? <Mic /> : <MicOff />}
         </Button>
-      </div>
-
-      <div className="flex items-center justify-center gap-4">
-        <Input
-          placeholder="Name"
-          className="w-2/3 border-black"
-          type="text"
-          onChange={(e) => setName(e.target.value)}
-        />
-        <Button className="">&#10132;</Button>
       </div>
     </div>
   );

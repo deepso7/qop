@@ -7,6 +7,7 @@ import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 
 const Video = dynamic(() => import("./video"), { ssr: false });
+const NameInput = dynamic(() => import("./nameInput"), { ssr: false });
 
 const Lobby = () => {
   const { joinLobby, isLoading, isLobbyJoined, error } = useLobby();
@@ -39,6 +40,7 @@ const Lobby = () => {
     <div className="flex flex-col items-center justify-center gap-4">
       <div>lobby</div>
       <Video />
+      <NameInput />
     </div>
   );
 };
