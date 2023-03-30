@@ -3,9 +3,10 @@
 import { useEffect } from "react";
 
 import { useHuddle01, useLobby } from "@huddle01/react/hooks";
+import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 
-import Video from "./video";
+const Video = dynamic(() => import("./video"), { ssr: false });
 
 const Lobby = () => {
   const { joinLobby, isLoading, isLobbyJoined, error } = useLobby();
@@ -27,9 +28,11 @@ const Lobby = () => {
 
       joinLobby("qhy-moov-uwp");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isInitialized, isLobbyJoined]);
 
-  if (isLoading || !isInitialized) return <div>Loading...</div>;
+  if (isLoading || !isInitialized || !isLobbyJoined)
+    return <div>Loading...</div>;
   if (error) return <div>Error</div>;
 
   return (
