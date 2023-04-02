@@ -6,6 +6,8 @@ import { useHuddle01, useLobby } from "@huddle01/react/hooks";
 import dynamic from "next/dynamic";
 import { usePathname, useRouter } from "next/navigation";
 
+import BtmBar from "./btmBar";
+
 const Video = dynamic(() => import("./video"), { ssr: false });
 const NameInput = dynamic(() => import("./nameInput"), { ssr: false });
 
@@ -40,6 +42,7 @@ const Lobby = () => {
     <div className="flex flex-col items-center justify-center gap-4">
       <div>lobby</div>
       <Video />
+      <BtmBar />
       <NameInput />
     </div>
   );

@@ -1,3 +1,5 @@
+"use client";
+
 import { useRoom } from "@huddle01/react/hooks";
 
 import { useSetName } from "../atoms";

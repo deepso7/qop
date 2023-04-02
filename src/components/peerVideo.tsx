@@ -2,36 +2,37 @@
 
 import { useEffect, useRef } from "react";
 
-import { useAudio, useVideo } from "@huddle01/react/hooks";
-
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-
-import { useCamState, useNameState } from "../atoms";
 import { AspectRatio } from "./ui/aspect-ratio";
+import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar";
 
-export default function Video() {
-  const [camera] = useCamState();
-  const [name] = useNameState();
+interface Props {
+  peer: {
+    peerId: string;
+    isHost: boolean;
+    isCoHost: boolean;
+    mic: MediaStreamTrack | null;
+    cam: MediaStreamTrack | null;
+  };
+}
 
-  // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-  const { fetchVideoStream, isLoading, error, stream } = useVideo();
-  const { fetchAudioStream } = useAudio();
+const name = "sed";
 
+export default function PeerVideo({ peer }: Props) {
   const ref = useRef<HTMLVideoElement>(null);
 
+  console.log("lemaoooooooooooo");
+
+  const getStream = (track: MediaStreamTrack) => {
+    const stream = new MediaStream();
+    stream.addTrack(track);
+    return stream;
+  };
+
   useEffect(() => {
-    if (!isLoading && !stream) {
-      fetchVideoStream();
-      fetchAudioStream();
+    if (peer.cam && ref.current) {
+      ref.current.srcObject = getStream(peer.cam);
     }
-
-    if (stream && ref.current) {
-      ref.current.srcObject = stream as MediaStream;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isLoading, stream, ref.current]);
-
-  if (error) return <div>Error fetching video</div>;
+  }, [peer.cam]);
 
   return (
     <div className="flex flex-col items-center justify-center gap-4">
@@ -40,9 +41,7 @@ export default function Video() {
           ratio={4 / 3}
           className="z-20 flex h-full w-full items-center justify-center rounded-lg border border-orange-600"
         >
-          {isLoading ? (
-            <div className="h-full w-full animate-pulse bg-orange-300"></div>
-          ) : !camera ? (
+          {!peer.cam ? (
             <Avatar className="h-32 w-32 object-contain">
               <AvatarImage
                 src={`https://api.dicebear.com/6.x/pixel-art/svg?seed=${name}`}

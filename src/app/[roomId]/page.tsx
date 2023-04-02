@@ -1,9 +1,9 @@
-import Lobby from "@/components/lobby";
+import Room from "@/components/room";
 
 export default function Page() {
   return (
     <>
-      <Lobby />
+      <Room />
     </>
   );
 }
