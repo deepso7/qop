@@ -5,6 +5,12 @@ import { useEffect, useRef } from "react";
 import { useAudio, useVideo } from "@huddle01/react/hooks";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 
 import { useCamState, useNameState } from "../atoms";
 import { AspectRatio } from "./ui/aspect-ratio";
@@ -34,8 +40,8 @@ export default function Video() {
   if (error) return <div>Error fetching video</div>;
 
   return (
-    <div className="flex flex-col items-center justify-center gap-4">
-      <div className="w-96">
+    <ContextMenu>
+      <ContextMenuTrigger className="flex w-96 flex-col items-center justify-center gap-4">
         <AspectRatio
           ratio={4 / 3}
           className="z-20 flex h-full w-full items-center justify-center rounded-lg border border-orange-600"
@@ -61,7 +67,14 @@ export default function Video() {
             />
           )}
         </AspectRatio>
-      </div>
-    </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="w-56 border-orange-500 bg-orange-400">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <ContextMenuItem key={`cmi-${i}`} className="focus:bg-orange-300">
+            Sed
+          </ContextMenuItem>
+        ))}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
