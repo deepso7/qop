@@ -7,13 +7,13 @@
     "format": "prettier --write \"**/*.{ts,tsx,md}\""
   },
   "devDependencies": {
-    "eslint": "^8.48.0",
     "prettier": "^3.0.3",
-    "tsconfig": "*",
-    "turbo": "latest"
+    "tsconfig": "^7.0.0",
+    "turbo": "^1.10.16"
   },
   "name": "qop",
-  "packageManager": "bun@1.0.7",
+  "packageManager": "pnpm@8.10.2",
   "workspaces": [
-    "apps/*"  ]
+    "apps/*"
+  ]
 }
