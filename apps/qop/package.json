@@ -12,17 +12,24 @@
     "gen-routes": "tsr generate"
   },
   "dependencies": {
+    "@hookform/resolvers": "^3.3.2",
     "@radix-ui/react-icons": "^1.3.0",
-    "@tauri-apps/api": "^1.5.1",
+    "@radix-ui/react-label": "^2.0.2",
+    "@radix-ui/react-slot": "^1.0.2",
+    "@t3-oss/env-core": "^0.7.1",
     "@tanstack/react-router": "beta",
     "@tanstack/router-cli": "^0.0.1-beta.29",
     "@tanstack/router-devtools": "beta",
+    "@tauri-apps/api": "^1.5.1",
+    "@teamhanko/hanko-frontend-sdk": "^0.9.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.0.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-hook-form": "^7.48.1",
     "tailwind-merge": "^2.0.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^3.22.4"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^1.5.6",
