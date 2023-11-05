@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { lazy, useState } from "react";
+
 import LoginForm from "./loginForm";
-import PasscodeForm from "./passcodeForm";
+
+const PasscodeForm = lazy(() => import("./passcodeForm"));
 
 const AuthController = () => {
   const [loginState, setLoginState] = useState<"email" | "passcode">("email");

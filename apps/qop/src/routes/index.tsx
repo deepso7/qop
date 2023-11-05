@@ -1,8 +1,11 @@
+import { Suspense, lazy } from "react";
 import { FileRoute } from "@tanstack/react-router";
 import { useStytchUser, useStytch } from "@stytch/react";
 
-import AuthController from "@/components/auth/authController";
-import { Button } from "../components/ui/button";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+
+const AuthController = lazy(() => import("@/components/auth/authController"));
 
 export const route = new FileRoute("/").createRoute({
   component: () => {
@@ -19,6 +22,17 @@ export const route = new FileRoute("/").createRoute({
         </>
       );
 
-    return <AuthController />;
+    return (
+      <Suspense
+        fallback={
+          <div className="space-y-4">
+            <Skeleton className="h-20 w-[250px]" />
+            <Skeleton className="h-8 w-1/3" />
+          </div>
+        }
+      >
+        <AuthController />
+      </Suspense>
+    );
   },
 });
