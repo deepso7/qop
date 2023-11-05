@@ -9,7 +9,7 @@ export const env = createEnv({
   clientPrefix: "VITE_",
 
   client: {
-    VITE_HANKO_API_URL: z.string().min(1),
+    VITE_STYTCH_PUBLIC_TOKEN: z.string().min(1),
   },
 
   /**

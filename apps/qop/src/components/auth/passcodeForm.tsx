@@ -2,6 +2,8 @@ import * as z from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { useStytch } from "@stytch/react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -14,15 +16,19 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { useAuth } from "@/auth";
+import Spinner from "../spinner";
 
 const formSchema = z.object({
   passcode: z.string().length(6),
 });
 type FormSchemaType = z.infer<typeof formSchema>;
 
-const PasscodeForm = (props: { email: string; userId: string }) => {
-  const hanko = useAuth();
+const PasscodeForm = (props: {
+  email: string;
+  methodId: string;
+  reset: () => void;
+}) => {
+  const stytch = useStytch();
   const queryClient = useQueryClient();
 
   const form = useForm<FormSchemaType>({
@@ -34,17 +40,33 @@ const PasscodeForm = (props: { email: string; userId: string }) => {
 
   const passcodeMutation = useMutation({
     mutationFn: async (vars: FormSchemaType) => {
-      await hanko.passcode.finalize(props.userId, vars.passcode);
+      await stytch.otps.authenticate(vars.passcode, props.methodId, {
+        session_duration_minutes: 60,
+      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["user"] });
+    },
+    onError: (e) => {
+      console.warn("error while validating otp", e);
+
+      const resetStates = () => {
+        form.reset();
+        props.reset();
+      };
+
+      toast.error("Error while validating otp", {
+        onAutoClose: resetStates,
+        onDismiss: resetStates,
+      });
     },
   });
 
   // 2. Define a submit handler.
   function onSubmit(values: FormSchemaType) {
     // Do something with the form values.
-    // ✅ This will be type-safe and validated.
+    // ✅ This will be type-safe and validated
+    console.log({ values });
     passcodeMutation.mutate(values);
   }
 
@@ -67,7 +89,13 @@ const PasscodeForm = (props: { email: string; userId: string }) => {
             </FormItem>
           )}
         />
-        <Button type="submit">Submit</Button>
+        <Button type="submit" disabled={passcodeMutation.status === "pending"}>
+          {passcodeMutation.status === "pending" || passcodeMutation.isError ? (
+            <Spinner />
+          ) : (
+            "Submit"
+          )}
+        </Button>
       </form>
     </Form>
   );

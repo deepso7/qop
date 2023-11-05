@@ -1,23 +1,12 @@
-import { Hanko } from "@teamhanko/hanko-frontend-sdk";
-import { createContext, useContext } from "react";
+import { StytchProvider } from "@stytch/react";
+import { StytchHeadlessClient } from "@stytch/vanilla-js/headless";
+
 import { env } from "../env";
 
-const AuthContext = createContext<Hanko | undefined>(undefined);
+const stytchClient = new StytchHeadlessClient(env.VITE_STYTCH_PUBLIC_TOKEN);
 
 const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  return (
-    <AuthContext.Provider value={new Hanko(env.VITE_HANKO_API_URL)}>
-      {children}
-    </AuthContext.Provider>
-  );
-};
-
-export const useAuth = () => {
-  const hanko = useContext(AuthContext);
-
-  if (!hanko) throw new Error("useAuth must be used within an AuthProvider");
-
-  return hanko;
+  return <StytchProvider stytch={stytchClient}>{children}</StytchProvider>;
 };
 
 export default AuthProvider;

@@ -2,8 +2,8 @@ import * as z from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
-import { NotFoundError } from "@teamhanko/hanko-frontend-sdk";
 import { toast } from "sonner";
+import { useStytch } from "@stytch/react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -16,7 +16,6 @@ import {
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
-import { useAuth } from "@/auth";
 import Spinner from "../spinner";
 import { useState } from "react";
 
@@ -26,9 +25,9 @@ const formSchema = z.object({
 type FormSchemaType = z.infer<typeof formSchema>;
 
 const LoginForm = (props: {
-  changeState: (data: { email: string; userId: string }) => void;
+  changeState: (data: { email: string; methodId: string }) => void;
 }) => {
-  const hanko = useAuth();
+  const stytch = useStytch();
   const form = useForm<FormSchemaType>({
     resolver: zodResolver(formSchema),
     defaultValues: {
@@ -40,20 +39,9 @@ const LoginForm = (props: {
 
   const loginMutation = useMutation({
     mutationFn: async (vars: FormSchemaType) => {
-      let userId: string;
+      const res = await stytch.otps.email.loginOrCreate(vars.email);
 
-      const user = await hanko.user.getInfo(vars.email).catch((e) => {
-        if (e instanceof NotFoundError) return null;
-        throw e;
-      });
-
-      if (!user) {
-        const newUser = await hanko.user.create(vars.email);
-        userId = newUser.user_id;
-      } else userId = user.id;
-
-      await hanko.passcode.initialize(userId, vars.email);
-      return { email: vars.email, userId };
+      return { email: vars.email, methodId: res.method_id };
     },
     onSuccess: (data) => {
       props.changeState(data);
