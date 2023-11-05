@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation } from "@tanstack/react-query";
 import { NotFoundError } from "@teamhanko/hanko-frontend-sdk";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -58,7 +59,17 @@ const LoginForm = (props: {
       props.changeState(data);
     },
     onError: (e) => {
-      console.log(e);
+      console.error("error while login", e);
+
+      const reset = () => {
+        setSubmitted(false);
+        form.reset();
+      };
+
+      toast.error("Error while logging in", {
+        onAutoClose: reset,
+        onDismiss: reset,
+      });
     },
   });
 

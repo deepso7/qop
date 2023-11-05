@@ -3,6 +3,7 @@ import React from "react";
 import ReactDOM from "react-dom/client";
 import { RouterProvider, Router } from "@tanstack/react-router";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { Toaster } from "sonner";
 
 import { ThemeProvider } from "@/components/theme-provider";
 
@@ -22,6 +23,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
       <ThemeProvider>
         <AuthProvider>
           <RouterProvider router={router} />
+          <Toaster closeButton theme="dark" position="bottom-center" />
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
