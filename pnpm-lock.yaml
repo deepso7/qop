@@ -35,6 +35,9 @@ importers:
       '@t3-oss/env-core':
         specifier: ^0.7.1
         version: 0.7.1(typescript@5.2.2)(zod@3.22.4)
+      '@tanstack/react-query':
+        specifier: ^5.7.0
+        version: 5.7.0(react-dom@18.2.0)(react@18.2.0)
       '@tanstack/react-router':
         specifier: beta
         version: 0.0.1-beta.204(react-dom@18.2.0)(react@18.2.0)
@@ -1645,6 +1648,27 @@ packages:
   /@tanstack/history@0.0.1-beta.204:
     resolution: {integrity: sha512-5FC439gOn1p1jEPJTlVcvHmcLuTPh2KEfvpNTRQaiHE/PYq5Mz4367Yuw3F5QOv0wqYZwk/gNmQv3gcUm/qxfQ==}
     engines: {node: '>=12'}
+    dev: false
+
+  /@tanstack/query-core@5.4.3:
+    resolution: {integrity: sha512-fnI9ORjcuLGm1sNrKatKIosRQUpuqcD4SV7RqRSVmj8JSicX2aoMyKryHEBpVQvf6N4PaBVgBxQomjsbsGPssQ==}
+    dev: false
+
+  /@tanstack/react-query@5.7.0(react-dom@18.2.0)(react@18.2.0):
+    resolution: {integrity: sha512-f6F9OdW4MC0bwlYPXop114ngkkZtg650TeJpR2/ME9q/iJ/59dg2+LoGHEdHk2w1mNAdiuiPFYzCcl2WNkFiiw==}
+    peerDependencies:
+      react: ^18.0.0
+      react-dom: ^18.0.0
+      react-native: '*'
+    peerDependenciesMeta:
+      react-dom:
+        optional: true
+      react-native:
+        optional: true
+    dependencies:
+      '@tanstack/query-core': 5.4.3
+      react: 18.2.0
+      react-dom: 18.2.0(react@18.2.0)
     dev: false
 
   /@tanstack/react-router@0.0.1-beta.204(react-dom@18.2.0)(react@18.2.0):

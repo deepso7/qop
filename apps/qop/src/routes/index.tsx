@@ -1,22 +1,49 @@
 import { FileRoute } from "@tanstack/react-router";
-import { Input } from "@/components/ui/input";
+
+import { useQuery } from "@tanstack/react-query";
+
 import { useAuth } from "@/auth";
-import {
-  UnauthorizedError,
-  WebauthnRequestCancelledError,
-  WebauthnSupport,
-} from "@teamhanko/hanko-frontend-sdk";
+import Spinner from "@/components/spinner";
+import AuthController from "@/components/auth/authController";
 import { Button } from "../components/ui/button";
 
 export const route = new FileRoute("/").createRoute({
   component: () => {
     const hanko = useAuth();
+    const user = useQuery({
+      queryKey: ["user"],
+      queryFn: async () => {
+        const user = await hanko.user.getCurrent();
+
+        return user;
+      },
+      retry: false,
+      refetchOnMount: false,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+      refetchInterval: false,
+      retryOnMount: false,
+      refetchIntervalInBackground: false,
+    });
+
+    if (user.isLoading) return <Spinner />;
+
+    if (user.data)
+      return (
+        <>
+          <h1 className="text-4xl text-white">
+            Logged in as {user.data.email}
+          </h1>
+          <Button onClick={() => hanko.user.logout()}>Logout</Button>
+        </>
+      );
 
     return (
       <>
-        <div className="p-4">
-          <h1 className="text-2xl text-white">lol</h1>
-          <Input />
+        <AuthController />
+
+        {/* <div className="p-4">
+          
           <Button
             onClick={async () => {
               // const wa = WebauthnSupport.supported();
@@ -38,7 +65,7 @@ export const route = new FileRoute("/").createRoute({
               // });
             }}
           />
-        </div>
+        </div> */}
       </>
     );
   },

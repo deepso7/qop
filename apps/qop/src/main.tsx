@@ -2,6 +2,8 @@ import "./styles.css";
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { RouterProvider, Router } from "@tanstack/react-router";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+
 import { ThemeProvider } from "@/components/theme-provider";
 
 import { routeTree } from "./routeTree.gen";
@@ -12,13 +14,17 @@ const router = new Router({
   defaultPreload: "intent",
 });
 
+const queryClient = new QueryClient();
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
-    <ThemeProvider>
-      <AuthProvider>
-        <RouterProvider router={router} />
-      </AuthProvider>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <AuthProvider>
+          <RouterProvider router={router} />
+        </AuthProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   </React.StrictMode>
 );
 
