@@ -1,0 +1,26 @@
+{
+  "name": "db",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.ts",
+  "scripts": {
+    "generate": "drizzle-kit generate:sqlite --out ./src/migrations --breakpoints --schema=./src/schema.ts",
+    "migrate": "tsx src/migrate",
+    "studio": "drizzle-kit studio --port 3333",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@libsql/client": "^0.3.6",
+    "dotenv": "^16.3.1",
+    "drizzle-orm": "^0.28.6"
+  },
+  "devDependencies": {
+    "drizzle-kit": "^0.19.13",
+    "tsconfig": "workspace:*",
+    "tsx": "^3.14.0",
+    "typescript": "^5.2.2"
+  }
+}

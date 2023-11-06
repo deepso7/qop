@@ -8,7 +8,7 @@
   },
   "devDependencies": {
     "prettier": "^3.0.3",
-    "tsconfig": "^7.0.0",
+    "tsconfig": "workspace:*",
     "turbo": "^1.10.16"
   },
   "name": "qop",
