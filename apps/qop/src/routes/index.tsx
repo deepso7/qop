@@ -4,6 +4,11 @@ import { useStytchUser, useStytch } from "@stytch/react";
 
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "../components/ui/tooltip";
 
 const AuthController = lazy(() => import("@/components/auth/authController"));
 
@@ -14,12 +19,17 @@ export const route = new FileRoute("/").createRoute({
 
     if (user)
       return (
-        <>
-          <h1 className="text-4xl text-white">
-            Logged in as {user.emails[0]?.email}
-          </h1>
-          <Button onClick={() => stytch.session.revoke()}>Logout</Button>
-        </>
+        <div className="">
+          <Tooltip>
+            <TooltipTrigger>
+              <Button className="truncate">{user.emails[0]?.email}</Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>logged in as {user.emails[0]?.email}</p>
+            </TooltipContent>
+          </Tooltip>
+          <Button onClick={() => stytch.session.revoke()}>Bui Bui</Button>
+        </div>
       );
 
     return (

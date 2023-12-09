@@ -6,6 +6,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "sonner";
 
 import { ThemeProvider } from "@/components/theme-provider";
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { routeTree } from "./routeTree.gen";
 import AuthProvider from "./auth/AuthProvider";
@@ -21,10 +22,12 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <AuthProvider>
-          <RouterProvider router={router} />
-          <Toaster closeButton theme="dark" position="bottom-center" />
-        </AuthProvider>
+        <TooltipProvider>
+          <AuthProvider>
+            <RouterProvider router={router} />
+            <Toaster closeButton theme="dark" position="bottom-center" />
+          </AuthProvider>
+        </TooltipProvider>
       </ThemeProvider>
     </QueryClientProvider>
   </React.StrictMode>
