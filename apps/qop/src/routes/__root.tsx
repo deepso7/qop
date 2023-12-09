@@ -1,5 +1,17 @@
+import React, { Suspense } from "react";
 import { Outlet, RootRoute } from "@tanstack/react-router";
-// import { TanStackRouterDevtools } from "@tanstack/router-devtools";
+
+const TanStackRouterDevtools =
+  process.env.NODE_ENV === "production"
+    ? () => null // Render nothing in production
+    : React.lazy(() =>
+        // Lazy load in development
+        import("@tanstack/router-devtools").then((res) => ({
+          default: res.TanStackRouterDevtools,
+          // For Embedded Mode
+          // default: res.TanStackRouterDevtoolsPanel
+        }))
+      );
 
 export const route = new RootRoute({
   component: () => (
@@ -36,7 +48,9 @@ export const route = new RootRoute({
         <Outlet />
       </div>
       {/* Start rendering router matches */}
-      {/* <TanStackRouterDevtools position="bottom-right" /> */}
+      <Suspense>
+        <TanStackRouterDevtools initialIsOpen={false} position="bottom-left" />
+      </Suspense>
     </>
   ),
 });

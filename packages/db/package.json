@@ -13,14 +13,14 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@libsql/client": "^0.3.6",
+    "@libsql/client": "0.4.0-pre.5",
     "dotenv": "^16.3.1",
-    "drizzle-orm": "^0.28.6"
+    "drizzle-orm": "^0.29.1"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.19.13",
+    "drizzle-kit": "^0.20.6",
     "tsconfig": "workspace:*",
-    "tsx": "^3.14.0",
-    "typescript": "^5.2.2"
+    "tsx": "^4.6.2",
+    "typescript": "^5.3.3"
   }
 }
