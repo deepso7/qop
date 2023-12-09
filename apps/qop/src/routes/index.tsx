@@ -3,7 +3,7 @@ import { FileRoute } from "@tanstack/react-router";
 import { useStytchUser } from "@stytch/react";
 
 import { Skeleton } from "@/components/ui/skeleton";
-import Spinner from "../components/spinner";
+import Spinner from "@/components/spinner";
 
 const AuthController = lazy(() => import("@/components/auth/authController"));
 const UserScreen = lazy(() => import("@/screens/user"));

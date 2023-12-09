@@ -4,11 +4,6 @@ import { User } from "@stytch/vanilla-js";
 import { createAvatar } from "@dicebear/core";
 import { thumbs } from "@dicebear/collection";
 
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -31,7 +26,7 @@ const UserScreen: React.FC<Props> = ({ user }) => {
     () =>
       createAvatar(thumbs, {
         seed: user.emails[0]?.email,
-      }),
+      }).toDataUriSync(),
     [user.emails[0]?.email]
   );
 
@@ -41,7 +36,7 @@ const UserScreen: React.FC<Props> = ({ user }) => {
         <DropdownMenu>
           <DropdownMenuTrigger>
             <Avatar>
-              <AvatarImage src={avatar.toDataUriSync()} />
+              <AvatarImage src={avatar} />
               <AvatarFallback>{`${user.emails[0]?.email[0]}${user.emails[0]?.email[1]}`}</AvatarFallback>
             </Avatar>
           </DropdownMenuTrigger>
