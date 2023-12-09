@@ -44,7 +44,7 @@ export const route = new RootRoute({
         </Link>
       </div>
       <hr /> */}
-      <div className="flex min-h-screen w-full items-center justify-center">
+      <div className="min-h-screen overflow-y-hidden">
         <Outlet />
       </div>
       {/* Start rendering router matches */}

@@ -1,48 +1,37 @@
 import { Suspense, lazy } from "react";
 import { FileRoute } from "@tanstack/react-router";
-import { useStytchUser, useStytch } from "@stytch/react";
+import { useStytchUser } from "@stytch/react";
 
-import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/ui/tooltip";
+import Spinner from "../components/spinner";
 
 const AuthController = lazy(() => import("@/components/auth/authController"));
+const UserScreen = lazy(() => import("@/screens/user"));
 
 export const route = new FileRoute("/").createRoute({
   component: () => {
     const { user } = useStytchUser();
-    const stytch = useStytch();
 
     if (user)
       return (
-        <div className="">
-          <Tooltip>
-            <TooltipTrigger>
-              <Button className="truncate">{user.emails[0]?.email}</Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p>logged in as {user.emails[0]?.email}</p>
-            </TooltipContent>
-          </Tooltip>
-          <Button onClick={() => stytch.session.revoke()}>Bui Bui</Button>
-        </div>
+        <Suspense fallback={<Spinner />}>
+          <UserScreen user={user} />
+        </Suspense>
       );
 
     return (
-      <Suspense
-        fallback={
-          <div className="space-y-4">
-            <Skeleton className="h-20 w-[250px]" />
-            <Skeleton className="h-8 w-1/3" />
-          </div>
-        }
-      >
-        <AuthController />
-      </Suspense>
+      <div className="flex min-h-screen w-full items-center justify-center">
+        <Suspense
+          fallback={
+            <div className="space-y-4">
+              <Skeleton className="h-20 w-[250px]" />
+              <Skeleton className="h-8 w-1/3" />
+            </div>
+          }
+        >
+          <AuthController />
+        </Suspense>
+      </div>
     );
   },
 });
