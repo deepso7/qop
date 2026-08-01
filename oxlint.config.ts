@@ -5,5 +5,9 @@ import tanstack from "ultracite/oxlint/tanstack";
 
 export default defineConfig({
   extends: [core, react, tanstack],
-  ignorePatterns: [...(core.ignorePatterns ?? []), "mobile/scripts/**"],
+  ignorePatterns: [
+    ...(core.ignorePatterns ?? []),
+    "mobile/scripts/**",
+    ".agents/skills/**",
+  ],
 });

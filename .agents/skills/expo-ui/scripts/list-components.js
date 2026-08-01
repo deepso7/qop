@@ -13,8 +13,8 @@
 
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const projectPath = process.argv[2];
 const withDocs = process.argv.includes('--docs');
@@ -33,9 +33,9 @@ if (!fs.existsSync(pkgRoot)) {
 // Read installed version from package.json
 let version = 'unknown';
 try {
-  const pkg = JSON.parse(fs.readFileSync(path.join(pkgRoot, 'package.json'), 'utf8'));
+  const pkg = JSON.parse(fs.readFileSync(path.join(pkgRoot, 'package.json'), 'utf-8'));
   version = pkg.version || 'unknown';
-} catch (_) {}
+} catch {}
 
 // ---------------------------------------------------------------------------
 // Component extraction — parse `export * from './Name'` in an index.d.ts
@@ -44,8 +44,8 @@ try {
 const TYPE_SUFFIX = /(?:Props|Ref|Handle|Params|Config|Options|Type|Types|Value|Values|Colors|Style|Styles|Event|Events|Alignment|Animation|Spec)$/;
 
 function extractComponents(indexFile) {
-  if (!fs.existsSync(indexFile)) return [];
-  const src = fs.readFileSync(indexFile, 'utf8');
+  if (!fs.existsSync(indexFile)) {return [];}
+  const src = fs.readFileSync(indexFile, 'utf-8');
   const names = [];
   for (const line of src.split('\n')) {
     // export * from './ComponentName'  or  export * from './ComponentName/index'
@@ -53,8 +53,8 @@ function extractComponents(indexFile) {
     if (m) {
       const name = m[1];
       // Skip non-component re-exports (types, utils, state internals)
-      if (/^(types|utils|index|State|hooks|colors|layout-types|MaterialSymbols)/.test(name)) continue;
-      if (TYPE_SUFFIX.test(name)) continue;
+      if (/^(types|utils|index|State|hooks|colors|layout-types|MaterialSymbols)/.test(name)) {continue;}
+      if (TYPE_SUFFIX.test(name)) {continue;}
       names.push(name);
     }
     // export { Name, ... } from './Something'  — pick up named re-exports too
@@ -62,9 +62,9 @@ function extractComponents(indexFile) {
     if (n) {
       for (const part of n[1].split(',')) {
         // Skip `type Foo` re-exports
-        if (/^\s*type\s/.test(part)) continue;
+        if (/^\s*type\s/.test(part)) {continue;}
         const id = part.trim().split(/\s+as\s+/)[0].trim();
-        if (id && /^[A-Z]/.test(id) && !TYPE_SUFFIX.test(id)) names.push(id);
+        if (id && /^[A-Z]/.test(id) && !TYPE_SUFFIX.test(id)) {names.push(id);}
       }
     }
   }
@@ -76,8 +76,8 @@ function extractComponents(indexFile) {
 // a flat modifiers/index.d.ts, optionally with the preceding JSDoc summary.
 // ---------------------------------------------------------------------------
 function extractModifiers(modifiersFile) {
-  if (!fs.existsSync(modifiersFile)) return [];
-  const src = fs.readFileSync(modifiersFile, 'utf8');
+  if (!fs.existsSync(modifiersFile)) {return [];}
+  const src = fs.readFileSync(modifiersFile, 'utf-8');
   const lines = src.split('\n');
   const results = [];
   const seen = new Set();
@@ -85,11 +85,11 @@ function extractModifiers(modifiersFile) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const m = line.match(/^export declare (?:const|function) ([a-zA-Z_][a-zA-Z0-9_]*)/);
-    if (!m) continue;
+    if (!m) {continue;}
     const name = m[1];
     // Skip type-only helpers and internal symbols
-    if (/^(is|filter|create|type|export)/.test(name) && name !== 'frame') continue;
-    if (seen.has(name)) continue;
+    if (/^(is|filter|create|type|export)/.test(name) && name !== 'frame') {continue;}
+    if (seen.has(name)) {continue;}
     seen.add(name);
 
     if (!withDocs) {
@@ -103,7 +103,7 @@ function extractModifiers(modifiersFile) {
     for (let j = i - 1; j >= 0; j--) {
       const jl = lines[j].trim();
       if (jl === '/**') { jsdocStart = j; break; }
-      if (jl !== '' && jl !== '*/' && !jl.startsWith('*')) break;
+      if (jl !== '' && jl !== '*/' && !jl.startsWith('*')) {break;}
     }
 
     let summary = '';
@@ -113,13 +113,13 @@ function extractModifiers(modifiersFile) {
       for (let k = jsdocStart + 1; k < i; k++) {
         const kl = lines[k].trim();
         if (kl.startsWith('* ```')) { inCodeBlock = !inCodeBlock; continue; }
-        if (inCodeBlock) continue;
+        if (inCodeBlock) {continue;}
         // Check @deprecated anywhere in the block (may appear after @param)
         if (kl.startsWith('* @deprecated')) { deprecated = true; continue; }
         // Extract summary from opening prose only — stop at first non-deprecated tag
         if (!summary) {
-          if (kl.startsWith('* @')) continue; // skip tags while looking for prose
-          if (kl === '*/' || kl === '/**' || kl === '*') continue;
+          if (kl.startsWith('* @')) {continue;} // skip tags while looking for prose
+          if (kl === '*/' || kl === '/**' || kl === '*') {continue;}
           if (kl.startsWith('* ')) {
             const text = kl.slice(2).trim();
             if (!text.startsWith('-') && !text.startsWith('<')) {
@@ -129,7 +129,7 @@ function extractModifiers(modifiersFile) {
         }
       }
     }
-    results.push({ name, summary, deprecated });
+    results.push({ deprecated, name, summary });
   }
 
   return results;
@@ -143,7 +143,7 @@ function formatNames(names) {
 }
 
 function formatModifiers(mods) {
-  if (!withDocs) return mods.map(m => m.name).join(', ');
+  if (!withDocs) {return mods.map(m => m.name).join(', ');}
   const lines = [];
   for (const m of mods) {
     const dep = m.deprecated ? ' [deprecated]' : '';
