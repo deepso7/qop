@@ -1,7 +1,7 @@
-import { Image } from "expo-image";
 import { SymbolView } from "expo-symbols";
-import { Platform, Pressable, ScrollView, StyleSheet } from "react-native";
+import { Pressable, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { withUniwind } from "uniwind";
 
 import reactLogo from "@/assets/images/react-logo.png";
 import tutorialWeb from "@/assets/images/tutorial-web.png";
@@ -9,63 +9,11 @@ import { ExternalLink } from "@/components/external-link";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Collapsible } from "@/components/ui/collapsible";
+import { Image } from "@/components/ui/image";
 import { WebBadge } from "@/components/web-badge";
-import { BottomTabInset, MaxContentWidth, Spacing } from "@/constants/theme";
-import { useTheme } from "@/hooks/use-theme";
+import { BottomTabInset, Spacing } from "@/constants/theme";
 
-const styles = StyleSheet.create({
-  centerText: {
-    textAlign: "center",
-  },
-  collapsibleContent: {
-    alignItems: "center",
-  },
-  container: {
-    flexGrow: 1,
-    maxWidth: MaxContentWidth,
-  },
-  contentContainer: {
-    flexDirection: "row",
-    justifyContent: "center",
-  },
-  imageReact: {
-    alignSelf: "center",
-    height: 100,
-    width: 100,
-  },
-  imageTutorial: {
-    aspectRatio: 296 / 171,
-    borderRadius: Spacing.three,
-    marginTop: Spacing.two,
-    width: "100%",
-  },
-  linkButton: {
-    alignItems: "center",
-    borderRadius: Spacing.five,
-    flexDirection: "row",
-    gap: Spacing.one,
-    justifyContent: "center",
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.two,
-  },
-  pressed: {
-    opacity: 0.7,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  sectionsWrapper: {
-    gap: Spacing.five,
-    paddingHorizontal: Spacing.four,
-    paddingTop: Spacing.three,
-  },
-  titleContainer: {
-    alignItems: "center",
-    gap: Spacing.three,
-    paddingHorizontal: Spacing.four,
-    paddingVertical: Spacing.six,
-  },
-});
+const StyledSymbolView = withUniwind(SymbolView);
 
 const TabTwoScreen = () => {
   const safeAreaInsets = useSafeAreaInsets();
@@ -73,40 +21,29 @@ const TabTwoScreen = () => {
     ...safeAreaInsets,
     bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three,
   };
-  const theme = useTheme();
-
-  const contentPlatformStyle = Platform.select({
-    android: {
-      paddingBottom: insets.bottom,
-      paddingLeft: insets.left,
-      paddingRight: insets.right,
-      paddingTop: insets.top,
-    },
-    web: {
-      paddingBottom: Spacing.four,
-      paddingTop: Spacing.six,
-    },
-  });
 
   return (
     <ScrollView
-      style={[styles.scrollView, { backgroundColor: theme.background }]}
+      className="flex-1 bg-background"
       contentInset={insets}
-      contentContainerStyle={[styles.contentContainer, contentPlatformStyle]}
+      contentContainerClassName="flex-row justify-center android:px-safe android:pt-safe android:pb-safe-offset-24 web:pt-16 web:pb-6"
     >
-      <ThemedView style={styles.container}>
-        <ThemedView style={styles.titleContainer}>
+      <ThemedView className="max-w-[800px] flex-grow">
+        <ThemedView className="items-center gap-4 px-6 py-16">
           <ThemedText type="subtitle">Explore</ThemedText>
-          <ThemedText style={styles.centerText} themeColor="textSecondary">
+          <ThemedText className="text-center" themeColor="textSecondary">
             This starter app includes example{"\n"}code to help you get started.
           </ThemedText>
 
           <ExternalLink href="https://docs.expo.dev" asChild>
-            <Pressable style={({ pressed }) => pressed && styles.pressed}>
-              <ThemedView type="backgroundElement" style={styles.linkButton}>
+            <Pressable className="active:opacity-70">
+              <ThemedView
+                className="flex-row items-center justify-center gap-1 rounded-4xl px-6 py-2"
+                type="backgroundElement"
+              >
                 <ThemedText type="link">Expo documentation</ThemedText>
-                <SymbolView
-                  tintColor={theme.text}
+                <StyledSymbolView
+                  tintColorClassName="accent-foreground"
                   name={{
                     android: "link",
                     ios: "arrow.up.right.square",
@@ -119,7 +56,7 @@ const TabTwoScreen = () => {
           </ExternalLink>
         </ThemedView>
 
-        <ThemedView style={styles.sectionsWrapper}>
+        <ThemedView className="gap-8 px-6 pt-4">
           <Collapsible title="File-based routing">
             <ThemedText type="small">
               This app has two screens:{" "}
@@ -137,17 +74,17 @@ const TabTwoScreen = () => {
           </Collapsible>
 
           <Collapsible title="Android, iOS, and web support">
-            <ThemedView
-              type="backgroundElement"
-              style={styles.collapsibleContent}
-            >
+            <ThemedView className="items-center" type="backgroundElement">
               <ThemedText type="small">
                 You can open this project on Android, iOS, and the web. To open
                 the web version, press{" "}
                 <ThemedText type="smallBold">w</ThemedText> in the terminal
                 running this project.
               </ThemedText>
-              <Image source={tutorialWeb} style={styles.imageTutorial} />
+              <Image
+                className="mt-2 aspect-[296/171] w-full rounded-2xl"
+                source={tutorialWeb}
+              />
             </ThemedView>
           </Collapsible>
 
@@ -158,7 +95,10 @@ const TabTwoScreen = () => {
               <ThemedText type="code">@3x</ThemedText> suffixes to provide files
               for different screen densities.
             </ThemedText>
-            <Image source={reactLogo} style={styles.imageReact} />
+            <Image
+              className="h-[100px] w-[100px] self-center"
+              source={reactLogo}
+            />
             <ExternalLink href="https://reactnative.dev/docs/images">
               <ThemedText type="linkPrimary">Learn more</ThemedText>
             </ExternalLink>
@@ -188,7 +128,7 @@ const TabTwoScreen = () => {
             </ThemedText>
           </Collapsible>
         </ThemedView>
-        {Platform.OS === "web" && <WebBadge />}
+        {process.env.EXPO_OS === "web" && <WebBadge />}
       </ThemedView>
     </ScrollView>
   );

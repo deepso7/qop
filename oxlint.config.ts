@@ -7,7 +7,9 @@ export default defineConfig({
   extends: [core, react, tanstack],
   ignorePatterns: [
     ...(core.ignorePatterns ?? []),
-    "mobile/scripts/**",
     ".agents/skills/**",
+    ".claude/**",
+    "mobile/scripts/**",
+    "mobile/src/uniwind-types.d.ts",
   ],
 });

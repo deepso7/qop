@@ -1,49 +1,15 @@
 import * as Device from "expo-device";
-import { Platform, StyleSheet } from "react-native";
+import { Platform } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { withUniwind } from "uniwind";
 
 import { AnimatedIcon } from "@/components/animated-icon";
 import { HintRow } from "@/components/hint-row";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { WebBadge } from "@/components/web-badge";
-import { BottomTabInset, MaxContentWidth, Spacing } from "@/constants/theme";
 
-const styles = StyleSheet.create({
-  code: {
-    textTransform: "uppercase",
-  },
-  container: {
-    flex: 1,
-    flexDirection: "row",
-    justifyContent: "center",
-  },
-  heroSection: {
-    alignItems: "center",
-    flex: 1,
-    gap: Spacing.four,
-    justifyContent: "center",
-    paddingHorizontal: Spacing.four,
-  },
-  safeArea: {
-    alignItems: "center",
-    flex: 1,
-    gap: Spacing.three,
-    maxWidth: MaxContentWidth,
-    paddingBottom: BottomTabInset + Spacing.three,
-    paddingHorizontal: Spacing.four,
-  },
-  stepContainer: {
-    alignSelf: "stretch",
-    borderRadius: Spacing.four,
-    gap: Spacing.three,
-    paddingHorizontal: Spacing.three,
-    paddingVertical: Spacing.four,
-  },
-  title: {
-    textAlign: "center",
-  },
-});
+const StyledSafeAreaView = withUniwind(SafeAreaView);
 
 const getDevMenuHint = () => {
   if (Platform.OS === "web") {
@@ -65,20 +31,23 @@ const getDevMenuHint = () => {
 };
 
 const HomeScreen = () => (
-  <ThemedView style={styles.container}>
-    <SafeAreaView style={styles.safeArea}>
-      <ThemedView style={styles.heroSection}>
+  <ThemedView className="flex-1 flex-row justify-center">
+    <StyledSafeAreaView className="max-w-[800px] flex-1 items-center gap-4 px-6 pb-4 ios:pb-[66px] android:pb-24">
+      <ThemedView className="flex-1 items-center justify-center gap-6 px-6">
         <AnimatedIcon />
-        <ThemedText type="title" style={styles.title}>
+        <ThemedText className="text-center" type="title">
           Welcome to&nbsp;Expo
         </ThemedText>
       </ThemedView>
 
-      <ThemedText type="code" style={styles.code}>
+      <ThemedText className="uppercase" type="code">
         get started
       </ThemedText>
 
-      <ThemedView type="backgroundElement" style={styles.stepContainer}>
+      <ThemedView
+        className="self-stretch gap-4 rounded-3xl px-4 py-6"
+        type="backgroundElement"
+      >
         <HintRow
           title="Try editing"
           hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
@@ -91,7 +60,7 @@ const HomeScreen = () => (
       </ThemedView>
 
       {Platform.OS === "web" && <WebBadge />}
-    </SafeAreaView>
+    </StyledSafeAreaView>
   </ThemedView>
 );
 
