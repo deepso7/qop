@@ -1,0 +1,20 @@
+{
+  "name": "qop",
+  "version": "0.0.1",
+  "description": "",
+  "keywords": [],
+  "license": "ISC",
+  "author": "",
+  "type": "module",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "check": "ultracite check",
+    "fix": "ultracite fix"
+  },
+  "devDependencies": {
+    "oxfmt": "0.61.0",
+    "oxlint": "1.76.0",
+    "typescript": "catalog:",
+    "ultracite": "7.9.4"
+  }
+}

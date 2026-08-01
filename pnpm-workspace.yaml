@@ -1,0 +1,14 @@
+saveExact: true
+
+catalog:
+  typescript: 7.0.2
+
+packages:
+  - mobile
+
+minimumReleaseAgeExclude:
+  - "@minip2p/core@0.3.0"
+  - "@minip2p/react-native@0.3.0"
+
+allowBuilds:
+  unrs-resolver: set this to true or false
