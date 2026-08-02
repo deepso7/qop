@@ -1,16 +1,36 @@
+import {
+  BottomSheet as ExpoBottomSheet,
+  Button as ExpoButton,
+  Column as ExpoColumn,
+  FieldGroup as ExpoFieldGroup,
+  Host as ExpoHost,
+  Row as ExpoRow,
+  Slider as ExpoSlider,
+  Spacer as ExpoSpacer,
+  Switch as ExpoSwitch,
+  Text as ExpoText,
+} from "@expo/ui";
+import { useState } from "react";
 import { Platform, Pressable, ScrollView, View } from "react-native";
+import type { LayoutChangeEvent } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import expoLogo from "@/assets/images/expo-logo.png";
 import { AnimatedIcon } from "@/components/animated-icon";
 import { ExternalLink } from "@/components/external-link";
 import { HintRow } from "@/components/hint-row";
+import { RnrCatalog } from "@/components/rnr-catalog";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
-import { Collapsible } from "@/components/ui/collapsible";
+import { Button } from "@/components/ui/button";
 import { Image } from "@/components/ui/image";
+import { Text } from "@/components/ui/text";
 import { WebBadge } from "@/components/web-badge";
 import { BottomTabInset, Spacing } from "@/constants/theme";
+import { useColorScheme } from "@/hooks/use-color-scheme";
+import { useTheme } from "@/hooks/use-theme";
+
+const ExpoSettingsGroupHeight = Platform.OS === "android" ? 184 : 168;
 
 const ComponentSection = ({
   children,
@@ -30,113 +50,267 @@ const ComponentSection = ({
   </View>
 );
 
+const ExpoNativePreview = ({
+  children,
+  height,
+  inset = false,
+  seedColor,
+}: {
+  children: React.ReactNode | ((contentWidth: number) => React.ReactNode);
+  height: number;
+  inset?: boolean;
+  seedColor?: string;
+}) => {
+  const [contentWidth, setContentWidth] = useState(0);
+  const colorScheme = useColorScheme() === "dark" ? "dark" : "light";
+
+  const handleLayout = ({ nativeEvent }: LayoutChangeEvent) => {
+    const horizontalInset = inset ? Spacing.three * 2 : 0;
+    const nextWidth = Math.max(0, nativeEvent.layout.width - horizontalInset);
+    setContentWidth((currentWidth) =>
+      currentWidth === nextWidth ? currentWidth : nextWidth
+    );
+  };
+
+  return (
+    <View
+      className="overflow-hidden rounded-xl bg-background-element/50"
+      onLayout={handleLayout}
+    >
+      <View className={inset ? "px-4 py-3" : undefined}>
+        <ExpoHost
+          colorScheme={colorScheme}
+          ignoreSafeArea="all"
+          seedColor={seedColor}
+          style={{ height, width: "100%" }}
+        >
+          {typeof children === "function"
+            ? contentWidth > 0 && children(contentWidth)
+            : children}
+        </ExpoHost>
+      </View>
+    </View>
+  );
+};
+
+const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
+  const [isSwitchedOn, setIsSwitchedOn] = useState(true);
+  const [sliderValue, setSliderValue] = useState(60);
+  const theme = useTheme();
+
+  return (
+    <View className="gap-5">
+      <View className="gap-2">
+        <ThemedText type="smallBold">Platform controls</ThemedText>
+        <ThemedText type="small" themeColor="textSecondary">
+          Native rendering is intentional for settings and system preferences.
+        </ThemedText>
+        <ExpoNativePreview height={184} inset seedColor="#5B5BD6">
+          {(contentWidth) => (
+            <ExpoColumn spacing={16} style={{ width: contentWidth }}>
+              <ExpoRow alignment="center" style={{ width: contentWidth }}>
+                <ExpoText textStyle={{ color: theme.text }}>
+                  Native controls
+                </ExpoText>
+                <ExpoSpacer flexible />
+                <ExpoSwitch
+                  onValueChange={setIsSwitchedOn}
+                  value={isSwitchedOn}
+                />
+              </ExpoRow>
+              <ExpoRow alignment="center" style={{ width: contentWidth }}>
+                <ExpoText textStyle={{ color: theme.textSecondary }}>
+                  Disabled switch
+                </ExpoText>
+                <ExpoSpacer flexible />
+                <ExpoSwitch
+                  disabled
+                  onValueChange={setIsSwitchedOn}
+                  value={false}
+                />
+              </ExpoRow>
+              <ExpoText textStyle={{ color: theme.text }}>
+                {`Response length · ${Math.round(sliderValue)}`}
+              </ExpoText>
+              <ExpoSlider
+                max={100}
+                min={0}
+                onValueChange={setSliderValue}
+                step={1}
+                value={sliderValue}
+              />
+            </ExpoColumn>
+          )}
+        </ExpoNativePreview>
+      </View>
+
+      <View className="gap-2">
+        <ThemedText type="smallBold">Native settings group</ThemedText>
+        <ExpoNativePreview height={ExpoSettingsGroupHeight}>
+          <ExpoFieldGroup>
+            <ExpoFieldGroup.Section title="Preferences">
+              <ExpoRow alignment="center">
+                <ExpoText>Theme</ExpoText>
+                <ExpoSpacer flexible />
+                <ExpoText>System</ExpoText>
+              </ExpoRow>
+              <ExpoRow alignment="center">
+                <ExpoText>Language</ExpoText>
+                <ExpoSpacer flexible />
+                <ExpoText>English</ExpoText>
+              </ExpoRow>
+            </ExpoFieldGroup.Section>
+          </ExpoFieldGroup>
+        </ExpoNativePreview>
+      </View>
+
+      <View className="gap-2">
+        <ThemedText type="smallBold">Native presentation</ThemedText>
+        <Button onPress={onOpenSheet} variant="outline">
+          <Text>Open native bottom sheet</Text>
+        </Button>
+      </View>
+    </View>
+  );
+};
+
 const ComponentsScreen = () => {
+  const [isSheetPresented, setIsSheetPresented] = useState(false);
   const safeAreaInsets = useSafeAreaInsets();
   const contentInset = {
     bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three,
   };
 
   return (
-    <ScrollView
-      className="flex-1 bg-background"
-      contentInset={contentInset}
-      contentContainerClassName="items-center px-5 pt-8 android:pt-safe-offset-5 android:pb-safe-offset-24 web:pt-24 web:pb-8"
-    >
-      <View className="w-full max-w-[720px] gap-7">
-        <View className="gap-1 px-1 pb-1">
-          <ThemedText type="subtitle">Components</ThemedText>
-          <ThemedText type="small" themeColor="textSecondary">
-            Shared primitives and their current states.
-          </ThemedText>
-        </View>
-
-        <ComponentSection title="Typography">
-          <ThemedText type="title">Title</ThemedText>
-          <ThemedText type="subtitle">Subtitle</ThemedText>
-          <ThemedText>Default body text</ThemedText>
-          <ThemedText type="small">Small text</ThemedText>
-          <ThemedText type="smallBold">Small bold text</ThemedText>
-          <ThemedText type="code">const message = &quot;Code&quot;;</ThemedText>
-          <ThemedText type="link">Link text</ThemedText>
-          <ThemedText type="linkPrimary">Primary link text</ThemedText>
-          <ThemedText themeColor="textSecondary">Secondary text</ThemedText>
-        </ComponentSection>
-
-        <ComponentSection title="Surfaces">
-          <View className="flex-row gap-3">
-            <ThemedView className="flex-1 rounded-xl border border-background-selected p-4">
-              <ThemedText type="small">Default</ThemedText>
-            </ThemedView>
-            <ThemedView
-              className="flex-1 rounded-xl p-4"
-              type="backgroundElement"
-            >
-              <ThemedText type="small">Element</ThemedText>
-            </ThemedView>
-          </View>
-          <ThemedView className="rounded-2xl p-4" type="backgroundSelected">
-            <ThemedText type="small">Selected</ThemedText>
-          </ThemedView>
-        </ComponentSection>
-
-        <ComponentSection title="Hint rows">
-          <HintRow title="Environment" hint="development" />
-          <HintRow
-            title="File"
-            hint={<ThemedText type="code">src/app/components.tsx</ThemedText>}
-          />
-        </ComponentSection>
-
-        <ComponentSection title="Collapsible">
-          <Collapsible title="Open this component">
-            <ThemedText type="small">
-              Collapsible content inherits the current light or dark theme.
+    <View className="flex-1 bg-background">
+      <ScrollView
+        className="flex-1"
+        contentInset={contentInset}
+        contentContainerClassName="items-center px-5 pt-8 android:pt-safe-offset-5 android:pb-safe-offset-24 web:pt-24 web:pb-8"
+      >
+        <View className="w-full max-w-[720px] gap-7">
+          <View className="gap-1 px-1 pb-1">
+            <ThemedText type="subtitle">Components</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">
+              Shared primitives and their current states.
             </ThemedText>
-          </Collapsible>
-        </ComponentSection>
-
-        <ComponentSection title="Media">
-          <View className="flex-row items-center gap-5">
-            <ThemedView
-              className="h-20 w-20 items-center justify-center rounded-2xl"
-              type="backgroundElement"
-            >
-              <Image
-                className="h-12 w-12"
-                contentFit="contain"
-                source={expoLogo}
-              />
-            </ThemedView>
-            <View className="flex-1 gap-1">
-              <ThemedText type="smallBold">Expo Image</ThemedText>
-              <ThemedText type="small" themeColor="textSecondary">
-                Wrapped for Uniwind class names.
-              </ThemedText>
-            </View>
           </View>
-        </ComponentSection>
 
-        <ComponentSection title="Actions">
-          <ExternalLink href="https://docs.expo.dev" asChild>
-            <Pressable className="items-center rounded-xl bg-background-selected px-5 py-3 active:opacity-70">
-              <ThemedText type="smallBold">Open Expo docs</ThemedText>
-            </Pressable>
-          </ExternalLink>
-        </ComponentSection>
-
-        <ComponentSection title="Motion">
-          <View className="h-40 items-center justify-center overflow-hidden">
-            <AnimatedIcon />
-          </View>
-        </ComponentSection>
-
-        {Platform.OS === "web" && (
-          <ComponentSection title="Web badge">
-            <WebBadge />
+          <ComponentSection title="QOP · branded primitives">
+            <ThemedText type="small" themeColor="textSecondary">
+              Source-owned RNR components styled with Uniwind. Use these for
+              product UI and branded interactions.
+            </ThemedText>
+            <RnrCatalog />
           </ComponentSection>
-        )}
-      </View>
-    </ScrollView>
+
+          <ComponentSection title="QOP · native platform primitives">
+            <ThemedText type="small" themeColor="textSecondary">
+              Expo UI controls reserved for settings and system-native
+              presentation on SwiftUI and Jetpack Compose.
+            </ThemedText>
+            <ExpoUICatalog onOpenSheet={() => setIsSheetPresented(true)} />
+          </ComponentSection>
+
+          <ComponentSection title="Typography">
+            <ThemedText type="title">Title</ThemedText>
+            <ThemedText type="subtitle">Subtitle</ThemedText>
+            <ThemedText>Default body text</ThemedText>
+            <ThemedText type="small">Small text</ThemedText>
+            <ThemedText type="smallBold">Small bold text</ThemedText>
+            <ThemedText type="code">
+              const message = &quot;Code&quot;;
+            </ThemedText>
+            <ThemedText type="link">Link text</ThemedText>
+            <ThemedText type="linkPrimary">Primary link text</ThemedText>
+            <ThemedText themeColor="textSecondary">Secondary text</ThemedText>
+          </ComponentSection>
+
+          <ComponentSection title="Surfaces">
+            <View className="flex-row gap-3">
+              <ThemedView className="flex-1 rounded-xl border border-background-selected p-4">
+                <ThemedText type="small">Default</ThemedText>
+              </ThemedView>
+              <ThemedView
+                className="flex-1 rounded-xl p-4"
+                type="backgroundElement"
+              >
+                <ThemedText type="small">Element</ThemedText>
+              </ThemedView>
+            </View>
+            <ThemedView className="rounded-2xl p-4" type="backgroundSelected">
+              <ThemedText type="small">Selected</ThemedText>
+            </ThemedView>
+          </ComponentSection>
+
+          <ComponentSection title="Hint rows">
+            <HintRow title="Environment" hint="development" />
+            <HintRow
+              title="File"
+              hint={<ThemedText type="code">src/app/components.tsx</ThemedText>}
+            />
+          </ComponentSection>
+
+          <ComponentSection title="Media">
+            <View className="flex-row items-center gap-5">
+              <ThemedView
+                className="h-20 w-20 items-center justify-center rounded-2xl"
+                type="backgroundElement"
+              >
+                <Image
+                  className="h-12 w-12"
+                  contentFit="contain"
+                  source={expoLogo}
+                />
+              </ThemedView>
+              <View className="flex-1 gap-1">
+                <ThemedText type="smallBold">Expo Image</ThemedText>
+                <ThemedText type="small" themeColor="textSecondary">
+                  Wrapped for Uniwind class names.
+                </ThemedText>
+              </View>
+            </View>
+          </ComponentSection>
+
+          <ComponentSection title="Actions">
+            <ExternalLink href="https://docs.expo.dev" asChild>
+              <Pressable className="items-center rounded-xl bg-background-selected px-5 py-3 active:opacity-70">
+                <ThemedText type="smallBold">Open Expo docs</ThemedText>
+              </Pressable>
+            </ExternalLink>
+          </ComponentSection>
+
+          <ComponentSection title="Motion">
+            <View className="h-40 items-center justify-center overflow-hidden">
+              <AnimatedIcon />
+            </View>
+          </ComponentSection>
+
+          {Platform.OS === "web" && (
+            <ComponentSection title="Web badge">
+              <WebBadge />
+            </ComponentSection>
+          )}
+        </View>
+      </ScrollView>
+
+      <ExpoBottomSheet
+        isPresented={isSheetPresented}
+        onDismiss={() => setIsSheetPresented(false)}
+        snapPoints={["half", "full"]}
+      >
+        <ExpoColumn spacing={12} style={{ padding: 24 }}>
+          <ExpoText textStyle={{ fontSize: 20, fontWeight: "700" }}>
+            Expo UI bottom sheet
+          </ExpoText>
+          <ExpoText>
+            This sheet is backed by SwiftUI on iOS and Compose on Android.
+          </ExpoText>
+          <ExpoSpacer />
+          <ExpoButton label="Done" onPress={() => setIsSheetPresented(false)} />
+        </ExpoColumn>
+      </ExpoBottomSheet>
+    </View>
   );
 };
 

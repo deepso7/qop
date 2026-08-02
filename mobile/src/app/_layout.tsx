@@ -1,3 +1,4 @@
+import { PortalHost } from "@rn-primitives/portal";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { useColorScheme } from "react-native";
@@ -24,6 +25,7 @@ const TabLayout = () => {
         >
           <AnimatedSplashOverlay />
           <AppTabs />
+          <PortalHost />
         </ThemeProvider>
       </SafeAreaListener>
     </SafeAreaProvider>

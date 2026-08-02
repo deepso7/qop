@@ -1,4 +1,6 @@
 import { SymbolView } from "expo-symbols";
+import type { PropsWithChildren } from "react";
+import { useState } from "react";
 import { Pressable, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { withUniwind } from "uniwind";
@@ -8,12 +10,52 @@ import tutorialWeb from "@/assets/images/tutorial-web.png";
 import { ExternalLink } from "@/components/external-link";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
-import { Collapsible } from "@/components/ui/collapsible";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { Image } from "@/components/ui/image";
 import { WebBadge } from "@/components/web-badge";
 import { BottomTabInset, Spacing } from "@/constants/theme";
 
 const StyledSymbolView = withUniwind(SymbolView);
+
+const ExploreCollapsible = ({
+  children,
+  title,
+}: PropsWithChildren<{ title: string }>) => {
+  const [isOpen, setIsOpen] = useState(false);
+
+  return (
+    <Collapsible onOpenChange={setIsOpen} open={isOpen}>
+      <CollapsibleTrigger asChild>
+        <Pressable className="flex-row items-center gap-2 active:opacity-70">
+          <ThemedView
+            className="size-8 items-center justify-center rounded-xl"
+            type="backgroundElement"
+          >
+            <StyledSymbolView
+              className={isOpen ? "-rotate-90" : "rotate-90"}
+              name={{
+                android: "chevron_right",
+                ios: "chevron.right",
+                web: "chevron_right",
+              }}
+              size={14}
+              tintColorClassName="accent-foreground"
+              weight="bold"
+            />
+          </ThemedView>
+          <ThemedText type="small">{title}</ThemedText>
+        </Pressable>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="ml-8 mt-3 gap-3 rounded-xl bg-background-element p-4">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
+  );
+};
 
 const TabTwoScreen = () => {
   const safeAreaInsets = useSafeAreaInsets();
@@ -57,7 +99,7 @@ const TabTwoScreen = () => {
         </ThemedView>
 
         <ThemedView className="gap-8 px-6 pt-4">
-          <Collapsible title="File-based routing">
+          <ExploreCollapsible title="File-based routing">
             <ThemedText type="small">
               This app has two screens:{" "}
               <ThemedText type="code">src/app/index.tsx</ThemedText> and{" "}
@@ -71,9 +113,9 @@ const TabTwoScreen = () => {
             <ExternalLink href="https://docs.expo.dev/router/introduction">
               <ThemedText type="linkPrimary">Learn more</ThemedText>
             </ExternalLink>
-          </Collapsible>
+          </ExploreCollapsible>
 
-          <Collapsible title="Android, iOS, and web support">
+          <ExploreCollapsible title="Android, iOS, and web support">
             <ThemedView className="items-center" type="backgroundElement">
               <ThemedText type="small">
                 You can open this project on Android, iOS, and the web. To open
@@ -86,9 +128,9 @@ const TabTwoScreen = () => {
                 source={tutorialWeb}
               />
             </ThemedView>
-          </Collapsible>
+          </ExploreCollapsible>
 
-          <Collapsible title="Images">
+          <ExploreCollapsible title="Images">
             <ThemedText type="small">
               For static images, you can use the{" "}
               <ThemedText type="code">@2x</ThemedText> and{" "}
@@ -102,9 +144,9 @@ const TabTwoScreen = () => {
             <ExternalLink href="https://reactnative.dev/docs/images">
               <ThemedText type="linkPrimary">Learn more</ThemedText>
             </ExternalLink>
-          </Collapsible>
+          </ExploreCollapsible>
 
-          <Collapsible title="Light and dark mode components">
+          <ExploreCollapsible title="Light and dark mode components">
             <ThemedText type="small">
               This template has light and dark mode support. The{" "}
               <ThemedText type="code">useColorScheme()</ThemedText> hook lets
@@ -114,19 +156,17 @@ const TabTwoScreen = () => {
             <ExternalLink href="https://docs.expo.dev/develop/user-interface/color-themes/">
               <ThemedText type="linkPrimary">Learn more</ThemedText>
             </ExternalLink>
-          </Collapsible>
+          </ExploreCollapsible>
 
-          <Collapsible title="Animations">
+          <ExploreCollapsible title="Animations">
             <ThemedText type="small">
               This template includes an example of an animated component. The{" "}
               <ThemedText type="code">
                 src/components/ui/collapsible.tsx
               </ThemedText>{" "}
-              component uses the powerful{" "}
-              <ThemedText type="code">react-native-reanimated</ThemedText>{" "}
-              library to animate opening this hint.
+              component is built on the shared React Native Reusables primitive.
             </ThemedText>
-          </Collapsible>
+          </ExploreCollapsible>
         </ThemedView>
         {process.env.EXPO_OS === "web" && <WebBadge />}
       </ThemedView>
