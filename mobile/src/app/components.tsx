@@ -26,9 +26,8 @@ import { Button } from "@/components/ui/button";
 import { Image } from "@/components/ui/image";
 import { Text } from "@/components/ui/text";
 import { WebBadge } from "@/components/web-badge";
-import { BottomTabInset, Spacing } from "@/constants/theme";
+import { BottomTabInset, Spacing, useTheme } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
-import { useTheme } from "@/hooks/use-theme";
 
 const ExpoSettingsGroupHeight = Platform.OS === "android" ? 184 : 168;
 
@@ -105,7 +104,7 @@ const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
         <ThemedText type="small" themeColor="textSecondary">
           Native rendering is intentional for settings and system preferences.
         </ThemedText>
-        <ExpoNativePreview height={184} inset seedColor="#B96C45">
+        <ExpoNativePreview height={184} inset seedColor={theme.primary}>
           {(contentWidth) => (
             <ExpoColumn spacing={16} style={{ width: contentWidth }}>
               <ExpoRow alignment="center" style={{ width: contentWidth }}>

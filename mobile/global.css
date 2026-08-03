@@ -13,6 +13,8 @@
 
 @theme static {
   --qop-orange: oklch(0.61 0.112 47);
+  --qop-orange-light: oklch(0.68 0.112 47);
+  --qop-orange-dark: oklch(0.53 0.112 47);
   --qop-black: oklch(0.17 0.008 250);
   --qop-white: oklch(0.95 0.006 60);
 }

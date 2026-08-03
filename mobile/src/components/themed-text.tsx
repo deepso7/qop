@@ -2,8 +2,7 @@ import { Platform, StyleSheet, Text } from "react-native";
 import type { TextProps } from "react-native";
 
 import type { ThemeColor } from "@/constants/theme";
-import { Fonts } from "@/constants/theme";
-import { useTheme } from "@/hooks/use-theme";
+import { Fonts, useTheme } from "@/constants/theme";
 
 export type ThemedTextProps = TextProps & {
   type?:
@@ -34,7 +33,6 @@ const styles = StyleSheet.create({
     lineHeight: 30,
   },
   linkPrimary: {
-    color: "#B96C45",
     fontSize: 14,
     lineHeight: 30,
   },
@@ -71,7 +69,12 @@ export const ThemedText = ({
   return (
     <Text
       style={[
-        { color: theme[themeColor ?? "text"] },
+        {
+          color:
+            type === "linkPrimary"
+              ? theme.primary
+              : theme[themeColor ?? "text"],
+        },
         type === "default" && styles.default,
         type === "title" && styles.title,
         type === "small" && styles.small,

@@ -1,28 +1,76 @@
-/**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
- */
-
 import { Platform } from "react-native";
+import { useCSSVariable } from "uniwind";
 
-export const Colors = {
-  dark: {
-    background: "#0D1013",
-    backgroundElement: "#181A1E",
-    backgroundSelected: "#2B2C30",
-    text: "#F2EEEA",
-    textSecondary: "#999395",
-  },
-  light: {
-    background: "#F2EEEA",
-    backgroundElement: "#E5E0DE",
-    backgroundSelected: "#CCC7C5",
-    text: "#0D1013",
-    textSecondary: "#575458",
-  },
-} as const;
+// Runtime colors are defined in global.css and resolved here for native components.
+export type ThemeColor =
+  | "background"
+  | "backgroundElement"
+  | "backgroundSelected"
+  | "text"
+  | "textSecondary";
 
-export type ThemeColor = keyof typeof Colors.light & keyof typeof Colors.dark;
+export const useTheme = () => {
+  const [
+    background,
+    backgroundElement,
+    backgroundSelected,
+    text,
+    textSecondary,
+    border,
+    primary,
+    primaryForeground,
+    accentForeground,
+    cardForeground,
+    mutedForeground,
+    popoverForeground,
+    secondaryForeground,
+    destructive,
+    white,
+    red500,
+    gradientStart,
+    gradientEnd,
+  ] = useCSSVariable([
+    "--color-background",
+    "--color-background-element",
+    "--color-background-selected",
+    "--color-foreground",
+    "--color-foreground-secondary",
+    "--color-border",
+    "--color-primary",
+    "--color-primary-foreground",
+    "--color-accent-foreground",
+    "--color-card-foreground",
+    "--color-muted-foreground",
+    "--color-popover-foreground",
+    "--color-secondary-foreground",
+    "--color-destructive",
+    "--color-white",
+    "--color-red-500",
+    "--qop-orange-light",
+    "--qop-orange-dark",
+  ]) as string[];
+
+  return {
+    accentForeground,
+    background,
+    backgroundElement,
+    backgroundSelected,
+    border,
+    cardForeground,
+    destructive,
+    gradientEnd,
+    gradientStart,
+    mutedForeground,
+    popoverForeground,
+    primary,
+    primaryForeground,
+    red500,
+    secondaryForeground,
+    text,
+    textSecondary,
+    white,
+  } as const;
+};
 
 export const Fonts = Platform.select({
   default: {

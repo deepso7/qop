@@ -1,13 +1,11 @@
 import { NativeTabs } from "expo-router/unstable-native-tabs";
-import { useColorScheme } from "react-native";
 
 import exploreTabIcon from "@/assets/images/tabIcons/explore.png";
 import homeTabIcon from "@/assets/images/tabIcons/home.png";
-import { Colors } from "@/constants/theme";
+import { useTheme } from "@/constants/theme";
 
 const AppTabs = () => {
-  const scheme = useColorScheme();
-  const colors = Colors[scheme === "unspecified" ? "light" : scheme];
+  const colors = useTheme();
 
   return (
     <NativeTabs
