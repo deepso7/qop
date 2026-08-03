@@ -1,11 +1,24 @@
 import * as CheckboxPrimitiveModule from "@rn-primitives/checkbox";
 import { Platform, Text } from "react-native";
+import Animated, { Keyframe, ReduceMotion } from "react-native-reanimated";
 
 import { cn } from "@/lib/utils";
 
 const CheckboxPrimitive = { ...CheckboxPrimitiveModule };
 
 const DEFAULT_HIT_SLOP = 14;
+const indicatorEnter = new Keyframe({
+  0: { opacity: 0, transform: [{ scale: 0.92 }] },
+  100: { opacity: 1, transform: [{ scale: 1 }] },
+})
+  .duration(140)
+  .reduceMotion(ReduceMotion.System);
+const indicatorExit = new Keyframe({
+  0: { opacity: 1, transform: [{ scale: 1 }] },
+  100: { opacity: 0, transform: [{ scale: 0.92 }] },
+})
+  .duration(100)
+  .reduceMotion(ReduceMotion.System);
 
 const Checkbox = ({
   className,
@@ -32,20 +45,24 @@ const Checkbox = ({
     hitSlop={DEFAULT_HIT_SLOP}
     {...props}
   >
-    <CheckboxPrimitive.Indicator
-      className={cn(
-        "bg-foreground h-full w-full items-center justify-center",
-        indicatorClassName
-      )}
-    >
-      <Text
+    <CheckboxPrimitive.Indicator asChild>
+      <Animated.View
         className={cn(
-          "text-background w-full text-center text-[10px] font-bold leading-3",
-          iconClassName
+          "bg-foreground h-full w-full items-center justify-center",
+          indicatorClassName
         )}
+        entering={indicatorEnter}
+        exiting={indicatorExit}
       >
-        ✓
-      </Text>
+        <Text
+          className={cn(
+            "text-background w-full text-center text-[10px] font-bold leading-3",
+            iconClassName
+          )}
+        >
+          ✓
+        </Text>
+      </Animated.View>
     </CheckboxPrimitive.Indicator>
   </CheckboxPrimitive.Root>
 );

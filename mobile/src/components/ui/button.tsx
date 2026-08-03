@@ -2,9 +2,20 @@ import { cva } from "class-variance-authority";
 import type { VariantProps } from "class-variance-authority";
 import { useMemo } from "react";
 import { Platform, Pressable } from "react-native";
+import type { PressableStateCallbackType } from "react-native";
+import {
+  createAnimatedComponent,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
 
 import { TextClassContext } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
+
+const AnimatedPressable = createAnimatedComponent(Pressable);
 
 const buttonVariants = cva(
   cn(
@@ -112,20 +123,41 @@ const getDefaultHitSlop = (size: ButtonProps["size"]) =>
 const Button = ({
   className,
   hitSlop,
+  onPressIn,
+  onPressOut,
   style,
   variant,
   size,
   ...props
 }: ButtonProps) => {
   const defaultHitSlop = getDefaultHitSlop(size);
+  const reduceMotion = useReducedMotion();
+  const scale = useSharedValue(1);
   const textClassName = useMemo(
     () => buttonTextVariants({ size, variant }),
     [size, variant]
   );
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.get() }],
+  }));
+
+  const handlePressIn: NonNullable<ButtonProps["onPressIn"]> = (event) => {
+    if (!reduceMotion) {
+      scale.set(withTiming(0.98, { duration: 100 }));
+    }
+    onPressIn?.(event);
+  };
+
+  const handlePressOut: NonNullable<ButtonProps["onPressOut"]> = (event) => {
+    if (!reduceMotion) {
+      scale.set(withSpring(1, { dampingRatio: 1, duration: 180 }));
+    }
+    onPressOut?.(event);
+  };
 
   return (
     <TextClassContext.Provider value={textClassName}>
-      <Pressable
+      <AnimatedPressable
         className={cn(
           props.disabled && "opacity-50",
           buttonVariants({ size, variant }),
@@ -133,8 +165,11 @@ const Button = ({
         )}
         accessibilityRole="button"
         hitSlop={hitSlop ?? defaultHitSlop}
-        style={(state) => [
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        style={(state: PressableStateCallbackType) => [
           { borderCurve: "continuous" },
+          animatedStyle,
           typeof style === "function" ? style(state) : style,
         ]}
         {...props}

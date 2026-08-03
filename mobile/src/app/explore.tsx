@@ -2,6 +2,14 @@ import { SymbolView } from "expo-symbols";
 import type { PropsWithChildren } from "react";
 import { useState } from "react";
 import { Pressable, View } from "react-native";
+import Animated, {
+  Keyframe,
+  LinearTransition,
+  ReduceMotion,
+  useAnimatedStyle,
+  useDerivedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { withUniwind } from "uniwind";
 
 import reactLogo from "@/assets/images/react-logo.png";
@@ -20,40 +28,75 @@ import { Text } from "@/components/ui/text";
 import { WebBadge } from "@/components/web-badge";
 
 const StyledSymbolView = withUniwind(SymbolView);
+const collapsibleEnter = new Keyframe({
+  0: { opacity: 0, transform: [{ translateY: -4 }] },
+  100: { opacity: 1, transform: [{ translateY: 0 }] },
+})
+  .duration(180)
+  .reduceMotion(ReduceMotion.System);
+const collapsibleExit = new Keyframe({
+  0: { opacity: 1, transform: [{ translateY: 0 }] },
+  100: { opacity: 0, transform: [{ translateY: -4 }] },
+})
+  .duration(140)
+  .reduceMotion(ReduceMotion.System);
+const collapsibleLayout = LinearTransition.duration(200).reduceMotion(
+  ReduceMotion.System
+);
 
 const ExploreCollapsible = ({
   children,
   title,
 }: PropsWithChildren<{ title: string }>) => {
   const [isOpen, setIsOpen] = useState(false);
+  const chevronRotation = useDerivedValue(
+    () =>
+      withTiming(isOpen ? -90 : 90, {
+        duration: isOpen ? 160 : 120,
+        reduceMotion: ReduceMotion.System,
+      }),
+    [isOpen]
+  );
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotateZ: `${chevronRotation.get()}deg` }],
+  }));
 
   return (
-    <Collapsible onOpenChange={setIsOpen} open={isOpen}>
-      <CollapsibleTrigger asChild>
-        <Pressable className="min-h-11 flex-row items-center gap-2 active:opacity-70">
-          <Surface
-            className="size-8 items-center justify-center rounded-md"
-            tone="element"
+    <Animated.View layout={collapsibleLayout}>
+      <Collapsible onOpenChange={setIsOpen} open={isOpen}>
+        <CollapsibleTrigger asChild>
+          <Pressable className="min-h-11 flex-row items-center gap-2 active:opacity-70">
+            <Surface
+              className="size-8 items-center justify-center rounded-md"
+              tone="element"
+            >
+              <Animated.View style={chevronStyle}>
+                <StyledSymbolView
+                  name={{
+                    android: "chevron_right",
+                    ios: "chevron.right",
+                    web: "chevron_right",
+                  }}
+                  size={14}
+                  tintColorClassName="accent-foreground"
+                  weight="bold"
+                />
+              </Animated.View>
+            </Surface>
+            <Text variant="caption">{title}</Text>
+          </Pressable>
+        </CollapsibleTrigger>
+        <CollapsibleContent asChild>
+          <Animated.View
+            className="ml-8 mt-3 gap-3 rounded-xl bg-background-element p-4"
+            entering={collapsibleEnter}
+            exiting={collapsibleExit}
           >
-            <StyledSymbolView
-              className={isOpen ? "-rotate-90" : "rotate-90"}
-              name={{
-                android: "chevron_right",
-                ios: "chevron.right",
-                web: "chevron_right",
-              }}
-              size={14}
-              tintColorClassName="accent-foreground"
-              weight="bold"
-            />
-          </Surface>
-          <Text variant="caption">{title}</Text>
-        </Pressable>
-      </CollapsibleTrigger>
-      <CollapsibleContent className="ml-8 mt-3 gap-3 rounded-xl bg-background-element p-4">
-        {children}
-      </CollapsibleContent>
-    </Collapsible>
+            {children}
+          </Animated.View>
+        </CollapsibleContent>
+      </Collapsible>
+    </Animated.View>
   );
 };
 
