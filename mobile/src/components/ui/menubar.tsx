@@ -65,7 +65,7 @@ const Menubar = ({
       ) : null}
       <MenubarPrimitive.Root
         className={cn(
-          "bg-background border-border flex h-11 flex-row items-center gap-1 rounded-md border p-1 shadow-sm shadow-black/5",
+          "bg-background border-border flex h-11 flex-row items-center gap-1 rounded-md border p-1",
           className
         )}
         value={value ?? valueProp}

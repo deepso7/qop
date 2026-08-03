@@ -1,14 +1,6 @@
-import { Platform } from "react-native";
 import { useCSSVariable } from "uniwind";
 
 // Runtime colors are defined in global.css and resolved here for native components.
-export type ThemeColor =
-  | "background"
-  | "backgroundElement"
-  | "backgroundSelected"
-  | "text"
-  | "textSecondary";
-
 export const useTheme = () => {
   const [
     background,
@@ -71,28 +63,3 @@ export const useTheme = () => {
     white,
   } as const;
 };
-
-export const Fonts = Platform.select({
-  default: {
-    mono: "monospace",
-    rounded: "normal",
-    sans: "normal",
-    serif: "serif",
-  },
-  ios: {
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
-    mono: "ui-monospace",
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
-    rounded: "ui-rounded",
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: "system-ui",
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
-    serif: "ui-serif",
-  },
-  web: {
-    mono: "var(--font-mono)",
-    rounded: "var(--font-rounded)",
-    sans: "var(--font-display)",
-    serif: "var(--font-serif)",
-  },
-});

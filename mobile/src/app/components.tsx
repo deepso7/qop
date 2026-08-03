@@ -11,41 +11,35 @@ import {
   Text as ExpoText,
 } from "@expo/ui";
 import { useState } from "react";
-import { Platform, Pressable, View } from "react-native";
+import { View } from "react-native";
 import type { LayoutChangeEvent } from "react-native";
 
 import expoLogo from "@/assets/images/expo-logo.png";
 import { AnimatedIcon } from "@/components/animated-icon";
 import { ExternalLink } from "@/components/external-link";
-import { HintRow } from "@/components/hint-row";
 import { RnrCatalog } from "@/components/rnr-catalog";
 import { Screen } from "@/components/screen";
-import { ThemedText } from "@/components/themed-text";
-import { ThemedView } from "@/components/themed-view";
 import { Button } from "@/components/ui/button";
+import { HintRow } from "@/components/ui/hint-row";
 import { Image } from "@/components/ui/image";
+import { SectionLabel } from "@/components/ui/section-label";
+import { Surface } from "@/components/ui/surface";
 import { Text } from "@/components/ui/text";
 import { WebBadge } from "@/components/web-badge";
 import { useTheme } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 
-const ExpoSettingsGroupHeight = Platform.OS === "android" ? 184 : 168;
+const ExpoSettingsGroupHeight = process.env.EXPO_OS === "android" ? 184 : 168;
 
 const ComponentSection = ({
   children,
   title,
 }: React.PropsWithChildren<{ title: string }>) => (
   <View className="gap-2">
-    <ThemedText
-      className="px-1 uppercase tracking-wider"
-      type="code"
-      themeColor="textSecondary"
-    >
-      {title}
-    </ThemedText>
-    <ThemedView className="gap-4 rounded-2xl border border-background-selected p-4">
+    <SectionLabel>{title}</SectionLabel>
+    <Surface className="gap-4 rounded-xl border border-background-selected p-4">
       {children}
-    </ThemedView>
+    </Surface>
   </View>
 );
 
@@ -98,10 +92,10 @@ const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
   return (
     <View className="gap-5">
       <View className="gap-2">
-        <ThemedText type="smallBold">Platform controls</ThemedText>
-        <ThemedText type="small" themeColor="textSecondary">
+        <Text variant="label">Platform controls</Text>
+        <Text className="text-foreground-secondary" variant="caption">
           Native rendering is intentional for settings and system preferences.
-        </ThemedText>
+        </Text>
         <ExpoNativePreview height={184} inset seedColor={theme.primary}>
           {(contentWidth) => (
             <ExpoColumn spacing={16} style={{ width: contentWidth }}>
@@ -142,7 +136,7 @@ const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
       </View>
 
       <View className="gap-2">
-        <ThemedText type="smallBold">Native settings group</ThemedText>
+        <Text variant="label">Native settings group</Text>
         <ExpoNativePreview height={ExpoSettingsGroupHeight}>
           <ExpoFieldGroup>
             <ExpoFieldGroup.Section title="Preferences">
@@ -162,7 +156,7 @@ const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
       </View>
 
       <View className="gap-2">
-        <ThemedText type="smallBold">Native presentation</ThemedText>
+        <Text variant="label">Native presentation</Text>
         <Button onPress={onOpenSheet} variant="outline">
           <Text>Open native bottom sheet</Text>
         </Button>
@@ -175,112 +169,107 @@ const ComponentsScreen = () => {
   const [isSheetPresented, setIsSheetPresented] = useState(false);
 
   return (
-    <View className="flex-1 bg-background">
-      <Screen contentContainerClassName="items-center px-5 pt-8 web:pt-24">
-        <View className="w-full max-w-3xl gap-7">
-          <View className="gap-1 px-1 pb-1">
-            <ThemedText type="subtitle">Components</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">
-              Shared primitives and their current states.
-            </ThemedText>
-          </View>
-
-          <ComponentSection title="QOP · branded primitives">
-            <ThemedText type="small" themeColor="textSecondary">
-              Source-owned RNR components styled with Uniwind. Use these for
-              product UI and branded interactions.
-            </ThemedText>
-            <RnrCatalog />
-          </ComponentSection>
-
-          <ComponentSection title="QOP · native platform primitives">
-            <ThemedText type="small" themeColor="textSecondary">
-              Expo UI controls reserved for settings and system-native
-              presentation on SwiftUI and Jetpack Compose.
-            </ThemedText>
-            <ExpoUICatalog onOpenSheet={() => setIsSheetPresented(true)} />
-          </ComponentSection>
-
-          <ComponentSection title="Typography">
-            <ThemedText type="title">Title</ThemedText>
-            <ThemedText type="subtitle">Subtitle</ThemedText>
-            <ThemedText>Default body text</ThemedText>
-            <ThemedText type="small">Small text</ThemedText>
-            <ThemedText type="smallBold">Small bold text</ThemedText>
-            <ThemedText type="code">
-              const message = &quot;Code&quot;;
-            </ThemedText>
-            <ThemedText type="link">Link text</ThemedText>
-            <ThemedText type="linkPrimary">Primary link text</ThemedText>
-            <ThemedText themeColor="textSecondary">Secondary text</ThemedText>
-          </ComponentSection>
-
-          <ComponentSection title="Surfaces">
-            <View className="flex-row gap-3">
-              <ThemedView className="flex-1 rounded-xl border border-background-selected p-4">
-                <ThemedText type="small">Default</ThemedText>
-              </ThemedView>
-              <ThemedView
-                className="flex-1 rounded-xl p-4"
-                type="backgroundElement"
-              >
-                <ThemedText type="small">Element</ThemedText>
-              </ThemedView>
-            </View>
-            <ThemedView className="rounded-2xl p-4" type="backgroundSelected">
-              <ThemedText type="small">Selected</ThemedText>
-            </ThemedView>
-          </ComponentSection>
-
-          <ComponentSection title="Hint rows">
-            <HintRow title="Environment" hint="development" />
-            <HintRow
-              title="File"
-              hint={<ThemedText type="code">src/app/components.tsx</ThemedText>}
-            />
-          </ComponentSection>
-
-          <ComponentSection title="Media">
-            <View className="flex-row items-center gap-5">
-              <ThemedView
-                className="h-20 w-20 items-center justify-center rounded-2xl"
-                type="backgroundElement"
-              >
-                <Image
-                  className="h-12 w-12"
-                  contentFit="contain"
-                  source={expoLogo}
-                />
-              </ThemedView>
-              <View className="flex-1 gap-1">
-                <ThemedText type="smallBold">Expo Image</ThemedText>
-                <ThemedText type="small" themeColor="textSecondary">
-                  Wrapped for Uniwind class names.
-                </ThemedText>
-              </View>
-            </View>
-          </ComponentSection>
-
-          <ComponentSection title="Actions">
-            <ExternalLink href="https://docs.expo.dev" asChild>
-              <Pressable className="items-center rounded-xl bg-background-selected px-5 py-3 active:opacity-70">
-                <ThemedText type="smallBold">Open Expo docs</ThemedText>
-              </Pressable>
-            </ExternalLink>
-          </ComponentSection>
-
-          <ComponentSection title="Motion">
-            <View className="h-40 items-center justify-center overflow-hidden">
-              <AnimatedIcon />
-            </View>
-          </ComponentSection>
-
-          {Platform.OS === "web" && (
-            <ComponentSection title="Web badge">
-              <WebBadge />
-            </ComponentSection>
-          )}
+    <View className="flex-1">
+      <Screen variant="catalog">
+        <View className="gap-1 px-1 pb-1">
+          <Text variant="title">Components</Text>
+          <Text className="text-foreground-secondary" variant="caption">
+            Shared primitives and their current states.
+          </Text>
         </View>
+
+        <ComponentSection title="QOP · branded primitives">
+          <Text className="text-foreground-secondary" variant="caption">
+            Source-owned RNR components styled with Uniwind. Use these for
+            product UI and branded interactions.
+          </Text>
+          <RnrCatalog />
+        </ComponentSection>
+
+        <ComponentSection title="QOP · native platform primitives">
+          <Text className="text-foreground-secondary" variant="caption">
+            Expo UI controls reserved for settings and system-native
+            presentation on SwiftUI and Jetpack Compose.
+          </Text>
+          <ExpoUICatalog onOpenSheet={() => setIsSheetPresented(true)} />
+        </ComponentSection>
+
+        <ComponentSection title="Typography">
+          <Text variant="display">Display</Text>
+          <Text variant="title">Title</Text>
+          <Text variant="body">Default body text</Text>
+          <Text variant="caption">Caption text</Text>
+          <Text variant="label">Label text</Text>
+          <Text variant="mono">const message = &quot;Code&quot;;</Text>
+          <Text variant="link">Link text</Text>
+          <Text variant="linkPrimary">Primary link text</Text>
+          <Text className="text-foreground-secondary" variant="body">
+            Secondary text
+          </Text>
+        </ComponentSection>
+
+        <ComponentSection title="Surfaces">
+          <View className="flex-row gap-3">
+            <Surface className="flex-1 rounded-xl border border-background-selected p-4">
+              <Text variant="caption">Default</Text>
+            </Surface>
+            <Surface className="flex-1 rounded-xl p-4" tone="element">
+              <Text variant="caption">Element</Text>
+            </Surface>
+          </View>
+          <Surface className="rounded-xl p-4" tone="selected">
+            <Text variant="caption">Selected</Text>
+          </Surface>
+        </ComponentSection>
+
+        <ComponentSection title="Hint rows">
+          <HintRow title="Environment" hint="development" />
+          <HintRow
+            title="File"
+            hint={<Text variant="mono">src/app/components.tsx</Text>}
+          />
+        </ComponentSection>
+
+        <ComponentSection title="Media">
+          <View className="flex-row items-center gap-5">
+            <Surface
+              className="h-20 w-20 items-center justify-center rounded-xl"
+              tone="element"
+            >
+              <Image
+                className="h-12 w-12"
+                contentFit="contain"
+                source={expoLogo}
+              />
+            </Surface>
+            <View className="flex-1 gap-1">
+              <Text variant="label">Expo Image</Text>
+              <Text className="text-foreground-secondary" variant="caption">
+                Wrapped for Uniwind class names.
+              </Text>
+            </View>
+          </View>
+        </ComponentSection>
+
+        <ComponentSection title="Actions">
+          <ExternalLink href="https://docs.expo.dev" asChild>
+            <Button className="w-full" variant="secondary">
+              <Text>Open Expo docs</Text>
+            </Button>
+          </ExternalLink>
+        </ComponentSection>
+
+        <ComponentSection title="Motion">
+          <View className="h-40 items-center justify-center overflow-hidden">
+            <AnimatedIcon />
+          </View>
+        </ComponentSection>
+
+        {process.env.EXPO_OS === "web" && (
+          <ComponentSection title="Web badge">
+            <WebBadge />
+          </ComponentSection>
+        )}
       </Screen>
 
       <ExpoBottomSheet

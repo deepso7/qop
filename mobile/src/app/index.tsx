@@ -1,63 +1,59 @@
 import * as Device from "expo-device";
-import { Platform } from "react-native";
+import { View } from "react-native";
 
 import { AnimatedIcon } from "@/components/animated-icon";
-import { HintRow } from "@/components/hint-row";
 import { Screen } from "@/components/screen";
-import { ThemedText } from "@/components/themed-text";
-import { ThemedView } from "@/components/themed-view";
+import { HintRow } from "@/components/ui/hint-row";
+import { Surface } from "@/components/ui/surface";
+import { Text } from "@/components/ui/text";
 import { WebBadge } from "@/components/web-badge";
 
 const getDevMenuHint = () => {
-  if (Platform.OS === "web") {
-    return <ThemedText type="small">use browser devtools</ThemedText>;
+  if (process.env.EXPO_OS === "web") {
+    return <Text variant="caption">use browser devtools</Text>;
   }
   if (Device.isDevice) {
     return (
-      <ThemedText type="small">
-        shake device or press <ThemedText type="code">m</ThemedText> in terminal
-      </ThemedText>
+      <Text variant="caption">
+        shake device or press <Text variant="mono">m</Text> in terminal
+      </Text>
     );
   }
-  const shortcut = Platform.OS === "android" ? "cmd+m (or ctrl+m)" : "cmd+d";
+  const shortcut =
+    process.env.EXPO_OS === "android" ? "cmd+m (or ctrl+m)" : "cmd+d";
   return (
-    <ThemedText type="small">
-      press <ThemedText type="code">{shortcut}</ThemedText>
-    </ThemedText>
+    <Text variant="caption">
+      press <Text variant="mono">{shortcut}</Text>
+    </Text>
   );
 };
 
 const HomeScreen = () => (
-  <Screen contentContainerClassName="flex-row justify-center px-6 pt-16">
-    <ThemedView className="w-full max-w-2xl items-center gap-6">
-      <ThemedView className="items-center gap-6 px-6">
-        <AnimatedIcon />
-        <ThemedText className="text-center" type="title">
-          Welcome to&nbsp;Expo
-        </ThemedText>
-      </ThemedView>
+  <Screen contentClassName="items-center" variant="hero">
+    <View className="items-center gap-6 px-6">
+      <AnimatedIcon />
+      <Text className="text-center" variant="display">
+        Welcome to&nbsp;Expo
+      </Text>
+    </View>
 
-      <ThemedText className="uppercase" type="code">
-        get started
-      </ThemedText>
+    <Text className="uppercase" variant="mono">
+      get started
+    </Text>
 
-      <ThemedView
-        className="self-stretch gap-4 rounded-3xl px-4 py-6"
-        type="backgroundElement"
-      >
-        <HintRow
-          title="Try editing"
-          hint={<ThemedText type="code">src/app/index.tsx</ThemedText>}
-        />
-        <HintRow title="Dev tools" hint={getDevMenuHint()} />
-        <HintRow
-          title="Fresh start"
-          hint={<ThemedText type="code">npm run reset-project</ThemedText>}
-        />
-      </ThemedView>
+    <Surface className="self-stretch gap-4 rounded-xl px-4 py-6" tone="element">
+      <HintRow
+        title="Try editing"
+        hint={<Text variant="mono">src/app/index.tsx</Text>}
+      />
+      <HintRow title="Dev tools" hint={getDevMenuHint()} />
+      <HintRow
+        title="Fresh start"
+        hint={<Text variant="mono">npm run reset-project</Text>}
+      />
+    </Surface>
 
-      {Platform.OS === "web" && <WebBadge />}
-    </ThemedView>
+    {process.env.EXPO_OS === "web" && <WebBadge />}
   </Screen>
 );
 

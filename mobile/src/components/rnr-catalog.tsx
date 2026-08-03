@@ -99,6 +99,7 @@ import {
 } from "@/components/ui/popover";
 import { Progress } from "@/components/ui/progress";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { SectionLabel } from "@/components/ui/section-label";
 import {
   Select,
   SelectContent,
@@ -130,9 +131,7 @@ const CatalogGroup = ({
   title,
 }: React.PropsWithChildren<{ title: string }>) => (
   <View className="gap-3">
-    <Text className="text-muted-foreground text-xs font-semibold uppercase tracking-wider">
-      {title}
-    </Text>
+    <SectionLabel>{title}</SectionLabel>
     {children}
   </View>
 );

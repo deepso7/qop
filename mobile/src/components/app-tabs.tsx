@@ -1,7 +1,5 @@
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 
-import exploreTabIcon from "@/assets/images/tabIcons/explore.png";
-import homeTabIcon from "@/assets/images/tabIcons/home.png";
 import { useTheme } from "@/constants/theme";
 
 const AppTabs = () => {
@@ -11,18 +9,26 @@ const AppTabs = () => {
     <NativeTabs
       backgroundColor={colors.background}
       indicatorColor={colors.backgroundElement}
-      labelStyle={{ selected: { color: colors.text } }}
+      labelStyle={{
+        default: { color: colors.textSecondary },
+        selected: { color: colors.primary },
+      }}
+      rippleColor="transparent"
+      tintColor={colors.primary}
     >
       <NativeTabs.Trigger name="index">
         <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon src={homeTabIcon} renderingMode="template" />
+        <NativeTabs.Trigger.Icon
+          md="home"
+          sf={{ default: "house", selected: "house.fill" }}
+        />
       </NativeTabs.Trigger>
 
       <NativeTabs.Trigger name="explore">
         <NativeTabs.Trigger.Label>Explore</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={exploreTabIcon}
-          renderingMode="template"
+          md="explore"
+          sf={{ default: "safari", selected: "safari.fill" }}
         />
       </NativeTabs.Trigger>
 

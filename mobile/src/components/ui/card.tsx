@@ -10,7 +10,7 @@ const Card = ({
   <TextClassContext.Provider value="text-card-foreground">
     <View
       className={cn(
-        "bg-card border-border flex flex-col gap-6 rounded-xl border py-6 shadow-sm shadow-black/5",
+        "bg-card border-border flex flex-col gap-6 rounded-xl border py-6",
         className
       )}
       {...props}

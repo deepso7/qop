@@ -9,7 +9,7 @@ import { TextClassContext } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
 
 const TogglePrimitive = { ...TogglePrimitiveModule };
-const toggleHitSlop = { default: 2, lg: 0, sm: 6 } as const;
+const toggleHitSlop = { default: 0, lg: 0, sm: 6 } as const;
 const toggleTextSizes = {
   default: "text-sm",
   lg: "text-base",
@@ -30,14 +30,14 @@ const toggleVariants = cva(
     },
     variants: {
       size: {
-        default: "h-10 min-w-10 px-2.5",
+        default: "h-11 min-w-11 px-2.5",
         lg: "h-12 min-w-12 px-3",
         sm: "h-8 min-w-8 px-2",
       },
       variant: {
         default: "bg-transparent",
         outline: cn(
-          "border-input active:bg-accent border bg-transparent shadow-sm shadow-black/5",
+          "border-input active:bg-accent border bg-transparent",
           Platform.select({
             web: "hover:bg-accent hover:text-accent-foreground",
           })

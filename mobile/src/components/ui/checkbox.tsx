@@ -20,7 +20,7 @@ const Checkbox = ({
 }) => (
   <CheckboxPrimitive.Root
     className={cn(
-      "border-input dark:bg-input/30 size-4 shrink-0 rounded border shadow-sm shadow-black/5",
+      "border-input dark:bg-input/30 size-4 shrink-0 rounded border",
       Platform.select({
         native: "overflow-hidden",
         web: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive peer cursor-default outline-none transition-shadow focus-visible:ring-[3px] disabled:cursor-not-allowed",
