@@ -14,7 +14,7 @@ const DURATION = 600;
 const styles = StyleSheet.create({
   background: {
     borderRadius: 40,
-    experimental_backgroundImage: `linear-gradient(180deg, #3C9FFE, #0274DF)`,
+    experimental_backgroundImage: `linear-gradient(180deg, #CB825B, #9F5735)`,
     height: 128,
     position: "absolute",
     width: 128,
@@ -42,7 +42,7 @@ const styles = StyleSheet.create({
   splashOverlay: {
     ...StyleSheet.absoluteFill,
     alignItems: "center",
-    backgroundColor: "#208AEF",
+    backgroundColor: "#B96C45",
     justifyContent: "center",
     zIndex: 1000,
   },

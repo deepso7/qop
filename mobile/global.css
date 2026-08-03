@@ -11,54 +11,66 @@
   --spacing-hairline: hairlineWidth();
 }
 
+@theme static {
+  --qop-orange: oklch(0.61 0.112 47);
+  --qop-black: oklch(0.17 0.008 250);
+  --qop-white: oklch(0.95 0.006 60);
+}
+
 @layer theme {
   :root {
     @variant light {
-      --color-background: #ffffff;
-      --color-background-element: #f0f0f3;
-      --color-background-selected: #e0e1e6;
-      --color-border: oklch(0.922 0 0);
-      --color-card: oklch(1 0 0);
-      --color-card-foreground: oklch(0.145 0 0);
+      --color-background: var(--qop-white);
+      --color-background-element: oklch(0.911 0.0061 51.5);
+      --color-background-selected: oklch(0.833 0.0063 34.5);
+      --color-border: oklch(0.833 0.0063 34.5);
+      --color-card: var(--qop-white);
+      --color-card-foreground: var(--qop-black);
+      --color-code-background: oklch(0.9266 0.00606 54.9);
       --color-destructive: oklch(0.577 0.245 27.325);
-      --color-foreground: #000000;
-      --color-foreground-secondary: #60646c;
-      --color-input: oklch(0.922 0 0);
-      --color-muted: oklch(0.97 0 0);
-      --color-muted-foreground: oklch(0.556 0 0);
-      --color-accent: oklch(0.97 0 0);
-      --color-accent-foreground: oklch(0.205 0 0);
-      --color-popover: oklch(1 0 0);
-      --color-popover-foreground: oklch(0.145 0 0);
-      --color-primary: oklch(0.205 0 0);
-      --color-primary-foreground: oklch(0.985 0 0);
-      --color-ring: oklch(0.708 0 0);
-      --color-secondary: oklch(0.97 0 0);
-      --color-secondary-foreground: oklch(0.205 0 0);
+      --color-foreground: var(--qop-black);
+      --color-foreground-secondary: oklch(0.4508 0.00728 311.2);
+      --color-input: oklch(0.833 0.0063 34.5);
+      --color-muted: oklch(0.911 0.0061 51.5);
+      --color-muted-foreground: oklch(0.4508 0.00728 311.2);
+      --color-accent: oklch(0.911 0.0061 51.5);
+      --color-accent-foreground: var(--qop-black);
+      --color-action: var(--qop-orange);
+      --color-action-foreground: var(--qop-black);
+      --color-popover: var(--qop-white);
+      --color-popover-foreground: var(--qop-black);
+      --color-primary: var(--qop-orange);
+      --color-primary-foreground: var(--qop-black);
+      --color-ring: var(--qop-orange);
+      --color-secondary: oklch(0.911 0.0061 51.5);
+      --color-secondary-foreground: var(--qop-black);
     }
 
     @variant dark {
-      --color-background: #000000;
-      --color-background-element: #212225;
-      --color-background-selected: #2e3135;
-      --color-border: oklch(1 0 0 / 10%);
-      --color-card: oklch(0.205 0 0);
-      --color-card-foreground: oklch(0.985 0 0);
+      --color-background: var(--qop-black);
+      --color-background-element: oklch(0.2168 0.00788 260.2);
+      --color-background-selected: oklch(0.2948 0.00768 277.2);
+      --color-border: oklch(0.2948 0.00768 277.2);
+      --color-card: var(--qop-black);
+      --color-card-foreground: var(--qop-white);
+      --color-code-background: oklch(0.2012 0.00792 256.8);
       --color-destructive: oklch(0.704 0.191 22.216);
-      --color-foreground: #ffffff;
-      --color-foreground-secondary: #b0b4ba;
-      --color-input: oklch(1 0 0 / 15%);
-      --color-muted: oklch(0.269 0 0);
-      --color-muted-foreground: oklch(0.708 0 0);
-      --color-accent: oklch(0.269 0 0);
-      --color-accent-foreground: oklch(0.985 0 0);
-      --color-popover: oklch(0.205 0 0);
-      --color-popover-foreground: oklch(0.985 0 0);
-      --color-primary: oklch(0.922 0 0);
-      --color-primary-foreground: oklch(0.205 0 0);
-      --color-ring: oklch(0.556 0 0);
-      --color-secondary: oklch(0.269 0 0);
-      --color-secondary-foreground: oklch(0.985 0 0);
+      --color-foreground: var(--qop-white);
+      --color-foreground-secondary: oklch(0.6692 0.00672 358.8);
+      --color-input: oklch(0.2948 0.00768 277.2);
+      --color-muted: oklch(0.2168 0.00788 260.2);
+      --color-muted-foreground: oklch(0.6692 0.00672 358.8);
+      --color-accent: oklch(0.2168 0.00788 260.2);
+      --color-accent-foreground: var(--qop-white);
+      --color-action: var(--qop-orange);
+      --color-action-foreground: var(--qop-black);
+      --color-popover: var(--qop-black);
+      --color-popover-foreground: var(--qop-white);
+      --color-primary: var(--qop-orange);
+      --color-primary-foreground: var(--qop-black);
+      --color-ring: var(--qop-orange);
+      --color-secondary: oklch(0.2168 0.00788 260.2);
+      --color-secondary-foreground: var(--qop-white);
     }
   }
 }

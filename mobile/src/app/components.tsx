@@ -105,7 +105,7 @@ const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
         <ThemedText type="small" themeColor="textSecondary">
           Native rendering is intentional for settings and system preferences.
         </ThemedText>
-        <ExpoNativePreview height={184} inset seedColor="#5B5BD6">
+        <ExpoNativePreview height={184} inset seedColor="#B96C45">
           {(contentWidth) => (
             <ExpoColumn spacing={16} style={{ width: contentWidth }}>
               <ExpoRow alignment="center" style={{ width: contentWidth }}>
