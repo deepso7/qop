@@ -1,15 +1,12 @@
 import * as Device from "expo-device";
 import { Platform } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import { withUniwind } from "uniwind";
 
 import { AnimatedIcon } from "@/components/animated-icon";
 import { HintRow } from "@/components/hint-row";
+import { Screen } from "@/components/screen";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { WebBadge } from "@/components/web-badge";
-
-const StyledSafeAreaView = withUniwind(SafeAreaView);
 
 const getDevMenuHint = () => {
   if (Platform.OS === "web") {
@@ -31,9 +28,9 @@ const getDevMenuHint = () => {
 };
 
 const HomeScreen = () => (
-  <ThemedView className="flex-1 flex-row justify-center">
-    <StyledSafeAreaView className="max-w-[800px] flex-1 items-center gap-4 px-6 pb-4 ios:pb-[66px] android:pb-24">
-      <ThemedView className="flex-1 items-center justify-center gap-6 px-6">
+  <Screen contentContainerClassName="flex-row justify-center px-6 pt-16">
+    <ThemedView className="w-full max-w-2xl items-center gap-6">
+      <ThemedView className="items-center gap-6 px-6">
         <AnimatedIcon />
         <ThemedText className="text-center" type="title">
           Welcome to&nbsp;Expo
@@ -60,8 +57,8 @@ const HomeScreen = () => (
       </ThemedView>
 
       {Platform.OS === "web" && <WebBadge />}
-    </StyledSafeAreaView>
-  </ThemedView>
+    </ThemedView>
+  </Screen>
 );
 
 export default HomeScreen;

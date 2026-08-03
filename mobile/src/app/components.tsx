@@ -11,22 +11,22 @@ import {
   Text as ExpoText,
 } from "@expo/ui";
 import { useState } from "react";
-import { Platform, Pressable, ScrollView, View } from "react-native";
+import { Platform, Pressable, View } from "react-native";
 import type { LayoutChangeEvent } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import expoLogo from "@/assets/images/expo-logo.png";
 import { AnimatedIcon } from "@/components/animated-icon";
 import { ExternalLink } from "@/components/external-link";
 import { HintRow } from "@/components/hint-row";
 import { RnrCatalog } from "@/components/rnr-catalog";
+import { Screen } from "@/components/screen";
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { Button } from "@/components/ui/button";
 import { Image } from "@/components/ui/image";
 import { Text } from "@/components/ui/text";
 import { WebBadge } from "@/components/web-badge";
-import { BottomTabInset, Spacing, useTheme } from "@/constants/theme";
+import { useTheme } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 
 const ExpoSettingsGroupHeight = Platform.OS === "android" ? 184 : 168;
@@ -64,29 +64,27 @@ const ExpoNativePreview = ({
   const colorScheme = useColorScheme() === "dark" ? "dark" : "light";
 
   const handleLayout = ({ nativeEvent }: LayoutChangeEvent) => {
-    const horizontalInset = inset ? Spacing.three * 2 : 0;
-    const nextWidth = Math.max(0, nativeEvent.layout.width - horizontalInset);
+    const nextWidth = nativeEvent.layout.width;
     setContentWidth((currentWidth) =>
       currentWidth === nextWidth ? currentWidth : nextWidth
     );
   };
 
   return (
-    <View
-      className="overflow-hidden rounded-xl bg-background-element/50"
-      onLayout={handleLayout}
-    >
+    <View className="overflow-hidden rounded-xl bg-background-element/50">
       <View className={inset ? "px-4 py-3" : undefined}>
-        <ExpoHost
-          colorScheme={colorScheme}
-          ignoreSafeArea="all"
-          seedColor={seedColor}
-          style={{ height, width: "100%" }}
-        >
-          {typeof children === "function"
-            ? contentWidth > 0 && children(contentWidth)
-            : children}
-        </ExpoHost>
+        <View onLayout={handleLayout}>
+          <ExpoHost
+            colorScheme={colorScheme}
+            ignoreSafeArea="all"
+            seedColor={seedColor}
+            style={{ height, width: "100%" }}
+          >
+            {typeof children === "function"
+              ? contentWidth > 0 && children(contentWidth)
+              : children}
+          </ExpoHost>
+        </View>
       </View>
     </View>
   );
@@ -175,19 +173,11 @@ const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
 
 const ComponentsScreen = () => {
   const [isSheetPresented, setIsSheetPresented] = useState(false);
-  const safeAreaInsets = useSafeAreaInsets();
-  const contentInset = {
-    bottom: safeAreaInsets.bottom + BottomTabInset + Spacing.three,
-  };
 
   return (
     <View className="flex-1 bg-background">
-      <ScrollView
-        className="flex-1"
-        contentInset={contentInset}
-        contentContainerClassName="items-center px-5 pt-8 android:pt-safe-offset-5 android:pb-safe-offset-24 web:pt-24 web:pb-8"
-      >
-        <View className="w-full max-w-[720px] gap-7">
+      <Screen contentContainerClassName="items-center px-5 pt-8 web:pt-24">
+        <View className="w-full max-w-3xl gap-7">
           <View className="gap-1 px-1 pb-1">
             <ThemedText type="subtitle">Components</ThemedText>
             <ThemedText type="small" themeColor="textSecondary">
@@ -291,7 +281,7 @@ const ComponentsScreen = () => {
             </ComponentSection>
           )}
         </View>
-      </ScrollView>
+      </Screen>
 
       <ExpoBottomSheet
         isPresented={isSheetPresented}

@@ -48,6 +48,7 @@ const SelectTrigger = ({
   ref,
   className,
   children,
+  hitSlop,
   size = "default",
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Trigger> & {
@@ -57,14 +58,15 @@ const SelectTrigger = ({
   <SelectPrimitive.Trigger
     ref={ref}
     className={cn(
-      "border-input dark:bg-input/30 dark:active:bg-input/50 bg-background flex h-10 flex-row items-center justify-between gap-2 rounded-md border px-3 py-2 shadow-sm shadow-black/5 sm:h-9",
+      "border-input dark:bg-input/30 dark:active:bg-input/50 bg-background flex h-11 flex-row items-center justify-between gap-2 rounded-md border px-3 py-2 shadow-sm shadow-black/5",
       Platform.select({
         web: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:hover:bg-input/50 w-fit whitespace-nowrap text-sm outline-none transition-[color,box-shadow] focus-visible:ring-[3px] disabled:cursor-not-allowed [&_svg]:pointer-events-none [&_svg]:shrink-0",
       }),
       props.disabled && "opacity-50",
-      size === "sm" && "h-8 py-2 sm:py-1.5",
+      size === "sm" && "h-9 py-1.5",
       className
     )}
+    hitSlop={hitSlop ?? (size === "sm" ? 4 : undefined)}
     {...props}
   >
     {children}
@@ -146,7 +148,7 @@ const SelectContent = ({
           <TextClassContext.Provider value="text-popover-foreground">
             <SelectPrimitive.Content
               className={cn(
-                "bg-popover border-border relative z-50 min-w-[8rem] rounded-md border shadow-md shadow-black/5",
+                "bg-popover border-border relative z-50 min-w-32 rounded-md border shadow-md shadow-black/5",
                 Platform.select({
                   native: "p-1",
                   web: cn(
@@ -196,10 +198,7 @@ const SelectLabel = ({
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Label>) => (
   <SelectPrimitive.Label
-    className={cn(
-      "text-muted-foreground px-2 py-2 text-xs sm:py-1.5",
-      className
-    )}
+    className={cn("text-muted-foreground px-2 py-2 text-xs", className)}
     {...props}
   />
 );
@@ -210,7 +209,7 @@ const SelectItem = ({
 }: Omit<React.ComponentProps<typeof SelectPrimitive.Item>, "children">) => (
   <SelectPrimitive.Item
     className={cn(
-      "active:bg-accent group relative flex w-full flex-row items-center gap-2 rounded-sm py-2 pl-2 pr-8 sm:py-1.5",
+      "active:bg-accent group relative flex min-h-11 w-full flex-row items-center gap-2 rounded-sm py-2 pl-2 pr-8 web:min-h-0 web:py-1.5",
       Platform.select({
         web: "focus:bg-accent focus:text-accent-foreground *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2 cursor-default outline-none data-[disabled]:pointer-events-none [&_svg]:pointer-events-none",
       }),

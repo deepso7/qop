@@ -183,9 +183,17 @@ const RnrCatalog = () => {
           <Button size="sm">
             <Text>Small</Text>
           </Button>
+          <Button>
+            <Text>Default</Text>
+          </Button>
+          <Button size="lg">
+            <Text>Large</Text>
+          </Button>
           <Button size="icon" variant="outline">
             <ToggleIcon as={Bell} />
           </Button>
+        </View>
+        <View className="flex-row flex-wrap items-center gap-2">
           <Badge>
             <Text>Default</Text>
           </Badge>
@@ -513,7 +521,7 @@ const RnrCatalog = () => {
 
           <ContextMenu>
             <ContextMenuTrigger asChild>
-              <Pressable className="border-input rounded-md border px-4 py-2 active:bg-accent">
+              <Pressable className="border-input min-h-11 justify-center rounded-md border px-4 py-2 active:bg-accent">
                 <Text className="text-sm font-medium">Long press</Text>
               </Pressable>
             </ContextMenuTrigger>

@@ -21,16 +21,16 @@ const buttonVariants = cva(
     variants: {
       size: {
         default: cn(
-          "h-10 px-4 py-2 sm:h-9",
+          "h-10 px-4 py-2",
           Platform.select({ web: "has-[>svg]:px-3" })
         ),
-        icon: "h-10 w-10 sm:h-9 sm:w-9",
+        icon: "size-10",
         lg: cn(
-          "h-11 rounded-md px-6 sm:h-10",
+          "h-12 rounded-md px-6",
           Platform.select({ web: "has-[>svg]:px-4" })
         ),
         sm: cn(
-          "h-9 gap-1.5 rounded-md px-3 sm:h-8",
+          "h-8 gap-1 rounded-md px-3",
           Platform.select({ web: "has-[>svg]:px-2.5" })
         ),
       },
@@ -79,8 +79,8 @@ const buttonTextVariants = cva(
       size: {
         default: "",
         icon: "",
-        lg: "",
-        sm: "",
+        lg: "text-base",
+        sm: "text-xs",
       },
       variant: {
         default: "text-primary-foreground",
@@ -106,7 +106,24 @@ type ButtonProps = React.ComponentProps<typeof Pressable> &
   React.RefAttributes<typeof Pressable> &
   VariantProps<typeof buttonVariants>;
 
-const Button = ({ className, variant, size, ...props }: ButtonProps) => {
+const getDefaultHitSlop = (size: ButtonProps["size"]) => {
+  if (size === "sm") {
+    return 6;
+  }
+  if (size === "lg") {
+    return;
+  }
+  return 2;
+};
+
+const Button = ({
+  className,
+  hitSlop,
+  variant,
+  size,
+  ...props
+}: ButtonProps) => {
+  const defaultHitSlop = getDefaultHitSlop(size);
   const textClassName = useMemo(
     () => buttonTextVariants({ size, variant }),
     [size, variant]
@@ -121,6 +138,7 @@ const Button = ({ className, variant, size, ...props }: ButtonProps) => {
           className
         )}
         accessibilityRole="button"
+        hitSlop={hitSlop ?? defaultHitSlop}
         {...props}
       />
     </TextClassContext.Provider>

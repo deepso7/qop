@@ -96,16 +96,3 @@ export const Fonts = Platform.select({
     serif: "var(--font-serif)",
   },
 });
-
-export const Spacing = {
-  five: 32,
-  four: 24,
-  half: 2,
-  one: 4,
-  six: 64,
-  three: 16,
-  two: 8,
-} as const;
-
-export const BottomTabInset = Platform.select({ android: 80, ios: 50 }) ?? 0;
-export const MaxContentWidth = 800;

@@ -5,7 +5,7 @@ import { Platform } from "react-native";
 
 import { Icon } from "@/components/ui/icon";
 import { TextClassContext } from "@/components/ui/text";
-import { toggleVariants } from "@/components/ui/toggle";
+import { toggleTextSizes, toggleVariants } from "@/components/ui/toggle";
 import { cn } from "@/lib/utils";
 
 const ToggleGroupPrimitive = { ...ToggleGroupPrimitiveModule };
@@ -69,8 +69,10 @@ const ToggleGroupItem = ({
   }) => {
   const context = useToggleGroupContext();
   const { value } = ToggleGroupPrimitive.useRootContext();
+  const resolvedSize = context.size || size || "default";
   const textClassName = cn(
-    "text-sm text-foreground font-medium",
+    "text-foreground font-medium",
+    toggleTextSizes[resolvedSize],
     ToggleGroupPrimitive.utils.getIsSelected(value, props.value)
       ? "text-accent-foreground"
       : Platform.select({ web: "group-hover:text-muted-foreground" })
@@ -81,7 +83,7 @@ const ToggleGroupItem = ({
       <ToggleGroupPrimitive.Item
         className={cn(
           toggleVariants({
-            size: context.size || size,
+            size: resolvedSize,
             variant: context.variant || variant,
           }),
           props.disabled && "opacity-50",

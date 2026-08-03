@@ -4,6 +4,7 @@ import { Platform } from "react-native";
 import { cn } from "@/lib/utils";
 
 const RadioGroupPrimitive = { ...RadioGroupPrimitiveModule };
+const DEFAULT_HIT_SLOP = 14;
 
 const RadioGroup = ({
   className,
@@ -25,6 +26,7 @@ const RadioGroupItem = ({
       props.disabled && "opacity-50",
       className
     )}
+    hitSlop={DEFAULT_HIT_SLOP}
     {...props}
   >
     <RadioGroupPrimitive.Indicator className="bg-primary size-2 rounded-full" />

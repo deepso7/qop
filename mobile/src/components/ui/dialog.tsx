@@ -99,7 +99,7 @@ const DialogContent = ({
               web: "ring-offset-background focus:ring-ring data-[state=open]:bg-accent transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-offset-2",
             })
           )}
-          hitSlop={12}
+          hitSlop={14}
         >
           <Icon
             as={X}

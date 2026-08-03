@@ -9,6 +9,12 @@ import { TextClassContext } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
 
 const TogglePrimitive = { ...TogglePrimitiveModule };
+const toggleHitSlop = { default: 2, lg: 0, sm: 6 } as const;
+const toggleTextSizes = {
+  default: "text-sm",
+  lg: "text-base",
+  sm: "text-xs",
+} as const;
 
 const toggleVariants = cva(
   cn(
@@ -24,9 +30,9 @@ const toggleVariants = cva(
     },
     variants: {
       size: {
-        default: "h-10 min-w-10 px-2.5 sm:h-9 sm:min-w-9 sm:px-2",
-        lg: "h-11 min-w-11 px-3 sm:h-10 sm:min-w-10 sm:px-2.5",
-        sm: "h-9 min-w-9 px-2 sm:h-8 sm:min-w-8 sm:px-1.5",
+        default: "h-10 min-w-10 px-2.5",
+        lg: "h-12 min-w-12 px-3",
+        sm: "h-8 min-w-8 px-2",
       },
       variant: {
         default: "bg-transparent",
@@ -43,13 +49,15 @@ const toggleVariants = cva(
 
 const Toggle = ({
   className,
+  hitSlop,
   variant,
   size,
   ...props
 }: React.ComponentProps<typeof TogglePrimitive.Root> &
   VariantProps<typeof toggleVariants>) => {
   const textClassName = cn(
-    "text-sm text-foreground font-medium",
+    "text-foreground font-medium",
+    toggleTextSizes[size ?? "default"],
     props.pressed
       ? "text-accent-foreground"
       : Platform.select({ web: "group-hover:text-muted-foreground" }),
@@ -65,6 +73,7 @@ const Toggle = ({
           props.pressed && "bg-accent",
           className
         )}
+        hitSlop={hitSlop ?? toggleHitSlop[size ?? "default"]}
         {...props}
       />
     </TextClassContext.Provider>
@@ -81,4 +90,4 @@ const ToggleIcon = ({
   );
 };
 
-export { Toggle, ToggleIcon, toggleVariants };
+export { Toggle, ToggleIcon, toggleTextSizes, toggleVariants };

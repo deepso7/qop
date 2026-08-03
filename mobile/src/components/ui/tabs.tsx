@@ -22,7 +22,7 @@ const TabsList = ({
 }: React.ComponentProps<typeof TabsPrimitive.List>) => (
   <TabsPrimitive.List
     className={cn(
-      "bg-muted flex h-9 flex-row items-center justify-center rounded-lg p-[3px]",
+      "bg-muted flex h-11 flex-row items-center justify-center rounded-lg p-1",
       Platform.select({ native: "mr-auto", web: "inline-flex w-fit" }),
       className
     )}
@@ -32,6 +32,7 @@ const TabsList = ({
 
 const TabsTrigger = ({
   className,
+  hitSlop,
   ...props
 }: React.ComponentProps<typeof TabsPrimitive.Trigger>) => {
   const { value } = TabsPrimitive.useRootContext();
@@ -43,7 +44,7 @@ const TabsTrigger = ({
     <TextClassContext.Provider value={textClassName}>
       <TabsPrimitive.Trigger
         className={cn(
-          "flex flex-row items-center justify-center gap-1.5 rounded-md border border-transparent px-2 py-1 shadow-none shadow-black/5",
+          "flex h-9 flex-row items-center justify-center gap-1.5 rounded-md border border-transparent px-3 shadow-none shadow-black/5",
           Platform.select({
             web: "focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:outline-ring web:h-[calc(100%-1px)] inline-flex cursor-default whitespace-nowrap transition-[color,box-shadow] focus-visible:outline-1 focus-visible:ring-[3px] disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0",
           }),
@@ -52,6 +53,7 @@ const TabsTrigger = ({
             "bg-background dark:border-foreground/10 dark:bg-input/30",
           className
         )}
+        hitSlop={hitSlop ?? 4}
         {...props}
       />
     </TextClassContext.Provider>
