@@ -118,7 +118,7 @@ const ChatRow = React.forwardRef<
           accessibilityRole={
             accessibilityRole ?? (opensConversation ? "button" : undefined)
           }
-          className="min-h-20 flex-row items-center gap-3 py-3 pr-4 active:bg-background-element/70"
+          className="flex-row items-center gap-3 active:bg-background-element/70"
           disabled={disabled}
           onPress={onPress}
           style={{ opacity: disabled ? 0.5 : 1 }}
@@ -131,60 +131,66 @@ const ChatRow = React.forwardRef<
             online={online}
           />
 
-          <View className="min-w-0 flex-1 gap-1">
-            <View className="flex-row items-center gap-1.5">
-              <Text
-                className="min-w-0 shrink text-[17px] font-semibold leading-5"
-                numberOfLines={1}
-              >
-                {name}
-              </Text>
-            </View>
+          <View className="min-w-0 flex-1">
+            <View className="min-h-20 flex-row items-center gap-3 py-3 pr-4">
+              <View className="min-w-0 flex-1 gap-1">
+                <View className="flex-row items-center gap-1.5">
+                  <Text
+                    className="min-w-0 shrink text-[17px] font-semibold leading-5"
+                    numberOfLines={1}
+                  >
+                    {name}
+                  </Text>
+                </View>
 
-            <Text
-              className={cn(
-                "text-[15px] leading-5 text-foreground-secondary",
-                hasUnread && "font-medium text-foreground"
-              )}
-              numberOfLines={1}
-            >
-              {draft ? (
-                <Text className="font-medium text-destructive">Draft: </Text>
-              ) : null}
-              {previewAuthor ? (
-                <Text className="font-medium">{previewAuthor}: </Text>
-              ) : null}
-              {preview}
-            </Text>
-          </View>
-
-          <View className="h-12 min-w-10 items-end justify-between py-0.5">
-            {time ? (
-              <Text
-                className={cn(
-                  "text-xs text-foreground-secondary",
-                  hasUnread && "font-medium text-primary"
-                )}
-                style={{ fontVariant: ["tabular-nums"] }}
-              >
-                {time}
-              </Text>
-            ) : (
-              <View />
-            )}
-            {hasUnread ? (
-              <View className="min-w-5 items-center justify-center rounded-full bg-primary px-1.5 py-0.5">
                 <Text
-                  className="text-xs font-semibold text-primary-foreground"
-                  style={{ fontVariant: ["tabular-nums"] }}
+                  className={cn(
+                    "text-[15px] leading-5 text-foreground-secondary",
+                    hasUnread && "font-medium text-foreground"
+                  )}
+                  numberOfLines={1}
                 >
-                  {unreadCount > 99 ? "99+" : unreadCount}
+                  {draft ? (
+                    <Text className="font-medium text-destructive">
+                      Draft:{" "}
+                    </Text>
+                  ) : null}
+                  {previewAuthor ? (
+                    <Text className="font-medium">{previewAuthor}: </Text>
+                  ) : null}
+                  {preview}
                 </Text>
               </View>
-            ) : null}
+
+              <View className="h-12 min-w-10 items-end justify-between py-0.5">
+                {time ? (
+                  <Text
+                    className={cn(
+                      "text-xs text-foreground-secondary",
+                      hasUnread && "font-medium text-primary"
+                    )}
+                    style={{ fontVariant: ["tabular-nums"] }}
+                  >
+                    {time}
+                  </Text>
+                ) : (
+                  <View />
+                )}
+                {hasUnread ? (
+                  <View className="min-w-5 items-center justify-center rounded-full bg-primary px-1.5 py-0.5">
+                    <Text
+                      className="text-xs font-semibold text-primary-foreground"
+                      style={{ fontVariant: ["tabular-nums"] }}
+                    >
+                      {unreadCount > 99 ? "99+" : unreadCount}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
+            </View>
+            {showSeparator ? <Separator /> : null}
           </View>
         </Pressable>
-        {showSeparator ? <Separator className="ml-17 w-auto" /> : null}
       </View>
     );
   }

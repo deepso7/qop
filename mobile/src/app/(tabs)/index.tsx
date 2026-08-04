@@ -1,13 +1,14 @@
 import { FlashList } from "@shopify/flash-list";
 import type { ListRenderItem } from "@shopify/flash-list";
+import { router } from "expo-router";
 import * as React from "react";
 import { View } from "react-native";
+import { KeyboardController } from "react-native-keyboard-controller";
 import { useResolveClassNames } from "uniwind";
 
 import { ChatRow } from "@/components/ui/chat-row";
 import type { ChatRowProps } from "@/components/ui/chat-row";
 import { ChatSearch } from "@/components/ui/chat-search";
-import { Separator } from "@/components/ui/separator";
 import { Text } from "@/components/ui/text";
 
 interface Conversation extends ChatRowProps {
@@ -51,13 +52,7 @@ const conversations: Conversation[] = [
   },
 ];
 
-const renderConversation: ListRenderItem<Conversation> = ({ item }) => (
-  <ChatRow {...item} showSeparator={false} />
-);
-
 const conversationKey = ({ id }: Conversation) => id;
-
-const ConversationSeparator = () => <Separator className="ml-21 w-auto" />;
 
 const NoSearchResults = () => (
   <View className="items-center gap-1 px-6 py-12">
@@ -69,6 +64,7 @@ const NoSearchResults = () => (
 );
 
 const HomeScreen = () => {
+  const isOpeningConversation = React.useRef(false);
   const [query, setQuery] = React.useState("");
   const contentContainerStyle = useResolveClassNames("pb-24");
   const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -80,6 +76,32 @@ const HomeScreen = () => {
           .some((value) => value?.toLocaleLowerCase().includes(normalizedQuery))
       ),
     [normalizedQuery]
+  );
+  const openConversation = React.useCallback(async (item: Conversation) => {
+    if (isOpeningConversation.current) {
+      return;
+    }
+
+    isOpeningConversation.current = true;
+    try {
+      await KeyboardController.dismiss();
+      router.push({
+        params: { id: item.id, name: item.name },
+        pathname: "/chat/[id]",
+      });
+    } finally {
+      isOpeningConversation.current = false;
+    }
+  }, []);
+  const renderConversation = React.useCallback<ListRenderItem<Conversation>>(
+    ({ index, item }) => (
+      <ChatRow
+        {...item}
+        onPress={() => openConversation(item)}
+        showSeparator={index < filteredConversations.length - 1}
+      />
+    ),
+    [filteredConversations.length, openConversation]
   );
 
   const listHeader = React.useMemo(
@@ -103,7 +125,6 @@ const HomeScreen = () => {
         contentContainerStyle={contentContainerStyle}
         contentInsetAdjustmentBehavior="automatic"
         data={filteredConversations}
-        ItemSeparatorComponent={ConversationSeparator}
         keyboardDismissMode={
           process.env.EXPO_OS === "ios" ? "interactive" : "on-drag"
         }

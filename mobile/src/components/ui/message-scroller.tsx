@@ -8,7 +8,14 @@ import type {
   NativeScrollEvent,
   NativeSyntheticEvent,
 } from "react-native";
-import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import Animated, {
+  FadeIn,
+  FadeOut,
+  useAnimatedStyle,
+  useReducedMotion,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { useResolveClassNames } from "uniwind";
 
 import { Button } from "@/components/ui/button";
@@ -68,6 +75,7 @@ const MessageScrollerInner = <ItemT,>(
     onAtLatestChange,
     onContentSizeChange,
     onLayout,
+    onLoad,
     onScroll,
     scrollEdgeThreshold = DEFAULT_SCROLL_EDGE_THRESHOLD,
     ...props
@@ -75,6 +83,8 @@ const MessageScrollerInner = <ItemT,>(
   forwardedRef: React.ForwardedRef<MessageScrollerHandle>
 ) => {
   const listRef = React.useRef<FlashListRef<ItemT>>(null);
+  const reduceMotion = useReducedMotion();
+  const listOpacity = useSharedValue(reduceMotion ? 1 : 0);
   const contentClassStyle = useResolveClassNames(
     cn("gap-2 px-4 py-3", contentClassName)
   );
@@ -91,6 +101,31 @@ const MessageScrollerInner = <ItemT,>(
     return index;
   }, [data, getMessageId]);
   const [showJumpToLatest, setShowJumpToLatest] = React.useState(false);
+  const listAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: listOpacity.get(),
+  }));
+  const shouldStartFromBottom =
+    !initialMessageId && initialScrollPosition === "end";
+  const resolvedMaintainVisibleContentPosition = React.useMemo(() => {
+    if (maintainVisibleContentPosition === false) {
+      return {
+        disabled: true,
+        startRenderingFromBottom: shouldStartFromBottom,
+      };
+    }
+
+    return {
+      ...maintainVisibleContentPosition,
+      animateAutoScrollToBottom:
+        maintainVisibleContentPosition?.animateAutoScrollToBottom ?? false,
+      autoscrollToBottomThreshold:
+        maintainVisibleContentPosition?.autoscrollToBottomThreshold ??
+        (followOutput ? 0.2 : undefined),
+      startRenderingFromBottom:
+        maintainVisibleContentPosition?.startRenderingFromBottom ??
+        shouldStartFromBottom,
+    };
+  }, [followOutput, maintainVisibleContentPosition, shouldStartFromBottom]);
 
   const updateLatestState = React.useCallback(
     (atLatest: boolean) => {
@@ -178,43 +213,27 @@ const MessageScrollerInner = <ItemT,>(
               viewPosition: 0.15,
             })
           );
-        } else if (initialScrollPosition === "end") {
-          requestAnimationFrame(() => scrollToLatest(false));
         }
-        return;
-      }
-
-      if (followOutput && isFollowing.current) {
-        requestAnimationFrame(() =>
-          listRef.current?.scrollToEnd({ animated: false })
-        );
-      } else if (!isFollowing.current) {
-        updateLatestState(false);
       }
     },
-    [
-      followOutput,
-      initialMessageId,
-      initialScrollPosition,
-      itemIndexById,
-      onContentSizeChange,
-      scrollToLatest,
-      updateLatestState,
-    ]
+    [initialMessageId, itemIndexById, onContentSizeChange, updateLatestState]
   );
 
   const handleLayout = React.useCallback(
     (event: LayoutChangeEvent) => {
       onLayout?.(event);
-      if (
-        !initialMessageId &&
-        initialScrollPosition === "end" &&
-        !hasInitialPosition.current
-      ) {
-        requestAnimationFrame(() => scrollToLatest(false));
-      }
     },
-    [initialMessageId, initialScrollPosition, onLayout, scrollToLatest]
+    [onLayout]
+  );
+
+  const handleLoad = React.useCallback<
+    NonNullable<FlashListProps<ItemT>["onLoad"]>
+  >(
+    (info) => {
+      onLoad?.(info);
+      listOpacity.set(reduceMotion ? 1 : withTiming(1, { duration: 120 }));
+    },
+    [listOpacity, onLoad, reduceMotion]
   );
 
   const jumpLabel =
@@ -224,29 +243,32 @@ const MessageScrollerInner = <ItemT,>(
 
   return (
     <View className={cn("relative flex-1", className)}>
-      <FlashList
-        {...props}
-        contentContainerStyle={[contentClassStyle, contentContainerStyle]}
-        contentInsetAdjustmentBehavior="automatic"
-        data={data}
-        keyboardDismissMode={
-          props.keyboardDismissMode ??
-          (process.env.EXPO_OS === "ios" ? "interactive" : "on-drag")
-        }
-        keyboardShouldPersistTaps={props.keyboardShouldPersistTaps ?? "handled"}
-        keyExtractor={props.keyExtractor ?? getMessageId}
-        maintainVisibleContentPosition={
-          maintainVisibleContentPosition === false
-            ? { disabled: true }
-            : maintainVisibleContentPosition
-        }
-        onContentSizeChange={handleContentSizeChange}
-        onLayout={handleLayout}
-        onScroll={handleScroll}
-        ref={listRef}
-        scrollEventThrottle={16}
-        style={{ flex: 1 }}
-      />
+      <Animated.View className="flex-1" style={listAnimatedStyle}>
+        <FlashList
+          {...props}
+          contentContainerStyle={[contentClassStyle, contentContainerStyle]}
+          contentInsetAdjustmentBehavior="automatic"
+          data={data}
+          keyboardDismissMode={
+            props.keyboardDismissMode ??
+            (process.env.EXPO_OS === "ios" ? "interactive" : "on-drag")
+          }
+          keyboardShouldPersistTaps={
+            props.keyboardShouldPersistTaps ?? "handled"
+          }
+          keyExtractor={props.keyExtractor ?? getMessageId}
+          maintainVisibleContentPosition={
+            resolvedMaintainVisibleContentPosition
+          }
+          onContentSizeChange={handleContentSizeChange}
+          onLayout={handleLayout}
+          onLoad={handleLoad}
+          onScroll={handleScroll}
+          ref={listRef}
+          scrollEventThrottle={16}
+          style={{ flex: 1 }}
+        />
+      </Animated.View>
 
       {showJumpToLatest ? (
         <Animated.View
