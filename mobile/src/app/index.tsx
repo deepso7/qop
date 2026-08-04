@@ -1,60 +1,120 @@
-import * as Device from "expo-device";
+import { FlashList } from "@shopify/flash-list";
+import type { ListRenderItem } from "@shopify/flash-list";
+import * as React from "react";
 import { View } from "react-native";
+import { useResolveClassNames } from "uniwind";
 
-import { AnimatedIcon } from "@/components/animated-icon";
-import { Screen } from "@/components/screen";
-import { HintRow } from "@/components/ui/hint-row";
-import { Surface } from "@/components/ui/surface";
+import { ChatRow } from "@/components/ui/chat-row";
+import type { ChatRowProps } from "@/components/ui/chat-row";
+import { ChatSearch } from "@/components/ui/chat-search";
+import { Separator } from "@/components/ui/separator";
 import { Text } from "@/components/ui/text";
-import { WebBadge } from "@/components/web-badge";
 
-const getDevMenuHint = () => {
-  if (process.env.EXPO_OS === "web") {
-    return <Text variant="caption">use browser devtools</Text>;
-  }
-  if (Device.isDevice) {
-    return (
-      <Text variant="caption">
-        shake device or press <Text variant="mono">m</Text> in terminal
-      </Text>
-    );
-  }
-  const shortcut =
-    process.env.EXPO_OS === "android" ? "cmd+m (or ctrl+m)" : "cmd+d";
-  return (
-    <Text variant="caption">
-      press <Text variant="mono">{shortcut}</Text>
+interface Conversation extends ChatRowProps {
+  id: string;
+}
+
+const conversations: Conversation[] = [
+  {
+    avatarFallback: "AK",
+    id: "aisha",
+    name: "Aisha K.",
+    online: true,
+    preview: "sent the keys — check when you’re free",
+    security: "verified",
+    time: "2m",
+    unreadCount: 3,
+  },
+  {
+    group: true,
+    id: "minip2p-devs",
+    name: "minip2p devs",
+    preview: "relay fallback shipped 🎉 — ready to test",
+    previewAuthor: "Ravi",
+    time: "18m",
+  },
+  {
+    avatarFallback: "D",
+    draft: true,
+    id: "devon",
+    name: "Devon",
+    preview: "sounds good, let’s do it",
+    security: "changed",
+    time: "1h",
+  },
+  {
+    avatarFallback: "M",
+    id: "mum",
+    name: "Mum",
+    preview: "Offline · last seen Tuesday",
+    security: "unverified",
+  },
+];
+
+const renderConversation: ListRenderItem<Conversation> = ({ item }) => (
+  <ChatRow {...item} showSeparator={false} />
+);
+
+const conversationKey = ({ id }: Conversation) => id;
+
+const ConversationSeparator = () => <Separator className="ml-21 w-auto" />;
+
+const NoSearchResults = () => (
+  <View className="items-center gap-1 px-6 py-12">
+    <Text className="font-semibold">No chats found</Text>
+    <Text className="text-center text-foreground-secondary" variant="caption">
+      Try a name or a word from a recent message.
     </Text>
+  </View>
+);
+
+const HomeScreen = () => {
+  const [query, setQuery] = React.useState("");
+  const contentContainerStyle = useResolveClassNames("pb-24");
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filteredConversations = React.useMemo(
+    () =>
+      conversations.filter(({ name, preview, previewAuthor }) =>
+        [name, preview, previewAuthor]
+          .filter(Boolean)
+          .some((value) => value?.toLocaleLowerCase().includes(normalizedQuery))
+      ),
+    [normalizedQuery]
+  );
+
+  const listHeader = React.useMemo(
+    () => (
+      <View className="gap-4 px-5 pt-10 pb-4">
+        <View className="gap-1">
+          <Text variant="title">Chats</Text>
+          <Text className="text-foreground-secondary" variant="caption">
+            Direct conversations with your peers.
+          </Text>
+        </View>
+        <ChatSearch onChangeText={setQuery} value={query} />
+      </View>
+    ),
+    [query]
+  );
+
+  return (
+    <View className="flex-1 bg-background">
+      <FlashList
+        contentContainerStyle={contentContainerStyle}
+        contentInsetAdjustmentBehavior="automatic"
+        data={filteredConversations}
+        ItemSeparatorComponent={ConversationSeparator}
+        keyboardDismissMode={
+          process.env.EXPO_OS === "ios" ? "interactive" : "on-drag"
+        }
+        keyboardShouldPersistTaps="handled"
+        keyExtractor={conversationKey}
+        ListEmptyComponent={NoSearchResults}
+        ListHeaderComponent={listHeader}
+        renderItem={renderConversation}
+      />
+    </View>
   );
 };
-
-const HomeScreen = () => (
-  <Screen contentClassName="items-center" variant="hero">
-    <View className="items-center gap-6 px-6">
-      <AnimatedIcon />
-      <Text className="text-center" variant="display">
-        Welcome to&nbsp;Expo
-      </Text>
-    </View>
-
-    <Text className="uppercase" variant="mono">
-      get started
-    </Text>
-
-    <Surface className="self-stretch gap-4 rounded-xl px-4 py-6" tone="element">
-      <HintRow
-        title="Try editing"
-        hint={<Text variant="mono">src/app/index.tsx</Text>}
-      />
-      <HintRow title="Dev tools" hint={getDevMenuHint()} />
-      <HintRow
-        title="Fresh start"
-        hint={<Text variant="mono">npm run reset-project</Text>}
-      />
-    </Surface>
-
-    {process.env.EXPO_OS === "web" && <WebBadge />}
-  </Screen>
-);
 
 export default HomeScreen;
