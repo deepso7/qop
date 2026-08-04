@@ -1,0 +1,73 @@
+---
+description: High-depth PR review for QOP — use when reviewing diffs, PRs, or Bugbot custom instructions
+alwaysApply: false
+---
+
+# PR review
+
+Review like a strong staff engineer with unlimited patience: find real bugs in the diff, not style. Be **generic** (reason about *this* change), not a scavenger hunt for past bugs. Prefer **recall of true bugs** over a short “important-only” list — finish the whole method before stopping.
+
+## Severity
+
+- **P0**: hangs, uncaught exceptions that take down the JS process / redbox loops, definitively wrong results, or tests/fixtures that cannot work as written
+- **P1**: correctness or security bug likely to hit real users (crashes on common paths, broken navigation/deep links, data loss, auth/token misuse, permission or P2P trust mistakes, RN render crashes from leaked falsy/`Text` violations)
+- **P2**: contract/lifecycle/resource bugs; clear holes where lint/typecheck/CI won’t catch failure
+- **P3**: concrete maintainability or portability with a real failure mode (skip pure taste)
+
+Confidence ≥ 0.8 only (0–1 scale; same bar as “≥ 8 / 10”). If unsure, dig deeper or drop — don’t pad.
+
+## Output
+
+1. `**N issues found** across X files` (or no issues)
+2. Table: Severity | Location (`file:line`) | Finding
+3. Each finding: `P{N}: <what breaks + who is hurt>. <fix direction>.`
+4. **Copy block** (Cubic-style) — after the table, one fenced `text` block the user can paste into an agent:
+
+```text
+Check if these issues are valid — if so, understand the root cause of each and fix them. If appropriate, use sub-agents to investigate and fix each issue separately.
+
+<file name="path/to/file.tsx">
+<violation number="1" location="path/to/file.tsx:LINE">
+P{N}: …finding text…
+</violation>
+</file>
+```
+
+Group violations by file. Keep the whole copy block in one fence so it copies in one shot.
+
+## Method (do all of it — do not stop after the first P0/P1)
+
+Work the **diff**, reading surrounding code when needed. For every nontrivial hunk, ask: *what inputs, interleavings, retries, or partial failures make this wrong?*
+
+### 1. Spec & state
+- What invariants does this screen/hook/component/store claim (props, route params, docs, names, prior code)?
+- Can remount, focus/blur, back-nav, sheet dismiss, or duplicate presses break those invariants?
+- After unmount/cleanup, can listeners, subscriptions, timers, gestures, or worklets still fire?
+
+### 2. Data & parsing
+- Route/search params, deep links, JSON from network/storage, BigInt/number precision, off-by-one in sizes/indices
+- New/changed fixtures and snapshots: values must match what parsers/tests assume. If tests don’t load a field, still flag corrupt fixtures — silent rot is a bug
+- Rewrites that rebuild maps/lists/state trees: do they drop fields the old path preserved?
+- Reject/accept paths for untrusted input (deep links, peer messages, user config): validate before expensive work or state changes?
+
+### 3. Resources & control flow
+- Loops over events/timers/scroll/gestures: can they spin, starve the JS thread, or skip deadlines?
+- Lists/buffers: unbounded growth, or **superlinear** work on normal batch sizes
+- Error paths: do they leak subscriptions/listeners/handles, double-close, or mark success after failure?
+- Render crashes: `{value && <View/>}` with falsy string/`0`; strings outside `<Text>`; unstable list keys causing remount storms
+
+### 4. Tests, CI, and claims
+- Do new behaviors have tests or checks that would fail if the bug existed?
+- Did CI/scripts/`package.json` scripts/`pnpm check` / `expo lint` lose coverage when files were renamed or packages split?
+- Do READMEs/comments claim behavior the code no longer implements?
+- Hollow or checklist-duplicate tests that create false confidence — treat as P2/P3 maintainability when you can cite a concrete `file:line` and state what regression the proof would miss; not pure taste.
+
+### 5. Project constraints (only when the diff touches them)
+Enforce `AGENTS.md` (Expo SDK 57 docs at https://docs.expo.dev/versions/v57.0.0/ before writing Expo APIs) and critical React Native correctness from `.agents/skills/vercel-react-native-skills/` (leaked falsy renders, strings outside `Text`, scroll position in `useState`, native deps only in `mobile/`) — as **correctness/policy bugs**, not style. No edits to `node_modules`.
+
+## Bar vs typical AI review
+
+- **Better than a quick skim:** complete sections 1–4 on the full diff; don’t exit early because you already have “enough” findings
+- **Better than nit bots:** no formatting/import churn; every finding needs a failure story
+- **Generic:** same method on any PR; no memorized bug list from old reviews
+- When practical, run focused checks (`pnpm check`, `pnpm --filter mobile lint`) and treat failures (or suspiciously green checks that never load broken data) as evidence

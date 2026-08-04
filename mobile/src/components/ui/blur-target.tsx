@@ -2,20 +2,19 @@ import { BlurTargetView } from "expo-blur";
 import * as React from "react";
 import type { View } from "react-native";
 
-type BlurTargetContextValue = {
+interface BlurTargetContextValue {
   ref: React.RefObject<View | null>;
   setOverlayOpen: (open: boolean) => void;
-};
+}
 
-const BlurTargetContext = React.createContext<BlurTargetContextValue | null>(null);
+const BlurTargetContext = React.createContext<BlurTargetContextValue | null>(
+  null
+);
 
 const BlurTargetProvider = ({ children }: React.PropsWithChildren) => {
   const targetRef = React.useRef<View | null>(null);
   const [overlayOpen, setOverlayOpen] = React.useState(false);
-  const value = React.useMemo(
-    () => ({ ref: targetRef, setOverlayOpen }),
-    []
-  );
+  const value = React.useMemo(() => ({ ref: targetRef, setOverlayOpen }), []);
 
   return (
     <BlurTargetContext.Provider value={value}>

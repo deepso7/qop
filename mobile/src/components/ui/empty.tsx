@@ -30,10 +30,7 @@ const EmptyHeader = ({
   className,
   ...props
 }: React.ComponentProps<typeof View>) => (
-  <View
-    className={cn("max-w-sm items-center gap-2", className)}
-    {...props}
-  />
+  <View className={cn("max-w-sm items-center gap-2", className)} {...props} />
 );
 
 const emptyMediaVariants = cva("items-center justify-center", {
@@ -62,9 +59,8 @@ const EmptyTitle = ({
   ...props
 }: React.ComponentProps<typeof Text>) => (
   <Text
-    className={cn("text-center", className)}
-    role="heading"
-    variant="large"
+    className={cn("text-center text-lg", className)}
+    variant="h4"
     {...props}
   />
 );

@@ -1,8 +1,8 @@
+import { Portal } from "@rn-primitives/portal";
 import { cva } from "class-variance-authority";
 import type { VariantProps } from "class-variance-authority";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
-import { Portal } from "@rn-primitives/portal";
 import type { LucideIcon } from "lucide-react-native";
 import { Check, CheckCheck, Clock3, Plus } from "lucide-react-native";
 import * as React from "react";
@@ -32,9 +32,9 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
+import { useBlurTarget } from "@/components/ui/blur-target";
 import { Button } from "@/components/ui/button";
 import type { ButtonProps } from "@/components/ui/button";
-import { useBlurTarget } from "@/components/ui/blur-target";
 import { Icon } from "@/components/ui/icon";
 import { Text, TextClassContext } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
@@ -254,14 +254,23 @@ type MessageMetaProps = React.ComponentProps<typeof View> & {
   time: string;
 };
 
+const getMessageStatusIcon = (status: MessageMetaProps["status"]) => {
+  if (status === "read") {
+    return CheckCheck;
+  }
+  if (status === "sent") {
+    return Check;
+  }
+  return Clock3;
+};
+
 const MessageMeta = ({
   className,
   status,
   time,
   ...props
 }: MessageMetaProps) => {
-  const StatusIcon =
-    status === "read" ? CheckCheck : status === "sent" ? Check : Clock3;
+  const StatusIcon = getMessageStatusIcon(status);
 
   return (
     <View
@@ -272,10 +281,15 @@ const MessageMeta = ({
       )}
       {...props}
     >
-      <Text className="text-xs leading-4" style={{ fontVariant: ["tabular-nums"] }}>
+      <Text
+        className="text-xs leading-4"
+        style={{ fontVariant: ["tabular-nums"] }}
+      >
         {time}
       </Text>
-      {status ? <Icon as={StatusIcon} className="size-3.5" strokeWidth={2.25} /> : null}
+      {status ? (
+        <Icon as={StatusIcon} className="size-3.5" strokeWidth={2.25} />
+      ) : null}
     </View>
   );
 };
@@ -310,25 +324,23 @@ const MessageReaction = ({
   emoji,
   selected = false,
   ...props
-}: MessageReactionProps) => {
-  return (
-    <Button
-      accessibilityLabel={`${emoji} reaction${selected ? ", you reacted" : ""}`}
-      accessibilityState={{ selected }}
-      className={cn(
-        "border-border h-8 min-w-8 rounded-full border px-2",
-        selected && "bg-primary border-primary",
-        className
-      )}
-      hitSlop={6}
-      size="sm"
-      variant={selected ? "default" : "outline"}
-      {...props}
-    >
-      <Text className="text-sm leading-4">{emoji}</Text>
-    </Button>
-  );
-};
+}: MessageReactionProps) => (
+  <Button
+    accessibilityLabel={`${emoji} reaction${selected ? ", you reacted" : ""}`}
+    accessibilityState={{ selected }}
+    className={cn(
+      "border-border h-8 min-w-8 rounded-full border px-2",
+      selected && "bg-primary border-primary",
+      className
+    )}
+    hitSlop={6}
+    size="sm"
+    variant={selected ? "default" : "outline"}
+    {...props}
+  >
+    <Text className="text-sm leading-4">{emoji}</Text>
+  </Button>
+);
 
 const MessageReactionAdd = ({ className, ...props }: ButtonProps) => (
   <Button
@@ -381,7 +393,7 @@ const MessageReactionPickerItem = ({
   </Button>
 );
 
-type MessageAction = {
+interface MessageAction {
   destructive?: boolean;
   disabled?: boolean;
   icon: LucideIcon;
@@ -389,9 +401,9 @@ type MessageAction = {
   label: string;
   onPress?: () => void;
   separatorBefore?: boolean;
-};
+}
 
-type MessageLongPressMenuProps = {
+interface MessageLongPressMenuProps {
   accessibilityLabel?: string;
   actions: MessageAction[];
   align?: "start" | "end";
@@ -401,19 +413,42 @@ type MessageLongPressMenuProps = {
   onOpenChange?: (open: boolean) => void;
   onReaction?: (emoji: string) => void;
   reactions?: string[];
-};
+}
 
-type MessageRect = {
+interface MessageRect {
   height: number;
   width: number;
   x: number;
   y: number;
-};
+}
 
 const ACTION_MENU_WIDTH = 252;
 const REACTION_RAIL_HEIGHT = 58;
 const MENU_ROW_HEIGHT = 46;
+const DEFAULT_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
 
+const triggerLongPressFeedback = async () => {
+  try {
+    if (process.env.EXPO_OS === "android") {
+      await Haptics.performAndroidHapticsAsync(
+        Haptics.AndroidHaptics.Long_Press
+      );
+      return;
+    }
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  } catch {
+    // Haptic feedback is optional and should never block the menu.
+  }
+};
+
+const getBlurTint = (colorScheme: ReturnType<typeof useColorScheme>) => {
+  if (Platform.OS === "ios") {
+    return "default" as const;
+  }
+  return colorScheme === "dark" ? ("dark" as const) : ("light" as const);
+};
+
+// oxlint-disable-next-line eslint/complexity -- Declarative UI states account for the branches here.
 const MessageLongPressMenu = ({
   accessibilityLabel = "Open message actions",
   actions,
@@ -423,7 +458,7 @@ const MessageLongPressMenu = ({
   onAddReaction,
   onOpenChange,
   onReaction,
-  reactions = ["👍", "❤️", "😂", "😮", "😢", "🙏"],
+  reactions = DEFAULT_REACTIONS,
 }: MessageLongPressMenuProps) => {
   const triggerRef = React.useRef<View>(null);
   const firstActionRef = React.useRef<View>(null);
@@ -446,22 +481,31 @@ const MessageLongPressMenu = ({
   );
 
   const showMenu = React.useCallback(() => {
+    // oxlint-disable-next-line promise/prefer-await-to-callbacks -- React Native exposes callback-only view measurement.
     triggerRef.current?.measureInWindow((x, y, width, height) => {
       setRect({ height, width, x, y });
       setMenuOpen(true);
-
-      const feedback =
-        process.env.EXPO_OS === "android"
-          ? Haptics.performAndroidHapticsAsync(Haptics.AndroidHaptics.Long_Press)
-          : Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      void feedback.catch(() => undefined);
+      void triggerLongPressFeedback();
     });
   }, [setMenuOpen]);
 
-  const runAndClose = React.useCallback(
-    (callback?: () => void) => {
+  const selectReaction = React.useCallback(
+    (emoji: string) => {
       setMenuOpen(false);
-      callback?.();
+      onReaction?.(emoji);
+    },
+    [onReaction, setMenuOpen]
+  );
+
+  const addReaction = React.useCallback(() => {
+    setMenuOpen(false);
+    onAddReaction?.();
+  }, [onAddReaction, setMenuOpen]);
+
+  const runAction = React.useCallback(
+    (action: MessageAction) => {
+      setMenuOpen(false);
+      action.onPress?.();
     },
     [setMenuOpen]
   );
@@ -471,12 +515,18 @@ const MessageLongPressMenu = ({
   const groupHeight =
     REACTION_RAIL_HEIGHT + 10 + (rect?.height ?? 0) + 12 + menuHeight;
   const desiredTop = (rect?.y ?? 0) - REACTION_RAIL_HEIGHT - 10;
-  const top = Math.max(54, Math.min(desiredTop, windowHeight - groupHeight - 24));
+  const top = Math.max(
+    54,
+    Math.min(desiredTop, windowHeight - groupHeight - 24)
+  );
   const desiredLeft =
     align === "end"
       ? (rect?.x ?? 0) + (rect?.width ?? 0) - surfaceWidth
       : (rect?.x ?? 0);
-  const left = Math.max(16, Math.min(desiredLeft, windowWidth - surfaceWidth - 16));
+  const left = Math.max(
+    16,
+    Math.min(desiredLeft, windowWidth - surfaceWidth - 16)
+  );
 
   React.useEffect(() => {
     blurTarget?.setOverlayOpen(open);
@@ -504,8 +554,6 @@ const MessageLongPressMenu = ({
         }
       });
     }
-
-    return undefined;
   }, [blurTarget, open]);
 
   React.useEffect(
@@ -545,13 +593,7 @@ const MessageLongPressMenu = ({
               blurTarget={blurTarget?.ref}
               intensity={Platform.OS === "ios" ? 18 : 42}
               style={StyleSheet.absoluteFill}
-              tint={
-                Platform.OS === "ios"
-                  ? "default"
-                  : colorScheme === "dark"
-                    ? "dark"
-                    : "light"
-              }
+              tint={getBlurTint(colorScheme)}
             />
             <Pressable
               accessibilityLabel="Close message actions"
@@ -569,21 +611,23 @@ const MessageLongPressMenu = ({
               style={{ left, position: "absolute", top, width: surfaceWidth }}
             >
               <Animated.View
-                entering={reduceMotion ? undefined : FadeInDown.springify().damping(18).stiffness(260)}
+                entering={
+                  reduceMotion
+                    ? undefined
+                    : FadeInDown.springify().damping(18).stiffness(260)
+                }
               >
                 <MessageReactionPicker className="bg-background border-border shadow-lg">
                   {reactions.map((emoji) => (
                     <MessageReactionPickerItem
                       emoji={emoji}
                       key={emoji}
-                      onPress={() =>
-                        runAndClose(() => onReaction?.(emoji))
-                      }
+                      onPress={() => selectReaction(emoji)}
                     />
                   ))}
                   <MessageReactionAdd
                     className="bg-background-selected border-0"
-                    onPress={() => runAndClose(onAddReaction)}
+                    onPress={addReaction}
                   />
                 </MessageReactionPicker>
               </Animated.View>
@@ -604,7 +648,9 @@ const MessageLongPressMenu = ({
                     ? "bg-background mt-3 self-end overflow-hidden rounded-[20px]"
                     : "bg-background mt-3 self-start overflow-hidden rounded-[20px]"
                 }
-                entering={reduceMotion ? undefined : FadeInDown.delay(35).duration(180)}
+                entering={
+                  reduceMotion ? undefined : FadeInDown.delay(35).duration(180)
+                }
                 style={{ borderCurve: "continuous", width: ACTION_MENU_WIDTH }}
               >
                 {actions.map((action, index) => (
@@ -617,16 +663,22 @@ const MessageLongPressMenu = ({
                       accessibilityState={{ disabled: action.disabled }}
                       className="active:bg-background-selected h-[46px] flex-row items-center gap-3.5 px-4"
                       disabled={action.disabled}
-                      onPress={() => runAndClose(action.onPress)}
+                      onPress={() => runAction(action)}
                       ref={index === 0 ? firstActionRef : undefined}
                     >
                       <Icon
                         as={action.icon}
-                        className={action.destructive ? "text-destructive size-[18px]" : "size-[18px]"}
+                        className={
+                          action.destructive
+                            ? "text-destructive size-[18px]"
+                            : "size-[18px]"
+                        }
                       />
                       <Text
                         className={
-                          action.destructive ? "text-destructive text-sm" : "text-sm"
+                          action.destructive
+                            ? "text-destructive text-sm"
+                            : "text-sm"
                         }
                       >
                         {action.label}

@@ -1,8 +1,5 @@
-import {
-  FlashList,
-  type FlashListProps,
-  type FlashListRef,
-} from "@shopify/flash-list";
+import { FlashList } from "@shopify/flash-list";
+import type { FlashListProps, FlashListRef } from "@shopify/flash-list";
 import { ArrowDown } from "lucide-react-native";
 import * as React from "react";
 import { View } from "react-native";
