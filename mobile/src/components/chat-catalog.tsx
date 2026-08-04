@@ -1,6 +1,7 @@
 import {
   Copy,
   Forward,
+  MessageCircle,
   MoreHorizontal,
   Reply,
   Star,
@@ -41,6 +42,15 @@ import type { MessageAction } from "@/components/ui/message";
 import { SectionLabel } from "@/components/ui/section-label";
 import { Text } from "@/components/ui/text";
 import { Button } from "@/components/ui/button";
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import { Icon } from "@/components/ui/icon";
 import {
   MessageScroller,
   type MessageScrollerHandle,
@@ -275,6 +285,27 @@ const ChatCatalog = () => {
           <Text>Jump to latest</Text>
         </Button>
       </View>
+    </View>
+
+    <View className="gap-3">
+      <SectionLabel>Empty conversation</SectionLabel>
+      <Empty className="min-h-64" variant="outline">
+        <EmptyHeader>
+          <EmptyMedia variant="icon">
+            <Icon as={MessageCircle} className="text-foreground-secondary size-6" />
+          </EmptyMedia>
+          <EmptyTitle>No messages yet</EmptyTitle>
+          <EmptyDescription>
+            Say hello — the connection is direct, so both of you need to be
+            online.
+          </EmptyDescription>
+        </EmptyHeader>
+        <EmptyContent>
+          <Button>
+            <Text>Send a first message</Text>
+          </Button>
+        </EmptyContent>
+      </Empty>
     </View>
 
     <View className="gap-3">
