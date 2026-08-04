@@ -38,7 +38,7 @@ export const CustomTabList = (props: TabListProps) => {
       className="absolute w-full flex-row items-center justify-center p-4"
     >
       <Surface
-        className="max-w-3xl flex-grow flex-row items-center gap-2 rounded-2xl px-8 py-2"
+        className="max-w-3xl grow flex-row items-center gap-2 rounded-2xl px-8 py-2"
         tone="element"
       >
         <Text className="mr-auto" variant="label">

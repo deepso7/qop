@@ -148,7 +148,7 @@ const TabTwoScreen = () => (
             running this project.
           </Text>
           <Image
-            className="mt-2 aspect-[296/171] w-full rounded-xl"
+            className="mt-2 aspect-296/171 w-full rounded-xl"
             source={tutorialWeb}
           />
         </View>
