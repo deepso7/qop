@@ -16,6 +16,7 @@ import type { LayoutChangeEvent } from "react-native";
 
 import expoLogo from "@/assets/images/expo-logo.png";
 import { AnimatedIcon } from "@/components/animated-icon";
+import { ChatCatalog } from "@/components/chat-catalog";
 import { ExternalLink } from "@/components/external-link";
 import { RnrCatalog } from "@/components/rnr-catalog";
 import { Screen } from "@/components/screen";
@@ -184,6 +185,14 @@ const ComponentsScreen = () => {
             product UI and branded interactions.
           </Text>
           <RnrCatalog />
+        </ComponentSection>
+
+        <ComponentSection title="QOP · chat primitives">
+          <Text className="text-foreground-secondary" variant="caption">
+            Composable message, delivery, attachment, reply, typing, and
+            composer states for peer conversations.
+          </Text>
+          <ChatCatalog />
         </ComponentSection>
 
         <ComponentSection title="QOP · native platform primitives">

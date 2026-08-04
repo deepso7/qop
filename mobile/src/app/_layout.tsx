@@ -1,10 +1,11 @@
 import { PortalHost } from "@rn-primitives/portal";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import { useColorScheme } from "react-native";
+import { View, useColorScheme } from "react-native";
 
 import { AnimatedSplashOverlay } from "@/components/animated-icon";
 import AppTabs from "@/components/app-tabs";
+import { BlurTargetProvider } from "@/components/ui/blur-target";
 import { useTheme } from "@/constants/theme";
 
 import "../../global.css";
@@ -30,9 +31,13 @@ const TabLayout = () => {
 
   return (
     <ThemeProvider value={navigationTheme}>
-      <AnimatedSplashOverlay />
-      <AppTabs />
-      <PortalHost />
+      <View className="flex-1">
+        <BlurTargetProvider>
+          <AnimatedSplashOverlay />
+          <AppTabs />
+        </BlurTargetProvider>
+        <PortalHost />
+      </View>
     </ThemeProvider>
   );
 };
