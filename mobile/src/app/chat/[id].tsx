@@ -9,7 +9,7 @@ const ChatRoute = () => {
   return (
     <>
       <Stack.Screen options={{ title }} />
-      <ConversationScreen peerName={title} />
+      <ConversationScreen conversationId={id} peerName={title} />
     </>
   );
 };

@@ -41,6 +41,8 @@ import {
 import type { MessageAction } from "@/components/ui/message";
 import { MessageScroller } from "@/components/ui/message-scroller";
 import { Text } from "@/components/ui/text";
+import { useMinip2pChat } from "@/hooks/use-minip2p-chat";
+import type { ReceivedChatMessage } from "@/hooks/use-minip2p-chat";
 
 type DeliveryStatus = "read" | "sending" | "sent";
 
@@ -75,112 +77,12 @@ interface ChatTyping {
 type ConversationItem = ChatDate | ChatMessage | ChatSystemMessage | ChatTyping;
 
 const initialMessages: ConversationItem[] = [
-  { id: "date-yesterday", kind: "date", text: "Yesterday" },
-  {
-    id: "message-yesterday-1",
-    kind: "message",
-    outgoing: false,
-    text: "I pushed the transport changes to the test branch.",
-    time: "6:42 PM",
-  },
-  {
-    id: "message-yesterday-2",
-    kind: "message",
-    outgoing: true,
-    status: "read",
-    text: "nice — I’ll run it on both devices",
-    time: "6:45 PM",
-  },
-  {
-    id: "message-yesterday-3",
-    kind: "message",
-    outgoing: false,
-    text: "Try Wi-Fi first, then switch one phone to mobile data.",
-    time: "6:46 PM",
-  },
-  {
-    id: "message-yesterday-4",
-    kind: "message",
-    outgoing: false,
-    text: "That should force the relay path without restarting the session.",
-    time: "6:47 PM",
-  },
-  {
-    id: "message-yesterday-5",
-    kind: "message",
-    outgoing: true,
-    status: "read",
-    text: "direct path works — switching networks now",
-    time: "6:51 PM",
-  },
-  {
-    id: "message-yesterday-6",
-    kind: "message",
-    outgoing: true,
-    status: "read",
-    text: "connection recovered in about two seconds",
-    time: "6:52 PM",
-  },
-  {
-    id: "message-yesterday-7",
-    kind: "message",
-    outgoing: false,
-    reactions: ["👍"],
-    text: "Perfect. I’ll clean up the debug logs before the next build.",
-    time: "6:54 PM",
-  },
-  {
-    id: "session-secured",
-    kind: "system",
-    text: "Session secured with end-to-end encryption",
-  },
   { id: "date-today", kind: "date", text: "Today" },
   {
-    id: "message-1",
-    kind: "message",
-    outgoing: false,
-    text: "did the handshake land on your side?",
-    time: "8:13",
-  },
-  {
-    id: "message-2",
-    kind: "message",
-    outgoing: false,
-    reactions: ["🎉", "🔥"],
-    text: "relay fallback shipped 🎉",
-    time: "8:14",
-  },
-  {
-    id: "message-3",
-    kind: "message",
-    outgoing: true,
-    status: "read",
-    text: "yes — straight p2p, no relay",
-    time: "8:14",
-  },
-  {
-    id: "message-4",
-    kind: "message",
-    outgoing: false,
-    reply: { author: "You", preview: "yes — straight p2p, no relay" },
-    text: "then we can drop the relay entirely",
-    time: "8:15",
-  },
-  {
-    id: "message-5",
-    kind: "message",
-    outgoing: true,
-    reactions: ["👏"],
-    status: "read",
-    text: "no relay in the path now",
-    time: "8:16",
-  },
-  {
-    id: "keys-changed",
+    id: "poc-notice",
     kind: "system",
-    text: "Aisha’s keys changed · verify again",
+    text: "Relay-backed minip2p POC · messages are not persisted",
   },
-  { id: "typing", kind: "typing" },
 ];
 
 const messageActions: MessageAction[] = [
@@ -254,15 +156,40 @@ const ConversationMessage = ({
 };
 
 interface ConversationScreenProps {
+  conversationId: string;
   peerName: string;
 }
 
-const ConversationScreen = ({ peerName }: ConversationScreenProps) => {
+const ConversationScreen = ({
+  conversationId,
+  peerName,
+}: ConversationScreenProps) => {
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
   const [draft, setDraft] = React.useState("");
   const [messages, setMessages] = React.useState(initialMessages);
+
+  const receiveMessage = React.useCallback((message: ReceivedChatMessage) => {
+    const id = `${message.fromPeerId}:${message.id}`;
+    setMessages((current) => {
+      if (current.some((item) => item.id === id)) {
+        return current;
+      }
+      return [
+        ...current,
+        {
+          id,
+          kind: "message",
+          outgoing: false,
+          text: message.text,
+          time: timeFormatter.format(new Date(message.sentAt)),
+        },
+      ];
+    });
+  }, []);
+  const p2p = useMinip2pChat(conversationId, receiveMessage);
+  const { canPublish, diagnostics, label, peerId, publish, status } = p2p;
 
   const addReaction = React.useCallback((messageId: string, emoji: string) => {
     setMessages((current) =>
@@ -294,26 +221,38 @@ const ConversationScreen = ({ peerName }: ConversationScreenProps) => {
     [addReaction, peerName]
   );
 
-  const sendMessage = React.useCallback(() => {
+  const sendMessage = () => {
     const text = draft.trim();
     if (!text) {
       return;
     }
+    let published;
+    try {
+      published = publish(text);
+    } catch {
+      return;
+    }
     setMessages((current) => [
-      ...current.filter((item) => item.kind !== "typing"),
+      ...current,
       {
-        id: `message-${Date.now()}`,
+        id: published.id,
         kind: "message",
         outgoing: true,
-        status: "sending",
-        text,
-        time: timeFormatter.format(new Date()),
+        status: "sent",
+        text: published.text,
+        time: timeFormatter.format(new Date(published.sentAt)),
       },
     ]);
     setDraft("");
-  }, [draft]);
+  };
 
-  const canSend = draft.trim().length > 0;
+  const canSend = draft.trim().length > 0 && canPublish;
+  let statusIndicatorClassName = "size-2 rounded-full bg-amber-500";
+  if (status === "ready") {
+    statusIndicatorClassName = "size-2 rounded-full bg-green-500";
+  } else if (status === "failed" || status === "closed") {
+    statusIndicatorClassName = "bg-destructive size-2 rounded-full";
+  }
   const composerStyle = useAnimatedStyle(
     () => ({
       paddingBottom: interpolate(
@@ -331,6 +270,35 @@ const ConversationScreen = ({ peerName }: ConversationScreenProps) => {
       className="flex-1 bg-background"
       keyboardVerticalOffset={headerHeight}
     >
+      <View className="border-border gap-1 border-b px-4 py-2">
+        <View className="flex-row items-center gap-2">
+          <View className={statusIndicatorClassName} />
+          <Text
+            className="text-foreground-secondary min-w-0 flex-1 text-xs"
+            numberOfLines={1}
+            selectable
+          >
+            {label}
+          </Text>
+          {peerId ? (
+            <Text
+              className="text-foreground-secondary text-xs opacity-60"
+              selectable
+            >
+              {peerId.slice(0, 8)}
+            </Text>
+          ) : null}
+        </View>
+        {diagnostics ? (
+          <Text
+            className="text-foreground-secondary font-mono text-[10px] opacity-70"
+            numberOfLines={3}
+            selectable
+          >
+            {diagnostics}
+          </Text>
+        ) : null}
+      </View>
       <MessageScroller
         contentClassName="gap-0 px-4 py-3"
         data={messages}
