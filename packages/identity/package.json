@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@scure/base": "2.2.0",
-    "effect": "catalog:"
+    "effect": "catalog:",
+    "viem": "2.55.11"
   },
   "devDependencies": {
     "@effect/vitest": "4.0.0-beta.103",

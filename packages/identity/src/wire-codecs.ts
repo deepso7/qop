@@ -129,6 +129,28 @@ export const EcdsaSignature = CanonicalEcdsaSignatureString.pipe(
   )
 );
 
+const WalletEcdsaSignatureString = Schema.String.check(
+  Schema.isPattern(/^0x[0-9a-f]{128}(?:00|01|1b|1c)$/iu, {
+    expected: "a 65-byte ECDSA signature ending in yParity 0/1 or v 27/28",
+  })
+);
+
+export const normalizeEcdsaSignature = Effect.fn(
+  "@qop/identity/normalizeEcdsaSignature"
+)((input: unknown) =>
+  Schema.decodeUnknownEffect(WalletEcdsaSignatureString)(input).pipe(
+    Effect.map((signature) => {
+      const bytes = hex.decode(signature.toLowerCase().slice(2));
+      const recovery = bytes.at(-1);
+      if (recovery === 27 || recovery === 28) {
+        bytes[64] = recovery - 27;
+      }
+      return `0x${hex.encode(bytes)}`;
+    }),
+    Effect.flatMap(Schema.decodeUnknownEffect(EcdsaSignature))
+  )
+);
+
 const CanonicalUint256String = Schema.String.check(
   Schema.isMaxLength(78, { expected: "at most 78 decimal digits" }),
   Schema.isPattern(/^(?:0|[1-9][0-9]*)$/u, {
@@ -139,6 +161,12 @@ const CanonicalUint256String = Schema.String.check(
 const PositiveUint256 = Schema.BigInt.check(
   Schema.makeFilter((value) => value > 0n && value <= UINT256_MAX, {
     expected: "a positive uint256 qid",
+  })
+);
+
+const PositiveChainId = Schema.BigInt.check(
+  Schema.makeFilter((value) => value > 0n && value <= UINT256_MAX, {
+    expected: "a positive uint256 chain id",
   })
 );
 
@@ -159,6 +187,16 @@ export const Qid = CanonicalUint256String.pipe(
   Schema.decodeTo(PositiveUint256, SchemaTransformation.bigintFromString)
 );
 
+export const ChainId = CanonicalUint256String.pipe(
+  Schema.decodeTo(PositiveChainId, SchemaTransformation.bigintFromString)
+);
+
 export const UnixSeconds = CanonicalUint64String.pipe(
   Schema.decodeTo(Uint64, SchemaTransformation.bigintFromString)
+);
+
+export const EthereumAddress = Schema.String.check(
+  Schema.isPattern(/^0x[0-9a-f]{40}$/u, {
+    expected: "a canonical lowercase Ethereum address",
+  })
 );

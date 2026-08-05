@@ -8,6 +8,7 @@ import {
   EcdsaSignature,
   encodeIdentityEnvelopeV1,
   IdentityEnvelopeV1,
+  normalizeEcdsaSignature,
   PeerId,
   Qid,
   UnixSeconds,
@@ -189,6 +190,21 @@ describe("identity wire codecs", () => {
         assert.isTrue(Exit.isFailure(exit));
       }
     })
+  );
+
+  it.effect(
+    "normalizes mixed-case wallet signatures to canonical wire bytes",
+    () =>
+      Effect.gen(function* () {
+        const canonical = makeSignature({ r: 10n, s: 11n });
+        const walletSignature = `0X${canonical.slice(2, -2).toUpperCase()}1B`;
+
+        const normalized = yield* normalizeEcdsaSignature(walletSignature);
+        const encoded = yield* Schema.encodeEffect(EcdsaSignature)(normalized);
+
+        assert.strictEqual(encoded, canonical);
+        assert.match(encoded, /^0x[0-9a-f]{130}$/u);
+      })
   );
 
   it.effect("decodes and re-encodes the versioned identity envelope", () =>
