@@ -1,7 +1,7 @@
 import { Context, Effect, Layer, Schema, SchemaIssue } from "effect";
 
 const EnvSchema = Schema.Struct({
-  DATABASE_URL: Schema.NonEmptyString,
+  DATABASE_URL: Schema.Trim.check(Schema.isNonEmpty()),
 });
 
 type EnvType = Schema.Schema.Type<typeof EnvSchema>;

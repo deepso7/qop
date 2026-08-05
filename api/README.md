@@ -2,6 +2,6 @@
 
 QOP's general-purpose API service.
 
-Its initial surface covers identity enrollment, discovery, pairing capabilities, device observation, and sessions. Future non-identity API routes belong here as the product expands.
+The current scaffold exports a schema-validated `Env` service and an API version marker. HTTP routes and persistence will be added as the service is implemented.
 
-The API depends on `@qop/identity` for portable protocol models; transport and persistence implementations remain service-local.
+The API depends on `@qop/identity`; transport and persistence implementations remain service-local.
