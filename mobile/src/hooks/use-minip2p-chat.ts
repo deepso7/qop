@@ -249,6 +249,7 @@ const useMinip2pChat = (
         refreshDiagnostics();
       }),
       endpoint.on("pathEstablished", refreshDiagnostics),
+      endpoint.on("inboundPathEstablished", refreshDiagnostics),
       endpoint.on("pathUpgraded", refreshDiagnostics),
       endpoint.on("fellBackToRelay", refreshDiagnostics),
       endpoint.on("holePunchFailed", ({ reason }) => {
@@ -358,7 +359,7 @@ const useMinip2pChat = (
   }
   if (topicPeers.length > 0) {
     const path = endpoint?.path(targetPeerId);
-    let pathLabel = "P2P · inbound path unreported";
+    let pathLabel = "P2P · path pending";
     if (path?.kind === "relayed") {
       pathLabel = "relayed P2P";
     } else if (path?.kind === "directPunched") {

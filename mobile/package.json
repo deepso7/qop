@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@expo/ui": "57.0.8",
-    "@minip2p/react-native": "0.3.0",
+    "@minip2p/react-native": "0.3.1",
     "@rn-primitives/accordion": "1.5.2",
     "@rn-primitives/alert-dialog": "1.5.2",
     "@rn-primitives/aspect-ratio": "1.5.2",
