@@ -1,6 +1,7 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
+    "erasableSyntaxOnly": true,
     "lib": ["es2022"],
     "module": "NodeNext",
     "outDir": "dist",
