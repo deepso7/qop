@@ -119,6 +119,31 @@ layer(RegistrationStoreTestLive, { timeout: "30 seconds" })((it) => {
     })
   );
 
+  it.effect("atomically replays prepare by observe capability hash", () =>
+    Effect.gen(function* () {
+      const store = yield* RegistrationStore;
+      const deadline = yield* deadlineAfter(60);
+      const firstInput = input(13, "atomicretry", deadline);
+      const retryInput = {
+        ...input(14, "atomicretry", deadline),
+        observeTokenHash: firstInput.observeTokenHash,
+      };
+
+      const [first, retry] = yield* Effect.all(
+        [store.create(firstInput), store.create(retryInput)],
+        { concurrency: "unbounded" }
+      );
+      assert.strictEqual(retry.digest, first.digest);
+      assert.strictEqual(retry.registrationNonce, first.registrationNonce);
+
+      const mismatch = yield* store
+        .create({ ...retryInput, handle: "differentrequest" })
+        .pipe(Effect.flip);
+      assert.instanceOf(mismatch, RegistrationIntentConflict);
+      yield* store.markFailed(first.digest, "TEST_CLEANUP");
+    })
+  );
+
   it.effect("rejects authorization after a pending intent deadline", () =>
     Effect.gen(function* () {
       const store = yield* RegistrationStore;

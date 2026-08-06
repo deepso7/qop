@@ -1,4 +1,5 @@
 import {
+  Base64Url32,
   EcdsaSignature,
   Handle,
   Hex32,
@@ -21,6 +22,7 @@ type RegistrationInputField =
   | "deadline"
   | "digest"
   | "handle"
+  | "idempotency-key"
   | "observe-token-hash"
   | "owner"
   | "owner-signature"
@@ -83,6 +85,14 @@ export const normalizeRegistrationOwner = Effect.fn(
   return owner as Address;
 });
 
+export const decodeRegistrationIdempotencyKey = Effect.fn(
+  "RegistrationInput.decodeIdempotencyKey"
+)(function* (input: unknown) {
+  return yield* Schema.decodeUnknownEffect(Base64Url32)(input).pipe(
+    Effect.mapError(inputError("idempotency-key"))
+  );
+});
+
 const normalizeRegistrationNonce = Effect.fn(
   "RegistrationInput.normalizeRegistrationNonce"
 )(function* (input: unknown) {
@@ -120,6 +130,10 @@ export const normalizeRegistrationDigest = Effect.fn(
   "RegistrationInput.normalizeDigest"
 )((input: unknown) => normalizeHex32(input, "digest"));
 
+export const normalizeRegistrationObserveTokenHash = Effect.fn(
+  "RegistrationInput.normalizeObserveTokenHash"
+)((input: unknown) => normalizeHex32(input, "observe-token-hash"));
+
 export const normalizeTransactionHash = Effect.fn(
   "RegistrationInput.normalizeTransactionHash"
 )((input: unknown) => normalizeHex32(input, "transaction-hash"));
@@ -156,9 +170,8 @@ export const normalizeCreateRegistrationIntent = Effect.fn(
     deadline: input.deadline,
     digest: yield* normalizeRegistrationDigest(input.digest),
     handle,
-    observeTokenHash: yield* normalizeHex32(
-      input.observeTokenHash,
-      "observe-token-hash"
+    observeTokenHash: yield* normalizeRegistrationObserveTokenHash(
+      input.observeTokenHash
     ),
     owner: owner as Address,
     peerId: yield* normalizeRegistrationPeerId(input.peerId),

@@ -12,6 +12,28 @@ export {
   registrationIntents,
 } from "./db/schema.ts";
 export { decodeEnv, Env } from "./env.ts";
+export { QopHttpApi } from "./http/api.ts";
+export {
+  mapRegistrationHttpError,
+  RegistrationApiHandlers,
+  RegistrationApiHandlersLive,
+  type RegistrationHttpError,
+} from "./http/registration-handlers.ts";
+export {
+  AuthorizedRegistrationResponse,
+  AuthorizeRegistrationPayload,
+  PreparedRegistrationResponse,
+  PrepareRegistrationPayload,
+  ReconciledRegistrationResponse,
+  RegistrationApiGroup,
+  RegistrationConflict,
+  RegistrationExpired,
+  RegistrationInvalid,
+  RegistrationNotFound,
+  RegistrationServiceUnavailable,
+  RegistrationUnauthorized,
+} from "./http/registration-api.ts";
+export { QopHttpApiRoutes } from "./http/routes.ts";
 export {
   confirmedRegistryBlock,
   RegistryChain,
@@ -78,10 +100,12 @@ export {
   type StoredRegistrationIntent,
 } from "./registration/store.ts";
 export {
+  decodeRegistrationIdempotencyKey,
   normalizeCreateRegistrationIntent,
   normalizeRegistrationAuthorization,
   normalizeRegistrationDigest,
   normalizeRegistrationOwner,
+  normalizeRegistrationObserveTokenHash,
   normalizeRegistrationOwnerSignature,
   normalizeRegistrationPeerId,
   normalizeRegistrationQid,

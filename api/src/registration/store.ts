@@ -12,6 +12,7 @@ import {
   normalizeCreateRegistrationIntent,
   normalizeRegistrationAuthorization,
   normalizeRegistrationDigest,
+  normalizeRegistrationObserveTokenHash,
   normalizeRegistrationQid,
   normalizeTransactionHash,
 } from "./inputs.ts";
@@ -55,6 +56,20 @@ const findLeaseDigest = (
     .limit(1)
     .pipe(Effect.map((rows) => rows.at(0)?.digest as Hash | undefined));
 
+const findByObserveTokenHash = (
+  client: DatabaseClient | Transaction,
+  observeTokenHash: Hash
+): Effect.Effect<
+  StoredRegistrationIntent | undefined,
+  RegistrationStorePersistenceError
+> =>
+  client
+    .select()
+    .from(registrationIntents)
+    .where(eq(registrationIntents.observeTokenHash, observeTokenHash))
+    .limit(1)
+    .pipe(Effect.map((rows) => rows.at(0)));
+
 export class HandleLeaseConflict extends Data.TaggedError(
   "HandleLeaseConflict"
 )<{ readonly handle: string }> {}
@@ -74,9 +89,9 @@ export class RegistrationIntentNotFound extends Data.TaggedError(
 export class RegistrationTransitionConflict extends Data.TaggedError(
   "RegistrationTransitionConflict"
 )<{
-  readonly actual: string;
+  readonly actual: RegistrationIntentStatus;
   readonly digest: string;
-  readonly expected: readonly string[];
+  readonly expected: readonly RegistrationIntentStatus[];
 }> {}
 
 export type RegistrationStorePersistenceError =
@@ -106,6 +121,12 @@ export interface RegistrationStoreShape {
   readonly expire: Effect.Effect<number, RegistrationStorePersistenceError>;
   readonly get: (
     digest: Hash
+  ) => Effect.Effect<
+    Option.Option<StoredRegistrationIntent>,
+    RegistrationInputError | RegistrationStorePersistenceError
+  >;
+  readonly getByObserveTokenHash: (
+    observeTokenHash: Hash
   ) => Effect.Effect<
     Option.Option<StoredRegistrationIntent>,
     RegistrationInputError | RegistrationStorePersistenceError
@@ -173,6 +194,16 @@ export class RegistrationStore extends Context.Service<
         return Option.fromUndefinedOr(yield* find(db, canonicalDigest));
       });
 
+      const getByObserveTokenHash = Effect.fn(
+        "RegistrationStore.getByObserveTokenHash"
+      )(function* (observeTokenHash: Hash) {
+        const canonicalHash =
+          yield* normalizeRegistrationObserveTokenHash(observeTokenHash);
+        return Option.fromUndefinedOr(
+          yield* findByObserveTokenHash(db, canonicalHash)
+        );
+      });
+
       const assertAuthorizable = Effect.fn(
         "RegistrationStore.assertAuthorizable"
       )(function* (digest: Hash) {
@@ -201,6 +232,49 @@ export class RegistrationStore extends Context.Service<
           });
         }
         return current;
+      });
+
+      const findPrepareReplay = Effect.fn(
+        "RegistrationStore.findPrepareReplay"
+      )(function* (
+        tx: Transaction,
+        input: CreateRegistrationIntent,
+        nowSeconds: bigint
+      ) {
+        const replay = yield* findByObserveTokenHash(
+          tx,
+          input.observeTokenHash
+        );
+        if (!replay) {
+          return;
+        }
+        if (
+          replay.handle !== input.handle ||
+          replay.owner !== input.owner ||
+          replay.peerId !== input.peerId
+        ) {
+          return yield* new RegistrationIntentConflict({
+            digest: replay.digest,
+          });
+        }
+        if (
+          replay.status === "pending_owner_signature" &&
+          replay.deadline < nowSeconds
+        ) {
+          return yield* new RegistrationIntentExpired({
+            digest: replay.digest,
+          });
+        }
+        const leaseDigest = yield* findLeaseDigest(tx, input.handle);
+        if (
+          replay.status === "pending_owner_signature" &&
+          leaseDigest === replay.digest
+        ) {
+          return replay;
+        }
+        return yield* new RegistrationIntentConflict({
+          digest: replay.digest,
+        });
       });
 
       const create = Effect.fn("RegistrationStore.create")(function* (
@@ -251,6 +325,15 @@ export class RegistrationStore extends Context.Service<
               return yield* new RegistrationIntentConflict({
                 digest: canonicalInput.digest,
               });
+            }
+
+            const idempotentReplay = yield* findPrepareReplay(
+              tx,
+              canonicalInput,
+              nowSeconds
+            );
+            if (idempotentReplay) {
+              return idempotentReplay;
             }
 
             if (canonicalInput.deadline <= nowSeconds) {
@@ -317,6 +400,14 @@ export class RegistrationStore extends Context.Service<
               .returning();
             const intent = inserted.at(0);
             if (!intent) {
+              const concurrentReplay = yield* findPrepareReplay(
+                tx,
+                canonicalInput,
+                nowSeconds
+              );
+              if (concurrentReplay) {
+                return concurrentReplay;
+              }
               return yield* new RegistrationIntentConflict({
                 digest: canonicalInput.digest,
               });
@@ -593,6 +684,7 @@ export class RegistrationStore extends Context.Service<
         create,
         expire,
         get,
+        getByObserveTokenHash,
         markConfirmed,
         markFailed,
         markSubmitted,

@@ -15,7 +15,7 @@ import type {
   RegisterIntentV1Encoded,
 } from "@qop/identity";
 import { Context, Data, DateTime, Effect, Layer, Option, Schema } from "effect";
-import { keccak256, toHex } from "viem";
+import { concatBytes, hexToBytes, keccak256, stringToBytes, toHex } from "viem";
 import type { Address, Hash, Hex } from "viem";
 
 import { Env } from "../env.ts";
@@ -26,6 +26,7 @@ import { RegistryReader, RegistryReaderLive } from "../registry/reader.ts";
 import { RegistrationEntropy } from "./entropy.ts";
 import type { RegistrationEntropyError } from "./entropy.ts";
 import {
+  decodeRegistrationIdempotencyKey,
   normalizeRegistrationDigest,
   normalizeRegistrationOwner,
   normalizeRegistrationOwnerSignature,
@@ -36,9 +37,12 @@ import type { RegistrationInputError } from "./inputs.ts";
 import { RegistrationSigner } from "./signer.ts";
 import type { RegistrationSignerError } from "./signer.ts";
 import {
+  RegistrationIntentConflict,
+  RegistrationIntentExpired,
   RegistrationIntentNotFound,
   RegistrationStore,
   RegistrationStoreLive,
+  RegistrationTransitionConflict,
 } from "./store.ts";
 import type {
   RegistrationStoreError,
@@ -47,9 +51,13 @@ import type {
 import type { RegistrationIntentStatus } from "./types.ts";
 
 export const registrationIntentTtlSeconds = 600n;
+const observeTokenDerivationDomain = stringToBytes(
+  "qop-registration-observe-token-v1"
+);
 
 export interface PrepareRegistration {
   readonly handle: string;
+  readonly idempotencyKey: string;
   readonly owner: Address;
   readonly peerId: string;
 }
@@ -58,7 +66,7 @@ export interface PreparedRegistration {
   readonly digest: Hash;
   readonly intent: RegisterIntentV1Encoded;
   readonly observeToken: string;
-  readonly status: RegistrationIntentStatus;
+  readonly status: "pending_owner_signature";
 }
 
 export interface AuthorizeRegistration {
@@ -71,7 +79,7 @@ export interface AuthorizedRegistration {
   readonly intent: RegisterIntentV1Encoded;
   readonly ownerSignature: Hex;
   readonly registrationSignature: Hex;
-  readonly status: RegistrationIntentStatus;
+  readonly status: "confirmed" | "ready" | "submitted";
 }
 
 export interface ReconciledRegistration {
@@ -114,7 +122,8 @@ export class RegistrationProtocolError extends Data.TaggedError(
     | "generate-nonce"
     | "generate-observe-token"
     | "reconcile-chain"
-    | "verify-digest";
+    | "verify-digest"
+    | "verify-state";
 }> {}
 
 export type RegistrationEnrollmentError =
@@ -185,6 +194,30 @@ const reconciledRegistration = (
   status: stored.status,
 });
 
+const verifyPreparedRegistrationStatus = Effect.fn(
+  "RegistrationEnrollment.verifyPreparedStatus"
+)(function* (status: RegistrationIntentStatus) {
+  if (status !== "pending_owner_signature") {
+    return yield* new RegistrationProtocolError({
+      cause: `Unexpected prepared registration status: ${status}`,
+      operation: "verify-state",
+    });
+  }
+  return status;
+});
+
+const verifyAuthorizedRegistrationStatus = Effect.fn(
+  "RegistrationEnrollment.verifyAuthorizedStatus"
+)(function* (status: RegistrationIntentStatus) {
+  if (status !== "confirmed" && status !== "ready" && status !== "submitted") {
+    return yield* new RegistrationProtocolError({
+      cause: `Unexpected authorized registration status: ${status}`,
+      operation: "verify-state",
+    });
+  }
+  return status;
+});
+
 export class RegistrationEnrollment extends Context.Service<
   RegistrationEnrollment,
   RegistrationEnrollmentShape
@@ -203,12 +236,87 @@ export class RegistrationEnrollment extends Context.Service<
           verifyingContract: env.REGISTRY_ADDRESS,
         }).pipe(Effect.mapError(protocolError("decode-domain")));
 
+      const preparedRegistration = Effect.fn(
+        "RegistrationEnrollment.preparedRegistration"
+      )(function* (
+        stored: StoredRegistrationIntent,
+        expected: {
+          readonly handle: string;
+          readonly owner: Address;
+          readonly peerId: string;
+        },
+        observeToken: string,
+        replay: boolean
+      ) {
+        if (
+          stored.handle !== expected.handle ||
+          stored.owner !== expected.owner ||
+          stored.peerId !== expected.peerId
+        ) {
+          return yield* new RegistrationIntentConflict({
+            digest: stored.digest,
+          });
+        }
+        if (replay) {
+          const now = epochSeconds(yield* DateTime.now);
+          if (
+            stored.status === "pending_owner_signature" &&
+            stored.deadline < now
+          ) {
+            return yield* new RegistrationIntentExpired({
+              digest: stored.digest,
+            });
+          }
+          if (stored.status !== "pending_owner_signature") {
+            return yield* new RegistrationTransitionConflict({
+              actual: stored.status,
+              digest: stored.digest,
+              expected: ["pending_owner_signature"],
+            });
+          }
+        }
+        const status = yield* verifyPreparedRegistrationStatus(stored.status);
+        const intent = yield* decodeStoredIntent(stored);
+        if ((yield* hashRegisterIntentV1(domain, intent)) !== stored.digest) {
+          return yield* new RegistrationProtocolError({
+            cause: "Stored registration intent does not match its digest",
+            operation: "verify-digest",
+          });
+        }
+        return {
+          digest: stored.digest,
+          intent: yield* encodeIntent(intent),
+          observeToken,
+          status,
+        } satisfies PreparedRegistration;
+      });
+
       const prepare = Effect.fn("RegistrationEnrollment.prepare")(function* (
         input: PrepareRegistration
       ) {
         const handle = yield* normalizeRegistryHandle(input.handle);
         const owner = yield* normalizeRegistrationOwner(input.owner);
         const peerId = yield* normalizeRegistrationPeerId(input.peerId);
+        const idempotencyKey = yield* decodeRegistrationIdempotencyKey(
+          input.idempotencyKey
+        );
+        const observeTokenBytes = hexToBytes(
+          keccak256(concatBytes([observeTokenDerivationDomain, idempotencyKey]))
+        );
+        const observeToken = yield* Schema.encodeEffect(Base64Url32)(
+          observeTokenBytes
+        ).pipe(Effect.mapError(protocolError("generate-observe-token")));
+        const observeTokenHash = keccak256(toHex(observeTokenBytes));
+        const expected = { handle, owner, peerId } as const;
+        const replay = yield* store.getByObserveTokenHash(observeTokenHash);
+        if (Option.isSome(replay)) {
+          return yield* preparedRegistration(
+            replay.value,
+            expected,
+            observeToken,
+            true
+          );
+        }
         const [handleRegistration, ownerRegistration] = yield* Effect.all(
           [
             registry.fresh.qidByHandle(handle),
@@ -233,10 +341,6 @@ export class RegistrationEnrollment extends Context.Service<
         const registrationNonce = yield* Schema.encodeEffect(RegistrationNonce)(
           registrationNonceBytes
         ).pipe(Effect.mapError(protocolError("generate-nonce")));
-        const observeTokenBytes = yield* entropy.bytes32;
-        const observeToken = yield* Schema.encodeEffect(Base64Url32)(
-          observeTokenBytes
-        ).pipe(Effect.mapError(protocolError("generate-observe-token")));
         const deadline =
           epochSeconds(yield* DateTime.now) + registrationIntentTtlSeconds;
         const intent = yield* decodeRegisterIntentV1({
@@ -250,18 +354,17 @@ export class RegistrationEnrollment extends Context.Service<
           deadline,
           digest,
           handle,
-          observeTokenHash: keccak256(toHex(observeTokenBytes)),
+          observeTokenHash,
           owner,
           peerId,
           registrationNonce: registrationNonce as Hash,
         });
-
-        return {
-          digest,
-          intent: yield* encodeIntent(intent),
+        return yield* preparedRegistration(
+          stored,
+          expected,
           observeToken,
-          status: stored.status,
-        } satisfies PreparedRegistration;
+          false
+        );
       });
 
       const authorize = Effect.fn("RegistrationEnrollment.authorize")(
@@ -367,12 +470,15 @@ export class RegistrationEnrollment extends Context.Service<
             ownerSignature: ownerSignatureHex,
             registrationSignature: registrationSignatureHex,
           });
+          const status = yield* verifyAuthorizedRegistrationStatus(
+            authorized.status
+          );
           return {
             digest,
             intent: yield* encodeIntent(intent),
             ownerSignature: ownerSignatureHex,
             registrationSignature: registrationSignatureHex,
-            status: authorized.status,
+            status,
           } satisfies AuthorizedRegistration;
         }
       );

@@ -10,7 +10,7 @@ import {
 } from "@qop/identity";
 import { DateTime, Effect, Layer, Option, Schema } from "effect";
 import { TestClock } from "effect/testing";
-import { keccak256, toHex } from "viem";
+import { hexToBytes, keccak256, stringToBytes, toHex } from "viem";
 import type { Address, Hash } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -19,6 +19,7 @@ import {
   RegistrationEnrollment,
   RegistrationHandleUnavailable,
   RegistrationOwnerUnavailable,
+  RegistrationProtocolError,
   registrationReconciliationFailureCodes,
   RegistrationSignatureMismatch,
 } from "../src/registration/enrollment.ts";
@@ -27,6 +28,7 @@ import { RegistrationEntropy } from "../src/registration/entropy.ts";
 import { RegistrationInputError } from "../src/registration/inputs.ts";
 import { registrationSignerLayer } from "../src/registration/signer.ts";
 import {
+  RegistrationIntentConflict,
   RegistrationIntentExpired,
   RegistrationStore,
 } from "../src/registration/store.ts";
@@ -59,6 +61,13 @@ const read = <Value>(value: Value): RegistryRead<Value> => ({
   freshness: "fresh",
   value,
 });
+
+const idempotencyKey = (label: string): string =>
+  Effect.runSync(
+    Schema.encodeEffect(Base64Url32)(
+      hexToBytes(keccak256(stringToBytes(label)))
+    )
+  );
 
 const registryReads: RegistryReads = {
   account: () => Effect.die("account is not used by enrollment tests"),
@@ -146,6 +155,58 @@ const RegistrationEnrollmentTestLive = RegistrationEnrollment.layer.pipe(
   Layer.provide(EnvTestLive)
 );
 
+const UnexpectedCreateStoreTestLive = Layer.effect(
+  RegistrationStore,
+  Effect.gen(function* () {
+    const store = yield* RegistrationStore;
+    return RegistrationStore.of({
+      ...store,
+      create: (input) =>
+        store.create(input).pipe(
+          Effect.map((registration) => ({
+            ...registration,
+            status: "failed" as const,
+          }))
+        ),
+    });
+  })
+).pipe(Layer.provide(RegistrationStoreTestLive));
+
+const UnexpectedAuthorizeStoreTestLive = Layer.effect(
+  RegistrationStore,
+  Effect.gen(function* () {
+    const store = yield* RegistrationStore;
+    return RegistrationStore.of({
+      ...store,
+      authorize: (digest, authorization) =>
+        store.authorize(digest, authorization).pipe(
+          Effect.map((registration) => ({
+            ...registration,
+            status: "failed" as const,
+          }))
+        ),
+    });
+  })
+).pipe(Layer.provide(RegistrationStoreTestLive));
+
+const enrollmentLayerWithStore = <Error, Requirements>(
+  storeLayer: Layer.Layer<RegistrationStore, Error, Requirements>
+) =>
+  RegistrationEnrollment.layer.pipe(
+    Layer.provide(RegistrationEntropyTestLive),
+    Layer.provide(storeLayer),
+    Layer.provide(RegistryReaderTestLive),
+    Layer.provide(registrationSignerLayer(REGISTRATION_PRIVATE_KEY)),
+    Layer.provide(EnvTestLive)
+  );
+
+const UnexpectedCreateEnrollmentTestLive = enrollmentLayerWithStore(
+  UnexpectedCreateStoreTestLive
+);
+const UnexpectedAuthorizeEnrollmentTestLive = enrollmentLayerWithStore(
+  UnexpectedAuthorizeStoreTestLive
+);
+
 const domain = Effect.runSync(
   decodeIdentityEip712DomainV1({
     chainId: "31337",
@@ -193,6 +254,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const now = yield* DateTime.now;
       const prepared = yield* enrollment.prepare({
         handle: "foxtrot",
+        idempotencyKey: idempotencyKey("foxtrot"),
         owner: ownerAccount.address,
         peerId: PEER_ID,
       });
@@ -226,11 +288,35 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
     })
   );
 
+  it.effect(
+    "replays prepare with the same client-held idempotency secret",
+    () =>
+      Effect.gen(function* () {
+        const enrollment = yield* RegistrationEnrollment;
+        const input = {
+          handle: "retryable",
+          idempotencyKey: idempotencyKey("retryable"),
+          owner: ownerAccount.address,
+          peerId: PEER_ID,
+        } as const;
+
+        const first = yield* enrollment.prepare(input);
+        const retry = yield* enrollment.prepare(input);
+        assert.deepStrictEqual(retry, first);
+
+        const mismatch = yield* enrollment
+          .prepare({ ...input, handle: "different" })
+          .pipe(Effect.flip);
+        assert.instanceOf(mismatch, RegistrationIntentConflict);
+      })
+  );
+
   it.effect("verifies the owner and advances the stored intent to ready", () =>
     Effect.gen(function* () {
       const enrollment = yield* RegistrationEnrollment;
       const prepared = yield* enrollment.prepare({
         handle: "golf",
+        idempotencyKey: idempotencyKey("golf"),
         owner: ownerAccount.address,
         peerId: PEER_ID,
       });
@@ -287,6 +373,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         const enrollment = yield* RegistrationEnrollment;
         const prepared = yield* enrollment.prepare({
           handle: "hotel",
+          idempotencyKey: idempotencyKey("hotel"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         });
@@ -324,6 +411,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const handleError = yield* enrollment
         .prepare({
           handle: "taken",
+          idempotencyKey: idempotencyKey("taken"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         })
@@ -334,6 +422,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const ownerError = yield* enrollment
         .prepare({
           handle: "india",
+          idempotencyKey: idempotencyKey("india"),
           owner: takenOwner,
           peerId: PEER_ID,
         })
@@ -350,6 +439,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         const enrollment = yield* RegistrationEnrollment;
         const handlePrepared = yield* enrollment.prepare({
           handle: "takenafterprepare",
+          idempotencyKey: idempotencyKey("takenafterprepare"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         });
@@ -367,6 +457,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
 
         const ownerPrepared = yield* enrollment.prepare({
           handle: "ownerafterprepare",
+          idempotencyKey: idempotencyKey("ownerafterprepare"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         });
@@ -390,6 +481,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const store = yield* RegistrationStore;
       const prepared = yield* enrollment.prepare({
         handle: "expiredauth",
+        idempotencyKey: idempotencyKey("expiredauth"),
         owner: ownerAccount.address,
         peerId: PEER_ID,
       });
@@ -414,6 +506,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const enrollment = yield* RegistrationEnrollment;
       const prepared = yield* enrollment.prepare({
         handle: "juliet",
+        idempotencyKey: idempotencyKey("juliet"),
         owner: ownerAccount.address,
         peerId: PEER_ID,
       });
@@ -444,6 +537,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const error = yield* enrollment
         .prepare({
           handle: "kilo",
+          idempotencyKey: idempotencyKey("kilo"),
           owner: `0x${"00".repeat(20)}`,
           peerId: PEER_ID,
         })
@@ -461,6 +555,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         const enrollment = yield* RegistrationEnrollment;
         const confirmedPrepared = yield* enrollment.prepare({
           handle: "confirmme",
+          idempotencyKey: idempotencyKey("confirmme"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         });
@@ -471,6 +566,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
 
         const conflictingPrepared = yield* enrollment.prepare({
           handle: "conflictme",
+          idempotencyKey: idempotencyKey("conflictme"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         });
@@ -486,6 +582,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
 
         const expiredPrepared = yield* enrollment.prepare({
           handle: "expireme",
+          idempotencyKey: idempotencyKey("expireme"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         });
@@ -499,3 +596,58 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       })
   );
 });
+
+layer(UnexpectedCreateEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
+  it.effect("rejects an unexpected status returned from store create", () =>
+    Effect.gen(function* () {
+      const enrollment = yield* RegistrationEnrollment;
+      const error = yield* enrollment
+        .prepare({
+          handle: "badcreate",
+          idempotencyKey: idempotencyKey("badcreate"),
+          owner: ownerAccount.address,
+          peerId: PEER_ID,
+        })
+        .pipe(Effect.flip);
+
+      assert.instanceOf(error, RegistrationProtocolError);
+      assert.strictEqual(error.operation, "verify-state");
+      assert.strictEqual(
+        error.cause,
+        "Unexpected prepared registration status: failed"
+      );
+    })
+  );
+});
+
+layer(UnexpectedAuthorizeEnrollmentTestLive, { timeout: "30 seconds" })(
+  (it) => {
+    it.effect(
+      "rejects an unexpected status returned from store authorize",
+      () =>
+        Effect.gen(function* () {
+          const enrollment = yield* RegistrationEnrollment;
+          const prepared = yield* enrollment.prepare({
+            handle: "badauthorize",
+            idempotencyKey: idempotencyKey("badauthorize"),
+            owner: ownerAccount.address,
+            peerId: PEER_ID,
+          });
+          const ownerSignature = yield* signPreparedIntent(
+            prepared.intent,
+            ownerAccount
+          );
+          const error = yield* enrollment
+            .authorize({ digest: prepared.digest, ownerSignature })
+            .pipe(Effect.flip);
+
+          assert.instanceOf(error, RegistrationProtocolError);
+          assert.strictEqual(error.operation, "verify-state");
+          assert.strictEqual(
+            error.cause,
+            "Unexpected authorized registration status: failed"
+          );
+        })
+    );
+  }
+);
