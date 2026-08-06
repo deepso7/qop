@@ -24,6 +24,7 @@ export {
   normalizeCertificateDigest,
   normalizeRegistryHandle,
   normalizeRegistryOwner,
+  normalizeRegistryRegistrationNonce,
   RegistryInputError,
 } from "./registry/inputs.ts";
 export {
@@ -33,8 +34,35 @@ export {
   type RegistryRead,
   type RegistryReaderShape,
   type RegistryReads,
+  type RegistryFreshReads,
 } from "./registry/reader.ts";
-export type { RegistryAccount, RegistrySnapshot } from "./registry/types.ts";
+export type {
+  RegistryAccount,
+  RegistryRegistrationProbe,
+  RegistrySnapshot,
+} from "./registry/types.ts";
+export {
+  RegistrationEnrollment,
+  type RegistrationEnrollmentError,
+  RegistrationEnrollmentLive,
+  type RegistrationEnrollmentShape,
+  RegistrationHandleUnavailable,
+  RegistrationOwnerUnavailable,
+  RegistrationProtocolError,
+  registrationReconciliationFailureCodes,
+  RegistrationSignatureMismatch,
+  registrationIntentTtlSeconds,
+  type AuthorizedRegistration,
+  type AuthorizeRegistration,
+  type PreparedRegistration,
+  type PrepareRegistration,
+  type ReconciledRegistration,
+} from "./registration/enrollment.ts";
+export {
+  RegistrationEntropy,
+  RegistrationEntropyError,
+  type RegistrationEntropyShape,
+} from "./registration/entropy.ts";
 export {
   HandleLeaseConflict,
   registrationExpirationBatchSize,
@@ -53,10 +81,21 @@ export {
   normalizeCreateRegistrationIntent,
   normalizeRegistrationAuthorization,
   normalizeRegistrationDigest,
+  normalizeRegistrationOwner,
+  normalizeRegistrationOwnerSignature,
+  normalizeRegistrationPeerId,
   normalizeRegistrationQid,
+  normalizeRegistrationSignerSignature,
   normalizeTransactionHash,
   RegistrationInputError,
 } from "./registration/inputs.ts";
+export {
+  makeRegistrationSigner,
+  RegistrationSigner,
+  RegistrationSignerError,
+  type RegistrationSignerShape,
+  registrationSignerLayer,
+} from "./registration/signer.ts";
 export {
   canTransitionRegistrationIntent,
   type RegistrationTransition,

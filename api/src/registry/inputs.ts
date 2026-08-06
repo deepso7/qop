@@ -1,8 +1,17 @@
-import { Handle, Hex32, normalizeEthereumAddress } from "@qop/identity";
+import {
+  Handle,
+  Hex32,
+  normalizeEthereumAddress,
+  RegistrationNonce,
+} from "@qop/identity";
 import { Data, Effect, Schema } from "effect";
 import type { Address, Hash } from "viem";
 
-type RegistryInputOperation = "certificate-digest" | "handle" | "owner";
+type RegistryInputOperation =
+  | "certificate-digest"
+  | "handle"
+  | "owner"
+  | "registration-nonce";
 
 const CertificateDigestInput = Schema.String.check(
   Schema.isPattern(/^0x[0-9a-f]{64}$/iu, {
@@ -54,4 +63,29 @@ export const normalizeRegistryHandle = Effect.fn(
       (cause) => new RegistryInputError({ cause, operation: "handle" })
     )
   );
+});
+
+export const normalizeRegistryRegistrationNonce = Effect.fn(
+  "RegistryInput.normalizeRegistrationNonce"
+)(function* (input: unknown) {
+  const encoded = yield* Schema.decodeUnknownEffect(Schema.String)(input).pipe(
+    Effect.mapError(
+      (cause) =>
+        new RegistryInputError({ cause, operation: "registration-nonce" })
+    )
+  );
+  const bytes = yield* Schema.decodeUnknownEffect(RegistrationNonce)(
+    encoded.toLowerCase()
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new RegistryInputError({ cause, operation: "registration-nonce" })
+    )
+  );
+  return (yield* Schema.encodeEffect(RegistrationNonce)(bytes).pipe(
+    Effect.mapError(
+      (cause) =>
+        new RegistryInputError({ cause, operation: "registration-nonce" })
+    )
+  )) as Hash;
 });

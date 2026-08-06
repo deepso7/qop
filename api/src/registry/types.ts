@@ -13,3 +13,10 @@ export interface RegistrySnapshot<Value> {
   readonly blockNumber: bigint;
   readonly value: Value;
 }
+
+export interface RegistryRegistrationProbe {
+  readonly blockTimestamp: bigint;
+  readonly handleQid: bigint | null;
+  readonly ownerQid: bigint | null;
+  readonly registrationNonceUsed: boolean;
+}

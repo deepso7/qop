@@ -10,6 +10,7 @@ import {
   uniqueIndex,
   varchar,
 } from "drizzle-orm/pg-core";
+import type { Address, Hash, Hex } from "viem";
 
 import type { RegistrationIntentStatus } from "../registration/types.ts";
 
@@ -19,9 +20,9 @@ const uint256 = (name: string) =>
 const uint64 = (name: string) =>
   numeric(name, { mode: "bigint", precision: 20, scale: 0 });
 
-const address = (name: string) => char(name, { length: 42 });
-const hash32 = (name: string) => char(name, { length: 66 });
-const signature = (name: string) => char(name, { length: 132 });
+const address = (name: string) => char(name, { length: 42 }).$type<Address>();
+const hash32 = (name: string) => char(name, { length: 66 }).$type<Hash>();
+const signature = (name: string) => char(name, { length: 132 }).$type<Hex>();
 
 export const registrationIntents = pgTable(
   "registration_intents",

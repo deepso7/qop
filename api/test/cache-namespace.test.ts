@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Deferred, Duration, Effect } from "effect";
+import { Deferred, Duration, Effect, Fiber, Semaphore } from "effect";
 import { TestClock } from "effect/testing";
 
 import { makeCacheNamespace } from "../src/cache/namespace.ts";
@@ -188,5 +188,63 @@ describe("cache namespace", () => {
       yield* Deferred.succeed(releaseRefreshes, true);
       yield* Deferred.await(twoRefreshesCompleted);
     })
+  );
+
+  it.effect(
+    "releases background admission when the stale caller is interrupted",
+    () =>
+      Effect.gen(function* () {
+        const semaphore = yield* Semaphore.make(1);
+        const admitted = yield* Deferred.make<boolean>();
+        const continueAdmission = yield* Deferred.make<boolean>();
+        const backgroundFinished = yield* Deferred.make<boolean>();
+        const controlledSemaphore = {
+          takeIfAvailable: (permits: number) =>
+            Effect.gen(function* () {
+              const acquired = yield* semaphore.takeIfAvailable(permits);
+              if (acquired) {
+                yield* Deferred.succeed(admitted, true);
+                yield* Deferred.await(continueAdmission);
+              }
+              return acquired;
+            }),
+          withPermitsIfAvailable:
+            (permits: number) =>
+            <Value, Error, Requirements>(
+              effect: Effect.Effect<Value, Error, Requirements>
+            ) =>
+              semaphore
+                .withPermitsIfAvailable(permits)(
+                  Effect.gen(function* () {
+                    yield* Deferred.succeed(admitted, true);
+                    yield* Deferred.await(continueAdmission);
+                    return yield* effect;
+                  })
+                )
+                .pipe(
+                  Effect.tap(() => Deferred.succeed(backgroundFinished, true))
+                ),
+        } as unknown as Semaphore.Semaphore;
+        const cache = yield* makeCacheNamespace({
+          backgroundRefreshSemaphore: controlledSemaphore,
+          capacity: 1,
+          lookup: () => Effect.succeed("value"),
+          policy: {
+            freshFor: () => Duration.seconds(1),
+            staleFor: () => Duration.minutes(1),
+          },
+        });
+
+        yield* cache.cached("identity");
+        yield* TestClock.adjust("2 seconds");
+        const caller = yield* Effect.forkChild(cache.cached("identity"));
+        yield* Deferred.await(admitted);
+        yield* Fiber.interrupt(caller);
+        yield* Deferred.succeed(continueAdmission, true);
+        yield* Deferred.await(backgroundFinished);
+
+        assert.isTrue(yield* semaphore.takeIfAvailable(1));
+        yield* semaphore.release(1);
+      })
   );
 });

@@ -11,7 +11,11 @@ import {
   normalizeRegistryOwner,
 } from "./inputs.ts";
 import type { RegistryInputError } from "./inputs.ts";
-import type { RegistryAccount, RegistrySnapshot } from "./types.ts";
+import type {
+  RegistryAccount,
+  RegistryRegistrationProbe,
+  RegistrySnapshot,
+} from "./types.ts";
 
 export interface RegistryRead<Value> {
   readonly blockNumber: bigint;
@@ -36,6 +40,17 @@ export interface RegistryReads {
   ) => Effect.Effect<RegistryRead<bigint | null>, RegistryChainReadError>;
 }
 
+export interface RegistryFreshReads extends RegistryReads {
+  readonly registrationProbe: (
+    handle: string,
+    owner: Address,
+    registrationNonce: Hash
+  ) => Effect.Effect<
+    RegistrySnapshot<RegistryRegistrationProbe>,
+    RegistryChainReadError
+  >;
+}
+
 export interface RegistryInvalidations {
   readonly account: (qid: bigint) => Effect.Effect<void>;
   readonly all: Effect.Effect<void>;
@@ -58,7 +73,7 @@ export interface RegistryInvalidations {
 
 export interface RegistryReaderShape {
   readonly cached: RegistryReads;
-  readonly fresh: RegistryReads;
+  readonly fresh: RegistryFreshReads;
   readonly invalidate: RegistryInvalidations;
 }
 
@@ -167,9 +182,14 @@ export class RegistryReader extends Context.Service<
           ),
       });
 
+      const fresh: RegistryFreshReads = {
+        ...reads("fresh"),
+        registrationProbe: chain.registrationProbe,
+      };
+
       return RegistryReader.of({
         cached: reads("cached"),
-        fresh: reads("fresh"),
+        fresh,
         invalidate: {
           account: accounts.invalidate,
           all: Effect.all(

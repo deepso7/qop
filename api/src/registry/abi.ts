@@ -5,4 +5,5 @@ export const registryReadAbi = parseAbi([
   "function isDeviceRevoked(uint256 qid, bytes32 certificateDigest) view returns (bool)",
   "function qidByHandleHash(bytes32 handleHash) view returns (uint256)",
   "function qidByOwner(address owner) view returns (uint256)",
+  "function registrationNonceUsed(bytes32 registrationNonce) view returns (bool)",
 ]);

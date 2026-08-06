@@ -57,16 +57,31 @@ const normalizeHex32 = Effect.fn("RegistrationInput.normalizeHex32")(function* (
   )) as Hash;
 });
 
-const normalizePeerId = Effect.fn("RegistrationInput.normalizePeerId")(
-  function* (input: unknown) {
-    const bytes = yield* Schema.decodeUnknownEffect(PeerId)(input).pipe(
-      Effect.mapError(inputError("peer-id"))
-    );
-    return yield* Schema.encodeEffect(PeerId)(bytes).pipe(
-      Effect.mapError(inputError("peer-id"))
-    );
+export const normalizeRegistrationPeerId = Effect.fn(
+  "RegistrationInput.normalizePeerId"
+)(function* (input: unknown) {
+  const bytes = yield* Schema.decodeUnknownEffect(PeerId)(input).pipe(
+    Effect.mapError(inputError("peer-id"))
+  );
+  return yield* Schema.encodeEffect(PeerId)(bytes).pipe(
+    Effect.mapError(inputError("peer-id"))
+  );
+});
+
+export const normalizeRegistrationOwner = Effect.fn(
+  "RegistrationInput.normalizeOwner"
+)(function* (input: unknown) {
+  const owner = yield* normalizeEthereumAddress(input).pipe(
+    Effect.mapError(inputError("owner"))
+  );
+  if (owner === `0x${"00".repeat(20)}`) {
+    return yield* new RegistrationInputError({
+      cause: "Expected a non-zero Ethereum address",
+      field: "owner",
+    });
   }
-);
+  return owner as Address;
+});
 
 const normalizeRegistrationNonce = Effect.fn(
   "RegistrationInput.normalizeRegistrationNonce"
@@ -93,6 +108,14 @@ const normalizeSignature = Effect.fn("RegistrationInput.normalizeSignature")(
   }
 );
 
+export const normalizeRegistrationOwnerSignature = Effect.fn(
+  "RegistrationInput.normalizeOwnerSignature"
+)((input: unknown) => normalizeSignature(input, "owner-signature"));
+
+export const normalizeRegistrationSignerSignature = Effect.fn(
+  "RegistrationInput.normalizeSignerSignature"
+)((input: unknown) => normalizeSignature(input, "registration-signature"));
+
 export const normalizeRegistrationDigest = Effect.fn(
   "RegistrationInput.normalizeDigest"
 )((input: unknown) => normalizeHex32(input, "digest"));
@@ -107,13 +130,11 @@ export const normalizeRegistrationAuthorization = Effect.fn(
   input: RegistrationAuthorization
 ): Effect.fn.Return<RegistrationAuthorization, RegistrationInputError> {
   return {
-    ownerSignature: yield* normalizeSignature(
-      input.ownerSignature,
-      "owner-signature"
+    ownerSignature: yield* normalizeRegistrationOwnerSignature(
+      input.ownerSignature
     ),
-    registrationSignature: yield* normalizeSignature(
-      input.registrationSignature,
-      "registration-signature"
+    registrationSignature: yield* normalizeRegistrationSignerSignature(
+      input.registrationSignature
     ),
   };
 });
@@ -129,9 +150,7 @@ export const normalizeCreateRegistrationIntent = Effect.fn(
   const handle = yield* Schema.decodeUnknownEffect(Handle)(input.handle).pipe(
     Effect.mapError(inputError("handle"))
   );
-  const owner = yield* normalizeEthereumAddress(input.owner).pipe(
-    Effect.mapError(inputError("owner"))
-  );
+  const owner = yield* normalizeRegistrationOwner(input.owner);
 
   return {
     deadline: input.deadline,
@@ -142,7 +161,7 @@ export const normalizeCreateRegistrationIntent = Effect.fn(
       "observe-token-hash"
     ),
     owner: owner as Address,
-    peerId: yield* normalizePeerId(input.peerId),
+    peerId: yield* normalizeRegistrationPeerId(input.peerId),
     registrationNonce: yield* normalizeRegistrationNonce(
       input.registrationNonce
     ),

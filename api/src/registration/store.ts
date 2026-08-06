@@ -93,6 +93,9 @@ export type RegistrationStoreError =
   | RegistrationTransitionConflict;
 
 export interface RegistrationStoreShape {
+  readonly assertAuthorizable: (
+    digest: Hash
+  ) => Effect.Effect<StoredRegistrationIntent, RegistrationStoreError>;
   readonly authorize: (
     digest: Hash,
     authorization: RegistrationAuthorization
@@ -168,6 +171,36 @@ export class RegistrationStore extends Context.Service<
       const get = Effect.fn("RegistrationStore.get")(function* (digest: Hash) {
         const canonicalDigest = yield* normalizeRegistrationDigest(digest);
         return Option.fromUndefinedOr(yield* find(db, canonicalDigest));
+      });
+
+      const assertAuthorizable = Effect.fn(
+        "RegistrationStore.assertAuthorizable"
+      )(function* (digest: Hash) {
+        const canonicalDigest = yield* normalizeRegistrationDigest(digest);
+        const now = yield* DateTime.now;
+        const nowSeconds = epochSeconds(now);
+        const current = yield* find(db, canonicalDigest);
+        if (!current) {
+          return yield* new RegistrationIntentNotFound({
+            digest: canonicalDigest,
+          });
+        }
+        if (
+          current.status === "pending_owner_signature" &&
+          current.deadline < nowSeconds
+        ) {
+          return yield* new RegistrationIntentExpired({
+            digest: canonicalDigest,
+          });
+        }
+        if (current.status !== "pending_owner_signature") {
+          return yield* new RegistrationTransitionConflict({
+            actual: current.status,
+            digest: canonicalDigest,
+            expected: registrationTransitionSources.authorize,
+          });
+        }
+        return current;
       });
 
       const create = Effect.fn("RegistrationStore.create")(function* (
@@ -555,6 +588,7 @@ export class RegistrationStore extends Context.Service<
       });
 
       return RegistrationStore.of({
+        assertAuthorizable,
         authorize,
         create,
         expire,

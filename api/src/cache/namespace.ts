@@ -123,14 +123,11 @@ export const makeCacheNamespace = <Key, Value, Error>(
         return cacheRead(entry, "fresh");
       }
 
-      const admitted = yield* backgroundRefreshSemaphore.takeIfAvailable(1);
-      if (admitted) {
-        yield* Cache.get(refreshes, key).pipe(
-          Effect.ignore,
-          Effect.ensuring(backgroundRefreshSemaphore.release(1)),
-          Effect.forkDetach
-        );
-      }
+      yield* Effect.forkDetach(
+        backgroundRefreshSemaphore.withPermitsIfAvailable(1)(
+          Cache.get(refreshes, key).pipe(Effect.ignore)
+        )
+      );
       return cacheRead(entry, "stale");
     });
 

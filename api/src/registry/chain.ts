@@ -8,9 +8,14 @@ import {
   normalizeCertificateDigest,
   normalizeRegistryHandle,
   normalizeRegistryOwner,
+  normalizeRegistryRegistrationNonce,
 } from "./inputs.ts";
 import type { RegistryInputError } from "./inputs.ts";
-import type { RegistryAccount, RegistrySnapshot } from "./types.ts";
+import type {
+  RegistryAccount,
+  RegistryRegistrationProbe,
+  RegistrySnapshot,
+} from "./types.ts";
 
 type RegistryChainOperation =
   | "account"
@@ -18,7 +23,8 @@ type RegistryChainOperation =
   | "confirmed-block"
   | "device-revocation"
   | "qid-by-handle"
-  | "qid-by-owner";
+  | "qid-by-owner"
+  | "registration-probe";
 
 export class RegistryChainError extends Data.TaggedError("RegistryChainError")<{
   readonly cause: unknown;
@@ -53,6 +59,14 @@ export interface RegistryChainShape {
   readonly qidByOwner: (
     owner: Address
   ) => Effect.Effect<RegistrySnapshot<bigint | null>, RegistryChainReadError>;
+  readonly registrationProbe: (
+    handle: string,
+    owner: Address,
+    registrationNonce: Hash
+  ) => Effect.Effect<
+    RegistrySnapshot<RegistryRegistrationProbe>,
+    RegistryChainReadError
+  >;
 }
 
 export class RegistryChain extends Context.Service<
@@ -197,11 +211,65 @@ export class RegistryChain extends Context.Service<
         } satisfies RegistrySnapshot<bigint | null>;
       });
 
+      const registrationProbe = Effect.fn("RegistryChain.registrationProbe")(
+        function* (handle: string, owner: Address, registrationNonce: Hash) {
+          const canonicalHandle = yield* normalizeRegistryHandle(handle);
+          const canonicalOwner = yield* normalizeRegistryOwner(owner);
+          const canonicalNonce =
+            yield* normalizeRegistryRegistrationNonce(registrationNonce);
+          const blockNumber = yield* confirmedBlock;
+          const handleHash = keccak256(stringToBytes(canonicalHandle));
+          const [block, handleQid, ownerQid, registrationNonceUsed] =
+            yield* Effect.tryPromise({
+              catch: (cause) =>
+                new RegistryChainError({
+                  cause,
+                  operation: "registration-probe",
+                }),
+              try: () =>
+                Promise.all([
+                  client.getBlock({ blockNumber }),
+                  client.readContract({
+                    abi: registryReadAbi,
+                    address: registryAddress,
+                    args: [handleHash],
+                    blockNumber,
+                    functionName: "qidByHandleHash",
+                  }),
+                  client.readContract({
+                    abi: registryReadAbi,
+                    address: registryAddress,
+                    args: [canonicalOwner],
+                    blockNumber,
+                    functionName: "qidByOwner",
+                  }),
+                  client.readContract({
+                    abi: registryReadAbi,
+                    address: registryAddress,
+                    args: [canonicalNonce],
+                    blockNumber,
+                    functionName: "registrationNonceUsed",
+                  }),
+                ]),
+            });
+          return {
+            blockNumber,
+            value: {
+              blockTimestamp: block.timestamp,
+              handleQid: handleQid === 0n ? null : handleQid,
+              ownerQid: ownerQid === 0n ? null : ownerQid,
+              registrationNonceUsed,
+            },
+          } satisfies RegistrySnapshot<RegistryRegistrationProbe>;
+        }
+      );
+
       return RegistryChain.of({
         account,
         deviceRevocation,
         qidByHandle,
         qidByOwner,
+        registrationProbe,
       });
     })
   );

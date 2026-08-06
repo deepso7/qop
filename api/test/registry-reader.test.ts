@@ -72,6 +72,16 @@ const makeReader = () => {
         observed.owners.push(owner);
         return { blockNumber: 1n, value: ownerQid };
       }),
+    registrationProbe: () =>
+      Effect.succeed({
+        blockNumber: 1n,
+        value: {
+          blockTimestamp: 1_700_000_000n,
+          handleQid,
+          ownerQid,
+          registrationNonceUsed: false,
+        },
+      }),
   };
   const layer = RegistryReader.layer.pipe(
     Layer.provide(Layer.succeed(RegistryChain, RegistryChain.of(chain)))

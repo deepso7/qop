@@ -1,24 +1,18 @@
-import * as PgliteClient from "@effect/sql-pglite/PgliteClient";
 import { assert, layer } from "@effect/vitest";
-import type { PGlite } from "@electric-sql/pglite";
-import { pushSchema } from "drizzle-kit/api-postgres";
-import * as PgliteDrizzle from "drizzle-orm/effect-pglite";
-import { drizzle } from "drizzle-orm/pglite";
-import { DateTime, Effect, Layer, Option } from "effect";
+import { DateTime, Effect, Option } from "effect";
 import { TestClock } from "effect/testing";
 import type { Address, Hash, Hex } from "viem";
 
-import { Database } from "../src/db/database.ts";
-import type { DatabaseClient } from "../src/db/database.ts";
-import * as databaseSchema from "../src/db/schema.ts";
 import { RegistrationInputError } from "../src/registration/inputs.ts";
 import {
   HandleLeaseConflict,
   registrationExpirationBatchSize,
   RegistrationIntentConflict,
+  RegistrationIntentExpired,
   RegistrationStore,
 } from "../src/registration/store.ts";
 import type { CreateRegistrationIntent } from "../src/registration/types.ts";
+import { RegistrationStoreTestLive } from "./support/registration-database.ts";
 
 const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
 const CHECKSUMMED_OWNER =
@@ -73,26 +67,6 @@ const authorization = {
   registrationSignature: walletSignature("1C"),
 };
 
-const PgliteLive = PgliteClient.layer();
-
-const TestDatabaseLive = Layer.effect(
-  Database,
-  Effect.gen(function* () {
-    const pglite = yield* PgliteClient.PgliteClient;
-    yield* Effect.tryPromise(async () => {
-      const database = drizzle({ client: pglite.pglite as PGlite });
-      const schema = await pushSchema(databaseSchema, database);
-      await schema.apply();
-    });
-    const client = yield* PgliteDrizzle.makeWithDefaults();
-    return Database.of({ client: client as unknown as DatabaseClient });
-  })
-).pipe(Layer.provide(PgliteLive));
-
-const RegistrationStoreTestLive = RegistrationStore.layer.pipe(
-  Layer.provide(TestDatabaseLive)
-);
-
 layer(RegistrationStoreTestLive, { timeout: "30 seconds" })((it) => {
   it.effect("normalizes inputs and enforces a single live handle lease", () =>
     Effect.gen(function* () {
@@ -142,6 +116,25 @@ layer(RegistrationStoreTestLive, { timeout: "30 seconds" })((it) => {
       assert.strictEqual(ready.ownerSignature, canonicalSignature("00"));
       assert.strictEqual(ready.registrationSignature, canonicalSignature("01"));
       yield* store.markFailed(registration.digest, "TEST_CLEANUP");
+    })
+  );
+
+  it.effect("rejects authorization after a pending intent deadline", () =>
+    Effect.gen(function* () {
+      const store = yield* RegistrationStore;
+      const registration = input(12, "beforedeadline", yield* deadlineAfter(5));
+      yield* store.create(registration);
+      yield* TestClock.adjust("6 seconds");
+
+      const error = yield* store
+        .authorize(registration.digest, authorization)
+        .pipe(Effect.flip);
+      assert.instanceOf(error, RegistrationIntentExpired);
+      const stored = Option.getOrThrow(yield* store.get(registration.digest));
+      assert.strictEqual(stored.status, "pending_owner_signature");
+      assert.isNull(stored.ownerSignature);
+      assert.isNull(stored.registrationSignature);
+      assert.strictEqual(yield* store.expire, 1);
     })
   );
 
