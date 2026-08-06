@@ -44,6 +44,22 @@ const Bytes32 = Schema.Uint8Array.check(
   })
 );
 
+const CanonicalHex32String = Schema.String.check(
+  Schema.isPattern(/^0x[0-9a-f]{64}$/u, {
+    expected: "a lowercase 32-byte 0x-prefixed hex string",
+  })
+);
+
+export const Hex32 = CanonicalHex32String.pipe(
+  Schema.decodeTo(
+    Bytes32,
+    SchemaTransformation.transform({
+      decode: (value) => hex.decode(value.slice(2)),
+      encode: (value) => `0x${hex.encode(value)}`,
+    })
+  )
+);
+
 const CanonicalBase64Url32 = Schema.String.check(
   Schema.isPattern(/^[A-Za-z0-9_-]{43}$/u, {
     expected: "an unpadded 43-character base64url string",
@@ -158,7 +174,13 @@ const CanonicalUint256String = Schema.String.check(
   })
 ).annotate({ expected: "a canonical uint256 decimal string" });
 
-const PositiveUint256 = Schema.BigInt.check(
+const Uint256Value = Schema.BigInt.check(
+  Schema.makeFilter((value) => value >= 0n && value <= UINT256_MAX, {
+    expected: "a uint256",
+  })
+);
+
+const PositiveQid = Schema.BigInt.check(
   Schema.makeFilter((value) => value > 0n && value <= UINT256_MAX, {
     expected: "a positive uint256 qid",
   })
@@ -184,7 +206,11 @@ const Uint64 = Schema.BigInt.check(
 );
 
 export const Qid = CanonicalUint256String.pipe(
-  Schema.decodeTo(PositiveUint256, SchemaTransformation.bigintFromString)
+  Schema.decodeTo(PositiveQid, SchemaTransformation.bigintFromString)
+);
+
+export const Uint256 = CanonicalUint256String.pipe(
+  Schema.decodeTo(Uint256Value, SchemaTransformation.bigintFromString)
 );
 
 export const ChainId = CanonicalUint256String.pipe(
@@ -198,5 +224,29 @@ export const UnixSeconds = CanonicalUint64String.pipe(
 export const EthereumAddress = Schema.String.check(
   Schema.isPattern(/^0x[0-9a-f]{40}$/u, {
     expected: "a canonical lowercase Ethereum address",
+  })
+);
+
+const EthereumAddressInput = Schema.String.check(
+  Schema.isPattern(/^0x[0-9a-f]{40}$/iu, {
+    expected: "a 20-byte 0x-prefixed Ethereum address",
+  })
+);
+
+export const normalizeEthereumAddress = Effect.fn(
+  "@qop/identity/normalizeEthereumAddress"
+)((input: unknown) =>
+  Schema.decodeUnknownEffect(EthereumAddressInput)(input).pipe(
+    Effect.map((address) => address.toLowerCase()),
+    Effect.flatMap(Schema.decodeUnknownEffect(EthereumAddress))
+  )
+);
+
+export const Handle = Schema.String.check(
+  Schema.isLengthBetween(1, 32, {
+    expected: "a handle between 1 and 32 characters",
+  }),
+  Schema.isPattern(/^[a-z]+$/u, {
+    expected: "a handle containing only lowercase ASCII letters",
   })
 );

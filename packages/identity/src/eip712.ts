@@ -4,7 +4,6 @@ import type { Address, Signature } from "viem";
 
 import { DeviceCertificateV1 } from "./device-certificate.ts";
 import type { DeviceCertificateV1 as DeviceCertificate } from "./device-certificate.ts";
-import { identityProtocolVersion } from "./version.ts";
 import { ChainId, EcdsaSignature, EthereumAddress } from "./wire-codecs.ts";
 
 const strictParseOptions = {
@@ -13,8 +12,9 @@ const strictParseOptions = {
 } as const;
 
 export const identityEip712DomainName = "QOP Identity" as const;
-export const identityEip712DomainVersion =
-  identityProtocolVersion.toString() as `${number}`;
+// This must match the immutable version passed to the deployed registry's
+// EIP712 constructor. Wire-schema versions evolve independently.
+export const identityEip712DomainVersion = "1" as const;
 
 export const IdentityEip712DomainV1 = Schema.Struct({
   chainId: ChainId,
@@ -70,7 +70,13 @@ export class IdentityCryptoError extends Data.TaggedError(
   readonly cause: unknown;
   readonly operation:
     | "hash-device-certificate"
+    | "hash-register-intent"
+    | "hash-revoke-device-intent"
+    | "hash-rotate-owner-intent"
     | "recover-certificate-owner"
+    | "recover-register-intent-signer"
+    | "recover-revoke-device-intent-signer"
+    | "recover-rotate-owner-intent-signer"
     | "verify-certificate-owner";
 }> {}
 

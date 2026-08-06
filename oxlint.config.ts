@@ -9,6 +9,7 @@ export default defineConfig({
     ...(core.ignorePatterns ?? []),
     ".agents/skills/**",
     ".claude/**",
+    "contracts/lib/**",
     "mobile/scripts/**",
     "mobile/src/uniwind-types.d.ts",
   ],

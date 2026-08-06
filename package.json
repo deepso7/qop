@@ -8,6 +8,7 @@
   "type": "module",
   "scripts": {
     "check": "ultracite check",
+    "check:contracts": "forge fmt --root contracts --check && forge lint --root contracts && forge test --root contracts --force",
     "fix": "ultracite fix",
     "typecheck": "pnpm --filter @qop/identity --filter @qop/api run typecheck"
   },
