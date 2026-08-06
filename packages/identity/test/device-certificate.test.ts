@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import { hex } from "@scure/base";
-import { Effect, Exit, Schema, SchemaIssue } from "effect";
+import { Effect, Schema, SchemaIssue } from "effect";
 
 import {
   Base64Url32,
@@ -67,6 +67,21 @@ const expectEnvelopeIssue = Effect.fn("@qop/identity/test/expectEnvelopeIssue")(
   }
 );
 
+const expectCodecIssue = Effect.fn("@qop/identity/test/expectCodecIssue")(
+  function* (
+    schema: Schema.Codec<unknown, unknown>,
+    input: unknown,
+    message: string
+  ) {
+    const error = yield* Schema.decodeUnknownEffect(schema)(input).pipe(
+      Effect.flip
+    );
+    assert.deepStrictEqual(formatIssue(error.issue).issues, [
+      { message, path: [] },
+    ]);
+  }
+);
+
 describe("identity wire codecs", () => {
   it.effect("round-trips a canonical MiniP2P PeerId golden vector", () =>
     Effect.gen(function* () {
@@ -84,16 +99,16 @@ describe("identity wire codecs", () => {
 
   it.effect("rejects alternate and oversized PeerId representations", () =>
     Effect.gen(function* () {
-      for (const peerId of [
-        `z${RELAY_PEER_ID}`,
-        `1${RELAY_PEER_ID}`,
-        RELAY_PEER_ID.replace("K", "0"),
-        "1".repeat(10_000),
-      ]) {
-        const exit = yield* Effect.exit(
-          Schema.decodeUnknownEffect(PeerId)(peerId)
-        );
-        assert.isTrue(Exit.isFailure(exit));
+      for (const [peerId, message] of [
+        [`z${RELAY_PEER_ID}`, "Expected a 52-character PeerId"],
+        [`1${RELAY_PEER_ID}`, "Expected a 52-character PeerId"],
+        [
+          RELAY_PEER_ID.replace("K", "0"),
+          "Expected a canonical 52-character MiniP2P Ed25519 PeerId in base58",
+        ],
+        ["1".repeat(10_000), "Expected a 52-character PeerId"],
+      ] as const) {
+        yield* expectCodecIssue(PeerId, peerId, message);
       }
     })
   );
@@ -117,16 +132,22 @@ describe("identity wire codecs", () => {
         finalByteSet
       );
 
-      for (const value of [
-        `${canonical.slice(0, -1)}B`,
-        `${canonical}=`,
-        canonical.slice(1),
-        `${canonical}A`,
-      ]) {
-        const exit = yield* Effect.exit(
-          Schema.decodeUnknownEffect(Base64Url32)(value)
-        );
-        assert.isTrue(Exit.isFailure(exit));
+      for (const [value, message] of [
+        [`${canonical.slice(0, -1)}B`, "Expected canonical unpadded base64url"],
+        [
+          `${canonical}=`,
+          "Expected an unpadded base64url string encoding exactly 32 bytes",
+        ],
+        [
+          canonical.slice(1),
+          "Expected an unpadded base64url string encoding exactly 32 bytes",
+        ],
+        [
+          `${canonical}A`,
+          "Expected an unpadded base64url string encoding exactly 32 bytes",
+        ],
+      ] as const) {
+        yield* expectCodecIssue(Base64Url32, value, message);
       }
     })
   );
@@ -147,16 +168,21 @@ describe("identity wire codecs", () => {
           2n ** 64n - 1n
         );
 
-        for (const [schema, value] of [
-          [Qid, (2n ** 256n).toString()],
-          [Qid, "9".repeat(10_000)],
-          [UnixSeconds, (2n ** 64n).toString()],
-          [UnixSeconds, "9".repeat(10_000)],
+        for (const [schema, value, message] of [
+          [Qid, (2n ** 256n).toString(), "Expected a positive uint256 qid"],
+          [Qid, "9".repeat(10_000), "Expected at most 78 decimal digits"],
+          [
+            UnixSeconds,
+            (2n ** 64n).toString(),
+            "Expected a uint64 Unix timestamp",
+          ],
+          [
+            UnixSeconds,
+            "9".repeat(10_000),
+            "Expected at most 20 decimal digits",
+          ],
         ] as const) {
-          const exit = yield* Effect.exit(
-            Schema.decodeUnknownEffect(schema)(value)
-          );
-          assert.isTrue(Exit.isFailure(exit));
+          yield* expectCodecIssue(schema, value, message);
         }
       })
   );
@@ -173,21 +199,26 @@ describe("identity wire codecs", () => {
         assert.strictEqual(decoded.length, 65);
       }
 
+      const invalidSignatureMessage =
+        "Expected an ECDSA signature with valid r, low-s, and yParity 0 or 1";
       const invalidSignatures = [
-        makeSignature({ r: 0n }),
-        makeSignature({ r: SECP256K1_ORDER }),
-        makeSignature({ r: SECP256K1_ORDER + 1n }),
-        makeSignature({ s: 0n }),
-        makeSignature({ s: SECP256K1_HALF_ORDER + 1n }),
-        `${validEnvelope.signature.slice(0, -2)}1b`,
-        `${validEnvelope.signature.slice(0, 2)}A${validEnvelope.signature.slice(3)}`,
-      ];
+        [makeSignature({ r: 0n }), invalidSignatureMessage],
+        [makeSignature({ r: SECP256K1_ORDER }), invalidSignatureMessage],
+        [makeSignature({ r: SECP256K1_ORDER + 1n }), invalidSignatureMessage],
+        [makeSignature({ s: 0n }), invalidSignatureMessage],
+        [
+          makeSignature({ s: SECP256K1_HALF_ORDER + 1n }),
+          invalidSignatureMessage,
+        ],
+        [`${validEnvelope.signature.slice(0, -2)}1b`, invalidSignatureMessage],
+        [
+          `${validEnvelope.signature.slice(0, 2)}A${validEnvelope.signature.slice(3)}`,
+          "Expected a canonical lowercase 65-byte 0x-prefixed ECDSA signature",
+        ],
+      ] as const;
 
-      for (const candidate of invalidSignatures) {
-        const exit = yield* Effect.exit(
-          Schema.decodeUnknownEffect(EcdsaSignature)(candidate)
-        );
-        assert.isTrue(Exit.isFailure(exit));
+      for (const [candidate, message] of invalidSignatures) {
+        yield* expectCodecIssue(EcdsaSignature, candidate, message);
       }
     })
   );

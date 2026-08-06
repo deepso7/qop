@@ -167,7 +167,8 @@ export const recoverDeviceCertificateOwnerV1 = Effect.fn(
               signature: toViemSignature(signature),
             }),
         })
-      )
+      ),
+      Effect.map((address) => address.toLowerCase())
     )
 );
 
