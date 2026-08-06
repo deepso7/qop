@@ -21,7 +21,9 @@
     "viem": "2.55.11"
   },
   "devDependencies": {
+    "@effect/sql-pglite": "4.0.0-beta.103",
     "@effect/vitest": "4.0.0-beta.103",
+    "@electric-sql/pglite": "0.5.4",
     "@types/node": "24.13.3",
     "@types/pg": "8.20.4",
     "drizzle-kit": "1.0.0-rc.4",

@@ -9,12 +9,15 @@ The current package exports:
 - An on-demand registry chain reader.
 - A bounded, memory-only, request-coalesced Effect cache with fresh and stale windows.
 - Registry-specific cached, fresh, and invalidation operations.
+- Transactional registration-intent storage with single-live-handle leases.
 
 The registry cache stores the observed block number with every value. Ordinary reads may return a stale value while refreshing it in the background. Sensitive authorization and owner mutations must use the explicit `fresh` operations.
 
-Postgres does not project or authoritatively store onchain identity state. The current schema is intentionally empty; enrollment, pairing, and session tables will be added as those routes land.
+Postgres does not project or authoritatively store onchain identity state. Registration rows hold admission workflow state only. A per-handle lease prevents concurrent live registration intents for one handle; the registry remains first-wins and authoritative.
 
-Once API-owned tables are added, push the schema directly to the configured development database:
+Unsigned intents may expire locally. Once both signatures exist, the lease is held until registration is confirmed or a chain-aware reconciler proves terminal failure; wall-clock expiry alone cannot release a relayed intent.
+
+Push the API-owned schema directly to the configured development database:
 
 ```sh
 pnpm --filter @qop/api db:push

@@ -27,6 +27,18 @@ export class RegistryChainError extends Data.TaggedError("RegistryChainError")<{
 
 export type RegistryChainReadError = RegistryChainError | RegistryInputError;
 
+export const confirmedRegistryBlock = Effect.fn(
+  "RegistryChain.confirmedRegistryBlock"
+)(function* (latest: bigint, confirmations: bigint) {
+  if (latest < confirmations) {
+    return yield* new RegistryChainError({
+      cause: `Chain head ${latest} has not reached ${confirmations} confirmations`,
+      operation: "confirmed-block",
+    });
+  }
+  return latest - confirmations;
+});
+
 export interface RegistryChainShape {
   readonly account: (
     qid: bigint
@@ -78,7 +90,7 @@ export class RegistryChain extends Context.Service<
             try: () => client.getBlockNumber(),
           });
           const confirmations = BigInt(env.REGISTRY_CONFIRMATIONS);
-          return latest >= confirmations ? latest - confirmations : 0n;
+          return yield* confirmedRegistryBlock(latest, confirmations);
         })(),
         "1 second"
       );

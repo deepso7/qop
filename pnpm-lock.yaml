@@ -46,7 +46,7 @@ importers:
         version: link:../packages/identity
       drizzle-orm:
         specifier: 1.0.0-rc.4
-        version: 1.0.0-rc.4(@effect/sql-pg@4.0.0-beta.103(effect@4.0.0-beta.103))(@types/pg@8.20.4)(effect@4.0.0-beta.103)(pg@8.22.0)(zod@4.4.3)
+        version: 1.0.0-rc.4(@effect/sql-pg@4.0.0-beta.103(effect@4.0.0-beta.103))(@effect/sql-pglite@4.0.0-beta.103(effect@4.0.0-beta.103))(@electric-sql/pglite@0.5.4)(@types/pg@8.20.4)(effect@4.0.0-beta.103)(pg@8.22.0)(zod@4.4.3)
       effect:
         specifier: 'catalog:'
         version: 4.0.0-beta.103
@@ -57,9 +57,15 @@ importers:
         specifier: 2.55.11
         version: 2.55.11(typescript@7.0.2)(zod@4.4.3)
     devDependencies:
+      '@effect/sql-pglite':
+        specifier: 4.0.0-beta.103
+        version: 4.0.0-beta.103(effect@4.0.0-beta.103)
       '@effect/vitest':
         specifier: 4.0.0-beta.103
         version: 4.0.0-beta.103(effect@4.0.0-beta.103)(vitest@4.1.10(@types/node@24.13.3)(vite@8.2.0(@types/node@24.13.3)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)))
+      '@electric-sql/pglite':
+        specifier: 0.5.4
+        version: 0.5.4
       '@types/node':
         specifier: 24.13.3
         version: 24.13.3
@@ -714,11 +720,19 @@ packages:
     peerDependencies:
       effect: ^4.0.0-beta.103
 
+  '@effect/sql-pglite@4.0.0-beta.103':
+    resolution: {integrity: sha512-/a8I2rjfW6/0/Tvr70BTrRXXMLUQXbVDamhmnN97l3krWq1br+IH2ltbYn+358pJ+GJ+6UQ+eAR/P10WIs5anQ==}
+    peerDependencies:
+      effect: ^4.0.0-beta.103
+
   '@effect/vitest@4.0.0-beta.103':
     resolution: {integrity: sha512-Kz3gemVuJNAZ3e4V6A7BwAP87x2Av8LyHOlCjy9jbZzlncwJXO7Olk1Sje3hdKaet3wEl51A/0/89xJ2IYSgNg==}
     peerDependencies:
       effect: ^4.0.0-beta.103
       vitest: ^4.1.0
+
+  '@electric-sql/pglite@0.5.4':
+    resolution: {integrity: sha512-yYZUyyXrHU7tPlCjwZQJ6hIG9DscdCCn7Uk0mYKwC1FeHX286AbcmFveMiRBEak8e9iPupjsoVImN3yJZVed2g==}
 
   '@esbuild/aix-ppc64@0.25.12':
     resolution: {integrity: sha512-Hhmwd6CInZ3dwpuGTF8fJG6yoWmsToE+vYgD4nytZVxcu1ulHpUQRAB1UJ8+N1Am3Mz4+xOByoQoSZf4D+CpkA==}
@@ -6229,10 +6243,17 @@ snapshots:
     transitivePeerDependencies:
       - pg-native
 
+  '@effect/sql-pglite@4.0.0-beta.103(effect@4.0.0-beta.103)':
+    dependencies:
+      '@electric-sql/pglite': 0.5.4
+      effect: 4.0.0-beta.103
+
   '@effect/vitest@4.0.0-beta.103(effect@4.0.0-beta.103)(vitest@4.1.10(@types/node@24.13.3)(vite@8.2.0(@types/node@24.13.3)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0)))':
     dependencies:
       effect: 4.0.0-beta.103
       vitest: 4.1.10(@types/node@24.13.3)(vite@8.2.0(@types/node@24.13.3)(jiti@2.7.0)(terser@5.49.0)(yaml@2.9.0))
+
+  '@electric-sql/pglite@0.5.4': {}
 
   '@esbuild/aix-ppc64@0.25.12':
     optional: true
@@ -8792,9 +8813,11 @@ snapshots:
       get-tsconfig: 4.14.1
       jiti: 2.7.0
 
-  drizzle-orm@1.0.0-rc.4(@effect/sql-pg@4.0.0-beta.103(effect@4.0.0-beta.103))(@types/pg@8.20.4)(effect@4.0.0-beta.103)(pg@8.22.0)(zod@4.4.3):
+  drizzle-orm@1.0.0-rc.4(@effect/sql-pg@4.0.0-beta.103(effect@4.0.0-beta.103))(@effect/sql-pglite@4.0.0-beta.103(effect@4.0.0-beta.103))(@electric-sql/pglite@0.5.4)(@types/pg@8.20.4)(effect@4.0.0-beta.103)(pg@8.22.0)(zod@4.4.3):
     optionalDependencies:
       '@effect/sql-pg': 4.0.0-beta.103(effect@4.0.0-beta.103)
+      '@effect/sql-pglite': 4.0.0-beta.103(effect@4.0.0-beta.103)
+      '@electric-sql/pglite': 0.5.4
       '@types/pg': 8.20.4
       effect: 4.0.0-beta.103
       pg: 8.22.0

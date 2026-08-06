@@ -7,8 +7,9 @@
   "author": "",
   "type": "module",
   "scripts": {
-    "check": "ultracite check",
+    "check": "ultracite check && pnpm check:packages",
     "check:contracts": "forge fmt --root contracts --check && forge lint --root contracts && forge test --root contracts --force",
+    "check:packages": "pnpm --filter @qop/identity --filter @qop/api run test",
     "fix": "ultracite fix",
     "typecheck": "pnpm --filter @qop/identity --filter @qop/api run typecheck"
   },
