@@ -5,6 +5,7 @@ import { HttpClient, HttpRouter } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
 import type { Address, Hash, Hex } from "viem";
 
+import { DeviceObservation } from "../src/device/observation.ts";
 import { QopHttpApi } from "../src/http/api.ts";
 import {
   AuthorizedRegistrationResponse,
@@ -166,8 +167,19 @@ const RegistrationEnrollmentTestLive = Layer.succeed(
   })
 );
 
+const DeviceObservationUnusedTestLive = Layer.succeed(
+  DeviceObservation,
+  DeviceObservation.of({
+    observeFromRegistration: () =>
+      Effect.die("device observation is not used by registration HTTP tests"),
+  })
+);
+
 const ApiRoutesTestLive = HttpRouter.serve(
-  QopHttpApiRoutes.pipe(Layer.provide(RegistrationEnrollmentTestLive)),
+  QopHttpApiRoutes.pipe(
+    Layer.provide(DeviceObservationUnusedTestLive),
+    Layer.provide(RegistrationEnrollmentTestLive)
+  ),
   { disableListenLog: true, disableLogger: true }
 ).pipe(Layer.provideMerge(NodeHttpServer.layerTest));
 
@@ -210,6 +222,7 @@ describe("registration HTTP API", () => {
         readonly paths: Readonly<Record<string, unknown>>;
       };
       assert.hasAllKeys(document.paths, [
+        "/v1/devices/observe",
         "/v1/registrations",
         "/v1/registrations/{digest}/authorize",
         "/v1/registrations/{digest}/reconcile",

@@ -8,11 +8,56 @@ export {
 export { Database, DatabaseLive } from "./db/database.ts";
 export {
   apiSchemaVersion,
+  deviceCertificates,
+  registrationDeviceObservations,
   registrationHandleLeases,
   registrationIntents,
 } from "./db/schema.ts";
+export {
+  DeviceCertificateInputError,
+  normalizeIdentityEnvelope,
+} from "./device/inputs.ts";
+export {
+  DeviceCertificateRejected,
+  deviceCertificateFutureSkewSeconds,
+  DeviceObservation,
+  type DeviceObservationError,
+  DeviceObservationLive,
+  DeviceObservationProtocolError,
+  DeviceObservationRegistrationNotConfirmed,
+  type DeviceObservationShape,
+  DeviceObservationUnauthorized,
+  type ObservedRegistrationDevice,
+  type ObserveRegistrationDevice,
+} from "./device/observation.ts";
+export {
+  DeviceCertificateStore,
+  type DeviceCertificateStoreError,
+  DeviceCertificateStoreLive,
+  type DeviceCertificateStorePersistenceError,
+  type DeviceCertificateStoreShape,
+  DeviceObservationCapabilityConflict,
+  type ObserveRegistrationDeviceCertificate,
+  type StoredDeviceCertificate,
+} from "./device/store.ts";
 export { decodeEnv, Env } from "./env.ts";
 export { QopHttpApi } from "./http/api.ts";
+export {
+  DeviceApiGroup,
+  DeviceCertificateRejectedHttp,
+  DeviceObservationConflictHttp,
+  DeviceObservationInvalidHttp,
+  DeviceObservationServiceUnavailableHttp,
+  DeviceObservationUnauthorizedHttp,
+  ObservedDeviceResponse,
+  ObserveRegistrationDevicePayload,
+} from "./http/device-api.ts";
+export {
+  DeviceApiHandlers,
+  DeviceApiHandlersLive,
+  type DeviceObservationHttpError,
+  mapDeviceObservationHttpError,
+} from "./http/device-handlers.ts";
 export {
   mapRegistrationHttpError,
   RegistrationApiHandlers,

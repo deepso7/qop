@@ -3,6 +3,7 @@ import {
   char,
   check,
   index,
+  integer,
   numeric,
   pgTable,
   primaryKey,
@@ -19,6 +20,9 @@ const uint256 = (name: string) =>
 
 const uint64 = (name: string) =>
   numeric(name, { mode: "bigint", precision: 20, scale: 0 });
+
+const uint32 = (name: string) =>
+  numeric(name, { mode: "number", precision: 10, scale: 0 });
 
 const address = (name: string) => char(name, { length: 42 }).$type<Address>();
 const hash32 = (name: string) => char(name, { length: 66 }).$type<Hash>();
@@ -110,6 +114,74 @@ export const registrationIntents = pgTable(
   ]
 );
 
+export const deviceCertificates = pgTable(
+  "device_certificates",
+  {
+    certificateDigest: hash32("certificate_digest").notNull(),
+    encryptionPublicKey: char("encryption_public_key", {
+      length: 43,
+    }).notNull(),
+    issuedAt: uint64("issued_at").notNull(),
+    observedAt: timestamp("observed_at", {
+      mode: "date",
+      withTimezone: true,
+    })
+      .defaultNow()
+      .notNull(),
+    ownerVersion: uint32("owner_version").notNull(),
+    peerId: char("peer_id", { length: 52 }).notNull(),
+    qid: uint256("qid").notNull(),
+    salt: char("salt", { length: 43 }).notNull(),
+    signature: signature("signature").notNull(),
+    version: integer("version").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.certificateDigest],
+      name: "device_certificates_pk",
+    }),
+    index("device_certificates_qid_observed_idx").on(
+      table.qid,
+      table.observedAt
+    ),
+    check("device_certificates_qid_check", sql`${table.qid} > 0`),
+    check(
+      "device_certificates_owner_version_check",
+      sql`${table.ownerVersion} between 0 and 4294967295`
+    ),
+    check("device_certificates_version_check", sql`${table.version} = 1`),
+  ]
+);
+
+export const registrationDeviceObservations = pgTable(
+  "registration_device_observations",
+  {
+    certificateDigest: hash32("certificate_digest")
+      .notNull()
+      .references(() => deviceCertificates.certificateDigest, {
+        onDelete: "restrict",
+      }),
+    observedAt: timestamp("observed_at", {
+      mode: "date",
+      withTimezone: true,
+    })
+      .defaultNow()
+      .notNull(),
+    registrationIntentDigest: hash32("registration_intent_digest")
+      .notNull()
+      .references(() => registrationIntents.digest, { onDelete: "restrict" }),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.registrationIntentDigest],
+      name: "registration_device_observations_pk",
+    }),
+    index("registration_device_observations_certificate_idx").on(
+      table.certificateDigest
+    ),
+  ]
+);
+
 export const registrationHandleLeases = pgTable(
   "registration_handle_leases",
   {
@@ -143,4 +215,4 @@ export const registrationHandleLeases = pgTable(
   ]
 );
 
-export const apiSchemaVersion = 1 as const;
+export const apiSchemaVersion = 2 as const;

@@ -2,6 +2,8 @@ import { assert, describe, it } from "@effect/vitest";
 import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 
 import {
+  deviceCertificates,
+  registrationDeviceObservations,
   registrationHandleLeases,
   registrationIntents,
 } from "../src/db/schema.ts";
@@ -12,6 +14,45 @@ const names = (values: readonly { readonly name?: string }[]) =>
 const dialect = new PgDialect();
 
 describe("registration database schema", () => {
+  it("pins device certificates and single-use registration observations", () => {
+    const certificateConfig = getTableConfig(deviceCertificates);
+    assert.strictEqual(certificateConfig.name, "device_certificates");
+    assert.deepStrictEqual(
+      certificateConfig.primaryKeys.map((key) => key.getName()),
+      ["device_certificates_pk"]
+    );
+    assert.deepStrictEqual(
+      certificateConfig.indexes.map((index) => index.config.name),
+      ["device_certificates_qid_observed_idx"]
+    );
+    assert.strictEqual(
+      certificateConfig.columns
+        .find((column) => column.name === "owner_version")
+        ?.getSQLType(),
+      "numeric(10, 0)"
+    );
+    assert.deepStrictEqual(names(certificateConfig.checks), [
+      "device_certificates_qid_check",
+      "device_certificates_owner_version_check",
+      "device_certificates_version_check",
+    ]);
+
+    const observationConfig = getTableConfig(registrationDeviceObservations);
+    assert.strictEqual(
+      observationConfig.name,
+      "registration_device_observations"
+    );
+    assert.deepStrictEqual(
+      observationConfig.primaryKeys.map((key) => key.getName()),
+      ["registration_device_observations_pk"]
+    );
+    assert.deepStrictEqual(
+      observationConfig.indexes.map((index) => index.config.name),
+      ["registration_device_observations_certificate_idx"]
+    );
+    assert.strictEqual(observationConfig.foreignKeys.length, 2);
+  });
+
   it("pins registration intent constraints and indexes", () => {
     const config = getTableConfig(registrationIntents);
 

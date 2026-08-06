@@ -115,6 +115,10 @@ layer(RegistrationStoreTestLive, { timeout: "30 seconds" })((it) => {
 
       assert.strictEqual(ready.ownerSignature, canonicalSignature("00"));
       assert.strictEqual(ready.registrationSignature, canonicalSignature("01"));
+      assert.strictEqual(
+        (yield* store.authorize(registration.digest, authorization)).status,
+        "ready"
+      );
       yield* store.markFailed(registration.digest, "TEST_CLEANUP");
     })
   );

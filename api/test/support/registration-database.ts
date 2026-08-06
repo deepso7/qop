@@ -8,6 +8,7 @@ import { Effect, Layer } from "effect";
 import { Database } from "../../src/db/database.ts";
 import type { DatabaseClient } from "../../src/db/database.ts";
 import * as databaseSchema from "../../src/db/schema.ts";
+import { DeviceCertificateStore } from "../../src/device/store.ts";
 import { RegistrationStore } from "../../src/registration/store.ts";
 
 const PgliteLive = PgliteClient.layer();
@@ -29,3 +30,8 @@ export const TestDatabaseLive = Layer.effect(
 export const RegistrationStoreTestLive = RegistrationStore.layer.pipe(
   Layer.provide(TestDatabaseLive)
 );
+
+export const DeviceAndRegistrationStoresTestLive = Layer.merge(
+  DeviceCertificateStore.layer,
+  RegistrationStore.layer
+).pipe(Layer.provide(TestDatabaseLive));
