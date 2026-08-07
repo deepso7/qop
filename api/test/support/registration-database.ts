@@ -8,7 +8,7 @@ import { Effect, Layer } from "effect";
 import { Database } from "../../src/db/database.ts";
 import type { DatabaseClient } from "../../src/db/database.ts";
 import * as databaseSchema from "../../src/db/schema.ts";
-import { DeviceSessionChallengeStore } from "../../src/device-session/store.ts";
+import { DeviceSessionStore } from "../../src/device-session/store.ts";
 import { DeviceCertificateStore } from "../../src/device/store.ts";
 import { RegistrationStore } from "../../src/registration/store.ts";
 
@@ -35,5 +35,5 @@ export const RegistrationStoreTestLive = RegistrationStore.layer.pipe(
 export const DeviceAndRegistrationStoresTestLive = Layer.mergeAll(
   DeviceCertificateStore.layer,
   RegistrationStore.layer,
-  DeviceSessionChallengeStore.layer
+  DeviceSessionStore.layer
 ).pipe(Layer.provide(TestDatabaseLive));

@@ -30,22 +30,31 @@ import { DeviceSessionEntropy } from "./entropy.ts";
 import {
   DeviceSessionChallengeConsumed,
   DeviceSessionChallengeExpired,
-  DeviceSessionChallengeStore,
-  DeviceSessionChallengeStoreLive,
+  DeviceSessionStore,
+  DeviceSessionStoreLive,
 } from "./store.ts";
 import type {
-  DeviceSessionChallengeStoreError,
+  DeviceSessionStoreError,
   StoredDeviceSessionChallenge,
 } from "./store.ts";
 
 export const deviceSessionChallengeTtlSeconds = 300n;
+export const deviceSessionTtlSeconds = 3600n;
 
 export interface IssueDeviceSessionChallenge {
   readonly certificateDigest: Hash;
   readonly flow: DeviceSessionChallengeV1["flow"];
 }
 
-export interface CompletedDeviceSessionProof {
+export interface AuthenticatedDeviceSession {
+  readonly certificateDigest: Hash;
+  readonly expiresAt: string;
+  readonly peerId: string;
+  readonly qid: bigint;
+  readonly token: string;
+}
+
+export interface ResolvedDeviceSession {
   readonly certificateDigest: Hash;
   readonly peerId: string;
   readonly qid: bigint;
@@ -73,8 +82,10 @@ export class DeviceSessionProtocolError extends Data.TaggedError(
   readonly operation:
     | "decode-challenge"
     | "decode-proof"
+    | "decode-token"
     | "encode-challenge"
-    | "encode-proof";
+    | "encode-proof"
+    | "encode-token";
 }> {}
 
 export type DeviceSessionServiceError =
@@ -82,7 +93,7 @@ export type DeviceSessionServiceError =
   | DeviceCertificateStoreError
   | DeviceSessionCertificateRejected
   | DeviceSessionChallengeBindingMismatch
-  | DeviceSessionChallengeStoreError
+  | DeviceSessionStoreError
   | DeviceSessionEntropyError
   | DeviceSessionPopCryptoError
   | DeviceSessionProofInvalid
@@ -91,15 +102,18 @@ export type DeviceSessionServiceError =
   | RegistryInputError;
 
 export interface DeviceSessionServiceShape {
-  readonly complete: (
+  readonly authenticate: (
     proof: unknown
-  ) => Effect.Effect<CompletedDeviceSessionProof, DeviceSessionServiceError>;
+  ) => Effect.Effect<AuthenticatedDeviceSession, DeviceSessionServiceError>;
   readonly issue: (
     input: IssueDeviceSessionChallenge
   ) => Effect.Effect<
     DeviceSessionChallengeV1Encoded,
     DeviceSessionServiceError
   >;
+  readonly resolve: (
+    token: unknown
+  ) => Effect.Effect<ResolvedDeviceSession, DeviceSessionServiceError>;
 }
 
 const protocolError =
@@ -123,6 +137,19 @@ const storedChallengeMatches = (
   stored.qid === BigInt(challenge.qid) &&
   stored.version === challenge.version;
 
+const encodeStoredChallenge = (
+  stored: StoredDeviceSessionChallenge
+): DeviceSessionChallengeV1Encoded => ({
+  certificateDigest: stored.certificateDigest,
+  challenge: stored.challenge,
+  expiresAt: stored.expiresAt.toString(),
+  flow: stored.flow,
+  issuedAt: stored.issuedAt.toString(),
+  peerId: stored.peerId,
+  qid: stored.qid.toString(),
+  version: 1,
+});
+
 export class DeviceSessionService extends Context.Service<
   DeviceSessionService,
   DeviceSessionServiceShape
@@ -131,7 +158,7 @@ export class DeviceSessionService extends Context.Service<
     this,
     Effect.gen(function* () {
       const certificates = yield* DeviceCertificateStore;
-      const challenges = yield* DeviceSessionChallengeStore;
+      const sessions = yield* DeviceSessionStore;
       const entropy = yield* DeviceSessionEntropy;
       const registry = yield* RegistryReader;
 
@@ -168,7 +195,7 @@ export class DeviceSessionService extends Context.Service<
       const issue = Effect.fn("DeviceSessionService.issue")(function* (
         input: IssueDeviceSessionChallenge
       ) {
-        yield* challenges.purgeExpired;
+        yield* sessions.purgeExpired;
         const certificateDigest = yield* normalizeCertificateDigest(
           input.certificateDigest
         );
@@ -191,70 +218,112 @@ export class DeviceSessionService extends Context.Service<
         const encoded = yield* encodeDeviceSessionChallengeV1(challenge).pipe(
           Effect.mapError(protocolError("encode-challenge"))
         );
-        yield* challenges.create({
+        const stored = yield* sessions.createChallenge({
           challenge: encoded,
           challengeHash: keccak256(challengeBytes),
         });
-        return encoded;
+        return encodeStoredChallenge(stored);
       });
 
-      const complete = Effect.fn("DeviceSessionService.complete")(function* (
+      const authenticate = Effect.fn("DeviceSessionService.authenticate")(
+        function* (input: unknown) {
+          const proof = yield* decodeDeviceSessionProofV1(input).pipe(
+            Effect.mapError(protocolError("decode-proof"))
+          );
+          const encodedProof = yield* encodeDeviceSessionProofV1(proof).pipe(
+            Effect.mapError(protocolError("encode-proof"))
+          );
+          const challengeHash = keccak256(proof.challenge.challenge);
+          const stored = yield* sessions.getChallenge(challengeHash);
+          if (Option.isNone(stored)) {
+            return yield* new DeviceSessionChallengeBindingMismatch({
+              challengeHash,
+            });
+          }
+          if (!storedChallengeMatches(stored.value, encodedProof.challenge)) {
+            return yield* new DeviceSessionChallengeBindingMismatch({
+              challengeHash,
+            });
+          }
+          const currentSeconds = yield* nowSeconds;
+          if (stored.value.consumedAt !== null) {
+            return yield* new DeviceSessionChallengeConsumed({ challengeHash });
+          }
+          if (stored.value.expiresAt <= currentSeconds) {
+            return yield* new DeviceSessionChallengeExpired({ challengeHash });
+          }
+          const valid = yield* verifyDeviceSessionProofV1(proof);
+          if (!valid) {
+            return yield* new DeviceSessionProofInvalid({ challengeHash });
+          }
+          const certificate = yield* requireCurrentCertificate(
+            stored.value.certificateDigest
+          ).pipe(
+            Effect.catchTag("DeviceSessionCertificateRejected", (error) =>
+              sessions
+                .consumeChallenge(challengeHash)
+                .pipe(Effect.flatMap(() => Effect.fail(error)))
+            )
+          );
+          const tokenBytes = yield* entropy.bytes32;
+          const token = yield* Schema.encodeEffect(Base64Url32)(
+            tokenBytes
+          ).pipe(Effect.mapError(protocolError("encode-token")));
+          const session = yield* sessions.authenticate({
+            challengeHash,
+            ownerVersion: certificate.ownerVersion,
+            sessionTtlSeconds: deviceSessionTtlSeconds,
+            tokenHash: keccak256(tokenBytes),
+          });
+          return {
+            certificateDigest: certificate.certificateDigest,
+            expiresAt: session.expiresAt.toString(),
+            peerId: certificate.peerId,
+            qid: certificate.qid,
+            token,
+          };
+        }
+      );
+
+      const resolve = Effect.fn("DeviceSessionService.resolve")(function* (
         input: unknown
       ) {
-        const proof = yield* decodeDeviceSessionProofV1(input).pipe(
-          Effect.mapError(protocolError("decode-proof"))
-        );
-        const encodedProof = yield* encodeDeviceSessionProofV1(proof).pipe(
-          Effect.mapError(protocolError("encode-proof"))
-        );
-        const challengeHash = keccak256(proof.challenge.challenge);
-        const stored = yield* challenges.get(challengeHash);
-        if (Option.isNone(stored)) {
-          return yield* new DeviceSessionChallengeBindingMismatch({
-            challengeHash,
+        const tokenBytes = yield* Schema.decodeUnknownEffect(Base64Url32)(
+          input
+        ).pipe(Effect.mapError(protocolError("decode-token")));
+        const session = yield* sessions.getActiveSession(keccak256(tokenBytes));
+        const account = yield* registry.cached.account(session.qid);
+        if (account.value.ownerVersion !== session.ownerVersion) {
+          return yield* new DeviceSessionCertificateRejected({
+            certificateDigest: session.certificateDigest,
+            reason: "owner-version",
           });
         }
-        if (!storedChallengeMatches(stored.value, encodedProof.challenge)) {
-          return yield* new DeviceSessionChallengeBindingMismatch({
-            challengeHash,
+        const revocation = yield* registry.cached.deviceRevocation(
+          session.qid,
+          session.certificateDigest
+        );
+        if (revocation.value) {
+          return yield* new DeviceSessionCertificateRejected({
+            certificateDigest: session.certificateDigest,
+            reason: "revoked",
           });
         }
-        const currentSeconds = yield* nowSeconds;
-        if (stored.value.consumedAt !== null) {
-          return yield* new DeviceSessionChallengeConsumed({ challengeHash });
-        }
-        if (stored.value.expiresAt <= currentSeconds) {
-          return yield* new DeviceSessionChallengeExpired({ challengeHash });
-        }
-        const valid = yield* verifyDeviceSessionProofV1(proof);
-        if (!valid) {
-          return yield* new DeviceSessionProofInvalid({ challengeHash });
-        }
-        const certificate = yield* requireCurrentCertificate(
-          stored.value.certificateDigest
-        ).pipe(
-          Effect.catchTag("DeviceSessionCertificateRejected", (error) =>
-            challenges
-              .consume(challengeHash)
-              .pipe(Effect.flatMap(() => Effect.fail(error)))
-          )
-        );
-        yield* challenges.consume(challengeHash);
         return {
-          certificateDigest: certificate.certificateDigest,
-          peerId: certificate.peerId,
-          qid: certificate.qid,
+          certificateDigest: session.certificateDigest,
+          peerId: session.peerId,
+          qid: session.qid,
         };
       });
 
-      return DeviceSessionService.of({ complete, issue });
+      return DeviceSessionService.of({ authenticate, issue, resolve });
     })
   );
 }
 
 export const DeviceSessionServiceLive = DeviceSessionService.layer.pipe(
   Layer.provide(DeviceCertificateStoreLive),
-  Layer.provide(DeviceSessionChallengeStoreLive),
+  Layer.provide(DeviceSessionStoreLive),
   Layer.provide(DeviceSessionEntropy.layer),
   Layer.provide(RegistryReaderLive)
 );

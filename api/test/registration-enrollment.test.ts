@@ -501,6 +501,30 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
     })
   );
 
+  it.effect("sweeps abandoned pending intents during the next prepare", () =>
+    Effect.gen(function* () {
+      const enrollment = yield* RegistrationEnrollment;
+      const store = yield* RegistrationStore;
+      const abandoned = yield* enrollment.prepare({
+        handle: "abandoned",
+        idempotencyKey: idempotencyKey("abandoned"),
+        owner: ownerAccount.address,
+        peerId: PEER_ID,
+      });
+
+      yield* TestClock.adjust("601 seconds");
+      yield* enrollment.prepare({
+        handle: "aftercleanup",
+        idempotencyKey: idempotencyKey("aftercleanup"),
+        owner: ownerAccount.address,
+        peerId: PEER_ID,
+      });
+
+      const stored = Option.getOrThrow(yield* store.get(abandoned.digest));
+      assert.strictEqual(stored.status, "expired");
+    })
+  );
+
   it.effect("rejects a persisted signature from the wrong registrar", () =>
     Effect.gen(function* () {
       const enrollment = yield* RegistrationEnrollment;

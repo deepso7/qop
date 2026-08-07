@@ -13,7 +13,7 @@ The current package exports:
 - Registration enrollment that checks fresh onchain availability, prepares the EIP-712 intent, verifies the owner, and only then applies the registrar signature.
 - Registration HTTP routes: `POST /v1/registrations`, `POST /v1/registrations/:digest/authorize`, and `POST /v1/registrations/:digest/reconcile`; OpenAPI is served at `GET /openapi.json`.
 - Capability-gated initial device observation at `POST /v1/devices/observe`, backed by public certificate storage and a single-use registration-to-certificate claim.
-- A five-minute device-session challenge service that rechecks certificate rotation/revocation state, verifies MiniP2P Ed25519 proof of possession, and atomically consumes each challenge once. HTTP and token issuance are not yet exposed.
+- A five-minute device-session challenge service that rechecks certificate rotation/revocation state, verifies MiniP2P Ed25519 proof of possession, and atomically consumes the challenge while issuing a one-hour opaque session. Only token hashes are persisted. Clients should silently repeat PoP after expiry instead of implementing a refresh-token flow. Session HTTP routes are not yet exposed.
 
 The registry cache stores the observed block number with every value. Ordinary reads may return a stale value while refreshing it in the background. Sensitive authorization and owner mutations must use the explicit `fresh` operations.
 

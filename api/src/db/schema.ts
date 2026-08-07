@@ -191,6 +191,7 @@ export const deviceSessionChallenges = pgTable(
       .references(() => deviceCertificates.certificateDigest, {
         onDelete: "restrict",
       }),
+    challenge: char("challenge", { length: 43 }).notNull(),
     challengeHash: hash32("challenge_hash").notNull(),
     consumedAt: timestamp("consumed_at", {
       mode: "date",
@@ -221,6 +222,9 @@ export const deviceSessionChallenges = pgTable(
       table.expiresAt
     ),
     index("device_session_challenges_expiry_idx").on(table.expiresAt),
+    uniqueIndex("device_session_challenges_open_certificate_flow_unique")
+      .on(table.certificateDigest, table.flow)
+      .where(sql`${table.consumedAt} is null`),
     check("device_session_challenges_qid_check", sql`${table.qid} > 0`),
     check(
       "device_session_challenges_time_check",
@@ -231,6 +235,41 @@ export const deviceSessionChallenges = pgTable(
       sql`${table.flow} in ('registration', 'pairing', 'restore')`
     ),
     check("device_session_challenges_version_check", sql`${table.version} = 1`),
+  ]
+);
+
+export const deviceSessions = pgTable(
+  "device_sessions",
+  {
+    certificateDigest: hash32("certificate_digest")
+      .notNull()
+      .references(() => deviceCertificates.certificateDigest, {
+        onDelete: "restrict",
+      }),
+    createdAt: timestamp("created_at", {
+      mode: "date",
+      withTimezone: true,
+    })
+      .defaultNow()
+      .notNull(),
+    expiresAt: uint64("expires_at").notNull(),
+    ownerVersion: uint32("owner_version").notNull(),
+    peerId: char("peer_id", { length: 52 }).notNull(),
+    qid: uint256("qid").notNull(),
+    tokenHash: hash32("token_hash").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.tokenHash], name: "device_sessions_pk" }),
+    index("device_sessions_certificate_expiry_idx").on(
+      table.certificateDigest,
+      table.expiresAt
+    ),
+    index("device_sessions_expiry_idx").on(table.expiresAt),
+    check("device_sessions_qid_check", sql`${table.qid} > 0`),
+    check(
+      "device_sessions_owner_version_check",
+      sql`${table.ownerVersion} between 0 and 4294967295`
+    ),
   ]
 );
 

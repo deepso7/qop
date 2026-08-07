@@ -4,6 +4,7 @@ import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 import {
   deviceCertificates,
   deviceSessionChallenges,
+  deviceSessions,
   registrationDeviceObservations,
   registrationHandleLeases,
   registrationIntents,
@@ -15,6 +16,44 @@ const names = (values: readonly { readonly name?: string }[]) =>
 const dialect = new PgDialect();
 
 describe("registration database schema", () => {
+  it("pins short-lived device session constraints", () => {
+    const config = getTableConfig(deviceSessions);
+    assert.strictEqual(config.name, "device_sessions");
+    assert.deepStrictEqual(
+      config.primaryKeys.map((key) => key.getName()),
+      ["device_sessions_pk"]
+    );
+    assert.deepStrictEqual(
+      config.indexes.map((index) => index.config.name),
+      ["device_sessions_certificate_expiry_idx", "device_sessions_expiry_idx"]
+    );
+    assert.deepStrictEqual(names(config.checks), [
+      "device_sessions_qid_check",
+      "device_sessions_owner_version_check",
+    ]);
+    assert.deepStrictEqual(
+      Object.fromEntries(
+        config.checks.map((constraint) => {
+          const query = dialect.sqlToQuery(constraint.value);
+          assert.deepStrictEqual(query.params, []);
+          return [constraint.name, query.sql];
+        })
+      ),
+      {
+        device_sessions_owner_version_check:
+          '"device_sessions"."owner_version" between 0 and 4294967295',
+        device_sessions_qid_check: '"device_sessions"."qid" > 0',
+      }
+    );
+    assert.strictEqual(config.foreignKeys.length, 1);
+    assert.strictEqual(
+      config.columns
+        .find((column) => column.name === "owner_version")
+        ?.getSQLType(),
+      "numeric(10, 0)"
+    );
+  });
+
   it("pins single-use device session challenge constraints", () => {
     const config = getTableConfig(deviceSessionChallenges);
     assert.strictEqual(config.name, "device_session_challenges");
@@ -27,7 +66,12 @@ describe("registration database schema", () => {
       [
         "device_session_challenges_certificate_expiry_idx",
         "device_session_challenges_expiry_idx",
+        "device_session_challenges_open_certificate_flow_unique",
       ]
+    );
+    assert.deepStrictEqual(
+      config.indexes.map((index) => index.config.unique),
+      [false, false, true]
     );
     assert.deepStrictEqual(names(config.checks), [
       "device_session_challenges_qid_check",
@@ -78,6 +122,22 @@ describe("registration database schema", () => {
       "device_certificates_owner_version_check",
       "device_certificates_version_check",
     ]);
+    assert.deepStrictEqual(
+      Object.fromEntries(
+        certificateConfig.checks.map((constraint) => {
+          const query = dialect.sqlToQuery(constraint.value);
+          assert.deepStrictEqual(query.params, []);
+          return [constraint.name, query.sql];
+        })
+      ),
+      {
+        device_certificates_owner_version_check:
+          '"device_certificates"."owner_version" between 0 and 4294967295',
+        device_certificates_qid_check: '"device_certificates"."qid" > 0',
+        device_certificates_version_check:
+          '"device_certificates"."version" = 1',
+      }
+    );
 
     const observationConfig = getTableConfig(registrationDeviceObservations);
     assert.strictEqual(

@@ -9,6 +9,7 @@ export { Database, DatabaseLive } from "./db/database.ts";
 export {
   deviceCertificates,
   deviceSessionChallenges,
+  deviceSessions,
   registrationDeviceObservations,
   registrationHandleLeases,
   registrationIntents,
@@ -46,10 +47,11 @@ export {
   type DeviceSessionEntropyShape,
 } from "./device-session/entropy.ts";
 export {
-  type CompletedDeviceSessionProof,
+  type AuthenticatedDeviceSession,
   DeviceSessionCertificateRejected,
   DeviceSessionChallengeBindingMismatch,
   deviceSessionChallengeTtlSeconds,
+  deviceSessionTtlSeconds,
   DeviceSessionProofInvalid,
   DeviceSessionProtocolError,
   DeviceSessionService,
@@ -57,18 +59,23 @@ export {
   DeviceSessionServiceLive,
   type DeviceSessionServiceShape,
   type IssueDeviceSessionChallenge,
+  type ResolvedDeviceSession,
 } from "./device-session/service.ts";
 export {
+  type AuthenticateDeviceSession,
   type CreateDeviceSessionChallenge,
   DeviceSessionChallengeConsumed,
   DeviceSessionChallengeExpired,
   DeviceSessionChallengeNotFound,
-  deviceSessionChallengePurgeBatchSize,
-  DeviceSessionChallengeStore,
-  type DeviceSessionChallengeStoreError,
-  DeviceSessionChallengeStoreLive,
-  type DeviceSessionChallengeStorePersistenceError,
-  type DeviceSessionChallengeStoreShape,
+  DeviceSessionExpired,
+  DeviceSessionNotFound,
+  deviceSessionPurgeBatchSize,
+  DeviceSessionStore,
+  type DeviceSessionStoreError,
+  DeviceSessionStoreLive,
+  type DeviceSessionStorePersistenceError,
+  type DeviceSessionStoreShape,
+  type StoredDeviceSession,
   type StoredDeviceSessionChallenge,
 } from "./device-session/store.ts";
 export { decodeEnv, Env } from "./env.ts";

@@ -87,6 +87,55 @@ describe("cache namespace", () => {
     })
   );
 
+  it.effect("bounds a fresh retry when invalidation races its lookup", () =>
+    Effect.gen(function* () {
+      const firstLookupStarted = yield* Deferred.make<boolean>();
+      const releaseFirstLookup = yield* Deferred.make<boolean>();
+      const secondLookupStarted = yield* Deferred.make<boolean>();
+      const releaseSecondLookup = yield* Deferred.make<boolean>();
+      let lookups = 0;
+      const cache = yield* makeCacheNamespace({
+        capacity: 10,
+        lookup: () =>
+          Effect.gen(function* () {
+            lookups += 1;
+            if (lookups === 1) {
+              yield* Deferred.succeed(firstLookupStarted, true);
+              yield* Deferred.await(releaseFirstLookup);
+              return "pre-invalidation";
+            }
+            yield* Deferred.succeed(secondLookupStarted, true);
+            yield* Deferred.await(releaseSecondLookup);
+            return "post-invalidation";
+          }),
+        policy: {
+          freshFor: () => Duration.minutes(1),
+          staleFor: () => Duration.minutes(5),
+        },
+      });
+
+      const fresh = yield* Effect.forkChild(cache.fresh("account"));
+      yield* Deferred.await(firstLookupStarted);
+      yield* cache.invalidate("account");
+      yield* Deferred.succeed(releaseFirstLookup, true);
+      yield* Deferred.await(secondLookupStarted);
+
+      const secondInvalidation = yield* Effect.forkChild(
+        cache.invalidate("account")
+      );
+      yield* Effect.yieldNow;
+      assert.isUndefined(secondInvalidation.pollUnsafe());
+
+      yield* Deferred.succeed(releaseSecondLookup, true);
+      const result = yield* Fiber.join(fresh);
+      yield* Fiber.join(secondInvalidation);
+
+      assert.strictEqual(result.value, "post-invalidation");
+      assert.strictEqual(result.freshness, "fresh");
+      assert.strictEqual(lookups, 2);
+    })
+  );
+
   it.effect("discards an in-flight refresh after invalidation", () =>
     Effect.gen(function* () {
       const refreshStarted = yield* Deferred.make<boolean>();
@@ -199,6 +248,12 @@ describe("cache namespace", () => {
         const continueAdmission = yield* Deferred.make<boolean>();
         const backgroundFinished = yield* Deferred.make<boolean>();
         const controlledSemaphore = {
+          release: (permits: number) =>
+            semaphore
+              .release(permits)
+              .pipe(
+                Effect.tap(() => Deferred.succeed(backgroundFinished, true))
+              ),
           takeIfAvailable: (permits: number) =>
             Effect.gen(function* () {
               const acquired = yield* semaphore.takeIfAvailable(permits);
@@ -239,8 +294,9 @@ describe("cache namespace", () => {
         yield* TestClock.adjust("2 seconds");
         const caller = yield* Effect.forkChild(cache.cached("identity"));
         yield* Deferred.await(admitted);
-        yield* Fiber.interrupt(caller);
+        const interruption = yield* Effect.forkChild(Fiber.interrupt(caller));
         yield* Deferred.succeed(continueAdmission, true);
+        yield* Fiber.join(interruption);
         yield* Deferred.await(backgroundFinished);
 
         assert.isTrue(yield* semaphore.takeIfAvailable(1));

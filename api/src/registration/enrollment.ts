@@ -14,7 +14,16 @@ import type {
   RegisterIntentV1,
   RegisterIntentV1Encoded,
 } from "@qop/identity";
-import { Context, Data, DateTime, Effect, Layer, Option, Schema } from "effect";
+import {
+  Context,
+  Data,
+  DateTime,
+  Effect,
+  Layer,
+  Option,
+  Schema,
+  Semaphore,
+} from "effect";
 import { concatBytes, hexToBytes, keccak256, stringToBytes, toHex } from "viem";
 import type { Address, Hash, Hex } from "viem";
 
@@ -51,6 +60,7 @@ import type {
 import type { RegistrationIntentStatus } from "./types.ts";
 
 export const registrationIntentTtlSeconds = 600n;
+export const registrationReconciliationConcurrency = 16;
 const observeTokenDerivationDomain = stringToBytes(
   "qop-registration-observe-token-v1"
 );
@@ -230,6 +240,9 @@ export class RegistrationEnrollment extends Context.Service<
       const registry = yield* RegistryReader;
       const signer = yield* RegistrationSigner;
       const store = yield* RegistrationStore;
+      const reconciliationSemaphore = yield* Semaphore.make(
+        registrationReconciliationConcurrency
+      );
       const domain: IdentityEip712DomainV1 =
         yield* decodeIdentityEip712DomainV1({
           chainId: env.CHAIN_ID.toString(),
@@ -307,6 +320,10 @@ export class RegistrationEnrollment extends Context.Service<
           observeTokenBytes
         ).pipe(Effect.mapError(protocolError("generate-observe-token")));
         const observeTokenHash = keccak256(toHex(observeTokenBytes));
+        // Opportunistically bound abandoned-intent growth on every valid
+        // admission request. The store performs a small SKIP LOCKED batch, so
+        // concurrent API instances can safely share this maintenance work.
+        yield* store.expire;
         const expected = { handle, owner, peerId } as const;
         const replay = yield* store.getByObserveTokenHash(observeTokenHash);
         if (Option.isSome(replay)) {
@@ -495,10 +512,12 @@ export class RegistrationEnrollment extends Context.Service<
             return reconciledRegistration(stored);
           }
 
-          const probe = yield* registry.fresh.registrationProbe(
-            stored.handle,
-            stored.owner,
-            stored.registrationNonce
+          const probe = yield* reconciliationSemaphore.withPermits(1)(
+            registry.fresh.registrationProbe(
+              stored.handle,
+              stored.owner,
+              stored.registrationNonce
+            )
           );
           if (probe.value.registrationNonceUsed) {
             if (probe.value.handleQid === null) {

@@ -123,21 +123,44 @@ export const makeCacheNamespace = <Key, Value, Error>(
         return cacheRead(entry, "fresh");
       }
 
-      yield* Effect.forkDetach(
-        backgroundRefreshSemaphore.withPermitsIfAvailable(1)(
-          Cache.get(refreshes, key).pipe(Effect.ignore)
-        )
+      yield* Effect.uninterruptibleMask((restore) =>
+        Effect.gen(function* () {
+          const admitted = yield* backgroundRefreshSemaphore.takeIfAvailable(1);
+          if (!admitted) {
+            return;
+          }
+
+          yield* Effect.forkDetach(
+            restore(Cache.get(refreshes, key).pipe(Effect.ignore)).pipe(
+              Effect.ensuring(backgroundRefreshSemaphore.release(1))
+            )
+          );
+        })
       );
       return cacheRead(entry, "stale");
     });
 
     const fresh = Effect.fn("CacheNamespace.fresh")(function* (key: Key) {
-      while (true) {
-        const entry = yield* Cache.get(refreshes, key);
-        if (Option.isSome(entry)) {
-          return cacheRead(entry.value, "fresh");
-        }
+      const refreshed = yield* Cache.get(refreshes, key);
+      if (Option.isSome(refreshed)) {
+        return cacheRead(refreshed.value, "fresh");
       }
+
+      // An invalidation raced the coalesced lookup. Retry once while holding the
+      // mutation fence so repeated invalidations cannot turn this into a tight
+      // origin-read loop.
+      const entry = yield* mutationSemaphore.withPermit(
+        Effect.gen(function* () {
+          const existing = yield* Cache.getOption(entries, key);
+          if (Option.isSome(existing)) {
+            return existing.value;
+          }
+          const loaded = yield* load(key);
+          yield* Cache.set(entries, key, loaded);
+          return loaded;
+        })
+      );
+      return cacheRead(entry, "fresh");
     });
 
     const invalidate = Effect.fn("CacheNamespace.invalidate")(function* (

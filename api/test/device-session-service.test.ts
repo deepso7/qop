@@ -8,7 +8,7 @@ import {
   PeerId,
   signDeviceSessionChallengeV1,
 } from "@qop/identity";
-import { Duration, Effect, Layer, Result, Schema } from "effect";
+import { DateTime, Duration, Effect, Layer, Result, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { keccak256 } from "viem";
 import type { Address, Hash, Hex } from "viem";
@@ -18,12 +18,15 @@ import {
   DeviceSessionCertificateRejected,
   DeviceSessionChallengeBindingMismatch,
   DeviceSessionProofInvalid,
+  DeviceSessionProtocolError,
   DeviceSessionService,
 } from "../src/device-session/service.ts";
 import {
   DeviceSessionChallengeConsumed,
   DeviceSessionChallengeExpired,
-  DeviceSessionChallengeStore,
+  DeviceSessionExpired,
+  DeviceSessionNotFound,
+  DeviceSessionStore,
 } from "../src/device-session/store.ts";
 import { DeviceCertificateStore } from "../src/device/store.ts";
 import { RegistrationStore } from "../src/registration/store.ts";
@@ -127,8 +130,11 @@ const observeCertificate = Effect.fn("test.observeCertificate")(function* (
   const registrationDigest = hash(1000 + id);
   const certificateDigest = hash(2000 + id);
   const qid = BigInt(40 + id);
+  const now = yield* DateTime.now;
+  const deadline =
+    BigInt(Math.floor(DateTime.toEpochMillis(now) / 1000)) + 600n;
   yield* registrations.create({
-    deadline: 600n,
+    deadline,
     digest: registrationDigest,
     handle: `session${String.fromCodePoint(96 + id)}`,
     observeTokenHash: hash(3000 + id),
@@ -190,19 +196,75 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
       );
       assert.strictEqual(challenge.peerId, peerId);
       assert.strictEqual(challenge.qid, certificate.qid.toString());
+      assert.strictEqual(challenge.flow, "registration");
       assert.strictEqual(
         BigInt(challenge.expiresAt) - BigInt(challenge.issuedAt),
         300n
       );
+      assert.deepStrictEqual(
+        yield* sessions.issue({
+          certificateDigest: certificate.certificateDigest,
+          flow: "registration",
+        }),
+        challenge
+      );
 
-      const completed = yield* sessions.complete(
+      const completed = yield* sessions.authenticate(
         yield* signChallenge(challenge)
       );
-      assert.deepStrictEqual(completed, {
+      assert.strictEqual(
+        completed.certificateDigest,
+        certificate.certificateDigest
+      );
+      assert.strictEqual(completed.peerId, peerId);
+      assert.strictEqual(completed.qid, certificate.qid);
+      assert.deepStrictEqual(yield* sessions.resolve(completed.token), {
         certificateDigest: certificate.certificateDigest,
         peerId,
         qid: certificate.qid,
       });
+      assert.strictEqual(
+        BigInt(completed.expiresAt) - BigInt(challenge.issuedAt),
+        3600n
+      );
+
+      registryOwnerVersion = 1;
+      const rotated = yield* sessions
+        .resolve(completed.token)
+        .pipe(Effect.flip);
+      assert.instanceOf(rotated, DeviceSessionCertificateRejected);
+      assert.strictEqual(rotated.reason, "owner-version");
+      registryOwnerVersion = 0;
+
+      revokedDigest = certificate.certificateDigest;
+      const revoked = yield* sessions
+        .resolve(completed.token)
+        .pipe(Effect.flip);
+      assert.instanceOf(revoked, DeviceSessionCertificateRejected);
+      assert.strictEqual(revoked.reason, "revoked");
+      revokedDigest = undefined;
+
+      const malformed = yield* sessions
+        .resolve("not-a-token")
+        .pipe(Effect.flip);
+      assert.instanceOf(malformed, DeviceSessionProtocolError);
+      assert.strictEqual(malformed.operation, "decode-token");
+
+      const unknownToken = yield* Schema.encodeEffect(Base64Url32)(
+        new Uint8Array(32)
+      );
+      const unknown = yield* sessions.resolve(unknownToken).pipe(Effect.flip);
+      assert.instanceOf(unknown, DeviceSessionNotFound);
+
+      yield* TestClock.adjust(Duration.seconds(3601));
+      const expired = yield* sessions
+        .resolve(completed.token)
+        .pipe(Effect.flip);
+      assert.instanceOf(expired, DeviceSessionExpired);
+      const store = yield* DeviceSessionStore;
+      assert.isAtLeast(yield* store.purgeExpired, 1);
+      const purged = yield* sessions.resolve(completed.token).pipe(Effect.flip);
+      assert.instanceOf(purged, DeviceSessionNotFound);
     })
   );
 
@@ -218,8 +280,8 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
       });
       const proof = yield* signChallenge(challenge);
       const results = yield* Effect.all(
-        [sessions.complete(proof), sessions.complete(proof)].map((effect) =>
-          effect.pipe(Effect.result)
+        [sessions.authenticate(proof), sessions.authenticate(proof)].map(
+          (effect) => effect.pipe(Effect.result)
         ),
         { concurrency: "unbounded" }
       );
@@ -243,7 +305,7 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
       });
       const proof = yield* signChallenge(challenge);
       yield* TestClock.adjust(Duration.seconds(301));
-      const expired = yield* sessions.complete(proof).pipe(Effect.flip);
+      const expired = yield* sessions.authenticate(proof).pipe(Effect.flip);
       assert.strictEqual(expired._tag, "DeviceSessionChallengeExpired");
 
       const secondCertificate = yield* observeCertificate(4);
@@ -252,7 +314,7 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
         flow: "registration",
       });
       const tampered = yield* sessions
-        .complete({
+        .authenticate({
           ...(yield* signChallenge(secondChallenge)),
           challenge: { ...secondChallenge, qid: "999" },
         })
@@ -265,7 +327,7 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
         challenge: yield* Schema.encodeEffect(Base64Url32)(neverIssuedBytes),
       };
       const neverIssued = yield* sessions
-        .complete(yield* signChallenge(neverIssuedChallenge))
+        .authenticate(yield* signChallenge(neverIssuedChallenge))
         .pipe(Effect.flip);
       assert.instanceOf(neverIssued, DeviceSessionChallengeBindingMismatch);
       assert.strictEqual(
@@ -291,7 +353,7 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
         const invalidProof = yield* signChallenge(invalidChallenge);
         const replacementSignature = new Uint8Array(64);
         const invalid = yield* sessions
-          .complete({
+          .authenticate({
             ...invalidProof,
             signature:
               yield* Schema.encodeEffect(Base64Url64)(replacementSignature),
@@ -306,12 +368,12 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
         });
         registryOwnerVersion = 1;
         const rotated = yield* sessions
-          .complete(yield* signChallenge(rotatedChallenge))
+          .authenticate(yield* signChallenge(rotatedChallenge))
           .pipe(Effect.flip);
         assert.instanceOf(rotated, DeviceSessionCertificateRejected);
         assert.strictEqual(rotated.reason, "owner-version");
         const rotatedReplay = yield* sessions
-          .complete(yield* signChallenge(rotatedChallenge))
+          .authenticate(yield* signChallenge(rotatedChallenge))
           .pipe(Effect.flip);
         assert.instanceOf(rotatedReplay, DeviceSessionChallengeConsumed);
         const rotatedIssue = yield* sessions
@@ -331,12 +393,12 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
         });
         revokedDigest = revokedCertificate.certificateDigest;
         const revoked = yield* sessions
-          .complete(yield* signChallenge(revokedChallenge))
+          .authenticate(yield* signChallenge(revokedChallenge))
           .pipe(Effect.flip);
         assert.instanceOf(revoked, DeviceSessionCertificateRejected);
         assert.strictEqual(revoked.reason, "revoked");
         const revokedReplay = yield* sessions
-          .complete(yield* signChallenge(revokedChallenge))
+          .authenticate(yield* signChallenge(revokedChallenge))
           .pipe(Effect.flip);
         assert.instanceOf(revokedReplay, DeviceSessionChallengeConsumed);
         const revokedIssue = yield* sessions
@@ -361,9 +423,11 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
     Effect.gen(function* () {
       registryOwnerVersion = 0;
       revokedDigest = undefined;
-      const store = yield* DeviceSessionChallengeStore;
+      const store = yield* DeviceSessionStore;
       const missingHash = hash(12_345);
-      const missing = yield* store.consume(missingHash).pipe(Effect.flip);
+      const missing = yield* store
+        .consumeChallenge(missingHash)
+        .pipe(Effect.flip);
       assert.strictEqual(missing._tag, "DeviceSessionChallengeNotFound");
 
       const certificate = yield* observeCertificate(8);
@@ -375,13 +439,15 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
       const decoded = yield* decodeDeviceSessionChallengeV1(challenge);
       const challengeHash = keccak256(decoded.challenge);
       yield* TestClock.adjust(Duration.seconds(301));
-      const expired = yield* store.consume(challengeHash).pipe(Effect.flip);
+      const expired = yield* store
+        .consumeChallenge(challengeHash)
+        .pipe(Effect.flip);
       assert.instanceOf(expired, DeviceSessionChallengeExpired);
 
       assert.isAtLeast(yield* store.purgeExpired, 1);
       assert.isTrue(
         yield* store
-          .get(challengeHash)
+          .getChallenge(challengeHash)
           .pipe(Effect.map((value) => value._tag === "None"))
       );
     })
