@@ -3,6 +3,7 @@ import { getTableConfig, PgDialect } from "drizzle-orm/pg-core";
 
 import {
   deviceCertificates,
+  deviceSessionChallenges,
   registrationDeviceObservations,
   registrationHandleLeases,
   registrationIntents,
@@ -14,6 +15,47 @@ const names = (values: readonly { readonly name?: string }[]) =>
 const dialect = new PgDialect();
 
 describe("registration database schema", () => {
+  it("pins single-use device session challenge constraints", () => {
+    const config = getTableConfig(deviceSessionChallenges);
+    assert.strictEqual(config.name, "device_session_challenges");
+    assert.deepStrictEqual(
+      config.primaryKeys.map((key) => key.getName()),
+      ["device_session_challenges_pk"]
+    );
+    assert.deepStrictEqual(
+      config.indexes.map((index) => index.config.name),
+      [
+        "device_session_challenges_certificate_expiry_idx",
+        "device_session_challenges_expiry_idx",
+      ]
+    );
+    assert.deepStrictEqual(names(config.checks), [
+      "device_session_challenges_qid_check",
+      "device_session_challenges_time_check",
+      "device_session_challenges_flow_check",
+      "device_session_challenges_version_check",
+    ]);
+    assert.strictEqual(config.foreignKeys.length, 1);
+    assert.deepStrictEqual(
+      Object.fromEntries(
+        config.checks.map((constraint) => [
+          constraint.name,
+          dialect.sqlToQuery(constraint.value).sql,
+        ])
+      ),
+      {
+        device_session_challenges_flow_check:
+          "\"device_session_challenges\".\"flow\" in ('registration', 'pairing', 'restore')",
+        device_session_challenges_qid_check:
+          '"device_session_challenges"."qid" > 0',
+        device_session_challenges_time_check:
+          '"device_session_challenges"."expires_at" > "device_session_challenges"."issued_at"',
+        device_session_challenges_version_check:
+          '"device_session_challenges"."version" = 1',
+      }
+    );
+  });
+
   it("pins device certificates and single-use registration observations", () => {
     const certificateConfig = getTableConfig(deviceCertificates);
     assert.strictEqual(certificateConfig.name, "device_certificates");

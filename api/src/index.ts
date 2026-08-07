@@ -7,8 +7,8 @@ export {
 } from "./cache/namespace.ts";
 export { Database, DatabaseLive } from "./db/database.ts";
 export {
-  apiSchemaVersion,
   deviceCertificates,
+  deviceSessionChallenges,
   registrationDeviceObservations,
   registrationHandleLeases,
   registrationIntents,
@@ -40,6 +40,37 @@ export {
   type ObserveRegistrationDeviceCertificate,
   type StoredDeviceCertificate,
 } from "./device/store.ts";
+export {
+  DeviceSessionEntropy,
+  DeviceSessionEntropyError,
+  type DeviceSessionEntropyShape,
+} from "./device-session/entropy.ts";
+export {
+  type CompletedDeviceSessionProof,
+  DeviceSessionCertificateRejected,
+  DeviceSessionChallengeBindingMismatch,
+  deviceSessionChallengeTtlSeconds,
+  DeviceSessionProofInvalid,
+  DeviceSessionProtocolError,
+  DeviceSessionService,
+  type DeviceSessionServiceError,
+  DeviceSessionServiceLive,
+  type DeviceSessionServiceShape,
+  type IssueDeviceSessionChallenge,
+} from "./device-session/service.ts";
+export {
+  type CreateDeviceSessionChallenge,
+  DeviceSessionChallengeConsumed,
+  DeviceSessionChallengeExpired,
+  DeviceSessionChallengeNotFound,
+  deviceSessionChallengePurgeBatchSize,
+  DeviceSessionChallengeStore,
+  type DeviceSessionChallengeStoreError,
+  DeviceSessionChallengeStoreLive,
+  type DeviceSessionChallengeStorePersistenceError,
+  type DeviceSessionChallengeStoreShape,
+  type StoredDeviceSessionChallenge,
+} from "./device-session/store.ts";
 export { decodeEnv, Env } from "./env.ts";
 export { QopHttpApi } from "./http/api.ts";
 export {
@@ -176,5 +207,3 @@ export type {
   RegistrationIntentStatus,
 } from "./registration/types.ts";
 export { registrationIntentStatuses } from "./registration/types.ts";
-
-export const apiVersion = 1 as const;

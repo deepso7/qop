@@ -1,3 +1,4 @@
+import type { DeviceSessionChallengeV1 } from "@qop/identity";
 import { sql } from "drizzle-orm";
 import {
   char,
@@ -182,6 +183,57 @@ export const registrationDeviceObservations = pgTable(
   ]
 );
 
+export const deviceSessionChallenges = pgTable(
+  "device_session_challenges",
+  {
+    certificateDigest: hash32("certificate_digest")
+      .notNull()
+      .references(() => deviceCertificates.certificateDigest, {
+        onDelete: "restrict",
+      }),
+    challengeHash: hash32("challenge_hash").notNull(),
+    consumedAt: timestamp("consumed_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    createdAt: timestamp("created_at", {
+      mode: "date",
+      withTimezone: true,
+    })
+      .defaultNow()
+      .notNull(),
+    expiresAt: uint64("expires_at").notNull(),
+    flow: varchar("flow", { length: 16 })
+      .$type<DeviceSessionChallengeV1["flow"]>()
+      .notNull(),
+    issuedAt: uint64("issued_at").notNull(),
+    peerId: char("peer_id", { length: 52 }).notNull(),
+    qid: uint256("qid").notNull(),
+    version: integer("version").notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.challengeHash],
+      name: "device_session_challenges_pk",
+    }),
+    index("device_session_challenges_certificate_expiry_idx").on(
+      table.certificateDigest,
+      table.expiresAt
+    ),
+    index("device_session_challenges_expiry_idx").on(table.expiresAt),
+    check("device_session_challenges_qid_check", sql`${table.qid} > 0`),
+    check(
+      "device_session_challenges_time_check",
+      sql`${table.expiresAt} > ${table.issuedAt}`
+    ),
+    check(
+      "device_session_challenges_flow_check",
+      sql`${table.flow} in ('registration', 'pairing', 'restore')`
+    ),
+    check("device_session_challenges_version_check", sql`${table.version} = 1`),
+  ]
+);
+
 export const registrationHandleLeases = pgTable(
   "registration_handle_leases",
   {
@@ -214,5 +266,3 @@ export const registrationHandleLeases = pgTable(
     ),
   ]
 );
-
-export const apiSchemaVersion = 2 as const;
