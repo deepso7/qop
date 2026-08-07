@@ -44,6 +44,12 @@ const Bytes32 = Schema.Uint8Array.check(
   })
 );
 
+const Bytes64 = Schema.Uint8Array.check(
+  Schema.makeFilter((bytes) => bytes.length === 64, {
+    expected: "exactly 64 bytes",
+  })
+);
+
 const CanonicalHex32String = Schema.String.check(
   Schema.isPattern(/^0x[0-9a-f]{64}$/u, {
     expected: "a lowercase 32-byte 0x-prefixed hex string",
@@ -71,6 +77,37 @@ const CanonicalBase64Url32 = Schema.String.check(
 export const Base64Url32 = CanonicalBase64Url32.pipe(
   Schema.decodeTo(
     Bytes32,
+    SchemaTransformation.transformOrFail({
+      decode: (value) =>
+        Effect.try({
+          catch: () =>
+            new SchemaIssue.InvalidValue({
+              message: "Expected canonical unpadded base64url",
+            }),
+          try: () => {
+            const bytes = base64urlnopad.decode(value);
+            if (base64urlnopad.encode(bytes) !== value) {
+              throw new Error("Non-canonical base64url encoding");
+            }
+            return bytes;
+          },
+        }),
+      encode: (value) => Effect.succeed(base64urlnopad.encode(value)),
+    })
+  )
+);
+
+const CanonicalBase64Url64 = Schema.String.check(
+  Schema.isPattern(/^[A-Za-z0-9_-]{86}$/u, {
+    expected: "an unpadded 86-character base64url string",
+  })
+).annotate({
+  expected: "an unpadded base64url string encoding exactly 64 bytes",
+});
+
+export const Base64Url64 = CanonicalBase64Url64.pipe(
+  Schema.decodeTo(
+    Bytes64,
     SchemaTransformation.transformOrFail({
       decode: (value) =>
         Effect.try({

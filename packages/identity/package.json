@@ -12,6 +12,7 @@
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
+    "@noble/curves": "1.9.1",
     "@scure/base": "2.2.0",
     "effect": "catalog:",
     "viem": "2.55.11"

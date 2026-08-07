@@ -274,6 +274,9 @@ importers:
 
   packages/identity:
     dependencies:
+      '@noble/curves':
+        specifier: 1.9.1
+        version: 1.9.1
       '@scure/base':
         specifier: 2.2.0
         version: 2.2.0

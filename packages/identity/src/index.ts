@@ -1,5 +1,6 @@
 export {
   Base64Url32,
+  Base64Url64,
   ChainId,
   EcdsaSignature,
   EthereumAddress,
@@ -12,6 +13,24 @@ export {
   Uint256,
   UnixSeconds,
 } from "./wire-codecs.ts";
+export {
+  decodeDeviceSessionChallengeV1,
+  decodeDeviceSessionProofV1,
+  DeviceSessionChallengeV1,
+  type DeviceSessionChallengeV1Encoded,
+  deviceSessionEnrollmentFlows,
+  deviceSessionPopDomain,
+  deviceSessionPopVersion,
+  DeviceSessionPopCryptoError,
+  DeviceSessionProofV1,
+  type DeviceSessionProofV1Encoded,
+  encodeDeviceSessionChallengeV1,
+  encodeDeviceSessionProofV1,
+  hashDeviceSessionChallengeV1,
+  peerIdFromEd25519SecretKey,
+  signDeviceSessionChallengeV1,
+  verifyDeviceSessionProofV1,
+} from "./device-session-pop.ts";
 export {
   decodeDeviceCertificateV1,
   decodeIdentityEnvelopeV1,
