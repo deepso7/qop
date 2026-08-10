@@ -124,6 +124,8 @@ const EnvTestLive = Layer.succeed(
     CHAIN_ID: 31_337n,
     DATABASE_URL: "postgresql://test",
     GATEWAY_ID: gatewayId,
+    PORT: 3000,
+    REGISTRATION_PRIVATE_KEY: `0x${"11".repeat(32)}`,
     REGISTRY_ADDRESS: OWNER,
     REGISTRY_CONFIRMATIONS: 0,
     RPC_URL: new URL("http://127.0.0.1:8545"),
@@ -149,6 +151,7 @@ const observeCertificate = Effect.fn("test.observeCertificate")(function* (
   const deadline =
     BigInt(Math.floor(DateTime.toEpochMillis(now) / 1000)) + 600n;
   yield* registrations.create({
+    admissionCodeHash: hash(6000 + id),
     deadline,
     deviceCommitment: hash(5000 + id),
     digest: registrationDigest,

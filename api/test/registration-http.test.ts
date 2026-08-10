@@ -5,6 +5,7 @@ import { HttpClient, HttpRouter } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
 import type { Address, Hash, Hex } from "viem";
 
+import { DeviceSessionService } from "../src/device-session/service.ts";
 import { DeviceObservation } from "../src/device/observation.ts";
 import { QopHttpApi } from "../src/http/api.ts";
 import {
@@ -20,6 +21,7 @@ import {
   RegistrationUnauthorized,
 } from "../src/http/registration-api.ts";
 import { QopHttpApiRoutes } from "../src/http/routes.ts";
+import { RegistrationAdmissionUnauthorized } from "../src/registration/admission.ts";
 import {
   RegistrationEnrollment,
   RegistrationHandleUnavailable,
@@ -60,6 +62,7 @@ const SIGNATURE = `0x${"1".padStart(64, "0")}${"1".padStart(64, "0")}00` as Hex;
 const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
 const OBSERVE_TOKEN = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const IDEMPOTENCY_KEY = "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const ADMISSION_CODE = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 
 const intent = {
   deadline: "600",
@@ -123,6 +126,11 @@ const RegistrationEnrollmentTestLive = Layer.succeed(
       };
     }),
     prepare: Effect.fn("test.registrationPrepare")(function* (input) {
+      if (input.handle === "admissiondenied") {
+        return yield* new RegistrationAdmissionUnauthorized({
+          codeHash: DIGEST,
+        });
+      }
       if (input.handle === "conflict") {
         return yield* new RegistrationHandleUnavailable({
           handle: input.handle,
@@ -136,6 +144,7 @@ const RegistrationEnrollmentTestLive = Layer.succeed(
         });
       }
       assert.deepStrictEqual(input, {
+        admissionCode: ADMISSION_CODE,
         handle: "alice",
         idempotencyKey: IDEMPOTENCY_KEY,
         owner: CHECKSUMMED_OWNER,
@@ -177,9 +186,19 @@ const DeviceObservationUnusedTestLive = Layer.succeed(
   })
 );
 
+const DeviceSessionUnusedTestLive = Layer.succeed(
+  DeviceSessionService,
+  DeviceSessionService.of({
+    authenticate: () => Effect.die("not used by registration HTTP tests"),
+    issue: () => Effect.die("not used by registration HTTP tests"),
+    resolve: () => Effect.die("not used by registration HTTP tests"),
+  })
+);
+
 const ApiRoutesTestLive = HttpRouter.serve(
   QopHttpApiRoutes.pipe(
     Layer.provide(DeviceObservationUnusedTestLive),
+    Layer.provide(DeviceSessionUnusedTestLive),
     Layer.provide(RegistrationEnrollmentTestLive)
   ),
   { disableListenLog: true, disableLogger: true }
@@ -191,6 +210,7 @@ describe("registration HTTP API", () => {
       const client = yield* HttpApiClient.make(QopHttpApi);
       const prepared = yield* client.registrations.prepare({
         payload: {
+          admissionCode: ADMISSION_CODE,
           handle: "alice",
           idempotencyKey: IDEMPOTENCY_KEY,
           owner: CHECKSUMMED_OWNER,
@@ -224,6 +244,9 @@ describe("registration HTTP API", () => {
         readonly paths: Readonly<Record<string, unknown>>;
       };
       assert.hasAllKeys(document.paths, [
+        "/v1/device-sessions/authenticate",
+        "/v1/device-sessions/challenges",
+        "/v1/device-sessions/resolve",
         "/v1/devices/observe",
         "/v1/registrations",
         "/v1/registrations/{digest}/authorize",
@@ -242,6 +265,24 @@ describe("registration HTTP API", () => {
         })
         .pipe(Effect.flip);
 
+      assert.instanceOf(error, RegistrationUnauthorized);
+    }).pipe(Effect.provide(ApiRoutesTestLive))
+  );
+
+  it.effect("maps admission denial through the mounted HTTP transport", () =>
+    Effect.gen(function* () {
+      const client = yield* HttpApiClient.make(QopHttpApi);
+      const error = yield* client.registrations
+        .prepare({
+          payload: {
+            admissionCode: ADMISSION_CODE,
+            handle: "admissiondenied",
+            idempotencyKey: IDEMPOTENCY_KEY,
+            owner: CHECKSUMMED_OWNER,
+            peerId: PEER_ID,
+          },
+        })
+        .pipe(Effect.flip);
       assert.instanceOf(error, RegistrationUnauthorized);
     }).pipe(Effect.provide(ApiRoutesTestLive))
   );
@@ -268,6 +309,7 @@ describe("registration HTTP API", () => {
       const conflict = yield* client.registrations
         .prepare({
           payload: {
+            admissionCode: ADMISSION_CODE,
             handle: "conflict",
             idempotencyKey: IDEMPOTENCY_KEY,
             owner: CHECKSUMMED_OWNER,
@@ -316,6 +358,7 @@ describe("registration HTTP API", () => {
       const invalid = yield* client.registrations
         .prepare({
           payload: {
+            admissionCode: ADMISSION_CODE,
             handle: "invalid",
             idempotencyKey: IDEMPOTENCY_KEY,
             owner: CHECKSUMMED_OWNER,
@@ -372,6 +415,7 @@ describe("registration HTTP API", () => {
           status: "confirmed",
         }).pipe(Effect.exit),
         Schema.decodeUnknownEffect(PrepareRegistrationPayload)({
+          admissionCode: ADMISSION_CODE,
           handle: "alice",
           idempotencyKey: IDEMPOTENCY_KEY,
           owner: OWNER,

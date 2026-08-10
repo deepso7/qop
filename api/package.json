@@ -5,9 +5,10 @@
   "type": "module",
   "scripts": {
     "build": "tsc --project tsconfig.json",
+    "admission:create": "node --env-file=.env src/create-admission-code.ts",
     "db:push": "drizzle-kit push --config drizzle.config.ts",
-    "dev": "node --watch --env-file=.env src/index.ts",
-    "start": "node --env-file=.env dist/src/index.js",
+    "dev": "node --watch --env-file=.env src/main.ts",
+    "start": "node --env-file=.env dist/src/main.js",
     "test": "vitest run",
     "typecheck": "tsc --project tsconfig.json --noEmit"
   },

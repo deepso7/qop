@@ -6,6 +6,7 @@ import { HttpRouter } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
 import type { Hash, Hex } from "viem";
 
+import { DeviceSessionService } from "../src/device-session/service.ts";
 import { DeviceCertificateInputError } from "../src/device/inputs.ts";
 import {
   DeviceCertificateRejected,
@@ -126,9 +127,19 @@ const RegistrationEnrollmentUnusedTestLive = Layer.succeed(
   })
 );
 
+const DeviceSessionUnusedTestLive = Layer.succeed(
+  DeviceSessionService,
+  DeviceSessionService.of({
+    authenticate: () => Effect.die("not used by device HTTP tests"),
+    issue: () => Effect.die("not used by device HTTP tests"),
+    resolve: () => Effect.die("not used by device HTTP tests"),
+  })
+);
+
 const ApiRoutesTestLive = HttpRouter.serve(
   QopHttpApiRoutes.pipe(
     Layer.provide(DeviceObservationTestLive),
+    Layer.provide(DeviceSessionUnusedTestLive),
     Layer.provide(RegistrationEnrollmentUnusedTestLive)
   ),
   { disableListenLog: true, disableLogger: true }

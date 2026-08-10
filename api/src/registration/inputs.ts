@@ -20,6 +20,8 @@ import type {
 } from "./types.ts";
 
 type RegistrationInputField =
+  | "admission-code"
+  | "admission-code-hash"
   | "deadline"
   | "device-commitment"
   | "digest"
@@ -45,6 +47,8 @@ const inputError =
   (field: RegistrationInputField) =>
   (cause: unknown): RegistrationInputError =>
     new RegistrationInputError({ cause, field });
+
+export const registrationAdmissionCodeInputError = inputError("admission-code");
 
 const normalizeHex32 = Effect.fn("RegistrationInput.normalizeHex32")(function* (
   input: unknown,
@@ -183,6 +187,10 @@ export const normalizeCreateRegistrationIntent = Effect.fn(
   const owner = yield* normalizeRegistrationOwner(input.owner);
 
   return {
+    admissionCodeHash: yield* normalizeHex32(
+      input.admissionCodeHash,
+      "admission-code-hash"
+    ),
     deadline: input.deadline,
     deviceCommitment: yield* normalizeDeviceCommitment(input.deviceCommitment),
     digest: yield* normalizeRegistrationDigest(input.digest),

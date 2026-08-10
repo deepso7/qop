@@ -48,6 +48,7 @@ const DigestInput = Schema.String.check(
 );
 
 export const PrepareRegistrationPayload = Schema.Struct({
+  admissionCode: CanonicalBase64Url32,
   handle: Handle,
   idempotencyKey: CanonicalBase64Url32,
   owner: AddressInput,

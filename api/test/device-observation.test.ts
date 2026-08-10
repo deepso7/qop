@@ -105,6 +105,8 @@ const EnvTestLive = Layer.succeed(
     CHAIN_ID: 31_337n,
     DATABASE_URL: "postgresql://test",
     GATEWAY_ID: new Uint8Array(32),
+    PORT: 3000,
+    REGISTRATION_PRIVATE_KEY: `0x${"11".repeat(32)}`,
     REGISTRY_ADDRESS,
     REGISTRY_CONFIRMATIONS: 0,
     RPC_URL: new URL("http://127.0.0.1:8545"),
@@ -145,6 +147,7 @@ const confirmRegistration = Effect.fn("test.confirmRegistration")(function* (
   const observeCapability = capability(id);
   const digest = hash(1000 + id);
   yield* registrations.create({
+    admissionCodeHash: hash(4000 + id),
     deadline: 600n,
     deviceCommitment: hash(3000 + id),
     digest,

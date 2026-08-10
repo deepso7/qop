@@ -1,4 +1,12 @@
 export {
+  decodeRegistrationAdmissionCode,
+  RegistrationAdmission,
+  type RegistrationAdmissionError,
+  RegistrationAdmissionLive,
+  type RegistrationAdmissionShape,
+  RegistrationAdmissionUnauthorized,
+} from "./registration/admission.ts";
+export {
   makeCacheNamespace,
   type CacheNamespace,
   type CacheNamespaceOptions,
@@ -10,6 +18,7 @@ export {
   deviceCertificates,
   deviceSessionChallenges,
   deviceSessions,
+  registrationAdmissionCodes,
   registrationDeviceObservations,
   registrationHandleLeases,
   registrationIntents,
@@ -96,6 +105,19 @@ export {
   type DeviceObservationHttpError,
   mapDeviceObservationHttpError,
 } from "./http/device-handlers.ts";
+export {
+  DeviceSessionApiGroup,
+  DeviceSessionConflictHttp,
+  DeviceSessionInvalidHttp,
+  DeviceSessionRejectedHttp,
+  DeviceSessionServiceUnavailableHttp,
+  DeviceSessionUnauthorizedHttp,
+} from "./http/device-session-api.ts";
+export {
+  DeviceSessionApiHandlers,
+  DeviceSessionApiHandlersLive,
+  mapDeviceSessionHttpError,
+} from "./http/device-session-handlers.ts";
 export {
   mapRegistrationHttpError,
   RegistrationApiHandlers,

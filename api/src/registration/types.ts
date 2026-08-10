@@ -13,6 +13,7 @@ export type RegistrationIntentStatus =
   (typeof registrationIntentStatuses)[number];
 
 export interface CreateRegistrationIntent {
+  readonly admissionCodeHash: Hash;
   readonly deadline: bigint;
   readonly deviceCommitment: Hash;
   readonly digest: Hash;

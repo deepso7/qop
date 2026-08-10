@@ -23,6 +23,7 @@ const registrationInput = Effect.fn("test.registrationInput")(function* (
 ): Effect.fn.Return<CreateRegistrationIntent> {
   const now = yield* DateTime.now;
   return {
+    admissionCodeHash: hash(6000 + id),
     deadline: BigInt(Math.floor(DateTime.toEpochMillis(now) / 1000) + 60),
     deviceCommitment: hash(5000 + id),
     digest: hash(1000 + id),

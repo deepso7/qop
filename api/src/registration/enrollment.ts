@@ -34,6 +34,12 @@ import type { RegistryChainReadError } from "../registry/chain.ts";
 import { normalizeRegistryHandle } from "../registry/inputs.ts";
 import type { RegistryInputError } from "../registry/inputs.ts";
 import { RegistryReader, RegistryReaderLive } from "../registry/reader.ts";
+import {
+  decodeRegistrationAdmissionCode,
+  RegistrationAdmission,
+  RegistrationAdmissionLive,
+} from "./admission.ts";
+import type { RegistrationAdmissionError } from "./admission.ts";
 import { RegistrationEntropy } from "./entropy.ts";
 import type { RegistrationEntropyError } from "./entropy.ts";
 import {
@@ -43,6 +49,7 @@ import {
   normalizeRegistrationOwnerSignature,
   normalizeRegistrationPeerId,
   normalizeRegistrationSignerSignature,
+  registrationAdmissionCodeInputError,
 } from "./inputs.ts";
 import type { RegistrationInputError } from "./inputs.ts";
 import { RegistrationSigner } from "./signer.ts";
@@ -68,6 +75,7 @@ const observeTokenDerivationDomain = stringToBytes(
 );
 
 export interface PrepareRegistration {
+  readonly admissionCode: string;
   readonly handle: string;
   readonly idempotencyKey: string;
   readonly owner: Address;
@@ -141,6 +149,7 @@ export class RegistrationProtocolError extends Data.TaggedError(
 export type RegistrationEnrollmentError =
   | IdentityCryptoError
   | RegistrationEntropyError
+  | RegistrationAdmissionError
   | RegistrationHandleUnavailable
   | RegistrationInputError
   | RegistrationOwnerUnavailable
@@ -240,6 +249,7 @@ export class RegistrationEnrollment extends Context.Service<
     this,
     Effect.gen(function* () {
       const entropy = yield* RegistrationEntropy;
+      const admissions = yield* RegistrationAdmission;
       const env = yield* Env;
       const registry = yield* RegistryReader;
       const signer = yield* RegistrationSigner;
@@ -312,6 +322,11 @@ export class RegistrationEnrollment extends Context.Service<
         input: PrepareRegistration
       ) {
         const handle = yield* normalizeRegistryHandle(input.handle);
+        const { codeHash: admissionCodeHash } =
+          yield* decodeRegistrationAdmissionCode(input.admissionCode).pipe(
+            Effect.mapError(registrationAdmissionCodeInputError)
+          );
+        yield* admissions.validate(admissionCodeHash);
         const owner = yield* normalizeRegistrationOwner(input.owner);
         const peerId = yield* normalizeRegistrationPeerId(input.peerId);
         const idempotencyKey = yield* decodeRegistrationIdempotencyKey(
@@ -338,6 +353,11 @@ export class RegistrationEnrollment extends Context.Service<
         const expected = { handle, owner, peerId } as const;
         const replay = yield* store.getByObserveTokenHash(observeTokenHash);
         if (Option.isSome(replay)) {
+          if (replay.value.admissionCodeHash !== admissionCodeHash) {
+            return yield* new RegistrationIntentConflict({
+              digest: replay.value.digest,
+            });
+          }
           return yield* preparedRegistration(
             replay.value,
             expected,
@@ -380,6 +400,7 @@ export class RegistrationEnrollment extends Context.Service<
         }).pipe(Effect.mapError(protocolError("decode-intent")));
         const digest = yield* hashRegisterIntentV1(domain, intent);
         const stored = yield* store.create({
+          admissionCodeHash,
           deadline,
           deviceCommitment,
           digest,
@@ -452,43 +473,60 @@ export class RegistrationEnrollment extends Context.Service<
               });
             }
           }
-          let registrationSignatureHex: Hex;
-          if (stored.registrationSignature === null) {
-            yield* store.reserveAuthorization(digest, ownerSignatureHex);
-            const availability = yield* registry.fresh.registrationProbe(
-              stored.handle,
-              expectedOwner,
-              stored.registrationNonce
-            );
-            if (availability.value.handleQid !== null) {
-              return yield* new RegistrationHandleUnavailable({
-                handle: stored.handle,
-                qid: availability.value.handleQid,
-              });
-            }
-            if (availability.value.ownerQid !== null) {
-              return yield* new RegistrationOwnerUnavailable({
-                owner: expectedOwner,
-                qid: availability.value.ownerQid,
-              });
-            }
-            registrationSignatureHex = yield* signer.sign(domain, intent);
-          } else {
-            registrationSignatureHex =
-              yield* normalizeRegistrationSignerSignature(
-                stored.registrationSignature
-              );
-          }
+          const registrationSignatureHex: Hex =
+            stored.registrationSignature === null
+              ? yield* Effect.gen(function* () {
+                  yield* store.reserveAuthorization(digest, ownerSignatureHex);
+                  const availability = yield* registry.fresh.registrationProbe(
+                    stored.handle,
+                    expectedOwner,
+                    stored.registrationNonce
+                  );
+                  if (availability.value.handleQid !== null) {
+                    yield* store.markFailed(
+                      digest,
+                      "HANDLE_ALREADY_REGISTERED"
+                    );
+                    return yield* new RegistrationHandleUnavailable({
+                      handle: stored.handle,
+                      qid: availability.value.handleQid,
+                    });
+                  }
+                  if (availability.value.ownerQid !== null) {
+                    yield* store.markFailed(digest, "OWNER_ALREADY_REGISTERED");
+                    return yield* new RegistrationOwnerUnavailable({
+                      owner: expectedOwner,
+                      qid: availability.value.ownerQid,
+                    });
+                  }
+                  return yield* signer.sign(domain, intent);
+                }).pipe(
+                  Effect.tapError(() =>
+                    admissions.release(stored.admissionCodeHash, digest)
+                  )
+                )
+              : yield* normalizeRegistrationSignerSignature(
+                  stored.registrationSignature
+                );
           const registrationSignature = yield* decodeSignature(
             registrationSignatureHex
+          ).pipe(
+            Effect.tapError(() =>
+              admissions.release(stored.admissionCodeHash, digest)
+            )
           );
           const recoveredRegistrationSigner =
             yield* recoverRegisterIntentSignerV1(
               domain,
               intent,
               registrationSignature
+            ).pipe(
+              Effect.tapError(() =>
+                admissions.release(stored.admissionCodeHash, digest)
+              )
             );
           if (recoveredRegistrationSigner !== signer.address) {
+            yield* admissions.release(stored.admissionCodeHash, digest);
             return yield* new RegistrationSignatureMismatch({
               expected: signer.address,
               kind: "registration",
@@ -496,10 +534,16 @@ export class RegistrationEnrollment extends Context.Service<
             });
           }
 
-          const authorized = yield* store.authorize(digest, {
-            ownerSignature: ownerSignatureHex,
-            registrationSignature: registrationSignatureHex,
-          });
+          const authorized = yield* store
+            .authorize(digest, {
+              ownerSignature: ownerSignatureHex,
+              registrationSignature: registrationSignatureHex,
+            })
+            .pipe(
+              Effect.tapError(() =>
+                admissions.release(stored.admissionCodeHash, digest)
+              )
+            );
           const status = yield* verifyAuthorizedRegistrationStatus(
             authorized.status
           );
@@ -581,6 +625,7 @@ export class RegistrationEnrollment extends Context.Service<
 
 export const RegistrationEnrollmentLive = RegistrationEnrollment.layer.pipe(
   Layer.provide(RegistrationEntropy.layer),
+  Layer.provide(RegistrationAdmissionLive),
   Layer.provide(RegistrationStoreLive),
   Layer.provide(RegistryReaderLive),
   Layer.provide(Env.layer)

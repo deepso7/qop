@@ -31,6 +31,7 @@ const signature = (name: string) => char(name, { length: 132 }).$type<Hex>();
 export const registrationIntents = pgTable(
   "registration_intents",
   {
+    admissionCodeHash: hash32("admission_code_hash").notNull(),
     confirmedAt: timestamp("confirmed_at", {
       mode: "date",
       withTimezone: true,
@@ -119,6 +120,35 @@ export const registrationIntents = pgTable(
     check(
       "registration_intents_failure_check",
       sql`${table.status} <> 'failed' or ${table.failureCode} is not null`
+    ),
+  ]
+);
+
+export const registrationAdmissionCodes = pgTable(
+  "registration_admission_codes",
+  {
+    claimedAt: timestamp("claimed_at", { mode: "date", withTimezone: true }),
+    claimedByDigest: hash32("claimed_by_digest"),
+    codeHash: hash32("code_hash").notNull(),
+    consumedAt: timestamp("consumed_at", { mode: "date", withTimezone: true }),
+    createdAt: timestamp("created_at", { mode: "date", withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    expiresAt: uint64("expires_at"),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.codeHash],
+      name: "registration_admission_codes_pk",
+    }),
+    index("registration_admission_codes_expiry_idx").on(table.expiresAt),
+    check(
+      "registration_admission_codes_claim_check",
+      sql`(${table.claimedAt} is null) = (${table.claimedByDigest} is null)`
+    ),
+    check(
+      "registration_admission_codes_consumed_check",
+      sql`${table.consumedAt} is null or ${table.claimedByDigest} is not null`
     ),
   ]
 );

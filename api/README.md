@@ -10,10 +10,12 @@ The current package exports:
 - A bounded, memory-only, request-coalesced Effect cache with fresh and stale windows.
 - Registry-specific cached, fresh, and invalidation operations.
 - Transactional registration-intent storage with at most eight unsigned drafts per handle; drafts do not reserve the handle, and the single-live-handle lease is acquired only after owner authorization.
-- Registration enrollment that binds the initial PeerId and observation capability into the EIP-712 device commitment, checks fresh onchain availability, verifies the owner, and only then applies the registrar signature.
+- Invitation-gated registration enrollment that binds the initial PeerId and observation capability into the EIP-712 device commitment, checks fresh onchain availability, verifies the owner, and only then consumes the invitation and applies the registrar signature.
 - Registration HTTP routes: `POST /v1/registrations`, `POST /v1/registrations/:digest/authorize`, and `POST /v1/registrations/:digest/reconcile`; OpenAPI is served at `GET /openapi.json`.
 - Capability-gated initial device observation at `POST /v1/devices/observe`, backed by public certificate storage and a single-use registration-to-certificate claim.
-- A five-minute, gateway-bound device-session challenge service that rechecks certificate rotation/revocation state, verifies MiniP2P Ed25519 proof of possession, and atomically consumes the challenge while issuing a one-hour opaque session. Only token hashes are persisted. Clients should silently repeat PoP after expiry instead of implementing a refresh-token flow. Session HTTP routes are not yet exposed.
+- A five-minute, gateway-bound device-session challenge service that rechecks certificate rotation/revocation state, verifies MiniP2P Ed25519 proof of possession, and atomically consumes the challenge while issuing a one-hour opaque session. Only token hashes are persisted. Clients should silently repeat PoP after expiry instead of implementing a refresh-token flow. Its routes are `POST /v1/device-sessions/challenges`, `POST /v1/device-sessions/authenticate`, and `POST /v1/device-sessions/resolve`.
+
+The API is not part of identity consensus. While registration is gated, an invitation code grants access to the hosted registrar. After the registry owner irreversibly calls `openRegistration()`, a client can submit its owner-signed registration directly to the contract with an empty registrar signature. Registration, certificate verification, device pairing, and MiniP2P chat therefore remain usable without this service. Hosted discovery, relaying, caching, and account-recovery conveniences may continue as optional services.
 
 The registry cache stores the observed block number with every value. Ordinary reads may return a stale value while refreshing it in the background. Sensitive authorization and owner mutations must use the explicit `fresh` operations.
 
@@ -21,13 +23,21 @@ Postgres does not project or authoritatively store onchain identity state. Regis
 
 Unsigned intents may expire locally. Once both signatures exist, the lease is held until registration is confirmed or the enrollment reconciler proves terminal failure from one confirmed block's nonce, handle, owner, and timestamp state; wall-clock expiry alone cannot release a relayed intent.
 
-The enrollment service receives the registrar signer as an Effect capability. The HTTP route layer remains runtime-agnostic; secret loading, server binding, and production middleware belong to the final API composition layer.
+The enrollment service receives the registrar signer as an Effect capability. `src/main.ts` composes the Effect services and HTTP routes into the Node server configured by `PORT`.
 
 Prepare requests include a client-generated random 32-byte `idempotencyKey`. It authorizes replay of a lost response without disclosing the observe capability through public owner, handle, or PeerId fields. The API derives the observe token, commits the token and initial PeerId into the owner-signed registration intent, and persists only the token hash.
 
 Device observation transport errors are stable tagged responses: `DeviceObservationUnauthorized` (401), `DeviceObservationConflict` (409), `DeviceCertificateRejected` (422), `DeviceObservationInvalid` (422), and `DeviceObservationServiceUnavailable` (503). A `capability-consumed` conflict includes the certificate digest already bound to that capability. Exact retries return the original observation even if later rotation or revocation makes the certificate unusable for new authorization; observation stores public material only and does not mint a session.
 
 Registration transport errors are stable tagged responses: `RegistrationUnauthorized` (401), `RegistrationNotFound` (404), `RegistrationConflict` (409), `RegistrationExpired` (410), `RegistrationInvalid` (422), and `RegistrationServiceUnavailable` (503).
+
+Create a single-use admission code after pushing the development schema:
+
+```sh
+pnpm --filter @qop/api admission:create
+```
+
+Only the printed code is given to the user; Postgres stores its domain-separated hash. The code is claimed only after a valid owner signature and consumed when the registrar authorization is persisted, so anonymous prepare requests cannot burn codes.
 
 Push the API-owned schema directly to the configured development database:
 

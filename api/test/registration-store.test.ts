@@ -55,6 +55,7 @@ const input = (
 ): CreateRegistrationIntent => {
   const encodeHash = options?.uppercase ? uppercaseHash : hash;
   return {
+    admissionCodeHash: encodeHash(50_000 + id),
     deadline,
     deviceCommitment: encodeHash(40_000 + id),
     digest: encodeHash(10_000 + id),
@@ -145,6 +146,7 @@ layer(RegistrationStoreTestLive, { timeout: "30 seconds" })((it) => {
       const firstInput = input(13, "atomicretry", deadline);
       const retryInput = {
         ...input(14, "atomicretry", deadline),
+        admissionCodeHash: firstInput.admissionCodeHash,
         deviceCommitment: firstInput.deviceCommitment,
         observeTokenHash: firstInput.observeTokenHash,
       };

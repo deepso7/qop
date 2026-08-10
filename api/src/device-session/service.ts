@@ -304,14 +304,14 @@ export class DeviceSessionService extends Context.Service<
           input
         ).pipe(Effect.mapError(protocolError("decode-token")));
         const session = yield* sessions.getActiveSession(keccak256(tokenBytes));
-        const account = yield* registry.cached.account(session.qid);
+        const account = yield* registry.fresh.account(session.qid);
         if (account.value.ownerVersion !== session.ownerVersion) {
           return yield* new DeviceSessionCertificateRejected({
             certificateDigest: session.certificateDigest,
             reason: "owner-version",
           });
         }
-        const revocation = yield* registry.cached.deviceRevocation(
+        const revocation = yield* registry.fresh.deviceRevocation(
           session.qid,
           session.certificateDigest
         );

@@ -10,6 +10,7 @@ import type { DatabaseClient } from "../../src/db/database.ts";
 import * as databaseSchema from "../../src/db/schema.ts";
 import { DeviceSessionStore } from "../../src/device-session/store.ts";
 import { DeviceCertificateStore } from "../../src/device/store.ts";
+import { RegistrationAdmission } from "../../src/registration/admission.ts";
 import { RegistrationStore } from "../../src/registration/store.ts";
 
 const PgliteLive = PgliteClient.layer();
@@ -28,12 +29,35 @@ export const TestDatabaseLive = Layer.effect(
   })
 ).pipe(Layer.provide(PgliteLive));
 
-export const RegistrationStoreTestLive = RegistrationStore.layer.pipe(
+export const RegistrationStoreTestLive = Layer.effect(
+  RegistrationStore,
+  Effect.gen(function* () {
+    const admission = yield* RegistrationAdmission;
+    const store = yield* RegistrationStore;
+    return RegistrationStore.of({
+      ...store,
+      create: (input) =>
+        admission
+          .create(
+            input.admissionCodeHash.toLowerCase() as typeof input.admissionCodeHash
+          )
+          .pipe(Effect.flatMap(() => store.create(input))),
+    });
+  })
+).pipe(
+  Layer.provide(
+    Layer.merge(RegistrationAdmission.layer, RegistrationStore.layer).pipe(
+      Layer.provide(TestDatabaseLive)
+    )
+  )
+);
+
+export const RegistrationAdmissionTestLive = RegistrationAdmission.layer.pipe(
   Layer.provide(TestDatabaseLive)
 );
 
 export const DeviceAndRegistrationStoresTestLive = Layer.mergeAll(
   DeviceCertificateStore.layer,
-  RegistrationStore.layer,
+  RegistrationStoreTestLive,
   DeviceSessionStore.layer
 ).pipe(Layer.provide(TestDatabaseLive));

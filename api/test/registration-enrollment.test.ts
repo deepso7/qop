@@ -10,13 +10,17 @@ import {
   recoverRegisterIntentSignerV1,
   PeerId,
 } from "@qop/identity";
+import { eq } from "drizzle-orm";
 import { DateTime, Effect, Layer, Option, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { hexToBytes, keccak256, stringToBytes, toHex } from "viem";
 import type { Address, Hash } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
+import { Database } from "../src/db/database.ts";
+import { registrationAdmissionCodes } from "../src/db/schema.ts";
 import { Env } from "../src/env.ts";
+import { RegistrationAdmission } from "../src/registration/admission.ts";
 import {
   RegistrationEnrollment,
   RegistrationHandleUnavailable,
@@ -41,10 +45,14 @@ import type {
   RegistryRead,
   RegistryReads,
 } from "../src/registry/reader.ts";
-import { RegistrationStoreTestLive } from "./support/registration-database.ts";
+import {
+  RegistrationStoreTestLive,
+  TestDatabaseLive,
+} from "./support/registration-database.ts";
 
 const OWNER_PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000001";
+const ADMISSION_CODE = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const REGISTRATION_PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000002";
 const WRONG_PRIVATE_KEY =
@@ -71,6 +79,7 @@ const idempotencyKey = (label: string): string =>
       hexToBytes(keccak256(stringToBytes(label)))
     )
   );
+const SECOND_ADMISSION_CODE = idempotencyKey("second-admission-code");
 
 const registryReads: RegistryReads = {
   account: () => Effect.die("account is not used by enrollment tests"),
@@ -145,10 +154,40 @@ const EnvTestLive = Layer.succeed(
     CHAIN_ID: 31_337n,
     DATABASE_URL: "postgresql://test",
     GATEWAY_ID: new Uint8Array(32),
+    PORT: 3000,
+    REGISTRATION_PRIVATE_KEY,
     REGISTRY_ADDRESS,
     REGISTRY_CONFIRMATIONS: 0,
     RPC_URL: new URL("http://127.0.0.1:8545"),
   })
+);
+
+const RegistrationAdmissionTestLive = Layer.effect(
+  RegistrationAdmission,
+  Effect.gen(function* () {
+    const admission = yield* RegistrationAdmission;
+    const { client } = yield* Database;
+    return RegistrationAdmission.of({
+      ...admission,
+      validate: (codeHash) =>
+        client
+          .update(registrationAdmissionCodes)
+          .set({
+            claimedAt: null,
+            claimedByDigest: null,
+            consumedAt: null,
+            expiresAt: null,
+          })
+          .where(eq(registrationAdmissionCodes.codeHash, codeHash))
+          .pipe(
+            Effect.andThen(admission.create(codeHash)),
+            Effect.andThen(admission.validate(codeHash))
+          ),
+    });
+  })
+).pipe(
+  Layer.provide(RegistrationAdmission.layer),
+  Layer.provide(TestDatabaseLive)
 );
 
 const RegistrationEnrollmentTestLive = RegistrationEnrollment.layer.pipe(
@@ -156,6 +195,7 @@ const RegistrationEnrollmentTestLive = RegistrationEnrollment.layer.pipe(
   Layer.provideMerge(RegistrationStoreTestLive),
   Layer.provide(RegistryReaderTestLive),
   Layer.provide(registrationSignerLayer(REGISTRATION_PRIVATE_KEY)),
+  Layer.provide(RegistrationAdmissionTestLive),
   Layer.provide(EnvTestLive)
 );
 
@@ -201,6 +241,7 @@ const enrollmentLayerWithStore = <Error, Requirements>(
     Layer.provide(storeLayer),
     Layer.provide(RegistryReaderTestLive),
     Layer.provide(registrationSignerLayer(REGISTRATION_PRIVATE_KEY)),
+    Layer.provide(RegistrationAdmissionTestLive),
     Layer.provide(EnvTestLive)
   );
 
@@ -257,6 +298,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const store = yield* RegistrationStore;
       const now = yield* DateTime.now;
       const prepared = yield* enrollment.prepare({
+        admissionCode: ADMISSION_CODE,
         handle: "foxtrot",
         idempotencyKey: idempotencyKey("foxtrot"),
         owner: ownerAccount.address,
@@ -305,6 +347,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       Effect.gen(function* () {
         const enrollment = yield* RegistrationEnrollment;
         const input = {
+          admissionCode: ADMISSION_CODE,
           handle: "retryable",
           idempotencyKey: idempotencyKey("retryable"),
           owner: ownerAccount.address,
@@ -319,7 +362,29 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           .prepare({ ...input, handle: "different" })
           .pipe(Effect.flip);
         assert.instanceOf(mismatch, RegistrationIntentConflict);
+
+        const admissionMismatch = yield* enrollment
+          .prepare({ ...input, admissionCode: SECOND_ADMISSION_CODE })
+          .pipe(Effect.flip);
+        assert.instanceOf(admissionMismatch, RegistrationIntentConflict);
       })
+  );
+
+  it.effect("classifies malformed admission codes as registration input", () =>
+    Effect.gen(function* () {
+      const enrollment = yield* RegistrationEnrollment;
+      const error = yield* enrollment
+        .prepare({
+          admissionCode: "not-a-code",
+          handle: "badadmission",
+          idempotencyKey: idempotencyKey("badadmission"),
+          owner: ownerAccount.address,
+          peerId: PEER_ID,
+        })
+        .pipe(Effect.flip);
+      assert.instanceOf(error, RegistrationInputError);
+      assert.strictEqual(error.field, "admission-code");
+    })
   );
 
   it.effect("contends the handle before registrar authorization", () =>
@@ -327,12 +392,14 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const enrollment = yield* RegistrationEnrollment;
       const store = yield* RegistrationStore;
       const first = yield* enrollment.prepare({
+        admissionCode: ADMISSION_CODE,
         handle: "leasegate",
         idempotencyKey: idempotencyKey("leasegate-first"),
         owner: ownerAccount.address,
         peerId: PEER_ID,
       });
       const second = yield* enrollment.prepare({
+        admissionCode: SECOND_ADMISSION_CODE,
         handle: "leasegate",
         idempotencyKey: idempotencyKey("leasegate-second"),
         owner: ownerAccount.address,
@@ -364,6 +431,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
     Effect.gen(function* () {
       const enrollment = yield* RegistrationEnrollment;
       const prepared = yield* enrollment.prepare({
+        admissionCode: ADMISSION_CODE,
         handle: "golf",
         idempotencyKey: idempotencyKey("golf"),
         owner: ownerAccount.address,
@@ -421,6 +489,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       Effect.gen(function* () {
         const enrollment = yield* RegistrationEnrollment;
         const prepared = yield* enrollment.prepare({
+          admissionCode: ADMISSION_CODE,
           handle: "hotel",
           idempotencyKey: idempotencyKey("hotel"),
           owner: ownerAccount.address,
@@ -459,6 +528,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const enrollment = yield* RegistrationEnrollment;
       const handleError = yield* enrollment
         .prepare({
+          admissionCode: ADMISSION_CODE,
           handle: "taken",
           idempotencyKey: idempotencyKey("taken"),
           owner: ownerAccount.address,
@@ -470,6 +540,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
 
       const ownerError = yield* enrollment
         .prepare({
+          admissionCode: ADMISSION_CODE,
           handle: "india",
           idempotencyKey: idempotencyKey("india"),
           owner: takenOwner,
@@ -487,6 +558,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       Effect.gen(function* () {
         const enrollment = yield* RegistrationEnrollment;
         const handlePrepared = yield* enrollment.prepare({
+          admissionCode: ADMISSION_CODE,
           handle: "takenafterprepare",
           idempotencyKey: idempotencyKey("takenafterprepare"),
           owner: ownerAccount.address,
@@ -505,6 +577,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         assert.strictEqual(handleError.qid, 7n);
 
         const ownerPrepared = yield* enrollment.prepare({
+          admissionCode: ADMISSION_CODE,
           handle: "ownerafterprepare",
           idempotencyKey: idempotencyKey("ownerafterprepare"),
           owner: ownerAccount.address,
@@ -529,6 +602,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const enrollment = yield* RegistrationEnrollment;
       const store = yield* RegistrationStore;
       const prepared = yield* enrollment.prepare({
+        admissionCode: ADMISSION_CODE,
         handle: "expiredauth",
         idempotencyKey: idempotencyKey("expiredauth"),
         owner: ownerAccount.address,
@@ -555,6 +629,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const enrollment = yield* RegistrationEnrollment;
       const store = yield* RegistrationStore;
       const abandoned = yield* enrollment.prepare({
+        admissionCode: ADMISSION_CODE,
         handle: "abandoned",
         idempotencyKey: idempotencyKey("abandoned"),
         owner: ownerAccount.address,
@@ -563,6 +638,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
 
       yield* TestClock.adjust("601 seconds");
       yield* enrollment.prepare({
+        admissionCode: ADMISSION_CODE,
         handle: "aftercleanup",
         idempotencyKey: idempotencyKey("aftercleanup"),
         owner: ownerAccount.address,
@@ -578,6 +654,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
     Effect.gen(function* () {
       const enrollment = yield* RegistrationEnrollment;
       const prepared = yield* enrollment.prepare({
+        admissionCode: ADMISSION_CODE,
         handle: "juliet",
         idempotencyKey: idempotencyKey("juliet"),
         owner: ownerAccount.address,
@@ -609,6 +686,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const enrollment = yield* RegistrationEnrollment;
       const error = yield* enrollment
         .prepare({
+          admissionCode: ADMISSION_CODE,
           handle: "kilo",
           idempotencyKey: idempotencyKey("kilo"),
           owner: `0x${"00".repeat(20)}`,
@@ -627,6 +705,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       Effect.gen(function* () {
         const enrollment = yield* RegistrationEnrollment;
         const confirmedPrepared = yield* enrollment.prepare({
+          admissionCode: ADMISSION_CODE,
           handle: "confirmme",
           idempotencyKey: idempotencyKey("confirmme"),
           owner: ownerAccount.address,
@@ -638,6 +717,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         assert.strictEqual(confirmed.qid, 42n);
 
         const conflictingPrepared = yield* enrollment.prepare({
+          admissionCode: ADMISSION_CODE,
           handle: "conflictme",
           idempotencyKey: idempotencyKey("conflictme"),
           owner: ownerAccount.address,
@@ -654,6 +734,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         );
 
         const expiredPrepared = yield* enrollment.prepare({
+          admissionCode: ADMISSION_CODE,
           handle: "expireme",
           idempotencyKey: idempotencyKey("expireme"),
           owner: ownerAccount.address,
@@ -676,6 +757,7 @@ layer(UnexpectedCreateEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const enrollment = yield* RegistrationEnrollment;
       const error = yield* enrollment
         .prepare({
+          admissionCode: ADMISSION_CODE,
           handle: "badcreate",
           idempotencyKey: idempotencyKey("badcreate"),
           owner: ownerAccount.address,
@@ -701,6 +783,7 @@ layer(UnexpectedAuthorizeEnrollmentTestLive, { timeout: "30 seconds" })(
         Effect.gen(function* () {
           const enrollment = yield* RegistrationEnrollment;
           const prepared = yield* enrollment.prepare({
+            admissionCode: ADMISSION_CODE,
             handle: "badauthorize",
             idempotencyKey: idempotencyKey("badauthorize"),
             owner: ownerAccount.address,

@@ -26,6 +26,9 @@ export const mapRegistrationHttpError = (
   error: RegistrationEnrollmentError
 ): RegistrationHttpError => {
   switch (error._tag) {
+    case "RegistrationAdmissionUnauthorized": {
+      return new RegistrationUnauthorized();
+    }
     case "RegistrationHandleUnavailable": {
       return new RegistrationConflict({
         kind: "handle-unavailable",
@@ -88,6 +91,7 @@ export const RegistrationApiHandlers = HttpApiBuilder.group(
       .handle("prepare", ({ payload }) =>
         enrollment
           .prepare({
+            admissionCode: payload.admissionCode,
             handle: payload.handle,
             idempotencyKey: payload.idempotencyKey,
             owner: payload.owner as Address,

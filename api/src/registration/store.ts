@@ -1,4 +1,4 @@
-import { and, asc, eq, gte, inArray, lt } from "drizzle-orm";
+import { and, asc, eq, gt, gte, inArray, isNull, lt, or } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, DateTime, Effect, Layer, Option } from "effect";
@@ -7,7 +7,12 @@ import type { Hash, Hex } from "viem";
 
 import { Database, DatabaseLive } from "../db/database.ts";
 import type { DatabaseClient } from "../db/database.ts";
-import { registrationHandleLeases, registrationIntents } from "../db/schema.ts";
+import {
+  registrationAdmissionCodes,
+  registrationHandleLeases,
+  registrationIntents,
+} from "../db/schema.ts";
+import { RegistrationAdmissionUnauthorized } from "./admission.ts";
 import {
   normalizeCreateRegistrationIntent,
   normalizeRegistrationAuthorization,
@@ -86,6 +91,19 @@ const findByObserveTokenHash = (
     .limit(1)
     .pipe(Effect.map((rows) => rows.at(0)));
 
+const isExactCreateReplay = (
+  stored: StoredRegistrationIntent,
+  input: CreateRegistrationIntent
+): boolean =>
+  stored.admissionCodeHash === input.admissionCodeHash &&
+  stored.deadline === input.deadline &&
+  stored.deviceCommitment === input.deviceCommitment &&
+  stored.handle === input.handle &&
+  stored.observeTokenHash === input.observeTokenHash &&
+  stored.owner === input.owner &&
+  stored.peerId === input.peerId &&
+  stored.registrationNonce === input.registrationNonce;
+
 export class HandleLeaseConflict extends Data.TaggedError(
   "HandleLeaseConflict"
 )<{ readonly handle: string }> {}
@@ -120,6 +138,7 @@ export type RegistrationStorePersistenceError =
 
 export type RegistrationStoreError =
   | HandleLeaseConflict
+  | RegistrationAdmissionUnauthorized
   | RegistrationDraftLimitReached
   | RegistrationInputError
   | RegistrationIntentConflict
@@ -310,6 +329,52 @@ export class RegistrationStore extends Context.Service<
                 digest: canonicalDigest,
               });
             }
+            const admissionRows = yield* tx
+              .select()
+              .from(registrationAdmissionCodes)
+              .where(
+                eq(
+                  registrationAdmissionCodes.codeHash,
+                  current.admissionCodeHash
+                )
+              )
+              .limit(1)
+              .for("update");
+            const admission = admissionRows.at(0);
+            if (
+              !admission ||
+              admission.consumedAt !== null ||
+              (admission.expiresAt !== null &&
+                admission.expiresAt <= nowSeconds) ||
+              (admission.claimedByDigest !== null &&
+                admission.claimedByDigest !== canonicalDigest)
+            ) {
+              return yield* new RegistrationAdmissionUnauthorized({
+                codeHash: current.admissionCodeHash,
+              });
+            }
+            if (admission.claimedByDigest === null) {
+              yield* tx
+                .update(registrationAdmissionCodes)
+                .set({
+                  claimedAt: updatedAt,
+                  claimedByDigest: canonicalDigest,
+                })
+                .where(
+                  and(
+                    eq(
+                      registrationAdmissionCodes.codeHash,
+                      current.admissionCodeHash
+                    ),
+                    isNull(registrationAdmissionCodes.claimedByDigest),
+                    isNull(registrationAdmissionCodes.consumedAt),
+                    or(
+                      isNull(registrationAdmissionCodes.expiresAt),
+                      gt(registrationAdmissionCodes.expiresAt, nowSeconds)
+                    )
+                  )
+                );
+            }
             yield* acquireHandleLease(tx, current, updatedAt);
             const rows = yield* tx
               .update(registrationIntents)
@@ -341,6 +406,7 @@ export class RegistrationStore extends Context.Service<
         }
         if (
           replay.handle !== input.handle ||
+          replay.admissionCodeHash !== input.admissionCodeHash ||
           replay.deviceCommitment !== input.deviceCommitment ||
           replay.owner !== input.owner ||
           replay.peerId !== input.peerId
@@ -377,15 +443,7 @@ export class RegistrationStore extends Context.Service<
           Effect.gen(function* () {
             const existing = yield* find(tx, canonicalInput.digest);
             if (existing) {
-              const isExactReplay =
-                existing.deadline === canonicalInput.deadline &&
-                existing.deviceCommitment === canonicalInput.deviceCommitment &&
-                existing.handle === canonicalInput.handle &&
-                existing.observeTokenHash === canonicalInput.observeTokenHash &&
-                existing.owner === canonicalInput.owner &&
-                existing.peerId === canonicalInput.peerId &&
-                existing.registrationNonce === canonicalInput.registrationNonce;
-              if (!isExactReplay) {
+              if (!isExactCreateReplay(existing, canonicalInput)) {
                 return yield* new RegistrationIntentConflict({
                   digest: canonicalInput.digest,
                 });
@@ -433,6 +491,7 @@ export class RegistrationStore extends Context.Service<
               const inserted = yield* tx
                 .insert(registrationIntents)
                 .values({
+                  admissionCodeHash: canonicalInput.admissionCodeHash,
                   deadline: canonicalInput.deadline,
                   deviceCommitment: canonicalInput.deviceCommitment,
                   digest: canonicalInput.digest,
@@ -524,6 +583,28 @@ export class RegistrationStore extends Context.Service<
               });
             }
 
+            const admissionRows = yield* tx
+              .select()
+              .from(registrationAdmissionCodes)
+              .where(
+                eq(
+                  registrationAdmissionCodes.codeHash,
+                  current.admissionCodeHash
+                )
+              )
+              .limit(1)
+              .for("update");
+            const admission = admissionRows.at(0);
+            if (
+              !admission ||
+              admission.claimedByDigest !== canonicalDigest ||
+              admission.consumedAt !== null
+            ) {
+              return yield* new RegistrationAdmissionUnauthorized({
+                codeHash: current.admissionCodeHash,
+              });
+            }
+
             yield* acquireHandleLease(tx, current, DateTime.toDateUtc(now));
 
             const updated = yield* tx
@@ -546,6 +627,22 @@ export class RegistrationStore extends Context.Service<
               .returning();
             const authorized = updated.at(0);
             if (authorized) {
+              yield* tx
+                .update(registrationAdmissionCodes)
+                .set({ consumedAt: DateTime.toDateUtc(now) })
+                .where(
+                  and(
+                    eq(
+                      registrationAdmissionCodes.codeHash,
+                      current.admissionCodeHash
+                    ),
+                    eq(
+                      registrationAdmissionCodes.claimedByDigest,
+                      canonicalDigest
+                    ),
+                    isNull(registrationAdmissionCodes.consumedAt)
+                  )
+                );
               return authorized;
             }
             const replay = yield* find(tx, canonicalDigest);
@@ -707,6 +804,18 @@ export class RegistrationStore extends Context.Service<
               .where(
                 eq(registrationHandleLeases.intentDigest, canonicalDigest)
               );
+            yield* tx
+              .update(registrationAdmissionCodes)
+              .set({ claimedAt: null, claimedByDigest: null })
+              .where(
+                and(
+                  eq(
+                    registrationAdmissionCodes.claimedByDigest,
+                    canonicalDigest
+                  ),
+                  isNull(registrationAdmissionCodes.consumedAt)
+                )
+              );
             return intent;
           })
         );
@@ -759,6 +868,18 @@ export class RegistrationStore extends Context.Service<
               .delete(registrationHandleLeases)
               .where(
                 inArray(registrationHandleLeases.intentDigest, expiredDigests)
+              );
+            yield* tx
+              .update(registrationAdmissionCodes)
+              .set({ claimedAt: null, claimedByDigest: null })
+              .where(
+                and(
+                  inArray(
+                    registrationAdmissionCodes.claimedByDigest,
+                    expiredDigests
+                  ),
+                  isNull(registrationAdmissionCodes.consumedAt)
+                )
               );
             return expired.length;
           })
