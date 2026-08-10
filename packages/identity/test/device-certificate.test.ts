@@ -45,6 +45,7 @@ const makeSignature = ({
 const validEnvelope = {
   certificate: {
     encryptionPublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    expiresAt: "2",
     issuedAt: "1",
     ownerVersion: 0,
     peerId: RELAY_PEER_ID,
@@ -302,6 +303,20 @@ describe("identity wire codecs", () => {
       },
       ["certificate", "ownerVersion"],
       "Expected a value between 0 and 4294967295"
+    )
+  );
+
+  it.effect("requires certificate expiry after issuance", () =>
+    expectEnvelopeIssue(
+      {
+        ...validEnvelope,
+        certificate: {
+          ...validEnvelope.certificate,
+          expiresAt: validEnvelope.certificate.issuedAt,
+        },
+      },
+      ["certificate"],
+      "Expected expiresAt later than issuedAt"
     )
   );
 

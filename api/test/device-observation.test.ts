@@ -7,11 +7,13 @@ import {
   EcdsaSignature,
   encodeDeviceCertificateV1,
   hashDeviceCertificateV1,
+  hashRegistrationDeviceCommitmentV1,
   makeDeviceCertificateTypedDataV1,
   normalizeEcdsaSignature,
   PeerId,
 } from "@qop/identity";
-import { Effect, Layer, Schema } from "effect";
+import { DateTime, Effect, Layer, Schema } from "effect";
+import { TestClock } from "effect/testing";
 import { keccak256 } from "viem";
 import type { Address, Hash, Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -141,17 +143,28 @@ const hash = (value: number): Hash =>
 const confirmRegistration = Effect.fn("test.confirmRegistration")(function* (
   id: number,
   peerId: string,
-  shouldConfirm = true
+  shouldConfirm = true,
+  deviceCommitment?: Hash
 ) {
   const registrations = yield* RegistrationStore;
   const observeCapability = capability(id);
+  const peerIdBytes = yield* Schema.decodeUnknownEffect(PeerId)(peerId);
+  const observeTokenBytes = yield* Schema.decodeUnknownEffect(Base64Url32)(
+    observeCapability.token
+  );
   const digest = hash(1000 + id);
   yield* registrations.create({
     admissionCodeHash: hash(4000 + id),
     deadline: 600n,
-    deviceCommitment: hash(3000 + id),
+    deviceCommitment:
+      deviceCommitment ??
+      (yield* hashRegistrationDeviceCommitmentV1(
+        peerIdBytes,
+        observeTokenBytes
+      )),
     digest,
     handle: `device${String.fromCodePoint(96 + id)}`,
+    idempotencyKeyHash: hash(5000 + id),
     observeTokenHash: observeCapability.hash,
     owner,
     peerId,
@@ -172,6 +185,7 @@ const signedEnvelope = Effect.fn("test.signedEnvelope")(function* (
   peerId: string,
   saltByte: number,
   options?: {
+    readonly expiresAt?: bigint;
     readonly issuedAt?: bigint;
     readonly ownerVersion?: number;
   }
@@ -181,6 +195,7 @@ const signedEnvelope = Effect.fn("test.signedEnvelope")(function* (
   salt.fill(saltByte);
   const certificate = yield* decodeDeviceCertificateV1({
     encryptionPublicKey: yield* Schema.encodeEffect(Base64Url32)(key),
+    expiresAt: (options?.expiresAt ?? 4_000_000_000n).toString(),
     issuedAt: (options?.issuedAt ?? 0n).toString(),
     ownerVersion: options?.ownerVersion ?? 0,
     peerId,
@@ -285,6 +300,26 @@ layer(DeviceObservationTestLive, { timeout: "30 seconds" })((it) => {
         .pipe(Effect.flip);
       assert.instanceOf(rejected, DeviceCertificateRejected);
       assert.strictEqual(rejected.reason, "peer-id");
+
+      const mismatchedCommitment = yield* confirmRegistration(
+        11,
+        PEER_ID,
+        true,
+        hash(9999)
+      );
+      const commitmentEnvelope = yield* signedEnvelope(
+        mismatchedCommitment.qid,
+        PEER_ID,
+        12
+      );
+      const commitmentRejected = yield* observation
+        .observeFromRegistration({
+          envelope: commitmentEnvelope,
+          observeToken: mismatchedCommitment.observeCapability.token,
+        })
+        .pipe(Effect.flip);
+      assert.instanceOf(commitmentRejected, DeviceCertificateRejected);
+      assert.strictEqual(commitmentRejected.reason, "device-commitment");
     })
   );
 
@@ -343,11 +378,12 @@ layer(DeviceObservationTestLive, { timeout: "30 seconds" })((it) => {
     })
   );
 
-  it.effect("rejects qid, owner-version, and issued-at policy mismatches", () =>
+  it.effect("rejects identity and certificate-lifetime policy mismatches", () =>
     Effect.gen(function* () {
       registryOwnerVersion = 0;
       registryRegisteredAt = 100n;
       revokedDigest = undefined;
+      yield* TestClock.adjust("200 seconds");
       const observation = yield* DeviceObservation;
 
       const qidRegistration = yield* confirmRegistration(6, PEER_ID);
@@ -389,7 +425,9 @@ layer(DeviceObservationTestLive, { timeout: "30 seconds" })((it) => {
       assert.strictEqual(predates.reason, "predates-account");
 
       const futureRegistration = yield* confirmRegistration(9, PEER_ID);
-      const nowSeconds = BigInt(Math.floor(Date.now() / 1000));
+      const nowSeconds = BigInt(
+        Math.floor(DateTime.toEpochMillis(yield* DateTime.now) / 1000)
+      );
       const future = yield* observation
         .observeFromRegistration({
           envelope: yield* signedEnvelope(futureRegistration.qid, PEER_ID, 11, {
@@ -400,6 +438,21 @@ layer(DeviceObservationTestLive, { timeout: "30 seconds" })((it) => {
         .pipe(Effect.flip);
       assert.instanceOf(future, DeviceCertificateRejected);
       assert.strictEqual(future.reason, "future-issued-at");
+
+      const expiredRegistration = yield* confirmRegistration(10, PEER_ID);
+      const expired = yield* observation
+        .observeFromRegistration({
+          envelope: yield* signedEnvelope(
+            expiredRegistration.qid,
+            PEER_ID,
+            12,
+            { expiresAt: nowSeconds - 1n, issuedAt: 100n }
+          ),
+          observeToken: expiredRegistration.observeCapability.token,
+        })
+        .pipe(Effect.flip);
+      assert.instanceOf(expired, DeviceCertificateRejected);
+      assert.strictEqual(expired.reason, "expired");
 
       registryRegisteredAt = 0n;
     })

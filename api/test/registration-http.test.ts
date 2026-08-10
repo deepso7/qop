@@ -60,7 +60,8 @@ const NONCE =
   "0x2222222222222222222222222222222222222222222222222222222222222222";
 const SIGNATURE = `0x${"1".padStart(64, "0")}${"1".padStart(64, "0")}00` as Hex;
 const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
-const OBSERVE_TOKEN = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const OBSERVE_TOKEN_HASH =
+  "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as Hash;
 const IDEMPOTENCY_KEY = "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const ADMISSION_CODE = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
@@ -146,15 +147,16 @@ const RegistrationEnrollmentTestLive = Layer.succeed(
       }
       assert.deepStrictEqual(input, {
         admissionCode: ADMISSION_CODE,
+        deviceCommitment: intent.deviceCommitment,
         handle: "alice",
         idempotencyKey: IDEMPOTENCY_KEY,
+        observeTokenHash: OBSERVE_TOKEN_HASH,
         owner: CHECKSUMMED_OWNER,
         peerId: PEER_ID,
       });
       return {
         digest: DIGEST,
         intent,
-        observeToken: OBSERVE_TOKEN,
         status: "pending_owner_signature",
       };
     }),
@@ -212,15 +214,16 @@ describe("registration HTTP API", () => {
       const prepared = yield* client.registrations.prepare({
         payload: {
           admissionCode: ADMISSION_CODE,
+          deviceCommitment: intent.deviceCommitment,
           handle: "alice",
           idempotencyKey: IDEMPOTENCY_KEY,
+          observeTokenHash: OBSERVE_TOKEN_HASH,
           owner: CHECKSUMMED_OWNER,
           peerId: PEER_ID,
         },
       });
       assert.strictEqual(prepared.digest, DIGEST);
       assert.strictEqual(prepared.intent.owner, OWNER);
-      assert.strictEqual(prepared.observeToken, OBSERVE_TOKEN);
 
       const authorized = yield* client.registrations.authorize({
         params: { digest: DIGEST },
@@ -277,8 +280,10 @@ describe("registration HTTP API", () => {
         .prepare({
           payload: {
             admissionCode: ADMISSION_CODE,
+            deviceCommitment: intent.deviceCommitment,
             handle: "admissiondenied",
             idempotencyKey: IDEMPOTENCY_KEY,
+            observeTokenHash: OBSERVE_TOKEN_HASH,
             owner: CHECKSUMMED_OWNER,
             peerId: PEER_ID,
           },
@@ -311,8 +316,10 @@ describe("registration HTTP API", () => {
         .prepare({
           payload: {
             admissionCode: ADMISSION_CODE,
+            deviceCommitment: intent.deviceCommitment,
             handle: "conflict",
             idempotencyKey: IDEMPOTENCY_KEY,
+            observeTokenHash: OBSERVE_TOKEN_HASH,
             owner: CHECKSUMMED_OWNER,
             peerId: PEER_ID,
           },
@@ -360,8 +367,10 @@ describe("registration HTTP API", () => {
         .prepare({
           payload: {
             admissionCode: ADMISSION_CODE,
+            deviceCommitment: intent.deviceCommitment,
             handle: "invalid",
             idempotencyKey: IDEMPOTENCY_KEY,
+            observeTokenHash: OBSERVE_TOKEN_HASH,
             owner: CHECKSUMMED_OWNER,
             peerId: PEER_ID,
           },
@@ -395,15 +404,16 @@ describe("registration HTTP API", () => {
     Effect.gen(function* () {
       const preparePayload = {
         admissionCode: ADMISSION_CODE,
+        deviceCommitment: intent.deviceCommitment,
         handle: "alice",
         idempotencyKey: IDEMPOTENCY_KEY,
+        observeTokenHash: OBSERVE_TOKEN_HASH,
         owner: OWNER,
         peerId: PEER_ID,
       } as const;
       const preparedResponse = {
         digest: DIGEST,
         intent,
-        observeToken: OBSERVE_TOKEN,
         status: "pending_owner_signature",
       } as const;
       const authorizedResponse = {
@@ -434,7 +444,7 @@ describe("registration HTTP API", () => {
       }
 
       const highSignature = `0x${"1".padStart(64, "0")}${"f".repeat(64)}00`;
-      const badObserveToken = `${"A".repeat(42)}B`;
+      const badObserveTokenHash = `0x${"a".repeat(63)}z`;
       const failures = yield* Effect.all([
         Schema.encodeEffect(AuthorizedRegistrationResponse)({
           digest: DIGEST,
@@ -443,11 +453,13 @@ describe("registration HTTP API", () => {
           registrationSignature: SIGNATURE,
           status: "ready",
         }).pipe(Effect.flip),
-        Schema.encodeEffect(PreparedRegistrationResponse)({
-          digest: DIGEST,
-          intent,
-          observeToken: badObserveToken,
-          status: "pending_owner_signature",
+        Schema.decodeUnknownEffect(PrepareRegistrationPayload)({
+          ...preparePayload,
+          observeTokenHash: badObserveTokenHash,
+        }).pipe(Effect.flip),
+        Schema.decodeUnknownEffect(PrepareRegistrationPayload)({
+          ...preparePayload,
+          deviceCommitment: `0x${"00".repeat(32)}`,
         }).pipe(Effect.flip),
         Schema.encodeEffect(ReconciledRegistrationResponse)({
           digest: DIGEST,
@@ -457,8 +469,10 @@ describe("registration HTTP API", () => {
         }).pipe(Effect.flip),
         Schema.decodeUnknownEffect(PrepareRegistrationPayload)({
           admissionCode: ADMISSION_CODE,
+          deviceCommitment: intent.deviceCommitment,
           handle: "alice",
           idempotencyKey: IDEMPOTENCY_KEY,
+          observeTokenHash: OBSERVE_TOKEN_HASH,
           owner: OWNER,
           peerId: "1".repeat(52),
         }).pipe(Effect.flip),
@@ -468,7 +482,6 @@ describe("registration HTTP API", () => {
             ...intent,
             deadline: "18446744073709551616",
           },
-          observeToken: OBSERVE_TOKEN,
           status: "pending_owner_signature",
         }).pipe(Effect.flip),
         Schema.encodeEffect(AuthorizedRegistrationResponse)({
@@ -490,8 +503,12 @@ describe("registration HTTP API", () => {
           path: ["ownerSignature"],
         },
         {
-          message: "Expected canonical unpadded base64url",
-          path: ["observeToken"],
+          message: "Expected a 32-byte 0x-prefixed digest",
+          path: ["observeTokenHash"],
+        },
+        {
+          message: "Expected a non-zero device commitment",
+          path: ["deviceCommitment"],
         },
         { message: "Expected a positive uint256 qid", path: ["qid"] },
         {

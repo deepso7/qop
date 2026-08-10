@@ -1,14 +1,11 @@
 import {
-  Base64Url32,
   decodeIdentityEip712DomainV1,
   decodeRegisterIntentV1,
   EcdsaSignature,
   encodeRegisterIntentV1,
-  hashRegistrationDeviceCommitmentV1,
   hashRegisterIntentV1,
   recoverRegisterIntentSignerV1,
   RegistrationNonce,
-  PeerId,
 } from "@qop/identity";
 import type {
   IdentityCryptoError,
@@ -26,25 +23,28 @@ import {
   Schema,
   Semaphore,
 } from "effect";
-import { concatBytes, hexToBytes, keccak256, stringToBytes, toHex } from "viem";
+import { keccak256 } from "viem";
 import type { Address, Hash, Hex } from "viem";
 
+import { Entropy } from "../entropy.ts";
+import type { EntropyError } from "../entropy.ts";
 import { Env } from "../env.ts";
 import type { RegistryChainReadError } from "../registry/chain.ts";
 import { normalizeRegistryHandle } from "../registry/inputs.ts";
 import type { RegistryInputError } from "../registry/inputs.ts";
 import { RegistryReader, RegistryReaderLive } from "../registry/reader.ts";
+import { epochSeconds } from "../time.ts";
 import {
   decodeRegistrationAdmissionCode,
   RegistrationAdmission,
   RegistrationAdmissionLive,
 } from "./admission.ts";
 import type { RegistrationAdmissionError } from "./admission.ts";
-import { RegistrationEntropy } from "./entropy.ts";
-import type { RegistrationEntropyError } from "./entropy.ts";
 import {
   decodeRegistrationIdempotencyKey,
+  normalizeDeviceCommitment,
   normalizeRegistrationDigest,
+  normalizeRegistrationObserveTokenHash,
   normalizeRegistrationOwner,
   normalizeRegistrationOwnerSignature,
   normalizeRegistrationPeerId,
@@ -70,14 +70,12 @@ import type { RegistrationIntentStatus } from "./types.ts";
 
 export const registrationIntentTtlSeconds = 600n;
 export const registrationReconciliationConcurrency = 16;
-const observeTokenDerivationDomain = stringToBytes(
-  "qop-registration-observe-token-v1"
-);
-
 export interface PrepareRegistration {
   readonly admissionCode: string;
+  readonly deviceCommitment: Hash;
   readonly handle: string;
   readonly idempotencyKey: string;
+  readonly observeTokenHash: Hash;
   readonly owner: Address;
   readonly peerId: string;
 }
@@ -85,7 +83,6 @@ export interface PrepareRegistration {
 export interface PreparedRegistration {
   readonly digest: Hash;
   readonly intent: RegisterIntentV1Encoded;
-  readonly observeToken: string;
   readonly status: "pending_owner_signature";
 }
 
@@ -148,7 +145,7 @@ export class RegistrationProtocolError extends Data.TaggedError(
 
 export type RegistrationEnrollmentError =
   | IdentityCryptoError
-  | RegistrationEntropyError
+  | EntropyError
   | RegistrationAdmissionError
   | RegistrationHandleUnavailable
   | RegistrationInputError
@@ -176,9 +173,6 @@ const protocolError =
   (operation: RegistrationProtocolError["operation"]) =>
   (cause: unknown): RegistrationProtocolError =>
     new RegistrationProtocolError({ cause, operation });
-
-const epochSeconds = (value: DateTime.DateTime): bigint =>
-  BigInt(Math.floor(DateTime.toEpochMillis(value) / 1000));
 
 const decodeStoredIntent = Effect.fn(
   "RegistrationEnrollment.decodeStoredIntent"
@@ -248,7 +242,7 @@ export class RegistrationEnrollment extends Context.Service<
   static readonly layer = Layer.effect(
     this,
     Effect.gen(function* () {
-      const entropy = yield* RegistrationEntropy;
+      const entropy = yield* Entropy;
       const admissions = yield* RegistrationAdmission;
       const env = yield* Env;
       const registry = yield* RegistryReader;
@@ -268,15 +262,18 @@ export class RegistrationEnrollment extends Context.Service<
       )(function* (
         stored: StoredRegistrationIntent,
         expected: {
+          readonly deviceCommitment: Hash;
           readonly handle: string;
+          readonly observeTokenHash: Hash;
           readonly owner: Address;
           readonly peerId: string;
         },
-        observeToken: string,
         replay: boolean
       ) {
         if (
+          stored.deviceCommitment !== expected.deviceCommitment ||
           stored.handle !== expected.handle ||
+          stored.observeTokenHash !== expected.observeTokenHash ||
           stored.owner !== expected.owner ||
           stored.peerId !== expected.peerId
         ) {
@@ -313,7 +310,6 @@ export class RegistrationEnrollment extends Context.Service<
         return {
           digest: stored.digest,
           intent: yield* encodeIntent(intent),
-          observeToken,
           status,
         } satisfies PreparedRegistration;
       });
@@ -332,38 +328,32 @@ export class RegistrationEnrollment extends Context.Service<
         const idempotencyKey = yield* decodeRegistrationIdempotencyKey(
           input.idempotencyKey
         );
-        const observeTokenBytes = hexToBytes(
-          keccak256(concatBytes([observeTokenDerivationDomain, idempotencyKey]))
+        const idempotencyKeyHash = keccak256(idempotencyKey);
+        const observeTokenHash = yield* normalizeRegistrationObserveTokenHash(
+          input.observeTokenHash
         );
-        const observeToken = yield* Schema.encodeEffect(Base64Url32)(
-          observeTokenBytes
-        ).pipe(Effect.mapError(protocolError("generate-observe-token")));
-        const observeTokenHash = keccak256(toHex(observeTokenBytes));
-        const peerIdBytes = yield* Schema.decodeUnknownEffect(PeerId)(
-          peerId
-        ).pipe(Effect.mapError(protocolError("decode-intent")));
-        const deviceCommitment = yield* hashRegistrationDeviceCommitmentV1(
-          peerIdBytes,
-          observeTokenBytes
+        const deviceCommitment = yield* normalizeDeviceCommitment(
+          input.deviceCommitment
         );
         // Opportunistically bound abandoned-intent growth on every valid
         // admission request. The store performs a small SKIP LOCKED batch, so
         // concurrent API instances can safely share this maintenance work.
         yield* store.expire;
-        const expected = { handle, owner, peerId } as const;
-        const replay = yield* store.getByObserveTokenHash(observeTokenHash);
+        const expected = {
+          deviceCommitment,
+          handle,
+          observeTokenHash,
+          owner,
+          peerId,
+        } as const;
+        const replay = yield* store.getByIdempotencyKeyHash(idempotencyKeyHash);
         if (Option.isSome(replay)) {
           if (replay.value.admissionCodeHash !== admissionCodeHash) {
             return yield* new RegistrationIntentConflict({
               digest: replay.value.digest,
             });
           }
-          return yield* preparedRegistration(
-            replay.value,
-            expected,
-            observeToken,
-            true
-          );
+          return yield* preparedRegistration(replay.value, expected, true);
         }
         const [handleRegistration, ownerRegistration] = yield* Effect.all(
           [
@@ -405,17 +395,13 @@ export class RegistrationEnrollment extends Context.Service<
           deviceCommitment,
           digest,
           handle,
+          idempotencyKeyHash,
           observeTokenHash,
           owner,
           peerId,
           registrationNonce: registrationNonce as Hash,
         });
-        return yield* preparedRegistration(
-          stored,
-          expected,
-          observeToken,
-          false
-        );
+        return yield* preparedRegistration(stored, expected, false);
       });
 
       const authorize = Effect.fn("RegistrationEnrollment.authorize")(
@@ -548,7 +534,7 @@ export class RegistrationEnrollment extends Context.Service<
                   return yield* signer.sign(domain, intent);
                 }).pipe(
                   Effect.tapError(() =>
-                    admissions.release(stored.admissionCodeHash, digest)
+                    store.releaseAuthorizationReservation(digest)
                   )
                 )
               : yield* normalizeRegistrationSignerSignature(
@@ -557,9 +543,7 @@ export class RegistrationEnrollment extends Context.Service<
           const registrationSignature = yield* decodeSignature(
             registrationSignatureHex
           ).pipe(
-            Effect.tapError(() =>
-              admissions.release(stored.admissionCodeHash, digest)
-            )
+            Effect.tapError(() => store.releaseAuthorizationReservation(digest))
           );
           const recoveredRegistrationSigner =
             yield* recoverRegisterIntentSignerV1(
@@ -568,11 +552,11 @@ export class RegistrationEnrollment extends Context.Service<
               registrationSignature
             ).pipe(
               Effect.tapError(() =>
-                admissions.release(stored.admissionCodeHash, digest)
+                store.releaseAuthorizationReservation(digest)
               )
             );
           if (recoveredRegistrationSigner !== signer.address) {
-            yield* admissions.release(stored.admissionCodeHash, digest);
+            yield* store.releaseAuthorizationReservation(digest);
             return yield* new RegistrationSignatureMismatch({
               expected: signer.address,
               kind: "registration",
@@ -587,7 +571,7 @@ export class RegistrationEnrollment extends Context.Service<
             })
             .pipe(
               Effect.tapError(() =>
-                admissions.release(stored.admissionCodeHash, digest)
+                store.releaseAuthorizationReservation(digest)
               )
             );
           const status = yield* verifyAuthorizedRegistrationStatus(
@@ -670,7 +654,7 @@ export class RegistrationEnrollment extends Context.Service<
 }
 
 export const RegistrationEnrollmentLive = RegistrationEnrollment.layer.pipe(
-  Layer.provide(RegistrationEntropy.layer),
+  Layer.provide(Entropy.layer),
   Layer.provide(RegistrationAdmissionLive),
   Layer.provide(RegistrationStoreLive),
   Layer.provide(RegistryReaderLive),

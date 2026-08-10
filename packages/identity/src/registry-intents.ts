@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect";
 import { hashTypedData, recoverTypedDataAddress, toHex } from "viem";
-import type { Address, Signature } from "viem";
+import type { Address } from "viem";
 
 import {
   IdentityCryptoError,
@@ -9,6 +9,7 @@ import {
   identityEip712DomainVersion,
 } from "./eip712.ts";
 import type { IdentityEip712DomainV1 as IdentityDomain } from "./eip712.ts";
+import { strictParseOptions, toViemSignature } from "./internal.ts";
 import {
   EcdsaSignature,
   EthereumAddress,
@@ -18,11 +19,6 @@ import {
   Uint256,
   UnixSeconds,
 } from "./wire-codecs.ts";
-
-const strictParseOptions = {
-  errors: "all",
-  onExcessProperty: "error",
-} as const;
 
 const ZERO_ADDRESS = `0x${"00".repeat(20)}`;
 
@@ -173,12 +169,6 @@ export const makeRevokeDeviceIntentTypedDataV1 = (
     primaryType: "RevokeDeviceV1",
     types: revokeDeviceIntentEip712Types,
   }) as const;
-
-const toViemSignature = (signature: Uint8Array): Signature => ({
-  r: toHex(signature.subarray(0, 32)),
-  s: toHex(signature.subarray(32, 64)),
-  yParity: signature[64] as 0 | 1,
-});
 
 const validateSignature = (
   operation: IdentityCryptoError["operation"],

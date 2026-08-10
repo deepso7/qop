@@ -20,13 +20,13 @@ import {
   DeviceCertificateStoreLive,
 } from "../device/store.ts";
 import type { DeviceCertificateStoreError } from "../device/store.ts";
+import { Entropy } from "../entropy.ts";
+import type { EntropyError } from "../entropy.ts";
 import { Env } from "../env.ts";
 import type { RegistryChainReadError } from "../registry/chain.ts";
 import { normalizeCertificateDigest } from "../registry/inputs.ts";
 import type { RegistryInputError } from "../registry/inputs.ts";
 import { RegistryReader, RegistryReaderLive } from "../registry/reader.ts";
-import type { DeviceSessionEntropyError } from "./entropy.ts";
-import { DeviceSessionEntropy } from "./entropy.ts";
 import {
   DeviceSessionChallengeConsumed,
   DeviceSessionChallengeExpired,
@@ -63,7 +63,7 @@ export class DeviceSessionCertificateRejected extends Data.TaggedError(
   "DeviceSessionCertificateRejected"
 )<{
   readonly certificateDigest: Hash;
-  readonly reason: "not-found" | "owner-version" | "revoked";
+  readonly reason: "expired" | "not-found" | "owner-version" | "revoked";
 }> {}
 
 export class DeviceSessionChallengeBindingMismatch extends Data.TaggedError(
@@ -93,7 +93,7 @@ export type DeviceSessionServiceError =
   | DeviceSessionCertificateRejected
   | DeviceSessionChallengeBindingMismatch
   | DeviceSessionStoreError
-  | DeviceSessionEntropyError
+  | EntropyError
   | DeviceSessionPopCryptoError
   | DeviceSessionProofInvalid
   | DeviceSessionProtocolError
@@ -158,7 +158,7 @@ export class DeviceSessionService extends Context.Service<
     Effect.gen(function* () {
       const certificates = yield* DeviceCertificateStore;
       const sessions = yield* DeviceSessionStore;
-      const entropy = yield* DeviceSessionEntropy;
+      const entropy = yield* Entropy;
       const env = yield* Env;
       const registry = yield* RegistryReader;
 
@@ -177,6 +177,12 @@ export class DeviceSessionService extends Context.Service<
           return yield* new DeviceSessionCertificateRejected({
             certificateDigest,
             reason: "not-found",
+          });
+        }
+        if (certificate.value.expiresAt <= (yield* nowSeconds)) {
+          return yield* new DeviceSessionCertificateRejected({
+            certificateDigest,
+            reason: "expired",
           });
         }
         const account = yield* registry.fresh.account(certificate.value.qid);
@@ -208,6 +214,16 @@ export class DeviceSessionService extends Context.Service<
         );
         const certificate = yield* requireCurrentCertificate(certificateDigest);
         const issuedAt = yield* nowSeconds;
+        const challengeExpiresAt =
+          issuedAt + deviceSessionChallengeTtlSeconds < certificate.expiresAt
+            ? issuedAt + deviceSessionChallengeTtlSeconds
+            : certificate.expiresAt;
+        if (challengeExpiresAt <= issuedAt) {
+          return yield* new DeviceSessionCertificateRejected({
+            certificateDigest,
+            reason: "expired",
+          });
+        }
         const challengeBytes = yield* entropy.bytes32;
         const challengeToken = yield* Schema.encodeEffect(Base64Url32)(
           challengeBytes
@@ -215,7 +231,7 @@ export class DeviceSessionService extends Context.Service<
         const challenge = yield* decodeDeviceSessionChallengeV1({
           certificateDigest,
           challenge: challengeToken,
-          expiresAt: (issuedAt + deviceSessionChallengeTtlSeconds).toString(),
+          expiresAt: challengeExpiresAt.toString(),
           issuedAt: issuedAt.toString(),
           peerId: certificate.peerId,
           qid: certificate.qid.toString(),
@@ -284,7 +300,10 @@ export class DeviceSessionService extends Context.Service<
           const session = yield* sessions.authenticate({
             challengeHash,
             ownerVersion: certificate.ownerVersion,
-            sessionTtlSeconds: deviceSessionTtlSeconds,
+            sessionTtlSeconds:
+              currentSeconds + deviceSessionTtlSeconds < certificate.expiresAt
+                ? deviceSessionTtlSeconds
+                : certificate.expiresAt - currentSeconds,
             tokenHash: keccak256(tokenBytes),
           });
           return {
@@ -308,21 +327,16 @@ export class DeviceSessionService extends Context.Service<
           keccak256(tokenBytes),
           verifier
         );
-        const account = yield* registry.fresh.account(session.qid);
-        if (account.value.ownerVersion !== session.ownerVersion) {
+        const certificate = yield* requireCurrentCertificate(
+          session.certificateDigest
+        );
+        if (
+          certificate.qid !== session.qid ||
+          certificate.ownerVersion !== session.ownerVersion
+        ) {
           return yield* new DeviceSessionCertificateRejected({
             certificateDigest: session.certificateDigest,
             reason: "owner-version",
-          });
-        }
-        const revocation = yield* registry.fresh.deviceRevocation(
-          session.qid,
-          session.certificateDigest
-        );
-        if (revocation.value) {
-          return yield* new DeviceSessionCertificateRejected({
-            certificateDigest: session.certificateDigest,
-            reason: "revoked",
           });
         }
         return {
@@ -340,7 +354,7 @@ export class DeviceSessionService extends Context.Service<
 export const DeviceSessionServiceLive = DeviceSessionService.layer.pipe(
   Layer.provide(DeviceCertificateStoreLive),
   Layer.provide(DeviceSessionStoreLive),
-  Layer.provide(DeviceSessionEntropy.layer),
+  Layer.provide(Entropy.layer),
   Layer.provide(RegistryReaderLive),
   Layer.provide(Env.layer)
 );

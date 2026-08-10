@@ -161,6 +161,7 @@ export class DeviceCertificateStore extends Context.Service<
             const certificate: typeof deviceCertificates.$inferInsert = {
               certificateDigest,
               encryptionPublicKey: envelope.certificate.encryptionPublicKey,
+              expiresAt: BigInt(envelope.certificate.expiresAt),
               issuedAt: BigInt(envelope.certificate.issuedAt),
               observedAt,
               ownerVersion: envelope.certificate.ownerVersion,

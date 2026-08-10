@@ -1,15 +1,11 @@
 import { Data, Effect, Schema } from "effect";
 import { hashTypedData, recoverTypedDataAddress, toHex } from "viem";
-import type { Address, Signature } from "viem";
+import type { Address } from "viem";
 
 import { DeviceCertificateV1 } from "./device-certificate.ts";
 import type { DeviceCertificateV1 as DeviceCertificate } from "./device-certificate.ts";
+import { strictParseOptions, toViemSignature } from "./internal.ts";
 import { ChainId, EcdsaSignature, EthereumAddress } from "./wire-codecs.ts";
-
-const strictParseOptions = {
-  errors: "all",
-  onExcessProperty: "error",
-} as const;
 
 export const identityEip712DomainName = "QOP Identity" as const;
 // This must match the immutable version passed to the deployed registry's
@@ -36,6 +32,7 @@ export const deviceCertificateEip712Types = {
     { name: "peerId", type: "bytes" },
     { name: "encryptionPublicKey", type: "bytes32" },
     { name: "issuedAt", type: "uint64" },
+    { name: "expiresAt", type: "uint64" },
     { name: "salt", type: "bytes32" },
   ],
 } as const;
@@ -53,6 +50,7 @@ export const makeDeviceCertificateTypedDataV1 = (
     },
     message: {
       encryptionPublicKey: toHex(certificate.encryptionPublicKey),
+      expiresAt: certificate.expiresAt,
       issuedAt: certificate.issuedAt,
       ownerVersion: certificate.ownerVersion,
       peerId: toHex(certificate.peerId),
@@ -80,12 +78,6 @@ export class IdentityCryptoError extends Data.TaggedError(
     | "verify-certificate-owner";
 }> {}
 
-const toViemSignature = (signature: Uint8Array): Signature => ({
-  r: toHex(signature.subarray(0, 32)),
-  s: toHex(signature.subarray(32, 64)),
-  yParity: signature[64] as 0 | 1,
-});
-
 const validateCertificateInputs = (
   operation: IdentityCryptoError["operation"],
   domain: IdentityEip712DomainV1,
@@ -100,12 +92,6 @@ export const decodeIdentityEip712DomainV1 = Effect.fn(
   "@qop/identity/decodeIdentityEip712DomainV1"
 )((input: unknown) =>
   Schema.decodeUnknownEffect(IdentityEip712DomainV1)(input)
-);
-
-export const encodeIdentityEip712DomainV1 = Effect.fn(
-  "@qop/identity/encodeIdentityEip712DomainV1"
-)((domain: IdentityEip712DomainV1) =>
-  Schema.encodeEffect(IdentityEip712DomainV1)(domain)
 );
 
 export const hashDeviceCertificateV1 = Effect.fn(

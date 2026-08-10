@@ -12,9 +12,3 @@ export const registrationTransitionSources = {
 >;
 
 export type RegistrationTransition = keyof typeof registrationTransitionSources;
-
-export const canTransitionRegistrationIntent = (
-  transition: RegistrationTransition,
-  status: RegistrationIntentStatus
-): boolean =>
-  registrationTransitionSources[transition].some((source) => source === status);

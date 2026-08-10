@@ -13,7 +13,6 @@ import { TestClock } from "effect/testing";
 import { keccak256 } from "viem";
 import type { Address, Hash, Hex } from "viem";
 
-import { DeviceSessionEntropy } from "../src/device-session/entropy.ts";
 import {
   DeviceSessionCertificateRejected,
   DeviceSessionChallengeBindingMismatch,
@@ -29,6 +28,7 @@ import {
   DeviceSessionStore,
 } from "../src/device-session/store.ts";
 import { DeviceCertificateStore } from "../src/device/store.ts";
+import { Entropy } from "../src/entropy.ts";
 import { Env } from "../src/env.ts";
 import { RegistrationStore } from "../src/registration/store.ts";
 import { RegistryReader } from "../src/registry/reader.ts";
@@ -111,9 +111,9 @@ const RegistryReaderTestLive = Layer.succeed(
   })
 );
 
-const DeviceSessionEntropyTestLive = Layer.succeed(
-  DeviceSessionEntropy,
-  DeviceSessionEntropy.of({
+const EntropyTestLive = Layer.succeed(
+  Entropy,
+  Entropy.of({
     bytes32: Effect.sync(() => {
       entropyCounter += 1;
       const bytes = new Uint8Array(32);
@@ -143,12 +143,13 @@ const EnvTestLive = Layer.succeed(
 const DeviceSessionServiceTestLive = DeviceSessionService.layer.pipe(
   Layer.provideMerge(DeviceAndRegistrationStoresTestLive),
   Layer.provide(RegistryReaderTestLive),
-  Layer.provide(DeviceSessionEntropyTestLive),
+  Layer.provide(EntropyTestLive),
   Layer.provide(EnvTestLive)
 );
 
 const observeCertificate = Effect.fn("test.observeCertificate")(function* (
-  id: number
+  id: number,
+  expiresInSeconds?: bigint
 ) {
   const registrations = yield* RegistrationStore;
   const certificates = yield* DeviceCertificateStore;
@@ -158,12 +159,18 @@ const observeCertificate = Effect.fn("test.observeCertificate")(function* (
   const now = yield* DateTime.now;
   const deadline =
     BigInt(Math.floor(DateTime.toEpochMillis(now) / 1000)) + 600n;
+  const certificateExpiresAt =
+    expiresInSeconds === undefined
+      ? 4_000_000_000n
+      : BigInt(Math.floor(DateTime.toEpochMillis(now) / 1000)) +
+        expiresInSeconds;
   yield* registrations.create({
     admissionCodeHash: hash(6000 + id),
     deadline,
     deviceCommitment: hash(5000 + id),
     digest: registrationDigest,
     handle: `session${String.fromCodePoint(96 + id)}`,
+    idempotencyKeyHash: hash(7000 + id),
     observeTokenHash: hash(3000 + id),
     owner: OWNER,
     peerId,
@@ -179,6 +186,7 @@ const observeCertificate = Effect.fn("test.observeCertificate")(function* (
     envelope: {
       certificate: {
         encryptionPublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        expiresAt: certificateExpiresAt.toString(),
         issuedAt: "0",
         ownerVersion: 0,
         peerId,
@@ -293,6 +301,32 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
       assert.isAtLeast(yield* store.purgeExpired, 1);
       const purged = yield* sessions.resolve(completed.token).pipe(Effect.flip);
       assert.instanceOf(purged, DeviceSessionNotFound);
+    })
+  );
+
+  it.effect("stops resolving a session when its certificate expires", () =>
+    Effect.gen(function* () {
+      registryOwnerVersion = 0;
+      revokedDigest = undefined;
+      const certificate = yield* observeCertificate(11, 5n);
+      const sessions = yield* DeviceSessionService;
+      const challenge = yield* sessions.issue({
+        certificateDigest: certificate.certificateDigest,
+      });
+      assert.strictEqual(
+        BigInt(challenge.expiresAt) - BigInt(challenge.issuedAt),
+        5n
+      );
+      const completed = yield* sessions.authenticate(
+        yield* signChallenge(challenge)
+      );
+      assert.strictEqual(completed.expiresAt, challenge.expiresAt);
+
+      yield* TestClock.adjust(Duration.seconds(6));
+      const expired = yield* sessions
+        .resolve(completed.token)
+        .pipe(Effect.flip);
+      assert.instanceOf(expired, DeviceSessionExpired);
     })
   );
 
@@ -474,6 +508,16 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
           .pipe(Effect.flip);
         assert.instanceOf(unknown, DeviceSessionCertificateRejected);
         assert.strictEqual(unknown.reason, "not-found");
+
+        const expiringCertificate = yield* observeCertificate(10, 1n);
+        yield* TestClock.adjust(Duration.seconds(2));
+        const expiredCertificate = yield* sessions
+          .issue({
+            certificateDigest: expiringCertificate.certificateDigest,
+          })
+          .pipe(Effect.flip);
+        assert.instanceOf(expiredCertificate, DeviceSessionCertificateRejected);
+        assert.strictEqual(expiredCertificate.reason, "expired");
       })
   );
 

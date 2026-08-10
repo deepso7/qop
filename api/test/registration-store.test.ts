@@ -66,6 +66,7 @@ const input = (
     deviceCommitment: encodeHash(40_000 + id),
     digest: encodeHash(10_000 + id),
     handle,
+    idempotencyKeyHash: encodeHash(60_000 + id),
     observeTokenHash: encodeHash(20_000 + id),
     owner: CHECKSUMMED_OWNER,
     peerId: PEER_ID,
@@ -186,7 +187,31 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
       })
     );
 
-    it.effect("atomically replays prepare by observe capability hash", () =>
+    it.effect(
+      "releases a reserved handle after authorization setup fails",
+      () =>
+        Effect.gen(function* () {
+          const store = yield* RegistrationStore;
+          const deadline = yield* deadlineAfter(60);
+          const first = input(34, "releasedhandle", deadline);
+          const competitor = input(35, "releasedhandle", deadline);
+          yield* store.create(first);
+          yield* store.create(competitor);
+          yield* store.reserveAuthorization(
+            first.digest,
+            authorization.ownerSignature
+          );
+          yield* store.releaseAuthorizationReservation(first.digest);
+
+          const authorized = yield* store.authorize(
+            competitor.digest,
+            authorization
+          );
+          assert.strictEqual(authorized.status, "ready");
+        })
+    );
+
+    it.effect("atomically replays prepare by idempotency-key hash", () =>
       Effect.gen(function* () {
         const store = yield* RegistrationStore;
         const deadline = yield* deadlineAfter(60);
@@ -195,6 +220,7 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
           ...input(14, "atomicretry", deadline),
           admissionCodeHash: firstInput.admissionCodeHash,
           deviceCommitment: firstInput.deviceCommitment,
+          idempotencyKeyHash: firstInput.idempotencyKeyHash,
           observeTokenHash: firstInput.observeTokenHash,
         };
 
@@ -216,7 +242,43 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
           })
           .pipe(Effect.flip);
         assert.instanceOf(commitmentMismatch, RegistrationIntentConflict);
+        const capabilityMismatch = yield* store
+          .create({
+            ...retryInput,
+            observeTokenHash: hash(99_998),
+          })
+          .pipe(Effect.flip);
+        assert.instanceOf(capabilityMismatch, RegistrationIntentConflict);
+
+        const duplicateCapability = yield* store
+          .create({
+            ...input(15, "atomicretry", deadline),
+            admissionCodeHash: firstInput.admissionCodeHash,
+            observeTokenHash: firstInput.observeTokenHash,
+          })
+          .pipe(Effect.flip);
+        assert.instanceOf(duplicateCapability, RegistrationIntentConflict);
         yield* store.markFailed(first.digest, "TEST_CLEANUP");
+      })
+    );
+
+    it.effect("allows only one draft to claim an admission code", () =>
+      Effect.gen(function* () {
+        const store = yield* RegistrationStore;
+        const deadline = yield* deadlineAfter(60);
+        const first = input(32, "firstclaim", deadline);
+        const second = {
+          ...input(33, "secondclaim", deadline),
+          admissionCodeHash: first.admissionCodeHash,
+        };
+        yield* store.create(first);
+        yield* store.create(second);
+        yield* store.authorize(first.digest, authorization);
+
+        const denied = yield* store
+          .authorize(second.digest, authorization)
+          .pipe(Effect.flip);
+        assert.instanceOf(denied, RegistrationAdmissionUnauthorized);
       })
     );
 

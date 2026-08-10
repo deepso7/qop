@@ -28,6 +28,7 @@ const registrationInput = Effect.fn("test.registrationInput")(function* (
     deviceCommitment: hash(5000 + id),
     digest: hash(1000 + id),
     handle,
+    idempotencyKeyHash: hash(4000 + id),
     observeTokenHash: hash(2000 + id),
     owner: OWNER,
     peerId: PEER_ID,
@@ -38,6 +39,7 @@ const registrationInput = Effect.fn("test.registrationInput")(function* (
 const envelope = {
   certificate: {
     encryptionPublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    expiresAt: "2000000000",
     issuedAt: "1700000000",
     ownerVersion: 0,
     peerId: PEER_ID,

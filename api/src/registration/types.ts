@@ -18,6 +18,7 @@ export interface CreateRegistrationIntent {
   readonly deviceCommitment: Hash;
   readonly digest: Hash;
   readonly handle: string;
+  readonly idempotencyKeyHash: Hash;
   readonly observeTokenHash: Hash;
   readonly owner: Address;
   readonly peerId: string;

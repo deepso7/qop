@@ -1,9 +1,10 @@
 import { ed25519 } from "@noble/curves/ed25519";
 import { base58 } from "@scure/base";
 import { Data, Effect, Schema } from "effect";
-import { keccak256 } from "viem";
+import { concatBytes, keccak256, numberToBytes } from "viem";
 import type { Hash } from "viem";
 
+import { strictParseOptions } from "./internal.ts";
 import {
   Base64Url32,
   Base64Url64,
@@ -13,18 +14,14 @@ import {
   UnixSeconds,
 } from "./wire-codecs.ts";
 
-const strictParseOptions = {
-  errors: "all",
-  onExcessProperty: "error",
-} as const;
 const ED25519_PEER_ID_PREFIX_LENGTH = 6;
+const DEVICE_SESSION_POP_DOMAIN = "qop/device-session-pop/v1";
 const DEVICE_SESSION_POP_DOMAIN_BYTES = Uint8Array.from(
-  [..."qop/device-session-pop/v1"].map((character) =>
+  [...DEVICE_SESSION_POP_DOMAIN].map((character) =>
     character.codePointAt(0)
   ) as number[]
 );
 
-export const deviceSessionPopDomain = "qop/device-session-pop/v1" as const;
 export const deviceSessionPopVersion = 1 as const;
 export const DeviceSessionChallengeV1 = Schema.Struct({
   certificateDigest: Hex32,
@@ -70,28 +67,6 @@ export class DeviceSessionPopCryptoError extends Data.TaggedError(
   readonly operation: "derive-peer-id" | "sign" | "verify";
 }> {}
 
-const bigintToBytes = (value: bigint, length: number): Uint8Array => {
-  const bytes = new Uint8Array(length);
-  let remaining = value;
-  for (let index = length - 1; index >= 0; index -= 1) {
-    bytes[index] = Number(remaining % 256n);
-    remaining /= 256n;
-  }
-  return bytes;
-};
-
-const concatBytes = (parts: readonly Uint8Array[]): Uint8Array => {
-  const output = new Uint8Array(
-    parts.reduce((length, part) => length + part.length, 0)
-  );
-  let offset = 0;
-  for (const part of parts) {
-    output.set(part, offset);
-    offset += part.length;
-  }
-  return output;
-};
-
 export const decodeDeviceSessionChallengeV1 = Effect.fn(
   "@qop/identity/decodeDeviceSessionChallengeV1"
 )((input: unknown) =>
@@ -121,13 +96,13 @@ export const hashDeviceSessionChallengeV1 = Effect.fn(
     const payload = concatBytes([
       DEVICE_SESSION_POP_DOMAIN_BYTES,
       Uint8Array.of(0, deviceSessionPopVersion),
-      bigintToBytes(challenge.qid, 32),
+      numberToBytes(challenge.qid, { size: 32 }),
       challenge.peerId,
       challenge.certificateDigest,
       challenge.verifier,
       challenge.challenge,
-      bigintToBytes(challenge.issuedAt, 8),
-      bigintToBytes(challenge.expiresAt, 8),
+      numberToBytes(challenge.issuedAt, { size: 8 }),
+      numberToBytes(challenge.expiresAt, { size: 8 }),
     ]);
     return keccak256(payload) as Hash;
   })

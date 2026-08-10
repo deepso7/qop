@@ -48,6 +48,7 @@ contract QOPIdentityRegistry is EIP712 {
     bytes32 public constant REVOKE_DEVICE_TYPEHASH =
         keccak256("RevokeDeviceV1(uint256 qid,bytes32 certificateDigest,uint256 nonce,uint64 deadline)");
 
+    address public immutable registrationAdmin;
     address public registrationSigner;
     bool public registrationOpen;
     uint256 public nextQid = 1;
@@ -96,8 +97,10 @@ contract QOPIdentityRegistry is EIP712 {
     error ZeroRegistrationNonce();
     error ZeroAddress();
 
-    constructor(address registrationSigner_) EIP712("QOP Identity", "1") {
+    constructor(address registrationAdmin_, address registrationSigner_) EIP712("QOP Identity", "1") {
+        if (registrationAdmin_ == address(0)) revert ZeroAddress();
         if (registrationSigner_ == address(0)) revert ZeroAddress();
+        registrationAdmin = registrationAdmin_;
         registrationSigner = registrationSigner_;
     }
 
@@ -284,7 +287,7 @@ contract QOPIdentityRegistry is EIP712 {
     }
 
     function _requireRegistrationAdmin() private view {
-        if (msg.sender != registrationSigner) revert UnauthorizedRegistrationAdmin(msg.sender);
+        if (msg.sender != registrationAdmin) revert UnauthorizedRegistrationAdmin(msg.sender);
     }
 
     function _validateDeadline(uint64 deadline) private view {
@@ -300,7 +303,9 @@ contract QOPIdentityRegistry is EIP712 {
         }
         for (uint256 index; index < length; ++index) {
             bytes1 character = value[index];
-            if (character < 0x61 || character > 0x7a) {
+            bool lowercaseLetter = character >= 0x61 && character <= 0x7a;
+            bool digit = character >= 0x30 && character <= 0x39;
+            if (!lowercaseLetter && !digit && (index == 0 || character != 0x5f)) {
                 revert InvalidHandleCharacter(index, character);
             }
         }
@@ -317,13 +322,18 @@ contract QOPIdentityRegistry is EIP712 {
 
         bytes32 r;
         bytes32 s;
-        uint8 yParity;
+        uint8 v;
         assembly ("memory-safe") {
             r := calldataload(signature.offset)
             s := calldataload(add(signature.offset, 32))
-            yParity := byte(0, calldataload(add(signature.offset, 64)))
+            v := byte(0, calldataload(add(signature.offset, 64)))
         }
-        if (yParity > 1) revert InvalidYParity(yParity);
-        return ECDSA.recover(digest, yParity + 27, r, s);
+        if (v < 27) {
+            if (v > 1) revert InvalidYParity(v);
+            v += 27;
+        } else if (v > 28) {
+            revert InvalidYParity(v);
+        }
+        return ECDSA.recover(digest, v, r, s);
     }
 }
