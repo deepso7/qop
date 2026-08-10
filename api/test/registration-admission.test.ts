@@ -1,5 +1,6 @@
 import { assert, layer } from "@effect/vitest";
-import { Effect } from "effect";
+import { DateTime, Effect } from "effect";
+import { TestClock } from "effect/testing";
 import type { Hash } from "viem";
 
 import {
@@ -46,6 +47,28 @@ layer(RegistrationAdmissionTestLive, { timeout: "30 seconds" })((it) => {
       yield* admissions.reserve(codeHash, hash(5));
       yield* admissions.release(codeHash, hash(5));
       yield* admissions.reserve(codeHash, hash(6));
+    })
+  );
+
+  it.effect("rejects codes at and after their expiry", () =>
+    Effect.gen(function* () {
+      const admissions = yield* RegistrationAdmission;
+      const codeHash = hash(7);
+      const now = yield* DateTime.now;
+      const expiresAt =
+        BigInt(Math.floor(DateTime.toEpochMillis(now) / 1000)) + 5n;
+      yield* admissions.create(codeHash, expiresAt);
+      yield* admissions.validate(codeHash);
+      yield* TestClock.adjust("5 seconds");
+
+      assert.instanceOf(
+        yield* admissions.validate(codeHash).pipe(Effect.flip),
+        RegistrationAdmissionUnauthorized
+      );
+      assert.instanceOf(
+        yield* admissions.reserve(codeHash, hash(8)).pipe(Effect.flip),
+        RegistrationAdmissionUnauthorized
+      );
     })
   );
 });

@@ -94,7 +94,15 @@ const registryInvalidations: RegistryInvalidations = {
 const RegistryReaderTestLive = Layer.succeed(
   RegistryReader,
   RegistryReader.of({
-    cached: registryReads,
+    cached: {
+      ...registryReads,
+      account: () =>
+        Effect.die("device session authorization must use fresh account state"),
+      deviceRevocation: () =>
+        Effect.die(
+          "device session authorization must use fresh revocation state"
+        ),
+    },
     fresh: {
       ...registryReads,
       registrationProbe: () => Effect.die("not used by device session tests"),
@@ -335,10 +343,17 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
       });
       assert.notStrictEqual(replacement.challenge, first.challenge);
       assert.notStrictEqual(replacement.verifier, first.verifier);
+      const completed = yield* sessions.authenticate(
+        yield* signChallenge(replacement)
+      );
       assert.strictEqual(
-        (yield* sessions.authenticate(yield* signChallenge(replacement)))
-          .certificateDigest,
+        completed.certificateDigest,
         certificate.certificateDigest
+      );
+      gatewayId.fill(0);
+      assert.instanceOf(
+        yield* sessions.resolve(completed.token).pipe(Effect.flip),
+        DeviceSessionNotFound
       );
     }).pipe(Effect.ensuring(Effect.sync(() => gatewayId.fill(0))))
   );

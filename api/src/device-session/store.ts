@@ -78,7 +78,8 @@ export interface DeviceSessionStoreShape {
     DeviceSessionStorePersistenceError
   >;
   readonly getActiveSession: (
-    tokenHash: Hash
+    tokenHash: Hash,
+    verifier: string
   ) => Effect.Effect<StoredDeviceSession, DeviceSessionStoreError>;
   readonly getChallenge: (
     challengeHash: Hash
@@ -277,6 +278,7 @@ export class DeviceSessionStore extends Context.Service<
                   peerId: challenge.peerId,
                   qid: challenge.qid,
                   tokenHash: input.tokenHash,
+                  verifier: challenge.verifier,
                 })
                 .returning();
               return sessions[0] as StoredDeviceSession;
@@ -286,11 +288,16 @@ export class DeviceSessionStore extends Context.Service<
       );
 
       const getActiveSession = Effect.fn("DeviceSessionStore.getActiveSession")(
-        function* (tokenHash: Hash) {
+        function* (tokenHash: Hash, verifier: string) {
           const rows = yield* db
             .select()
             .from(deviceSessions)
-            .where(eq(deviceSessions.tokenHash, tokenHash))
+            .where(
+              and(
+                eq(deviceSessions.tokenHash, tokenHash),
+                eq(deviceSessions.verifier, verifier)
+              )
+            )
             .limit(1);
           const session = rows.at(0);
           if (!session) {

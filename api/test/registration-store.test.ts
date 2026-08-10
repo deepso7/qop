@@ -11,6 +11,8 @@ import { RegistrationInputError } from "../src/registration/inputs.ts";
 import {
   HandleLeaseConflict,
   registrationDraftLimitPerHandle,
+  registrationDraftLimitPerAdmission,
+  RegistrationAdmissionDraftLimitReached,
   registrationExpirationBatchSize,
   RegistrationDraftLimitReached,
   RegistrationIntentConflict,
@@ -313,6 +315,42 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
           .pipe(Effect.flip);
         assert.instanceOf(overflow, RegistrationDraftLimitReached);
         assert.strictEqual(overflow.limit, registrationDraftLimitPerHandle);
+        yield* Effect.forEach(
+          drafts,
+          (draft) => store.markFailed(draft.digest, "TEST_CLEANUP"),
+          { concurrency: "unbounded", discard: true }
+        );
+      })
+    );
+
+    it.effect("bounds live prepared drafts per admission code", () =>
+      Effect.gen(function* () {
+        const store = yield* RegistrationStore;
+        const deadline = yield* deadlineAfter(60);
+        const admissionCodeHash = hash(88_000);
+        const drafts = Array.from(
+          { length: registrationDraftLimitPerAdmission },
+          (_, index) => ({
+            ...input(
+              4000 + index,
+              `admission${String.fromCodePoint(97 + index)}`,
+              deadline
+            ),
+            admissionCodeHash,
+          })
+        );
+        yield* Effect.forEach(drafts, store.create, {
+          concurrency: "unbounded",
+          discard: true,
+        });
+        const overflow = yield* store
+          .create({
+            ...input(5000, "admissionoverflow", deadline),
+            admissionCodeHash,
+          })
+          .pipe(Effect.flip);
+        assert.instanceOf(overflow, RegistrationAdmissionDraftLimitReached);
+        assert.strictEqual(overflow.limit, registrationDraftLimitPerAdmission);
         yield* Effect.forEach(
           drafts,
           (draft) => store.markFailed(draft.digest, "TEST_CLEANUP"),

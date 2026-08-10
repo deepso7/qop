@@ -132,12 +132,17 @@ export class RegistrationDraftLimitReached extends Data.TaggedError(
   "RegistrationDraftLimitReached"
 )<{ readonly handle: string; readonly limit: number }> {}
 
+export class RegistrationAdmissionDraftLimitReached extends Data.TaggedError(
+  "RegistrationAdmissionDraftLimitReached"
+)<{ readonly codeHash: Hash; readonly limit: number }> {}
+
 export type RegistrationStorePersistenceError =
   | EffectDrizzleQueryError
   | SqlError;
 
 export type RegistrationStoreError =
   | HandleLeaseConflict
+  | RegistrationAdmissionDraftLimitReached
   | RegistrationAdmissionUnauthorized
   | RegistrationDraftLimitReached
   | RegistrationInputError
@@ -178,7 +183,8 @@ export interface RegistrationStoreShape {
   ) => Effect.Effect<StoredRegistrationIntent, RegistrationStoreError>;
   readonly markFailed: (
     digest: Hash,
-    failureCode: string
+    failureCode: string,
+    expectedStatuses?: readonly RegistrationIntentStatus[]
   ) => Effect.Effect<StoredRegistrationIntent, RegistrationStoreError>;
   readonly markSubmitted: (
     digest: Hash,
@@ -193,6 +199,7 @@ const expirableStatuses: readonly RegistrationIntentStatus[] =
 
 export const registrationExpirationBatchSize = 100;
 export const registrationDraftLimitPerHandle = 8;
+export const registrationDraftLimitPerAdmission = 8;
 
 const epochSeconds = (value: DateTime.DateTime): bigint =>
   BigInt(Math.floor(DateTime.toEpochMillis(value) / 1000));
@@ -465,6 +472,29 @@ export class RegistrationStore extends Context.Service<
               });
             }
 
+            const admissionRows = yield* tx
+              .select()
+              .from(registrationAdmissionCodes)
+              .where(
+                eq(
+                  registrationAdmissionCodes.codeHash,
+                  canonicalInput.admissionCodeHash
+                )
+              )
+              .limit(1)
+              .for("update");
+            const admission = admissionRows.at(0);
+            if (
+              !admission ||
+              admission.consumedAt !== null ||
+              (admission.expiresAt !== null &&
+                admission.expiresAt <= nowSeconds)
+            ) {
+              return yield* new RegistrationAdmissionUnauthorized({
+                codeHash: canonicalInput.admissionCodeHash,
+              });
+            }
+
             const idempotentReplay = yield* findPrepareReplay(
               tx,
               canonicalInput,
@@ -472,6 +502,26 @@ export class RegistrationStore extends Context.Service<
             );
             if (idempotentReplay) {
               return idempotentReplay;
+            }
+
+            const admissionDrafts = yield* tx
+              .select({ digest: registrationIntents.digest })
+              .from(registrationIntents)
+              .where(
+                and(
+                  eq(
+                    registrationIntents.admissionCodeHash,
+                    canonicalInput.admissionCodeHash
+                  ),
+                  eq(registrationIntents.status, "pending_owner_signature")
+                )
+              )
+              .limit(registrationDraftLimitPerAdmission);
+            if (admissionDrafts.length >= registrationDraftLimitPerAdmission) {
+              return yield* new RegistrationAdmissionDraftLimitReached({
+                codeHash: canonicalInput.admissionCodeHash,
+                limit: registrationDraftLimitPerAdmission,
+              });
             }
 
             if (canonicalInput.deadline <= nowSeconds) {
@@ -759,7 +809,8 @@ export class RegistrationStore extends Context.Service<
 
       const markFailed = Effect.fn("RegistrationStore.markFailed")(function* (
         digest: Hash,
-        failureCode: string
+        failureCode: string,
+        expectedStatuses: readonly RegistrationIntentStatus[] = activeStatuses
       ) {
         const canonicalDigest = yield* normalizeRegistrationDigest(digest);
         const now = yield* DateTime.now;
@@ -776,7 +827,7 @@ export class RegistrationStore extends Context.Service<
               .where(
                 and(
                   eq(registrationIntents.digest, canonicalDigest),
-                  inArray(registrationIntents.status, activeStatuses)
+                  inArray(registrationIntents.status, expectedStatuses)
                 )
               )
               .returning();
@@ -792,7 +843,7 @@ export class RegistrationStore extends Context.Service<
                 return yield* transitionFailure(
                   tx,
                   canonicalDigest,
-                  activeStatuses,
+                  expectedStatuses,
                   epochSeconds(now)
                 );
               }

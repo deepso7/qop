@@ -192,9 +192,11 @@ export {
 } from "./registration/entropy.ts";
 export {
   HandleLeaseConflict,
+  registrationDraftLimitPerAdmission,
   registrationDraftLimitPerHandle,
   registrationExpirationBatchSize,
   RegistrationDraftLimitReached,
+  RegistrationAdmissionDraftLimitReached,
   RegistrationIntentConflict,
   RegistrationIntentExpired,
   RegistrationIntentNotFound,

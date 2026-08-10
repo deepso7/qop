@@ -1,7 +1,7 @@
 import { NodeHttpServer } from "@effect/platform-node";
 import { assert, describe, it } from "@effect/vitest";
 import { Base64Url32 } from "@qop/identity";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Schema, SchemaIssue } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
 import type { Hash, Hex } from "viem";
@@ -45,6 +45,7 @@ const DECODE_DOMAIN_TOKEN = observeToken(7);
 const SIGNATURE = `0x${"1".padStart(64, "0")}${"1".padStart(64, "0")}00` as Hex;
 const CERTIFICATE_DIGEST =
   "0x1111111111111111111111111111111111111111111111111111111111111111" as Hash;
+const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
 
 const envelope = {
   certificate: {
@@ -169,6 +170,18 @@ describe("device observation HTTP API", () => {
 
   it.effect("keeps the full identity envelope codec at the HTTP boundary", () =>
     Effect.gen(function* () {
+      const payload = {
+        capability: { kind: "registration", observeToken: OBSERVE_TOKEN },
+        envelope,
+      } as const;
+      const decoded = yield* Schema.decodeUnknownEffect(
+        ObserveRegistrationDevicePayload
+      )(payload);
+      assert.deepStrictEqual(
+        yield* Schema.encodeEffect(ObserveRegistrationDevicePayload)(decoded),
+        payload
+      );
+
       const invalidQid = yield* Schema.decodeUnknownEffect(
         ObserveRegistrationDevicePayload
       )({
@@ -177,7 +190,7 @@ describe("device observation HTTP API", () => {
           ...envelope,
           certificate: { ...envelope.certificate, qid: "0" },
         },
-      }).pipe(Effect.exit);
+      }).pipe(Effect.flip);
       const invalidToken = yield* Schema.decodeUnknownEffect(
         ObserveRegistrationDevicePayload
       )({
@@ -186,10 +199,20 @@ describe("device observation HTTP API", () => {
           observeToken: `${"A".repeat(42)}B`,
         },
         envelope,
-      }).pipe(Effect.exit);
+      }).pipe(Effect.flip);
 
-      assert.strictEqual(invalidQid._tag, "Failure");
-      assert.strictEqual(invalidToken._tag, "Failure");
+      assert.deepStrictEqual(formatIssue(invalidQid.issue).issues, [
+        {
+          message: "Expected a positive uint256 qid",
+          path: ["envelope", "certificate", "qid"],
+        },
+      ]);
+      assert.deepStrictEqual(formatIssue(invalidToken.issue).issues, [
+        {
+          message: "Expected canonical unpadded base64url",
+          path: ["capability", "observeToken"],
+        },
+      ]);
     })
   );
 

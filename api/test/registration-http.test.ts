@@ -1,6 +1,6 @@
 import { NodeHttpServer } from "@effect/platform-node";
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Schema, SchemaIssue } from "effect";
 import { HttpClient, HttpRouter } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
 import type { Address, Hash, Hex } from "viem";
@@ -63,6 +63,7 @@ const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
 const OBSERVE_TOKEN = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const IDEMPOTENCY_KEY = "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const ADMISSION_CODE = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
 
 const intent = {
   deadline: "600",
@@ -390,8 +391,48 @@ describe("registration HTTP API", () => {
     }).pipe(Effect.provide(ApiRoutesTestLive))
   );
 
-  it.effect("round-trips identity codecs at the HTTP wire boundary", () =>
+  it.effect("round-trips and pins identity codecs at the HTTP boundary", () =>
     Effect.gen(function* () {
+      const preparePayload = {
+        admissionCode: ADMISSION_CODE,
+        handle: "alice",
+        idempotencyKey: IDEMPOTENCY_KEY,
+        owner: OWNER,
+        peerId: PEER_ID,
+      } as const;
+      const preparedResponse = {
+        digest: DIGEST,
+        intent,
+        observeToken: OBSERVE_TOKEN,
+        status: "pending_owner_signature",
+      } as const;
+      const authorizedResponse = {
+        digest: DIGEST,
+        intent,
+        ownerSignature: SIGNATURE,
+        registrationSignature: SIGNATURE,
+        status: "ready",
+      } as const;
+      const reconciledResponse = {
+        digest: DIGEST,
+        failureCode: null,
+        qid: "42",
+        status: "confirmed",
+      } as const;
+
+      for (const [schema, value] of [
+        [PrepareRegistrationPayload, preparePayload],
+        [PreparedRegistrationResponse, preparedResponse],
+        [AuthorizedRegistrationResponse, authorizedResponse],
+        [ReconciledRegistrationResponse, reconciledResponse],
+      ] as const) {
+        const decoded = yield* Schema.decodeUnknownEffect(schema)(value);
+        assert.deepStrictEqual(
+          yield* Schema.encodeEffect(schema)(decoded),
+          value
+        );
+      }
+
       const highSignature = `0x${"1".padStart(64, "0")}${"f".repeat(64)}00`;
       const badObserveToken = `${"A".repeat(42)}B`;
       const failures = yield* Effect.all([
@@ -401,26 +442,26 @@ describe("registration HTTP API", () => {
           ownerSignature: highSignature,
           registrationSignature: SIGNATURE,
           status: "ready",
-        }).pipe(Effect.exit),
+        }).pipe(Effect.flip),
         Schema.encodeEffect(PreparedRegistrationResponse)({
           digest: DIGEST,
           intent,
           observeToken: badObserveToken,
           status: "pending_owner_signature",
-        }).pipe(Effect.exit),
+        }).pipe(Effect.flip),
         Schema.encodeEffect(ReconciledRegistrationResponse)({
           digest: DIGEST,
           failureCode: null,
           qid: "0",
           status: "confirmed",
-        }).pipe(Effect.exit),
+        }).pipe(Effect.flip),
         Schema.decodeUnknownEffect(PrepareRegistrationPayload)({
           admissionCode: ADMISSION_CODE,
           handle: "alice",
           idempotencyKey: IDEMPOTENCY_KEY,
           owner: OWNER,
           peerId: "1".repeat(52),
-        }).pipe(Effect.exit),
+        }).pipe(Effect.flip),
         Schema.encodeEffect(PreparedRegistrationResponse)({
           digest: DIGEST,
           intent: {
@@ -429,7 +470,7 @@ describe("registration HTTP API", () => {
           },
           observeToken: OBSERVE_TOKEN,
           status: "pending_owner_signature",
-        }).pipe(Effect.exit),
+        }).pipe(Effect.flip),
         Schema.encodeEffect(AuthorizedRegistrationResponse)({
           digest: DIGEST,
           intent: {
@@ -439,11 +480,41 @@ describe("registration HTTP API", () => {
           ownerSignature: SIGNATURE,
           registrationSignature: SIGNATURE,
           status: "ready",
-        }).pipe(Effect.exit),
+        }).pipe(Effect.flip),
       ]);
 
-      for (const failure of failures) {
-        assert.strictEqual(failure._tag, "Failure");
+      const expected = [
+        {
+          message:
+            "Expected an ECDSA signature with valid r, low-s, and yParity 0 or 1",
+          path: ["ownerSignature"],
+        },
+        {
+          message: "Expected canonical unpadded base64url",
+          path: ["observeToken"],
+        },
+        { message: "Expected a positive uint256 qid", path: ["qid"] },
+        {
+          message: "Expected canonical MiniP2P Ed25519 PeerId bytes",
+          path: ["peerId"],
+        },
+        {
+          message: "Expected a uint64 Unix timestamp",
+          path: ["intent", "deadline"],
+        },
+        {
+          message: "Expected a uint64 Unix timestamp",
+          path: ["intent", "deadline"],
+        },
+      ];
+      for (const [index, failure] of failures.entries()) {
+        const expectedIssue = expected[index];
+        if (!expectedIssue) {
+          throw new Error(`Missing expected codec issue at index ${index}`);
+        }
+        assert.deepStrictEqual(formatIssue(failure.issue).issues, [
+          expectedIssue,
+        ]);
       }
     })
   );

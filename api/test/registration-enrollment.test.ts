@@ -98,20 +98,25 @@ const registrationProbe = (handle: string, owner: Address, _nonce: Hash) => {
   let handleQid: bigint | null = null;
   if (handle === "taken" || handle === "takenafterprepare") {
     handleQid = 7n;
-  } else if (handle === "confirmme") {
+  } else if (handle === "confirmme" || handle === "confirmduringauth") {
     handleQid = 42n;
   } else if (handle === "conflictme") {
     handleQid = 77n;
   }
-  const ownerQid =
-    owner === takenOwner || handle === "ownerafterprepare" ? 8n : null;
+  let ownerQid: bigint | null = null;
+  if (handle === "confirmme" || handle === "confirmduringauth") {
+    ownerQid = 42n;
+  } else if (owner === takenOwner || handle === "ownerafterprepare") {
+    ownerQid = 8n;
+  }
   return Effect.succeed({
     blockNumber: 100n,
     value: {
       blockTimestamp: handle === "expireme" ? 18_446_744_073_709_551_615n : 0n,
       handleQid,
       ownerQid,
-      registrationNonceUsed: handle === "confirmme",
+      registrationNonceUsed:
+        handle === "confirmme" || handle === "confirmduringauth",
     },
   });
 };
@@ -480,6 +485,33 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         replay.registrationSignature,
         authorized.registrationSignature
       );
+    })
+  );
+
+  it.effect("heals authorization when the same intent is already onchain", () =>
+    Effect.gen(function* () {
+      const enrollment = yield* RegistrationEnrollment;
+      const store = yield* RegistrationStore;
+      const prepared = yield* enrollment.prepare({
+        admissionCode: ADMISSION_CODE,
+        handle: "confirmduringauth",
+        idempotencyKey: idempotencyKey("confirmduringauth"),
+        owner: ownerAccount.address,
+        peerId: PEER_ID,
+      });
+      const authorized = yield* enrollment.authorize({
+        digest: prepared.digest,
+        ownerSignature: yield* signPreparedIntent(
+          prepared.intent,
+          ownerAccount
+        ),
+      });
+
+      assert.strictEqual(authorized.status, "confirmed");
+      const stored = Option.getOrThrow(yield* store.get(prepared.digest));
+      assert.strictEqual(stored.status, "confirmed");
+      assert.strictEqual(stored.qid, 42n);
+      assert.isNull(stored.failureCode);
     })
   );
 

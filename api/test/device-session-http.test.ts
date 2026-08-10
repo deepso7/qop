@@ -7,17 +7,21 @@ import type { Hash } from "viem";
 
 import {
   DeviceSessionCertificateRejected,
+  DeviceSessionChallengeBindingMismatch,
+  DeviceSessionProofInvalid,
   DeviceSessionProtocolError,
   DeviceSessionService,
 } from "../src/device-session/service.ts";
 import {
   DeviceSessionChallengeExpired,
+  DeviceSessionChallengeConsumed,
   DeviceSessionNotFound,
 } from "../src/device-session/store.ts";
 import { DeviceObservation } from "../src/device/observation.ts";
 import { QopHttpApi } from "../src/http/api.ts";
 import {
   DeviceSessionConflictHttp,
+  DeviceSessionInvalidHttp,
   DeviceSessionRejectedHttp,
   DeviceSessionServiceUnavailableHttp,
   DeviceSessionUnauthorizedHttp,
@@ -29,6 +33,9 @@ const DIGEST = `0x${"1".repeat(64)}` as Hash;
 const REJECTED_DIGEST = `0x${"2".repeat(64)}` as Hash;
 const UNAVAILABLE_DIGEST = `0x${"3".repeat(64)}` as Hash;
 const TOKEN = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const BINDING_TOKEN = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE";
+const CONSUMED_TOKEN = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAI";
+const INVALID_TOKEN = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAM";
 const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
 const challenge = {
   certificateDigest: DIGEST,
@@ -49,8 +56,28 @@ const proof = {
 const DeviceSessionTestLive = Layer.succeed(
   DeviceSessionService,
   DeviceSessionService.of({
-    authenticate: () =>
-      Effect.fail(new DeviceSessionChallengeExpired({ challengeHash: DIGEST })),
+    authenticate: (input) => {
+      const challengeToken = (input as { challenge: { challenge: string } })
+        .challenge.challenge;
+      if (challengeToken === BINDING_TOKEN) {
+        return Effect.fail(
+          new DeviceSessionChallengeBindingMismatch({ challengeHash: DIGEST })
+        );
+      }
+      if (challengeToken === CONSUMED_TOKEN) {
+        return Effect.fail(
+          new DeviceSessionChallengeConsumed({ challengeHash: DIGEST })
+        );
+      }
+      if (challengeToken === INVALID_TOKEN) {
+        return Effect.fail(
+          new DeviceSessionProofInvalid({ challengeHash: DIGEST })
+        );
+      }
+      return Effect.fail(
+        new DeviceSessionChallengeExpired({ challengeHash: DIGEST })
+      );
+    },
     issue: ({ certificateDigest }) => {
       if (certificateDigest === REJECTED_DIGEST) {
         return Effect.fail(
@@ -120,6 +147,34 @@ describe("device session HTTP API", () => {
         .pipe(Effect.flip);
       assert.instanceOf(expired, DeviceSessionConflictHttp);
       assert.strictEqual(expired.kind, "challenge-expired");
+
+      for (const [challengeToken, kind] of [
+        [BINDING_TOKEN, "binding-mismatch"],
+        [CONSUMED_TOKEN, "challenge-consumed"],
+      ] as const) {
+        const conflict = yield* client.deviceSessions
+          .authenticateDeviceSession({
+            payload: {
+              ...proof,
+              challenge: { ...proof.challenge, challenge: challengeToken },
+            },
+          })
+          .pipe(Effect.flip);
+        assert.instanceOf(conflict, DeviceSessionConflictHttp);
+        assert.strictEqual(conflict.kind, kind);
+      }
+
+      assert.instanceOf(
+        yield* client.deviceSessions
+          .authenticateDeviceSession({
+            payload: {
+              ...proof,
+              challenge: { ...proof.challenge, challenge: INVALID_TOKEN },
+            },
+          })
+          .pipe(Effect.flip),
+        DeviceSessionInvalidHttp
+      );
 
       assert.instanceOf(
         yield* client.deviceSessions

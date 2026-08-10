@@ -47,6 +47,9 @@ export const mapRegistrationHttpError = (
     case "RegistrationDraftLimitReached": {
       return new RegistrationConflict({ kind: "draft-limit" });
     }
+    case "RegistrationAdmissionDraftLimitReached": {
+      return new RegistrationConflict({ kind: "admission-draft-limit" });
+    }
     case "RegistrationIntentConflict": {
       return new RegistrationConflict({ kind: "intent-conflict" });
     }

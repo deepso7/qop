@@ -289,6 +289,7 @@ export const deviceSessions = pgTable(
     peerId: char("peer_id", { length: 52 }).notNull(),
     qid: uint256("qid").notNull(),
     tokenHash: hash32("token_hash").notNull(),
+    verifier: char("verifier", { length: 43 }).notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.tokenHash], name: "device_sessions_pk" }),

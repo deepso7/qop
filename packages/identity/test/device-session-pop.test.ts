@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Exit, Schema } from "effect";
+import { Effect, Exit, Schema, SchemaIssue } from "effect";
 
 import {
   Base64Url32,
@@ -28,6 +28,8 @@ const EXPECTED_SIGNATURE =
 
 const secretKey = new Uint8Array(32);
 secretKey[31] = 1;
+
+const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
 
 const encodedChallenge = {
   certificateDigest: CERTIFICATE_DIGEST,
@@ -191,16 +193,24 @@ describe("device session proof of possession", () => {
   it.effect("rejects non-canonical and malformed Ed25519 signatures", () =>
     Effect.gen(function* () {
       const candidates = [
-        `${"A".repeat(85)}B`,
-        `${"A".repeat(86)}==`,
-        "A".repeat(85),
-      ];
+        [`${"A".repeat(85)}B`, "Expected canonical unpadded base64url"],
+        [
+          `${"A".repeat(86)}==`,
+          "Expected an unpadded base64url string encoding exactly 64 bytes",
+        ],
+        [
+          "A".repeat(85),
+          "Expected an unpadded base64url string encoding exactly 64 bytes",
+        ],
+      ] as const;
 
-      for (const signature of candidates) {
+      for (const [signature, message] of candidates) {
         const direct = yield* Schema.decodeUnknownEffect(Base64Url64)(
           signature
-        ).pipe(Effect.exit);
-        assert.isTrue(Exit.isFailure(direct));
+        ).pipe(Effect.flip);
+        assert.deepStrictEqual(formatIssue(direct.issue).issues, [
+          { message, path: [] },
+        ]);
 
         const nested = yield* decodeDeviceSessionProofV1({
           challenge: encodedChallenge,

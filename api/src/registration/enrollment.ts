@@ -476,16 +476,58 @@ export class RegistrationEnrollment extends Context.Service<
           const registrationSignatureHex: Hex =
             stored.registrationSignature === null
               ? yield* Effect.gen(function* () {
-                  yield* store.reserveAuthorization(digest, ownerSignatureHex);
+                  const reserved = yield* store.reserveAuthorization(
+                    digest,
+                    ownerSignatureHex
+                  );
+                  if (reserved.registrationSignature !== null) {
+                    return yield* normalizeRegistrationSignerSignature(
+                      reserved.registrationSignature
+                    );
+                  }
                   const availability = yield* registry.fresh.registrationProbe(
                     stored.handle,
                     expectedOwner,
                     stored.registrationNonce
                   );
+                  if (availability.value.registrationNonceUsed) {
+                    if (
+                      availability.value.handleQid === null ||
+                      availability.value.ownerQid !==
+                        availability.value.handleQid
+                    ) {
+                      return yield* new RegistrationProtocolError({
+                        cause:
+                          "Registration nonce is used without one matching handle and owner qid",
+                        operation: "reconcile-chain",
+                      });
+                    }
+                    const registrationSignature = yield* signer.sign(
+                      domain,
+                      intent
+                    );
+                    yield* store.authorize(digest, {
+                      ownerSignature: ownerSignatureHex,
+                      registrationSignature,
+                    });
+                    yield* store.markConfirmed(
+                      digest,
+                      availability.value.handleQid
+                    );
+                    yield* Effect.all(
+                      [
+                        registry.invalidate.qidByHandle(stored.handle),
+                        registry.invalidate.qidByOwner(expectedOwner),
+                      ],
+                      { discard: true }
+                    );
+                    return registrationSignature;
+                  }
                   if (availability.value.handleQid !== null) {
                     yield* store.markFailed(
                       digest,
-                      "HANDLE_ALREADY_REGISTERED"
+                      "HANDLE_ALREADY_REGISTERED",
+                      ["pending_owner_signature"]
                     );
                     return yield* new RegistrationHandleUnavailable({
                       handle: stored.handle,
@@ -493,7 +535,11 @@ export class RegistrationEnrollment extends Context.Service<
                     });
                   }
                   if (availability.value.ownerQid !== null) {
-                    yield* store.markFailed(digest, "OWNER_ALREADY_REGISTERED");
+                    yield* store.markFailed(
+                      digest,
+                      "OWNER_ALREADY_REGISTERED",
+                      ["pending_owner_signature"]
+                    );
                     return yield* new RegistrationOwnerUnavailable({
                       owner: expectedOwner,
                       qid: availability.value.ownerQid,

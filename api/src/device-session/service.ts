@@ -303,7 +303,11 @@ export class DeviceSessionService extends Context.Service<
         const tokenBytes = yield* Schema.decodeUnknownEffect(Base64Url32)(
           input
         ).pipe(Effect.mapError(protocolError("decode-token")));
-        const session = yield* sessions.getActiveSession(keccak256(tokenBytes));
+        const verifier = yield* currentVerifier();
+        const session = yield* sessions.getActiveSession(
+          keccak256(tokenBytes),
+          verifier
+        );
         const account = yield* registry.fresh.account(session.qid);
         if (account.value.ownerVersion !== session.ownerVersion) {
           return yield* new DeviceSessionCertificateRejected({

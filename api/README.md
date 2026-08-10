@@ -9,7 +9,7 @@ The current package exports:
 - An on-demand registry chain reader.
 - A bounded, memory-only, request-coalesced Effect cache with fresh and stale windows.
 - Registry-specific cached, fresh, and invalidation operations.
-- Transactional registration-intent storage with at most eight unsigned drafts per handle; drafts do not reserve the handle, and the single-live-handle lease is acquired only after owner authorization.
+- Transactional registration-intent storage with at most eight unsigned drafts per handle and per admission code; drafts do not reserve the handle, and the single-live-handle lease is acquired only after owner authorization.
 - Invitation-gated registration enrollment that binds the initial PeerId and observation capability into the EIP-712 device commitment, checks fresh onchain availability, verifies the owner, and only then consumes the invitation and applies the registrar signature.
 - Registration HTTP routes: `POST /v1/registrations`, `POST /v1/registrations/:digest/authorize`, and `POST /v1/registrations/:digest/reconcile`; OpenAPI is served at `GET /openapi.json`.
 - Capability-gated initial device observation at `POST /v1/devices/observe`, backed by public certificate storage and a single-use registration-to-certificate claim.

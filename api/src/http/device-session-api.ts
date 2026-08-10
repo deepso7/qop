@@ -24,6 +24,11 @@ const Proof = canonical(DeviceSessionProofV1);
 const PeerIdString = canonical(PeerId);
 const CanonicalQid = canonical(Qid);
 const CanonicalUnixSeconds = canonical(UnixSeconds);
+const DigestInput = Schema.String.check(
+  Schema.isPattern(/^0x[0-9a-f]{64}$/iu, {
+    expected: "a 32-byte 0x-prefixed digest",
+  })
+);
 
 export class DeviceSessionConflictHttp extends Schema.TaggedErrorClass<DeviceSessionConflictHttp>()(
   "DeviceSessionConflict",
@@ -73,7 +78,7 @@ export class DeviceSessionApiGroup extends HttpApiGroup.make("deviceSessions")
   .add(
     HttpApiEndpoint.post("issueDeviceSessionChallenge", "/challenges", {
       error: Errors,
-      payload: Schema.Struct({ certificateDigest: Digest }),
+      payload: Schema.Struct({ certificateDigest: DigestInput }),
       success: Challenge,
     }),
     HttpApiEndpoint.post("authenticateDeviceSession", "/authenticate", {
