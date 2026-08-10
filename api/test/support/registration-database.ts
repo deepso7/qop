@@ -56,6 +56,11 @@ export const RegistrationAdmissionTestLive = RegistrationAdmission.layer.pipe(
   Layer.provide(TestDatabaseLive)
 );
 
+export const RegistrationStoreAndAdmissionTestLive = Layer.merge(
+  RegistrationStoreTestLive,
+  RegistrationAdmissionTestLive
+);
+
 export const DeviceAndRegistrationStoresTestLive = Layer.mergeAll(
   DeviceCertificateStore.layer,
   RegistrationStoreTestLive,

@@ -300,12 +300,7 @@ export class RegistrationStore extends Context.Service<
             }
             if (
               current.ownerSignature === canonicalOwnerSignature &&
-              [
-                "confirmed",
-                "pending_owner_signature",
-                "ready",
-                "submitted",
-              ].includes(current.status)
+              ["confirmed", "ready", "submitted"].includes(current.status)
             ) {
               return current;
             }
@@ -324,7 +319,10 @@ export class RegistrationStore extends Context.Service<
                 expected: registrationTransitionSources.authorize,
               });
             }
-            if (current.ownerSignature !== null) {
+            if (
+              current.ownerSignature !== null &&
+              current.ownerSignature !== canonicalOwnerSignature
+            ) {
               return yield* new RegistrationIntentConflict({
                 digest: canonicalDigest,
               });
