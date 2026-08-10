@@ -32,7 +32,11 @@ contract IdentityRegistryHandler is Test {
         string memory handle = _handle(successfulRegistrations);
         bytes32 registrationNonce = keccak256(abi.encode(successfulRegistrations, owner));
         QOPIdentityRegistry.RegisterIntent memory intent = QOPIdentityRegistry.RegisterIntent({
-            handle: handle, owner: owner, nonce: registrationNonce, deadline: type(uint64).max
+            handle: handle,
+            owner: owner,
+            deviceCommitment: keccak256(abi.encode("device", registrationNonce)),
+            nonce: registrationNonce,
+            deadline: type(uint64).max
         });
         bytes32 digest = registry.hashRegisterIntent(intent);
 

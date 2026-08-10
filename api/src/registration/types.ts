@@ -14,6 +14,7 @@ export type RegistrationIntentStatus =
 
 export interface CreateRegistrationIntent {
   readonly deadline: bigint;
+  readonly deviceCommitment: Hash;
   readonly digest: Hash;
   readonly handle: string;
   readonly observeTokenHash: Hash;

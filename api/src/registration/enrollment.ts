@@ -4,9 +4,11 @@ import {
   decodeRegisterIntentV1,
   EcdsaSignature,
   encodeRegisterIntentV1,
+  hashRegistrationDeviceCommitmentV1,
   hashRegisterIntentV1,
   recoverRegisterIntentSignerV1,
   RegistrationNonce,
+  PeerId,
 } from "@qop/identity";
 import type {
   IdentityCryptoError,
@@ -173,12 +175,14 @@ const decodeStoredIntent = Effect.fn(
   "RegistrationEnrollment.decodeStoredIntent"
 )(function* (stored: {
   readonly deadline: bigint;
+  readonly deviceCommitment: string;
   readonly handle: string;
   readonly owner: string;
   readonly registrationNonce: string;
 }) {
   return yield* decodeRegisterIntentV1({
     deadline: stored.deadline.toString(),
+    deviceCommitment: stored.deviceCommitment,
     handle: stored.handle,
     nonce: stored.registrationNonce,
     owner: stored.owner,
@@ -320,6 +324,13 @@ export class RegistrationEnrollment extends Context.Service<
           observeTokenBytes
         ).pipe(Effect.mapError(protocolError("generate-observe-token")));
         const observeTokenHash = keccak256(toHex(observeTokenBytes));
+        const peerIdBytes = yield* Schema.decodeUnknownEffect(PeerId)(
+          peerId
+        ).pipe(Effect.mapError(protocolError("decode-intent")));
+        const deviceCommitment = yield* hashRegistrationDeviceCommitmentV1(
+          peerIdBytes,
+          observeTokenBytes
+        );
         // Opportunistically bound abandoned-intent growth on every valid
         // admission request. The store performs a small SKIP LOCKED batch, so
         // concurrent API instances can safely share this maintenance work.
@@ -362,6 +373,7 @@ export class RegistrationEnrollment extends Context.Service<
           epochSeconds(yield* DateTime.now) + registrationIntentTtlSeconds;
         const intent = yield* decodeRegisterIntentV1({
           deadline: deadline.toString(),
+          deviceCommitment,
           handle,
           nonce: registrationNonce,
           owner,
@@ -369,6 +381,7 @@ export class RegistrationEnrollment extends Context.Service<
         const digest = yield* hashRegisterIntentV1(domain, intent);
         const stored = yield* store.create({
           deadline,
+          deviceCommitment,
           digest,
           handle,
           observeTokenHash,
@@ -441,7 +454,7 @@ export class RegistrationEnrollment extends Context.Service<
           }
           let registrationSignatureHex: Hex;
           if (stored.registrationSignature === null) {
-            yield* store.assertAuthorizable(digest);
+            yield* store.reserveAuthorization(digest, ownerSignatureHex);
             const availability = yield* registry.fresh.registrationProbe(
               stored.handle,
               expectedOwner,

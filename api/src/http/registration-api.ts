@@ -86,6 +86,7 @@ export class RegistrationConflict extends Schema.TaggedErrorClass<RegistrationCo
     actual: Schema.optionalKey(Schema.Literals(registrationIntentStatuses)),
     kind: Schema.Literals([
       "handle-unavailable",
+      "draft-limit",
       "intent-conflict",
       "lease-conflict",
       "owner-unavailable",

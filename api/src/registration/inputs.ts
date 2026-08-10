@@ -1,5 +1,6 @@
 import {
   Base64Url32,
+  DeviceCommitment,
   EcdsaSignature,
   Handle,
   Hex32,
@@ -20,6 +21,7 @@ import type {
 
 type RegistrationInputField =
   | "deadline"
+  | "device-commitment"
   | "digest"
   | "handle"
   | "idempotency-key"
@@ -118,6 +120,20 @@ const normalizeSignature = Effect.fn("RegistrationInput.normalizeSignature")(
   }
 );
 
+const normalizeDeviceCommitment = Effect.fn(
+  "RegistrationInput.normalizeDeviceCommitment"
+)(function* (input: unknown) {
+  const value = yield* Schema.decodeUnknownEffect(Schema.String)(input).pipe(
+    Effect.mapError(inputError("device-commitment"))
+  );
+  const bytes = yield* Schema.decodeUnknownEffect(DeviceCommitment)(
+    value.toLowerCase()
+  ).pipe(Effect.mapError(inputError("device-commitment")));
+  return (yield* Schema.encodeEffect(DeviceCommitment)(bytes).pipe(
+    Effect.mapError(inputError("device-commitment"))
+  )) as Hash;
+});
+
 export const normalizeRegistrationOwnerSignature = Effect.fn(
   "RegistrationInput.normalizeOwnerSignature"
 )((input: unknown) => normalizeSignature(input, "owner-signature"));
@@ -168,6 +184,7 @@ export const normalizeCreateRegistrationIntent = Effect.fn(
 
   return {
     deadline: input.deadline,
+    deviceCommitment: yield* normalizeDeviceCommitment(input.deviceCommitment),
     digest: yield* normalizeRegistrationDigest(input.digest),
     handle,
     observeTokenHash: yield* normalizeRegistrationObserveTokenHash(

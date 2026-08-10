@@ -167,15 +167,23 @@ describe("registration database schema", () => {
         "registration_intents_observe_token_unique",
         "registration_intents_owner_idx",
         "registration_intents_status_deadline_idx",
+        "registration_intents_handle_draft_slot_unique",
       ]
     );
     assert.deepStrictEqual(
       config.indexes.map((index) => index.config.unique),
-      [true, true, false, false]
+      [true, true, false, false, true]
+    );
+    assert.strictEqual(
+      config.columns
+        .find((column) => column.name === "device_commitment")
+        ?.getSQLType(),
+      "char(66)"
     );
     assert.deepStrictEqual(names(config.checks), [
       "registration_intents_status_check",
       "registration_intents_handle_check",
+      "registration_intents_draft_slot_check",
       "registration_intents_qid_check",
       "registration_intents_authorization_check",
       "registration_intents_submission_check",
@@ -195,6 +203,8 @@ describe("registration database schema", () => {
           '"registration_intents"."status" not in (\'ready\', \'submitted\', \'confirmed\') or ("registration_intents"."owner_signature" is not null and "registration_intents"."registration_signature" is not null)',
         registration_intents_confirmation_check:
           '"registration_intents"."status" <> \'confirmed\' or "registration_intents"."confirmed_at" is not null',
+        registration_intents_draft_slot_check:
+          '"registration_intents"."draft_slot" is null or "registration_intents"."draft_slot" between 0 and 7',
         registration_intents_failure_check:
           '"registration_intents"."status" <> \'failed\' or "registration_intents"."failure_code" is not null',
         registration_intents_handle_check:

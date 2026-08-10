@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, SchemaIssue } from "effect";
+import { Effect, Schema, SchemaIssue } from "effect";
 import { privateKeyToAccount } from "viem/accounts";
 
 import {
@@ -11,12 +11,15 @@ import {
   encodeRevokeDeviceIntentV1,
   encodeRotateOwnerIntentV1,
   hashRegisterIntentV1,
+  hashRegistrationDeviceCommitmentV1,
   hashRevokeDeviceIntentV1,
   hashRotateOwnerIntentV1,
   makeRegisterIntentTypedDataV1,
   makeRevokeDeviceIntentTypedDataV1,
   makeRotateOwnerIntentTypedDataV1,
   normalizeEcdsaSignature,
+  Base64Url32,
+  PeerId,
   recoverRegisterIntentSignerV1,
   recoverRevokeDeviceIntentSignerV1,
   recoverRotateOwnerIntentSignerV1,
@@ -35,6 +38,7 @@ const encodedDomain = {
 
 const encodedRegisterIntent = {
   deadline: "1700003600",
+  deviceCommitment: `0x${"02".repeat(32)}`,
   handle: "alice",
   nonce: `0x${"01".repeat(32)}`,
   owner: EXPECTED_OWNER.toLowerCase(),
@@ -57,7 +61,7 @@ const encodedRevokeDeviceIntent = {
 
 const expectedDigests = {
   register:
-    "0x0b6c4ce4fce567f3d0487b1e17ddf9b20adc742fdf8c12c6bccdd8f83464ef39",
+    "0xbf150ff19a934618ba8d52f9d125632f04ce2cf3408ebd81a43356975daf7620",
   revoke: "0xb1c5b8ecf82d6fab75d309bc820a474a36dbe795cc42f891d569379dc5435a6b",
   rotate: "0xcfd2c2208d584d29013cb01bbcd1f1ae5cef6c3546b82c682c52a66633e24c6c",
 } as const;
@@ -65,6 +69,21 @@ const expectedDigests = {
 const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
 
 describe("registry intents", () => {
+  it.effect("pins the initial device commitment", () =>
+    Effect.gen(function* () {
+      const peerId = yield* Schema.decodeUnknownEffect(PeerId)(
+        "12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp"
+      );
+      const observeToken = yield* Schema.decodeUnknownEffect(Base64Url32)(
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      );
+      assert.strictEqual(
+        yield* hashRegistrationDeviceCommitmentV1(peerId, observeToken),
+        "0x6c4ad152875d4d6bf1b77c99f7f3ce1e8ca6a90b46c8238ed82223d8449d8cfc"
+      );
+    })
+  );
+
   it.effect("round-trips strict canonical wire values", () =>
     Effect.gen(function* () {
       const register = yield* decodeRegisterIntentV1(encodedRegisterIntent);
@@ -340,6 +359,17 @@ describe("registry intents", () => {
         {
           message: "Expected a non-zero registration nonce",
           path: ["nonce"],
+        },
+      ]);
+
+      const zeroDeviceCommitment = yield* decodeRegisterIntentV1({
+        ...encodedRegisterIntent,
+        deviceCommitment: `0x${"00".repeat(32)}`,
+      }).pipe(Effect.flip);
+      assert.deepStrictEqual(formatIssue(zeroDeviceCommitment.issue).issues, [
+        {
+          message: "Expected a non-zero device commitment",
+          path: ["deviceCommitment"],
         },
       ]);
 

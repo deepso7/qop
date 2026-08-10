@@ -146,6 +146,7 @@ const confirmRegistration = Effect.fn("test.confirmRegistration")(function* (
   const digest = hash(1000 + id);
   yield* registrations.create({
     deadline: 600n,
+    deviceCommitment: hash(3000 + id),
     digest,
     handle: `device${String.fromCodePoint(96 + id)}`,
     observeTokenHash: observeCapability.hash,

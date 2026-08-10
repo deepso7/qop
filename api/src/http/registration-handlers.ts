@@ -41,6 +41,9 @@ export const mapRegistrationHttpError = (
     case "HandleLeaseConflict": {
       return new RegistrationConflict({ kind: "lease-conflict" });
     }
+    case "RegistrationDraftLimitReached": {
+      return new RegistrationConflict({ kind: "draft-limit" });
+    }
     case "RegistrationIntentConflict": {
       return new RegistrationConflict({ kind: "intent-conflict" });
     }

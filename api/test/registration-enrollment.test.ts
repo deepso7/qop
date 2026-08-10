@@ -5,8 +5,10 @@ import {
   decodeRegisterIntentV1,
   EcdsaSignature,
   hashRegisterIntentV1,
+  hashRegistrationDeviceCommitmentV1,
   makeRegisterIntentTypedDataV1,
   recoverRegisterIntentSignerV1,
+  PeerId,
 } from "@qop/identity";
 import { DateTime, Effect, Layer, Option, Schema } from "effect";
 import { TestClock } from "effect/testing";
@@ -28,6 +30,7 @@ import { RegistrationEntropy } from "../src/registration/entropy.ts";
 import { RegistrationInputError } from "../src/registration/inputs.ts";
 import { registrationSignerLayer } from "../src/registration/signer.ts";
 import {
+  HandleLeaseConflict,
   RegistrationIntentConflict,
   RegistrationIntentExpired,
   RegistrationStore,
@@ -286,6 +289,13 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       assert.strictEqual(stored.registrationNonce, prepared.intent.nonce);
       assert.strictEqual(stored.peerId, PEER_ID);
       assert.strictEqual(stored.observeTokenHash, keccak256(toHex(token)));
+      const peerId = yield* Schema.decodeUnknownEffect(PeerId)(PEER_ID);
+      const expectedCommitment = yield* hashRegistrationDeviceCommitmentV1(
+        peerId,
+        token
+      );
+      assert.strictEqual(prepared.intent.deviceCommitment, expectedCommitment);
+      assert.strictEqual(stored.deviceCommitment, expectedCommitment);
     })
   );
 
@@ -310,6 +320,44 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           .pipe(Effect.flip);
         assert.instanceOf(mismatch, RegistrationIntentConflict);
       })
+  );
+
+  it.effect("contends the handle before registrar authorization", () =>
+    Effect.gen(function* () {
+      const enrollment = yield* RegistrationEnrollment;
+      const store = yield* RegistrationStore;
+      const first = yield* enrollment.prepare({
+        handle: "leasegate",
+        idempotencyKey: idempotencyKey("leasegate-first"),
+        owner: ownerAccount.address,
+        peerId: PEER_ID,
+      });
+      const second = yield* enrollment.prepare({
+        handle: "leasegate",
+        idempotencyKey: idempotencyKey("leasegate-second"),
+        owner: ownerAccount.address,
+        peerId: PEER_ID,
+      });
+      yield* enrollment.authorize({
+        digest: first.digest,
+        ownerSignature: yield* signPreparedIntent(first.intent, ownerAccount),
+      });
+      const conflict = yield* enrollment
+        .authorize({
+          digest: second.digest,
+          ownerSignature: yield* signPreparedIntent(
+            second.intent,
+            ownerAccount
+          ),
+        })
+        .pipe(Effect.flip);
+      assert.instanceOf(conflict, HandleLeaseConflict);
+      assert.isNull(
+        Option.getOrThrow(yield* store.get(second.digest)).registrationSignature
+      );
+      yield* store.markFailed(first.digest, "TEST_CLEANUP");
+      yield* store.markFailed(second.digest, "TEST_CLEANUP");
+    })
   );
 
   it.effect("verifies the owner and advances the stored intent to ready", () =>

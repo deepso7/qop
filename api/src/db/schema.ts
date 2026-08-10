@@ -42,7 +42,9 @@ export const registrationIntents = pgTable(
       .defaultNow()
       .notNull(),
     deadline: uint64("deadline").notNull(),
+    deviceCommitment: hash32("device_commitment").notNull(),
     digest: hash32("digest").notNull(),
+    draftSlot: integer("draft_slot"),
     failureCode: varchar("failure_code", { length: 64 }),
     handle: varchar("handle", { length: 32 }).notNull(),
     observeTokenHash: hash32("observe_token_hash").notNull(),
@@ -83,6 +85,9 @@ export const registrationIntents = pgTable(
       table.status,
       table.deadline
     ),
+    uniqueIndex("registration_intents_handle_draft_slot_unique")
+      .on(table.handle, table.draftSlot)
+      .where(sql`${table.draftSlot} is not null`),
     check(
       "registration_intents_status_check",
       sql`${table.status} in ('pending_owner_signature', 'ready', 'submitted', 'confirmed', 'failed', 'expired')`
@@ -90,6 +95,10 @@ export const registrationIntents = pgTable(
     check(
       "registration_intents_handle_check",
       sql`${table.handle} ~ '^[a-z]{1,32}$'`
+    ),
+    check(
+      "registration_intents_draft_slot_check",
+      sql`${table.draftSlot} is null or ${table.draftSlot} between 0 and 7`
     ),
     check(
       "registration_intents_qid_check",

@@ -9,6 +9,7 @@ contract QOPIdentityRegistryTest is Test {
     uint256 private constant REGISTRATION_SIGNER_KEY = 0xA11CE;
     uint256 private constant OWNER_KEY = 0xB0B;
     uint256 private constant SECOND_OWNER_KEY = 0xCAFE;
+    uint256 private constant SECOND_REGISTRATION_SIGNER_KEY = 0xD00D;
     address private constant RELAYER = address(0xBEEF);
 
     QOPIdentityRegistry private registry;
@@ -112,6 +113,50 @@ contract QOPIdentityRegistryTest is Test {
             )
         );
         registry.register(intent, ownerSignature, wrongRegistrationSignature);
+
+        QOPIdentityRegistry.RegisterIntent memory altered = intent;
+        altered.deviceCommitment = keccak256("another-device");
+        vm.expectRevert();
+        registry.register(altered, ownerSignature, registrationSignature);
+    }
+
+    function test_rejectsAnEmptyDeviceCommitment() public {
+        QOPIdentityRegistry.RegisterIntent memory intent = _registerIntent("alice", owner, keccak256("registration"));
+        intent.deviceCommitment = bytes32(0);
+        vm.expectRevert(QOPIdentityRegistry.EmptyDeviceCommitment.selector);
+        registry.register(intent, "", "");
+    }
+
+    function test_registrationSignerCanRotateBeforeOpening() public {
+        address nextSigner = vm.addr(SECOND_REGISTRATION_SIGNER_KEY);
+        vm.expectRevert(abi.encodeWithSelector(QOPIdentityRegistry.UnauthorizedRegistrationAdmin.selector, RELAYER));
+        vm.prank(RELAYER);
+        registry.setRegistrationSigner(nextSigner);
+
+        vm.prank(registrationSigner);
+        registry.setRegistrationSigner(nextSigner);
+        assertEq(registry.registrationSigner(), nextSigner);
+
+        QOPIdentityRegistry.RegisterIntent memory intent = _registerIntent("alice", owner, keccak256("registration"));
+        bytes32 digest = registry.hashRegisterIntent(intent);
+        registry.register(intent, _sign(OWNER_KEY, digest), _sign(SECOND_REGISTRATION_SIGNER_KEY, digest));
+        assertEq(registry.qidByOwner(owner), 1);
+    }
+
+    function test_registrationCanOpenIrreversibly() public {
+        vm.prank(registrationSigner);
+        registry.openRegistration();
+        assertTrue(registry.registrationOpen());
+        assertEq(registry.registrationSigner(), address(0));
+
+        QOPIdentityRegistry.RegisterIntent memory intent = _registerIntent("alice", owner, keccak256("registration"));
+        registry.register(intent, _sign(OWNER_KEY, registry.hashRegisterIntent(intent)), "");
+        assertEq(registry.qidByOwner(owner), 1);
+
+        vm.expectRevert(QOPIdentityRegistry.RegistrationAlreadyOpen.selector);
+        registry.openRegistration();
+        vm.expectRevert(QOPIdentityRegistry.RegistrationAlreadyOpen.selector);
+        registry.setRegistrationSigner(vm.addr(SECOND_REGISTRATION_SIGNER_KEY));
     }
 
     function test_requiresWireYParityInsteadOfWalletV() public {
@@ -128,7 +173,11 @@ contract QOPIdentityRegistryTest is Test {
     function test_registrationIntentExpiresAndNonceIsSingleUse() public {
         bytes32 registrationNonce = keccak256("registration");
         QOPIdentityRegistry.RegisterIntent memory expired = QOPIdentityRegistry.RegisterIntent({
-            handle: "alice", owner: owner, nonce: registrationNonce, deadline: uint64(block.timestamp - 1)
+            handle: "alice",
+            owner: owner,
+            deviceCommitment: keccak256("device"),
+            nonce: registrationNonce,
+            deadline: uint64(block.timestamp - 1)
         });
         vm.expectRevert(abi.encodeWithSelector(QOPIdentityRegistry.ExpiredIntent.selector, expired.deadline));
         registry.register(expired, "", "");
@@ -301,6 +350,7 @@ contract QOPIdentityRegistryTest is Test {
         QOPIdentityRegistry.RegisterIntent memory registerIntent = QOPIdentityRegistry.RegisterIntent({
             handle: "alice",
             owner: 0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf,
+            deviceCommitment: 0x0202020202020202020202020202020202020202020202020202020202020202,
             nonce: 0x0101010101010101010101010101010101010101010101010101010101010101,
             deadline: 1_700_003_600
         });
@@ -316,7 +366,7 @@ contract QOPIdentityRegistryTest is Test {
 
         assertEq(
             fixedRegistry.hashRegisterIntent(registerIntent),
-            0x0b6c4ce4fce567f3d0487b1e17ddf9b20adc742fdf8c12c6bccdd8f83464ef39
+            0xbf150ff19a934618ba8d52f9d125632f04ce2cf3408ebd81a43356975daf7620
         );
         assertEq(
             fixedRegistry.hashRotateOwnerIntent(rotateIntent),
@@ -352,7 +402,11 @@ contract QOPIdentityRegistryTest is Test {
         returns (QOPIdentityRegistry.RegisterIntent memory)
     {
         return QOPIdentityRegistry.RegisterIntent({
-            handle: handle, owner: intentOwner, nonce: registrationNonce, deadline: deadline
+            handle: handle,
+            owner: intentOwner,
+            deviceCommitment: keccak256(abi.encode("device", registrationNonce)),
+            nonce: registrationNonce,
+            deadline: deadline
         });
     }
 

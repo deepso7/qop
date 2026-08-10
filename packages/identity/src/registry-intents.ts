@@ -44,8 +44,15 @@ export const CertificateDigest = Hex32.check(
   })
 );
 
+export const DeviceCommitment = Hex32.check(
+  Schema.makeFilter((bytes) => bytes.some((byte) => byte !== 0), {
+    expected: "a non-zero device commitment",
+  })
+);
+
 export const RegisterIntentV1 = Schema.Struct({
   deadline: UnixSeconds,
+  deviceCommitment: DeviceCommitment,
   handle: Handle,
   nonce: RegistrationNonce,
   owner: NonZeroEthereumAddress,
@@ -87,6 +94,7 @@ export const registerIntentEip712Types = {
   RegisterV1: [
     { name: "handle", type: "string" },
     { name: "owner", type: "address" },
+    { name: "deviceCommitment", type: "bytes32" },
     { name: "nonce", type: "bytes32" },
     { name: "deadline", type: "uint64" },
   ],
@@ -125,6 +133,7 @@ export const makeRegisterIntentTypedDataV1 = (
     domain: typedDataDomain(domain),
     message: {
       deadline: intent.deadline,
+      deviceCommitment: toHex(intent.deviceCommitment),
       handle: intent.handle,
       nonce: toHex(intent.nonce),
       owner: intent.owner as Address,

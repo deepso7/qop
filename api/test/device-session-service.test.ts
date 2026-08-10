@@ -150,6 +150,7 @@ const observeCertificate = Effect.fn("test.observeCertificate")(function* (
     BigInt(Math.floor(DateTime.toEpochMillis(now) / 1000)) + 600n;
   yield* registrations.create({
     deadline,
+    deviceCommitment: hash(5000 + id),
     digest: registrationDigest,
     handle: `session${String.fromCodePoint(96 + id)}`,
     observeTokenHash: hash(3000 + id),

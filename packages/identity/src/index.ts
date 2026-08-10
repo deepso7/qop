@@ -57,6 +57,10 @@ export {
 } from "./eip712.ts";
 export { identityProtocolVersion } from "./version.ts";
 export {
+  hashRegistrationDeviceCommitmentV1,
+  registrationDeviceCommitmentDomain,
+} from "./registration-device-commitment.ts";
+export {
   decodeRegisterIntentV1,
   decodeRevokeDeviceIntentV1,
   decodeRotateOwnerIntentV1,
@@ -73,6 +77,7 @@ export {
   recoverRevokeDeviceIntentSignerV1,
   recoverRotateOwnerIntentSignerV1,
   CertificateDigest,
+  DeviceCommitment,
   RegisterIntentV1,
   RegistrationNonce,
   registerIntentEip712Types,

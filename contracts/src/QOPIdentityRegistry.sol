@@ -19,6 +19,7 @@ contract QOPIdentityRegistry is EIP712 {
     struct RegisterIntent {
         string handle;
         address owner;
+        bytes32 deviceCommitment;
         bytes32 nonce;
         uint64 deadline;
     }
@@ -41,13 +42,14 @@ contract QOPIdentityRegistry is EIP712 {
     uint256 public constant MAX_HANDLE_LENGTH = 32;
 
     bytes32 public constant REGISTER_TYPEHASH =
-        keccak256("RegisterV1(string handle,address owner,bytes32 nonce,uint64 deadline)");
+        keccak256("RegisterV1(string handle,address owner,bytes32 deviceCommitment,bytes32 nonce,uint64 deadline)");
     bytes32 public constant ROTATE_OWNER_TYPEHASH =
         keccak256("RotateOwnerV1(uint256 qid,address newOwner,uint256 nonce,uint64 deadline)");
     bytes32 public constant REVOKE_DEVICE_TYPEHASH =
         keccak256("RevokeDeviceV1(uint256 qid,bytes32 certificateDigest,uint256 nonce,uint64 deadline)");
 
-    address public immutable registrationSigner;
+    address public registrationSigner;
+    bool public registrationOpen;
     uint256 public nextQid = 1;
 
     mapping(uint256 qid => Account) private _accounts;
@@ -61,6 +63,7 @@ contract QOPIdentityRegistry is EIP712 {
         bytes32 indexed handleHash,
         address indexed owner,
         string handle,
+        bytes32 deviceCommitment,
         bytes32 registrationNonce,
         uint64 registeredAt
     );
@@ -68,10 +71,13 @@ contract QOPIdentityRegistry is EIP712 {
         uint256 indexed qid, address indexed previousOwner, address indexed newOwner, uint32 ownerVersion, uint256 nonce
     );
     event DeviceRevoked(uint256 indexed qid, bytes32 indexed certificateDigest, uint256 nonce);
+    event RegistrationOpened(address indexed previousSigner);
+    event RegistrationSignerUpdated(address indexed previousSigner, address indexed newSigner);
 
     error AccountNotFound(uint256 qid);
     error CertificateAlreadyRevoked(uint256 qid, bytes32 certificateDigest);
     error EmptyCertificateDigest();
+    error EmptyDeviceCommitment();
     error ExpiredIntent(uint64 deadline);
     error HandleAlreadyRegistered(bytes32 handleHash, uint256 qid);
     error InvalidHandleCharacter(uint256 index, bytes1 character);
@@ -85,12 +91,32 @@ contract QOPIdentityRegistry is EIP712 {
     error OwnerAlreadyRegistered(address owner, uint256 qid);
     error OwnerVersionOverflow(uint256 qid);
     error RegistrationNonceAlreadyUsed(bytes32 nonce);
+    error RegistrationAlreadyOpen();
+    error UnauthorizedRegistrationAdmin(address caller);
     error ZeroRegistrationNonce();
     error ZeroAddress();
 
     constructor(address registrationSigner_) EIP712("QOP Identity", "1") {
         if (registrationSigner_ == address(0)) revert ZeroAddress();
         registrationSigner = registrationSigner_;
+    }
+
+    function setRegistrationSigner(address newSigner) external {
+        if (registrationOpen) revert RegistrationAlreadyOpen();
+        _requireRegistrationAdmin();
+        if (newSigner == address(0)) revert ZeroAddress();
+        address previousSigner = registrationSigner;
+        registrationSigner = newSigner;
+        emit RegistrationSignerUpdated(previousSigner, newSigner);
+    }
+
+    function openRegistration() external {
+        if (registrationOpen) revert RegistrationAlreadyOpen();
+        _requireRegistrationAdmin();
+        address previousSigner = registrationSigner;
+        registrationOpen = true;
+        registrationSigner = address(0);
+        emit RegistrationOpened(previousSigner);
     }
 
     function register(
@@ -101,6 +127,7 @@ contract QOPIdentityRegistry is EIP712 {
         _validateHandle(intent.handle);
         _validateDeadline(intent.deadline);
         if (intent.owner == address(0)) revert ZeroAddress();
+        if (intent.deviceCommitment == bytes32(0)) revert EmptyDeviceCommitment();
         if (intent.nonce == bytes32(0)) revert ZeroRegistrationNonce();
         if (registrationNonceUsed[intent.nonce]) {
             revert RegistrationNonceAlreadyUsed(intent.nonce);
@@ -122,9 +149,11 @@ contract QOPIdentityRegistry is EIP712 {
         if (recoveredOwner != intent.owner) {
             revert InvalidOwnerSignature(recoveredOwner, intent.owner);
         }
-        address recoveredRegistrationSigner = _recoverSigner(digest, registrationSignature);
-        if (recoveredRegistrationSigner != registrationSigner) {
-            revert InvalidRegistrationSignature(recoveredRegistrationSigner, registrationSigner);
+        if (!registrationOpen) {
+            address recoveredRegistrationSigner = _recoverSigner(digest, registrationSignature);
+            if (recoveredRegistrationSigner != registrationSigner) {
+                revert InvalidRegistrationSignature(recoveredRegistrationSigner, registrationSigner);
+            }
         }
 
         qid = nextQid;
@@ -137,7 +166,13 @@ contract QOPIdentityRegistry is EIP712 {
         });
 
         emit AccountRegistered(
-            qid, canonicalHandleHash, intent.owner, intent.handle, intent.nonce, uint64(block.timestamp)
+            qid,
+            canonicalHandleHash,
+            intent.owner,
+            intent.handle,
+            intent.deviceCommitment,
+            intent.nonce,
+            uint64(block.timestamp)
         );
     }
 
@@ -218,7 +253,14 @@ contract QOPIdentityRegistry is EIP712 {
 
     function hashRegisterIntent(RegisterIntent calldata intent) public view returns (bytes32) {
         bytes32 structHash = keccak256(
-            abi.encode(REGISTER_TYPEHASH, keccak256(bytes(intent.handle)), intent.owner, intent.nonce, intent.deadline)
+            abi.encode(
+                REGISTER_TYPEHASH,
+                keccak256(bytes(intent.handle)),
+                intent.owner,
+                intent.deviceCommitment,
+                intent.nonce,
+                intent.deadline
+            )
         );
         return _hashTypedDataV4(structHash);
     }
@@ -239,6 +281,10 @@ contract QOPIdentityRegistry is EIP712 {
     function _account(uint256 qid) private view returns (Account storage current) {
         current = _accounts[qid];
         if (current.owner == address(0)) revert AccountNotFound(qid);
+    }
+
+    function _requireRegistrationAdmin() private view {
+        if (msg.sender != registrationSigner) revert UnauthorizedRegistrationAdmin(msg.sender);
     }
 
     function _validateDeadline(uint64 deadline) private view {
