@@ -283,7 +283,8 @@ export const Handle = Schema.String.check(
   Schema.isLengthBetween(1, 32, {
     expected: "a handle between 1 and 32 characters",
   }),
-  Schema.isPattern(/^[a-z]+$/u, {
-    expected: "a handle containing only lowercase ASCII letters",
+  Schema.isPattern(/^[a-z0-9][a-z0-9_]*$/u, {
+    expected:
+      "a handle starting with a lowercase ASCII letter or digit and containing only lowercase ASCII letters, digits, or underscores",
   })
 );

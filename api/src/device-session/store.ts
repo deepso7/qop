@@ -12,6 +12,7 @@ import {
   deviceSessionChallenges,
   deviceSessions,
 } from "../db/schema.ts";
+import { epochSeconds } from "../time.ts";
 
 export type StoredDeviceSessionChallenge = InferSelectModel<
   typeof deviceSessionChallenges
@@ -92,9 +93,6 @@ export interface DeviceSessionStoreShape {
     DeviceSessionStorePersistenceError
   >;
 }
-
-const epochSeconds = (dateTime: DateTime.Utc): bigint =>
-  BigInt(Math.floor(DateTime.toEpochMillis(dateTime) / 1000));
 
 export class DeviceSessionStore extends Context.Service<
   DeviceSessionStore,

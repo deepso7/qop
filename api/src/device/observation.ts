@@ -4,6 +4,7 @@ import {
   decodeIdentityEnvelopeV1,
   encodeIdentityEnvelopeV1,
   hashDeviceCertificateV1,
+  hashRegistrationDeviceCommitmentV1,
   verifyDeviceCertificateOwnerV1,
 } from "@qop/identity";
 import type {
@@ -68,6 +69,8 @@ export class DeviceCertificateRejected extends Data.TaggedError(
 )<{
   readonly reason:
     | "future-issued-at"
+    | "device-commitment"
+    | "expired"
     | "owner-signature"
     | "owner-version"
     | "peer-id"
@@ -187,6 +190,15 @@ export class DeviceObservation extends Context.Service<
         if (encodedEnvelope.certificate.peerId !== registration.peerId) {
           return yield* new DeviceCertificateRejected({ reason: "peer-id" });
         }
+        const deviceCommitment = yield* hashRegistrationDeviceCommitmentV1(
+          envelope.certificate.peerId,
+          observeTokenBytes
+        );
+        if (deviceCommitment !== registration.deviceCommitment) {
+          return yield* new DeviceCertificateRejected({
+            reason: "device-commitment",
+          });
+        }
 
         const certificateDigest = yield* hashDeviceCertificateV1(
           domain,
@@ -226,6 +238,9 @@ export class DeviceObservation extends Context.Service<
           return yield* new DeviceCertificateRejected({
             reason: "future-issued-at",
           });
+        }
+        if (envelope.certificate.expiresAt <= nowSeconds) {
+          return yield* new DeviceCertificateRejected({ reason: "expired" });
         }
         const ownerMatches = yield* verifyDeviceCertificateOwnerV1(
           domain,

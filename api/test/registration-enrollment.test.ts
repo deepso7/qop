@@ -19,6 +19,7 @@ import { privateKeyToAccount } from "viem/accounts";
 
 import { Database } from "../src/db/database.ts";
 import { registrationAdmissionCodes } from "../src/db/schema.ts";
+import { Entropy } from "../src/entropy.ts";
 import { Env } from "../src/env.ts";
 import { RegistrationAdmission } from "../src/registration/admission.ts";
 import {
@@ -30,7 +31,6 @@ import {
   RegistrationSignatureMismatch,
 } from "../src/registration/enrollment.ts";
 import type { PreparedRegistration } from "../src/registration/enrollment.ts";
-import { RegistrationEntropy } from "../src/registration/entropy.ts";
 import { RegistrationInputError } from "../src/registration/inputs.ts";
 import { registrationSignerLayer } from "../src/registration/signer.ts";
 import {
@@ -79,6 +79,18 @@ const idempotencyKey = (label: string): string =>
       hexToBytes(keccak256(stringToBytes(label)))
     )
   );
+const clientCapability = (label: string) => {
+  const observeToken = Effect.runSync(
+    Schema.decodeUnknownEffect(Base64Url32)(idempotencyKey(`observe-${label}`))
+  );
+  const peerId = Effect.runSync(Schema.decodeUnknownEffect(PeerId)(PEER_ID));
+  return {
+    deviceCommitment: Effect.runSync(
+      hashRegistrationDeviceCommitmentV1(peerId, observeToken)
+    ),
+    observeTokenHash: keccak256(observeToken),
+  } as const;
+};
 const SECOND_ADMISSION_CODE = idempotencyKey("second-admission-code");
 
 const registryReads: RegistryReads = {
@@ -141,9 +153,9 @@ const RegistryReaderTestLive = Layer.succeed(
   })
 );
 
-const RegistrationEntropyTestLive = Layer.sync(RegistrationEntropy, () => {
+const EntropyTestLive = Layer.sync(Entropy, () => {
   let next = 1;
-  return RegistrationEntropy.of({
+  return Entropy.of({
     bytes32: Effect.sync(() => {
       const bytes = new Uint8Array(32);
       bytes[31] = next;
@@ -196,7 +208,7 @@ const RegistrationAdmissionTestLive = Layer.effect(
 );
 
 const RegistrationEnrollmentTestLive = RegistrationEnrollment.layer.pipe(
-  Layer.provide(RegistrationEntropyTestLive),
+  Layer.provide(EntropyTestLive),
   Layer.provideMerge(RegistrationStoreTestLive),
   Layer.provide(RegistryReaderTestLive),
   Layer.provide(registrationSignerLayer(REGISTRATION_PRIVATE_KEY)),
@@ -242,7 +254,7 @@ const enrollmentLayerWithStore = <Error, Requirements>(
   storeLayer: Layer.Layer<RegistrationStore, Error, Requirements>
 ) =>
   RegistrationEnrollment.layer.pipe(
-    Layer.provide(RegistrationEntropyTestLive),
+    Layer.provide(EntropyTestLive),
     Layer.provide(storeLayer),
     Layer.provide(RegistryReaderTestLive),
     Layer.provide(registrationSignerLayer(REGISTRATION_PRIVATE_KEY)),
@@ -306,14 +318,13 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         admissionCode: ADMISSION_CODE,
         handle: "foxtrot",
         idempotencyKey: idempotencyKey("foxtrot"),
+        ...clientCapability("foxtrot"),
         owner: ownerAccount.address,
         peerId: PEER_ID,
       });
       const intent = yield* decodeRegisterIntentV1(prepared.intent);
-      const token = yield* Schema.decodeUnknownEffect(Base64Url32)(
-        prepared.observeToken
-      );
       const stored = Option.getOrThrow(yield* store.get(prepared.digest));
+      const capability = clientCapability("foxtrot");
       const expectedDeadline =
         BigInt(Math.floor(DateTime.toEpochMillis(now) / 1000)) + 600n;
 
@@ -329,20 +340,14 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         prepared.digest,
         yield* hashRegisterIntentV1(domain, intent)
       );
-      assert.strictEqual(
-        yield* Schema.encodeEffect(Base64Url32)(token),
-        prepared.observeToken
-      );
       assert.strictEqual(stored.registrationNonce, prepared.intent.nonce);
       assert.strictEqual(stored.peerId, PEER_ID);
-      assert.strictEqual(stored.observeTokenHash, keccak256(toHex(token)));
-      const peerId = yield* Schema.decodeUnknownEffect(PeerId)(PEER_ID);
-      const expectedCommitment = yield* hashRegistrationDeviceCommitmentV1(
-        peerId,
-        token
+      assert.strictEqual(stored.observeTokenHash, capability.observeTokenHash);
+      assert.strictEqual(
+        prepared.intent.deviceCommitment,
+        capability.deviceCommitment
       );
-      assert.strictEqual(prepared.intent.deviceCommitment, expectedCommitment);
-      assert.strictEqual(stored.deviceCommitment, expectedCommitment);
+      assert.strictEqual(stored.deviceCommitment, capability.deviceCommitment);
     })
   );
 
@@ -355,6 +360,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           admissionCode: ADMISSION_CODE,
           handle: "retryable",
           idempotencyKey: idempotencyKey("retryable"),
+          ...clientCapability("retryable"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         } as const;
@@ -372,6 +378,11 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           .prepare({ ...input, admissionCode: SECOND_ADMISSION_CODE })
           .pipe(Effect.flip);
         assert.instanceOf(admissionMismatch, RegistrationIntentConflict);
+
+        const capabilityMismatch = yield* enrollment
+          .prepare({ ...input, ...clientCapability("different-capability") })
+          .pipe(Effect.flip);
+        assert.instanceOf(capabilityMismatch, RegistrationIntentConflict);
       })
   );
 
@@ -383,6 +394,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           admissionCode: "not-a-code",
           handle: "badadmission",
           idempotencyKey: idempotencyKey("badadmission"),
+          ...clientCapability("badadmission"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         })
@@ -400,6 +412,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         admissionCode: ADMISSION_CODE,
         handle: "leasegate",
         idempotencyKey: idempotencyKey("leasegate-first"),
+        ...clientCapability("leasegate-first"),
         owner: ownerAccount.address,
         peerId: PEER_ID,
       });
@@ -407,6 +420,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         admissionCode: SECOND_ADMISSION_CODE,
         handle: "leasegate",
         idempotencyKey: idempotencyKey("leasegate-second"),
+        ...clientCapability("leasegate-second"),
         owner: ownerAccount.address,
         peerId: PEER_ID,
       });
@@ -439,6 +453,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         admissionCode: ADMISSION_CODE,
         handle: "golf",
         idempotencyKey: idempotencyKey("golf"),
+        ...clientCapability("golf"),
         owner: ownerAccount.address,
         peerId: PEER_ID,
       });
@@ -496,6 +511,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         admissionCode: ADMISSION_CODE,
         handle: "confirmduringauth",
         idempotencyKey: idempotencyKey("confirmduringauth"),
+        ...clientCapability("confirmduringauth"),
         owner: ownerAccount.address,
         peerId: PEER_ID,
       });
@@ -524,6 +540,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           admissionCode: ADMISSION_CODE,
           handle: "hotel",
           idempotencyKey: idempotencyKey("hotel"),
+          ...clientCapability("hotel"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         });
@@ -563,6 +580,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           admissionCode: ADMISSION_CODE,
           handle: "taken",
           idempotencyKey: idempotencyKey("taken"),
+          ...clientCapability("taken"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         })
@@ -575,6 +593,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           admissionCode: ADMISSION_CODE,
           handle: "india",
           idempotencyKey: idempotencyKey("india"),
+          ...clientCapability("india"),
           owner: takenOwner,
           peerId: PEER_ID,
         })
@@ -593,6 +612,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           admissionCode: ADMISSION_CODE,
           handle: "takenafterprepare",
           idempotencyKey: idempotencyKey("takenafterprepare"),
+          ...clientCapability("takenafterprepare"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         });
@@ -612,6 +632,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           admissionCode: ADMISSION_CODE,
           handle: "ownerafterprepare",
           idempotencyKey: idempotencyKey("ownerafterprepare"),
+          ...clientCapability("ownerafterprepare"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         });
@@ -637,6 +658,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         admissionCode: ADMISSION_CODE,
         handle: "expiredauth",
         idempotencyKey: idempotencyKey("expiredauth"),
+        ...clientCapability("expiredauth"),
         owner: ownerAccount.address,
         peerId: PEER_ID,
       });
@@ -664,6 +686,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         admissionCode: ADMISSION_CODE,
         handle: "abandoned",
         idempotencyKey: idempotencyKey("abandoned"),
+        ...clientCapability("abandoned"),
         owner: ownerAccount.address,
         peerId: PEER_ID,
       });
@@ -673,6 +696,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         admissionCode: ADMISSION_CODE,
         handle: "aftercleanup",
         idempotencyKey: idempotencyKey("aftercleanup"),
+        ...clientCapability("aftercleanup"),
         owner: ownerAccount.address,
         peerId: PEER_ID,
       });
@@ -689,6 +713,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         admissionCode: ADMISSION_CODE,
         handle: "juliet",
         idempotencyKey: idempotencyKey("juliet"),
+        ...clientCapability("juliet"),
         owner: ownerAccount.address,
         peerId: PEER_ID,
       });
@@ -721,6 +746,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           admissionCode: ADMISSION_CODE,
           handle: "kilo",
           idempotencyKey: idempotencyKey("kilo"),
+          ...clientCapability("kilo"),
           owner: `0x${"00".repeat(20)}`,
           peerId: PEER_ID,
         })
@@ -740,6 +766,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           admissionCode: ADMISSION_CODE,
           handle: "confirmme",
           idempotencyKey: idempotencyKey("confirmme"),
+          ...clientCapability("confirmme"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         });
@@ -752,6 +779,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           admissionCode: ADMISSION_CODE,
           handle: "conflictme",
           idempotencyKey: idempotencyKey("conflictme"),
+          ...clientCapability("conflictme"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         });
@@ -769,6 +797,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           admissionCode: ADMISSION_CODE,
           handle: "expireme",
           idempotencyKey: idempotencyKey("expireme"),
+          ...clientCapability("expireme"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         });
@@ -792,6 +821,7 @@ layer(UnexpectedCreateEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           admissionCode: ADMISSION_CODE,
           handle: "badcreate",
           idempotencyKey: idempotencyKey("badcreate"),
+          ...clientCapability("badcreate"),
           owner: ownerAccount.address,
           peerId: PEER_ID,
         })
@@ -818,6 +848,7 @@ layer(UnexpectedAuthorizeEnrollmentTestLive, { timeout: "30 seconds" })(
             admissionCode: ADMISSION_CODE,
             handle: "badauthorize",
             idempotencyKey: idempotencyKey("badauthorize"),
+            ...clientCapability("badauthorize"),
             owner: ownerAccount.address,
             peerId: PEER_ID,
           });

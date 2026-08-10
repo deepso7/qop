@@ -26,6 +26,7 @@ type RegistrationInputField =
   | "device-commitment"
   | "digest"
   | "handle"
+  | "idempotency-key-hash"
   | "idempotency-key"
   | "observe-token-hash"
   | "owner"
@@ -124,7 +125,7 @@ const normalizeSignature = Effect.fn("RegistrationInput.normalizeSignature")(
   }
 );
 
-const normalizeDeviceCommitment = Effect.fn(
+export const normalizeDeviceCommitment = Effect.fn(
   "RegistrationInput.normalizeDeviceCommitment"
 )(function* (input: unknown) {
   const value = yield* Schema.decodeUnknownEffect(Schema.String)(input).pipe(
@@ -153,6 +154,10 @@ export const normalizeRegistrationDigest = Effect.fn(
 export const normalizeRegistrationObserveTokenHash = Effect.fn(
   "RegistrationInput.normalizeObserveTokenHash"
 )((input: unknown) => normalizeHex32(input, "observe-token-hash"));
+
+export const normalizeRegistrationIdempotencyKeyHash = Effect.fn(
+  "RegistrationInput.normalizeIdempotencyKeyHash"
+)((input: unknown) => normalizeHex32(input, "idempotency-key-hash"));
 
 export const normalizeTransactionHash = Effect.fn(
   "RegistrationInput.normalizeTransactionHash"
@@ -195,6 +200,9 @@ export const normalizeCreateRegistrationIntent = Effect.fn(
     deviceCommitment: yield* normalizeDeviceCommitment(input.deviceCommitment),
     digest: yield* normalizeRegistrationDigest(input.digest),
     handle,
+    idempotencyKeyHash: yield* normalizeRegistrationIdempotencyKeyHash(
+      input.idempotencyKeyHash
+    ),
     observeTokenHash: yield* normalizeRegistrationObserveTokenHash(
       input.observeTokenHash
     ),

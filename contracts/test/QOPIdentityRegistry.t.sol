@@ -7,6 +7,7 @@ import {QOPIdentityRegistry} from "../src/QOPIdentityRegistry.sol";
 
 contract QOPIdentityRegistryTest is Test {
     uint256 private constant REGISTRATION_SIGNER_KEY = 0xA11CE;
+    address private constant REGISTRATION_ADMIN = address(0xAD01);
     uint256 private constant OWNER_KEY = 0xB0B;
     uint256 private constant SECOND_OWNER_KEY = 0xCAFE;
     uint256 private constant SECOND_REGISTRATION_SIGNER_KEY = 0xD00D;
@@ -22,7 +23,7 @@ contract QOPIdentityRegistryTest is Test {
         registrationSigner = vm.addr(REGISTRATION_SIGNER_KEY);
         owner = vm.addr(OWNER_KEY);
         deadline = uint64(block.timestamp + 1 days);
-        registry = new QOPIdentityRegistry(registrationSigner);
+        registry = new QOPIdentityRegistry(REGISTRATION_ADMIN, registrationSigner);
     }
 
     function test_registersThroughAnArbitraryRelayer() public {
@@ -84,10 +85,16 @@ contract QOPIdentityRegistryTest is Test {
         vm.expectRevert(abi.encodeWithSelector(QOPIdentityRegistry.InvalidHandleCharacter.selector, 0, bytes1("A")));
         registry.register(intent, "", "");
 
-        intent.handle = "alice1";
+        intent.handle = "_alice";
         // The literal is exactly one byte, so this bytes1 cast cannot truncate.
         // forge-lint: disable-next-line(unsafe-typecast)
-        vm.expectRevert(abi.encodeWithSelector(QOPIdentityRegistry.InvalidHandleCharacter.selector, 5, bytes1("1")));
+        vm.expectRevert(abi.encodeWithSelector(QOPIdentityRegistry.InvalidHandleCharacter.selector, 0, bytes1("_")));
+        registry.register(intent, "", "");
+
+        intent.handle = "alice-bob";
+        // The literal is exactly one byte, so this bytes1 cast cannot truncate.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        vm.expectRevert(abi.encodeWithSelector(QOPIdentityRegistry.InvalidHandleCharacter.selector, 5, bytes1("-")));
         registry.register(intent, "", "");
 
         intent.handle = "abcdefghijklmnopqrstuvwxyzabcdefg";
@@ -133,7 +140,13 @@ contract QOPIdentityRegistryTest is Test {
         vm.prank(RELAYER);
         registry.setRegistrationSigner(nextSigner);
 
+        vm.expectRevert(
+            abi.encodeWithSelector(QOPIdentityRegistry.UnauthorizedRegistrationAdmin.selector, registrationSigner)
+        );
         vm.prank(registrationSigner);
+        registry.setRegistrationSigner(nextSigner);
+
+        vm.prank(REGISTRATION_ADMIN);
         registry.setRegistrationSigner(nextSigner);
         assertEq(registry.registrationSigner(), nextSigner);
 
@@ -144,7 +157,7 @@ contract QOPIdentityRegistryTest is Test {
     }
 
     function test_registrationCanOpenIrreversibly() public {
-        vm.prank(registrationSigner);
+        vm.prank(REGISTRATION_ADMIN);
         registry.openRegistration();
         assertTrue(registry.registrationOpen());
         assertEq(registry.registrationSigner(), address(0));
@@ -159,15 +172,25 @@ contract QOPIdentityRegistryTest is Test {
         registry.setRegistrationSigner(vm.addr(SECOND_REGISTRATION_SIGNER_KEY));
     }
 
-    function test_requiresWireYParityInsteadOfWalletV() public {
+    function test_acceptsWireYParityAndWalletV() public {
         QOPIdentityRegistry.RegisterIntent memory intent = _registerIntent("alice", owner, keccak256("registration"));
         bytes32 digest = registry.hashRegisterIntent(intent);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(OWNER_KEY, digest);
         bytes memory walletSignature = abi.encodePacked(r, s, v);
         bytes memory registrationSignature = _sign(REGISTRATION_SIGNER_KEY, digest);
 
-        vm.expectRevert(abi.encodeWithSelector(QOPIdentityRegistry.InvalidYParity.selector, v));
         registry.register(intent, walletSignature, registrationSignature);
+        assertEq(registry.qidByOwner(owner), 1);
+    }
+
+    function test_rejectsInvalidSignatureV() public {
+        QOPIdentityRegistry.RegisterIntent memory intent = _registerIntent("alice", owner, keccak256("registration"));
+        bytes32 digest = registry.hashRegisterIntent(intent);
+        (, bytes32 r, bytes32 s) = vm.sign(OWNER_KEY, digest);
+        bytes memory invalidSignature = abi.encodePacked(r, s, uint8(2));
+
+        vm.expectRevert(abi.encodeWithSelector(QOPIdentityRegistry.InvalidYParity.selector, 2));
+        registry.register(intent, invalidSignature, _sign(REGISTRATION_SIGNER_KEY, digest));
     }
 
     function test_registrationIntentExpiresAndNonceIsSingleUse() public {
@@ -312,7 +335,7 @@ contract QOPIdentityRegistryTest is Test {
         bytes32 domainTypeHash =
             keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)");
         bytes32 certificateTypeHash = keccak256(
-            "DeviceCertificateV1(uint8 version,uint256 qid,uint32 ownerVersion,bytes peerId,bytes32 encryptionPublicKey,uint64 issuedAt,bytes32 salt)"
+            "DeviceCertificateV1(uint8 version,uint256 qid,uint32 ownerVersion,bytes peerId,bytes32 encryptionPublicKey,uint64 issuedAt,uint64 expiresAt,bytes32 salt)"
         );
         bytes32 domainSeparator = keccak256(
             abi.encode(
@@ -333,12 +356,13 @@ contract QOPIdentityRegistryTest is Test {
                 keccak256(peerId),
                 bytes32(0),
                 uint64(1_700_000_000),
+                uint64(2_000_000_000),
                 bytes32(uint256(0x0101010101010101010101010101010101010101010101010101010101010101))
             )
         );
 
         bytes32 digest = keccak256(abi.encodePacked(hex"1901", domainSeparator, structHash));
-        assertEq(digest, 0x0fe41d712ec3ec99c4f62ed1b97c04ec30bd56985f9cf698d3c554db062119bd);
+        assertEq(digest, 0x1c20b8d5a0c80a689d033aa4a660bb03c05b68fef557d191caa1dd1bfb966866);
     }
 
     function test_registryIntentDigestsMatchTheTypescriptGoldenVectors() public {
@@ -376,14 +400,58 @@ contract QOPIdentityRegistryTest is Test {
             fixedRegistry.hashRevokeDeviceIntent(revokeIntent),
             0xb1c5b8ecf82d6fab75d309bc820a474a36dbe795cc42f891d569379dc5435a6b
         );
+
+        registerIntent = QOPIdentityRegistry.RegisterIntent({
+            handle: "0xdeepso",
+            owner: address(uint160(0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF)),
+            deviceCommitment: bytes32(uint256(0x0303030303030303030303030303030303030303030303030303030303030303)),
+            nonce: bytes32(uint256(0x0404040404040404040404040404040404040404040404040404040404040404)),
+            deadline: 1_700_000_001
+        });
+        assertEq(
+            fixedRegistry.hashRegisterIntent(registerIntent),
+            0x9eed1767b802634c5b1af5f5ac4317f26e777a591c02645522119e00f04a8c96
+        );
+
+        registerIntent = QOPIdentityRegistry.RegisterIntent({
+            handle: "123kate",
+            owner: address(uint160(0x6813Eb9362372EEF6200f3b1dbC3f819671cBA69)),
+            deviceCommitment: bytes32(uint256(0x0505050505050505050505050505050505050505050505050505050505050505)),
+            nonce: bytes32(uint256(0x0606060606060606060606060606060606060606060606060606060606060606)),
+            deadline: type(uint64).max
+        });
+        assertEq(
+            fixedRegistry.hashRegisterIntent(registerIntent),
+            0x08281d04b4529216418b2ae7c96e386e2f543723acd79332a9aace27df2c10f6
+        );
+
+        registerIntent = QOPIdentityRegistry.RegisterIntent({
+            handle: "a_b9",
+            owner: address(uint160(0x1efF47bc3a10a45D4B230B5d10E37751FE6AA718)),
+            deviceCommitment: bytes32(uint256(0x0707070707070707070707070707070707070707070707070707070707070707)),
+            nonce: bytes32(uint256(0x0808080808080808080808080808080808080808080808080808080808080808)),
+            deadline: 42
+        });
+        assertEq(
+            fixedRegistry.hashRegisterIntent(registerIntent),
+            0x87119cfb83d76629575d94e4cf73cc289bb7bbddf68489cdb20ba8832fe51be1
+        );
     }
 
-    function testFuzz_validLowercaseHandlesRegister(string memory handle) public {
+    function test_allowsCryptoNativeHandles() public {
+        uint256 qid = _register("0xdeepso", OWNER_KEY, keccak256("0xdeepso"));
+        assertEq(registry.qidByHandleHash(keccak256("0xdeepso")), qid);
+    }
+
+    function testFuzz_validCanonicalHandlesRegister(string memory handle) public {
         bytes memory value = bytes(handle);
         vm.assume(value.length >= registry.MIN_HANDLE_LENGTH());
         vm.assume(value.length <= registry.MAX_HANDLE_LENGTH());
         for (uint256 index; index < value.length; ++index) {
-            vm.assume(value[index] >= 0x61 && value[index] <= 0x7a);
+            bool lowercaseLetter = value[index] >= 0x61 && value[index] <= 0x7a;
+            bool digit = value[index] >= 0x30 && value[index] <= 0x39;
+            bool underscore = index > 0 && value[index] == 0x5f;
+            vm.assume(lowercaseLetter || digit || underscore);
         }
 
         _register(handle, OWNER_KEY, keccak256(abi.encode(handle)));

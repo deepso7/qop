@@ -106,7 +106,7 @@ describe("registration database schema", () => {
     );
     assert.deepStrictEqual(
       certificateConfig.indexes.map((index) => index.config.name),
-      ["device_certificates_qid_observed_idx"]
+      ["device_certificates_qid_observed_idx", "device_certificates_expiry_idx"]
     );
     assert.strictEqual(
       certificateConfig.columns
@@ -115,6 +115,7 @@ describe("registration database schema", () => {
       "numeric(10, 0)"
     );
     assert.deepStrictEqual(names(certificateConfig.checks), [
+      "device_certificates_lifetime_check",
       "device_certificates_qid_check",
       "device_certificates_owner_version_check",
       "device_certificates_version_check",
@@ -128,6 +129,8 @@ describe("registration database schema", () => {
         })
       ),
       {
+        device_certificates_lifetime_check:
+          '"device_certificates"."expires_at" > "device_certificates"."issued_at"',
         device_certificates_owner_version_check:
           '"device_certificates"."owner_version" between 0 and 4294967295',
         device_certificates_qid_check: '"device_certificates"."qid" > 0',
@@ -165,6 +168,7 @@ describe("registration database schema", () => {
       [
         "registration_intents_nonce_unique",
         "registration_intents_observe_token_unique",
+        "registration_intents_idempotency_key_unique",
         "registration_intents_owner_idx",
         "registration_intents_status_deadline_idx",
         "registration_intents_handle_draft_slot_unique",
@@ -172,7 +176,7 @@ describe("registration database schema", () => {
     );
     assert.deepStrictEqual(
       config.indexes.map((index) => index.config.unique),
-      [true, true, false, false, true]
+      [true, true, true, false, false, true]
     );
     assert.strictEqual(
       config.columns
@@ -208,7 +212,7 @@ describe("registration database schema", () => {
         registration_intents_failure_check:
           '"registration_intents"."status" <> \'failed\' or "registration_intents"."failure_code" is not null',
         registration_intents_handle_check:
-          '"registration_intents"."handle" ~ \'^[a-z]{1,32}$\'',
+          '"registration_intents"."handle" ~ \'^[a-z0-9][a-z0-9_]{0,31}$\'',
         registration_intents_qid_check:
           '("registration_intents"."status" = \'confirmed\' and "registration_intents"."qid" > 0) or ("registration_intents"."status" <> \'confirmed\' and "registration_intents"."qid" is null)',
         registration_intents_status_check:

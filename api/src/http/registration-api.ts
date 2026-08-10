@@ -1,5 +1,6 @@
 import {
   Base64Url32,
+  DeviceCommitment,
   EcdsaSignature,
   Handle,
   Hex32,
@@ -25,6 +26,9 @@ const CanonicalQid = Qid.pipe(Schema.decodeTo(Qid.pipe(Schema.flip)));
 const CanonicalBase64Url32 = Base64Url32.pipe(
   Schema.decodeTo(Base64Url32.pipe(Schema.flip))
 );
+const CanonicalDeviceCommitment = DeviceCommitment.pipe(
+  Schema.decodeTo(DeviceCommitment.pipe(Schema.flip))
+);
 const CanonicalRegisterIntent = RegisterIntentV1.pipe(
   Schema.decodeTo(RegisterIntentV1.pipe(Schema.flip))
 );
@@ -49,8 +53,10 @@ const DigestInput = Schema.String.check(
 
 export const PrepareRegistrationPayload = Schema.Struct({
   admissionCode: CanonicalBase64Url32,
+  deviceCommitment: CanonicalDeviceCommitment,
   handle: Handle,
   idempotencyKey: CanonicalBase64Url32,
+  observeTokenHash: DigestInput,
   owner: AddressInput,
   peerId: PeerIdString,
 });
@@ -62,7 +68,6 @@ export const AuthorizeRegistrationPayload = Schema.Struct({
 export const PreparedRegistrationResponse = Schema.Struct({
   digest: Digest,
   intent: CanonicalRegisterIntent,
-  observeToken: CanonicalBase64Url32,
   status: Schema.Literal("pending_owner_signature"),
 });
 

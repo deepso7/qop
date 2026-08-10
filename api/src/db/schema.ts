@@ -48,6 +48,7 @@ export const registrationIntents = pgTable(
     draftSlot: integer("draft_slot"),
     failureCode: varchar("failure_code", { length: 64 }),
     handle: varchar("handle", { length: 32 }).notNull(),
+    idempotencyKeyHash: hash32("idempotency_key_hash").notNull(),
     observeTokenHash: hash32("observe_token_hash").notNull(),
     owner: address("owner").notNull(),
     ownerSignature: signature("owner_signature"),
@@ -81,6 +82,9 @@ export const registrationIntents = pgTable(
     uniqueIndex("registration_intents_observe_token_unique").on(
       table.observeTokenHash
     ),
+    uniqueIndex("registration_intents_idempotency_key_unique").on(
+      table.idempotencyKeyHash
+    ),
     index("registration_intents_owner_idx").on(table.owner),
     index("registration_intents_status_deadline_idx").on(
       table.status,
@@ -95,7 +99,7 @@ export const registrationIntents = pgTable(
     ),
     check(
       "registration_intents_handle_check",
-      sql`${table.handle} ~ '^[a-z]{1,32}$'`
+      sql`${table.handle} ~ '^[a-z0-9][a-z0-9_]{0,31}$'`
     ),
     check(
       "registration_intents_draft_slot_check",
@@ -160,6 +164,7 @@ export const deviceCertificates = pgTable(
     encryptionPublicKey: char("encryption_public_key", {
       length: 43,
     }).notNull(),
+    expiresAt: uint64("expires_at").notNull(),
     issuedAt: uint64("issued_at").notNull(),
     observedAt: timestamp("observed_at", {
       mode: "date",
@@ -182,6 +187,11 @@ export const deviceCertificates = pgTable(
     index("device_certificates_qid_observed_idx").on(
       table.qid,
       table.observedAt
+    ),
+    index("device_certificates_expiry_idx").on(table.expiresAt),
+    check(
+      "device_certificates_lifetime_check",
+      sql`${table.expiresAt} > ${table.issuedAt}`
     ),
     check("device_certificates_qid_check", sql`${table.qid} > 0`),
     check(

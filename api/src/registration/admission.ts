@@ -8,6 +8,7 @@ import type { Hash } from "viem";
 
 import { Database, DatabaseLive } from "../db/database.ts";
 import { registrationAdmissionCodes } from "../db/schema.ts";
+import { epochSeconds } from "../time.ts";
 
 const admissionCodeHashDomain = stringToBytes("qop/registration-admission/v1");
 
@@ -31,10 +32,6 @@ export type RegistrationAdmissionError =
   | SqlError;
 
 export interface RegistrationAdmissionShape {
-  readonly consume: (
-    codeHash: Hash,
-    digest: Hash
-  ) => Effect.Effect<void, RegistrationAdmissionError>;
   readonly create: (
     codeHash: Hash,
     expiresAt?: bigint
@@ -43,17 +40,10 @@ export interface RegistrationAdmissionShape {
     codeHash: Hash,
     digest: Hash
   ) => Effect.Effect<void, EffectDrizzleQueryError | SqlError>;
-  readonly reserve: (
-    codeHash: Hash,
-    digest: Hash
-  ) => Effect.Effect<void, RegistrationAdmissionError>;
   readonly validate: (
     codeHash: Hash
   ) => Effect.Effect<void, RegistrationAdmissionError>;
 }
-
-const epochSeconds = (value: DateTime.DateTime): bigint =>
-  BigInt(Math.floor(DateTime.toEpochMillis(value) / 1000));
 
 export class RegistrationAdmission extends Context.Service<
   RegistrationAdmission,
@@ -87,68 +77,6 @@ export class RegistrationAdmission extends Context.Service<
         }
       });
 
-      const reserve = Effect.fn("RegistrationAdmission.reserve")(function* (
-        codeHash: Hash,
-        digest: Hash
-      ) {
-        const now = yield* DateTime.now;
-        const nowSeconds = epochSeconds(now);
-        return yield* db.transaction((tx) =>
-          Effect.gen(function* () {
-            const rows = yield* tx
-              .select()
-              .from(registrationAdmissionCodes)
-              .where(eq(registrationAdmissionCodes.codeHash, codeHash))
-              .limit(1)
-              .for("update");
-            const code = rows.at(0);
-            if (
-              !code ||
-              code.consumedAt !== null ||
-              (code.expiresAt !== null && code.expiresAt <= nowSeconds) ||
-              (code.claimedByDigest !== null && code.claimedByDigest !== digest)
-            ) {
-              return yield* new RegistrationAdmissionUnauthorized({ codeHash });
-            }
-            if (code.claimedByDigest === null) {
-              yield* tx
-                .update(registrationAdmissionCodes)
-                .set({
-                  claimedAt: DateTime.toDateUtc(now),
-                  claimedByDigest: digest,
-                })
-                .where(eq(registrationAdmissionCodes.codeHash, codeHash));
-            }
-          })
-        );
-      });
-
-      const consume = Effect.fn("RegistrationAdmission.consume")(function* (
-        codeHash: Hash,
-        digest: Hash
-      ) {
-        return yield* db.transaction((tx) =>
-          Effect.gen(function* () {
-            const rows = yield* tx
-              .select()
-              .from(registrationAdmissionCodes)
-              .where(eq(registrationAdmissionCodes.codeHash, codeHash))
-              .limit(1)
-              .for("update");
-            const code = rows.at(0);
-            if (!code || code.claimedByDigest !== digest) {
-              return yield* new RegistrationAdmissionUnauthorized({ codeHash });
-            }
-            if (code.consumedAt === null) {
-              yield* tx
-                .update(registrationAdmissionCodes)
-                .set({ consumedAt: DateTime.toDateUtc(yield* DateTime.now) })
-                .where(eq(registrationAdmissionCodes.codeHash, codeHash));
-            }
-          })
-        );
-      });
-
       const release = Effect.fn("RegistrationAdmission.release")(function* (
         codeHash: Hash,
         digest: Hash
@@ -176,10 +104,8 @@ export class RegistrationAdmission extends Context.Service<
       });
 
       return RegistrationAdmission.of({
-        consume,
         create,
         release,
-        reserve,
         validate,
       });
     })

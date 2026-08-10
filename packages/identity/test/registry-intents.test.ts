@@ -131,6 +131,50 @@ describe("registry intents", () => {
     })
   );
 
+  it.effect("matches the Solidity register-intent compatibility vectors", () =>
+    Effect.gen(function* () {
+      const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
+      for (const [encoded, expected] of [
+        [
+          {
+            deadline: "1700000001",
+            deviceCommitment: `0x${"03".repeat(32)}`,
+            handle: "0xdeepso",
+            nonce: `0x${"04".repeat(32)}`,
+            owner: "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf",
+          },
+          "0x9eed1767b802634c5b1af5f5ac4317f26e777a591c02645522119e00f04a8c96",
+        ],
+        [
+          {
+            deadline: "18446744073709551615",
+            deviceCommitment: `0x${"05".repeat(32)}`,
+            handle: "123kate",
+            nonce: `0x${"06".repeat(32)}`,
+            owner: "0x6813eb9362372eef6200f3b1dbc3f819671cba69",
+          },
+          "0x08281d04b4529216418b2ae7c96e386e2f543723acd79332a9aace27df2c10f6",
+        ],
+        [
+          {
+            deadline: "42",
+            deviceCommitment: `0x${"07".repeat(32)}`,
+            handle: "a_b9",
+            nonce: `0x${"08".repeat(32)}`,
+            owner: "0x1eff47bc3a10a45d4b230b5d10e37751fe6aa718",
+          },
+          "0x87119cfb83d76629575d94e4cf73cc289bb7bbddf68489cdb20ba8832fe51be1",
+        ],
+      ] as const) {
+        const intent = yield* decodeRegisterIntentV1(encoded);
+        assert.strictEqual(
+          yield* hashRegisterIntentV1(domain, intent),
+          expected
+        );
+      }
+    })
+  );
+
   it.effect("recovers the signer for every owner action", () =>
     Effect.gen(function* () {
       const account = privateKeyToAccount(PRIVATE_KEY);
@@ -296,16 +340,25 @@ describe("registry intents", () => {
 
   it.effect("pins handle and excess-property policy failures", () =>
     Effect.gen(function* () {
-      const uppercaseError = yield* decodeRegisterIntentV1({
-        ...encodedRegisterIntent,
-        handle: "Alice",
-      }).pipe(Effect.flip);
-      assert.deepStrictEqual(formatIssue(uppercaseError.issue).issues, [
-        {
-          message: "Expected a handle containing only lowercase ASCII letters",
-          path: ["handle"],
-        },
-      ]);
+      const expectedMessage =
+        "Expected a handle starting with a lowercase ASCII letter or digit and containing only lowercase ASCII letters, digits, or underscores";
+      for (const handle of ["Alice", "_deepso", "deep-so"]) {
+        const error = yield* decodeRegisterIntentV1({
+          ...encodedRegisterIntent,
+          handle,
+        }).pipe(Effect.flip);
+        assert.deepStrictEqual(formatIssue(error.issue).issues, [
+          { message: expectedMessage, path: ["handle"] },
+        ]);
+      }
+
+      assert.strictEqual(
+        (yield* decodeRegisterIntentV1({
+          ...encodedRegisterIntent,
+          handle: "0xdeepso",
+        })).handle,
+        "0xdeepso"
+      );
 
       const excessError = yield* decodeRegisterIntentV1({
         ...encodedRegisterIntent,

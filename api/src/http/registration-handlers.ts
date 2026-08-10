@@ -95,8 +95,10 @@ export const RegistrationApiHandlers = HttpApiBuilder.group(
         enrollment
           .prepare({
             admissionCode: payload.admissionCode,
+            deviceCommitment: payload.deviceCommitment as Hash,
             handle: payload.handle,
             idempotencyKey: payload.idempotencyKey,
+            observeTokenHash: payload.observeTokenHash as Hash,
             owner: payload.owner as Address,
             peerId: payload.peerId,
           })

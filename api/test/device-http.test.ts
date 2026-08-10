@@ -50,6 +50,7 @@ const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
 const envelope = {
   certificate: {
     encryptionPublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+    expiresAt: "2000000000",
     issuedAt: "1700000000",
     ownerVersion: 0,
     peerId: PEER_ID,

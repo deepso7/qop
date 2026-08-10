@@ -44,7 +44,14 @@ export class DeviceSessionConflictHttp extends Schema.TaggedErrorClass<DeviceSes
 
 export class DeviceSessionRejectedHttp extends Schema.TaggedErrorClass<DeviceSessionRejectedHttp>()(
   "DeviceSessionRejected",
-  { reason: Schema.Literals(["not-found", "owner-version", "revoked"]) },
+  {
+    reason: Schema.Literals([
+      "expired",
+      "not-found",
+      "owner-version",
+      "revoked",
+    ]),
+  },
   { httpApiStatus: 422 }
 ) {}
 

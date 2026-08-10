@@ -111,7 +111,7 @@ contract QOPIdentityRegistryInvariantTest is StdInvariant, Test {
     IdentityRegistryHandler private handler;
 
     function setUp() public {
-        registry = new QOPIdentityRegistry(vm.addr(REGISTRATION_SIGNER_KEY));
+        registry = new QOPIdentityRegistry(address(this), vm.addr(REGISTRATION_SIGNER_KEY));
         handler = new IdentityRegistryHandler(registry, REGISTRATION_SIGNER_KEY);
 
         bytes4[] memory selectors = new bytes4[](3);

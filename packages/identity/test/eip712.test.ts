@@ -17,10 +17,11 @@ const PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000001";
 const EXPECTED_OWNER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf";
 const EXPECTED_DIGEST =
-  "0x0fe41d712ec3ec99c4f62ed1b97c04ec30bd56985f9cf698d3c554db062119bd";
+  "0x1c20b8d5a0c80a689d033aa4a660bb03c05b68fef557d191caa1dd1bfb966866";
 
 const encodedCertificate = {
   encryptionPublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  expiresAt: "2000000000",
   issuedAt: "1700000000",
   ownerVersion: 3,
   peerId: "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X",
@@ -65,6 +66,7 @@ describe("identity EIP-712", () => {
           message: {
             encryptionPublicKey:
               "0x0000000000000000000000000000000000000000000000000000000000000000",
+            expiresAt: 2_000_000_000n,
             issuedAt: 1_700_000_000n,
             ownerVersion: 3,
             peerId:
@@ -82,6 +84,7 @@ describe("identity EIP-712", () => {
               { name: "peerId", type: "bytes" },
               { name: "encryptionPublicKey", type: "bytes32" },
               { name: "issuedAt", type: "uint64" },
+              { name: "expiresAt", type: "uint64" },
               { name: "salt", type: "bytes32" },
             ],
           },

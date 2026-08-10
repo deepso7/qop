@@ -55,6 +55,8 @@ export class DeviceCertificateRejectedHttp extends Schema.TaggedErrorClass<Devic
   {
     reason: Schema.Literals([
       "future-issued-at",
+      "device-commitment",
+      "expired",
       "owner-signature",
       "owner-version",
       "peer-id",

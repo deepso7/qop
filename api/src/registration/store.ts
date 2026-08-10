@@ -12,11 +12,13 @@ import {
   registrationHandleLeases,
   registrationIntents,
 } from "../db/schema.ts";
+import { epochSeconds } from "../time.ts";
 import { RegistrationAdmissionUnauthorized } from "./admission.ts";
 import {
   normalizeCreateRegistrationIntent,
   normalizeRegistrationAuthorization,
   normalizeRegistrationDigest,
+  normalizeRegistrationIdempotencyKeyHash,
   normalizeRegistrationObserveTokenHash,
   normalizeRegistrationOwnerSignature,
   normalizeRegistrationQid,
@@ -91,6 +93,20 @@ const findByObserveTokenHash = (
     .limit(1)
     .pipe(Effect.map((rows) => rows.at(0)));
 
+const findByIdempotencyKeyHash = (
+  client: DatabaseClient | Transaction,
+  idempotencyKeyHash: Hash
+): Effect.Effect<
+  StoredRegistrationIntent | undefined,
+  RegistrationStorePersistenceError
+> =>
+  client
+    .select()
+    .from(registrationIntents)
+    .where(eq(registrationIntents.idempotencyKeyHash, idempotencyKeyHash))
+    .limit(1)
+    .pipe(Effect.map((rows) => rows.at(0)));
+
 const isExactCreateReplay = (
   stored: StoredRegistrationIntent,
   input: CreateRegistrationIntent
@@ -99,6 +115,7 @@ const isExactCreateReplay = (
   stored.deadline === input.deadline &&
   stored.deviceCommitment === input.deviceCommitment &&
   stored.handle === input.handle &&
+  stored.idempotencyKeyHash === input.idempotencyKeyHash &&
   stored.observeTokenHash === input.observeTokenHash &&
   stored.owner === input.owner &&
   stored.peerId === input.peerId &&
@@ -177,6 +194,12 @@ export interface RegistrationStoreShape {
     Option.Option<StoredRegistrationIntent>,
     RegistrationInputError | RegistrationStorePersistenceError
   >;
+  readonly getByIdempotencyKeyHash: (
+    idempotencyKeyHash: Hash
+  ) => Effect.Effect<
+    Option.Option<StoredRegistrationIntent>,
+    RegistrationInputError | RegistrationStorePersistenceError
+  >;
   readonly markConfirmed: (
     digest: Hash,
     qid: bigint
@@ -200,9 +223,6 @@ const expirableStatuses: readonly RegistrationIntentStatus[] =
 export const registrationExpirationBatchSize = 100;
 export const registrationDraftLimitPerHandle = 8;
 export const registrationDraftLimitPerAdmission = 8;
-
-const epochSeconds = (value: DateTime.DateTime): bigint =>
-  BigInt(Math.floor(DateTime.toEpochMillis(value) / 1000));
 
 export class RegistrationStore extends Context.Service<
   RegistrationStore,
@@ -250,6 +270,16 @@ export class RegistrationStore extends Context.Service<
           yield* normalizeRegistrationObserveTokenHash(observeTokenHash);
         return Option.fromUndefinedOr(
           yield* findByObserveTokenHash(db, canonicalHash)
+        );
+      });
+
+      const getByIdempotencyKeyHash = Effect.fn(
+        "RegistrationStore.getByIdempotencyKeyHash"
+      )(function* (idempotencyKeyHash: Hash) {
+        const canonicalHash =
+          yield* normalizeRegistrationIdempotencyKeyHash(idempotencyKeyHash);
+        return Option.fromUndefinedOr(
+          yield* findByIdempotencyKeyHash(db, canonicalHash)
         );
       });
 
@@ -402,9 +432,9 @@ export class RegistrationStore extends Context.Service<
         input: CreateRegistrationIntent,
         nowSeconds: bigint
       ) {
-        const replay = yield* findByObserveTokenHash(
+        const replay = yield* findByIdempotencyKeyHash(
           tx,
-          input.observeTokenHash
+          input.idempotencyKeyHash
         );
         if (!replay) {
           return;
@@ -413,6 +443,7 @@ export class RegistrationStore extends Context.Service<
           replay.handle !== input.handle ||
           replay.admissionCodeHash !== input.admissionCodeHash ||
           replay.deviceCommitment !== input.deviceCommitment ||
+          replay.observeTokenHash !== input.observeTokenHash ||
           replay.owner !== input.owner ||
           replay.peerId !== input.peerId
         ) {
@@ -545,6 +576,7 @@ export class RegistrationStore extends Context.Service<
                   digest: canonicalInput.digest,
                   draftSlot,
                   handle: canonicalInput.handle,
+                  idempotencyKeyHash: canonicalInput.idempotencyKeyHash,
                   observeTokenHash: canonicalInput.observeTokenHash,
                   owner: canonicalInput.owner,
                   peerId: canonicalInput.peerId,
@@ -571,6 +603,15 @@ export class RegistrationStore extends Context.Service<
               if (yield* find(tx, canonicalInput.digest)) {
                 return yield* new RegistrationIntentConflict({
                   digest: canonicalInput.digest,
+                });
+              }
+              const capabilityOwner = yield* findByObserveTokenHash(
+                tx,
+                canonicalInput.observeTokenHash
+              );
+              if (capabilityOwner) {
+                return yield* new RegistrationIntentConflict({
+                  digest: capabilityOwner.digest,
                 });
               }
               return yield* new RegistrationDraftLimitReached({
@@ -940,6 +981,7 @@ export class RegistrationStore extends Context.Service<
         create,
         expire,
         get,
+        getByIdempotencyKeyHash,
         getByObserveTokenHash,
         markConfirmed,
         markFailed,

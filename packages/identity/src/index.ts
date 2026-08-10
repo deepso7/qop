@@ -18,7 +18,6 @@ export {
   decodeDeviceSessionProofV1,
   DeviceSessionChallengeV1,
   type DeviceSessionChallengeV1Encoded,
-  deviceSessionPopDomain,
   deviceSessionPopVersion,
   DeviceSessionPopCryptoError,
   DeviceSessionProofV1,
@@ -44,7 +43,6 @@ export {
 export {
   decodeIdentityEip712DomainV1,
   deviceCertificateEip712Types,
-  encodeIdentityEip712DomainV1,
   hashDeviceCertificateV1,
   IdentityCryptoError,
   IdentityEip712DomainV1,
@@ -56,10 +54,7 @@ export {
   type IdentityEip712DomainV1Encoded,
 } from "./eip712.ts";
 export { identityProtocolVersion } from "./version.ts";
-export {
-  hashRegistrationDeviceCommitmentV1,
-  registrationDeviceCommitmentDomain,
-} from "./registration-device-commitment.ts";
+export { hashRegistrationDeviceCommitmentV1 } from "./registration-device-commitment.ts";
 export {
   decodeRegisterIntentV1,
   decodeRevokeDeviceIntentV1,
