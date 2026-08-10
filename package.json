@@ -7,14 +7,18 @@
   "author": "",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "check": "ultracite check",
-    "fix": "ultracite fix"
+    "check": "ultracite check && pnpm check:packages && pnpm typecheck",
+    "check:contracts": "forge fmt --root contracts --check && forge lint --root contracts && forge test --root contracts --force",
+    "check:packages": "pnpm --filter @qop/identity --filter @qop/api run test",
+    "fix": "ultracite fix",
+    "typecheck": "pnpm --filter @qop/identity --filter @qop/api run typecheck"
   },
   "devDependencies": {
+    "@effect/language-service": "0.87.1",
     "oxfmt": "0.61.0",
     "oxlint": "1.76.0",
     "typescript": "catalog:",
     "ultracite": "7.9.4"
-  }
+  },
+  "packageManager": "pnpm@11.18.0"
 }

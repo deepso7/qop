@@ -1,0 +1,34 @@
+{
+  "name": "@qop/api",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "admission:create": "node --env-file=.env src/create-admission-code.ts",
+    "db:push": "drizzle-kit push --config drizzle.config.ts",
+    "dev": "node --watch --env-file=.env src/main.ts",
+    "start": "node --env-file=.env dist/src/main.js",
+    "test": "vitest run",
+    "typecheck": "tsc --project tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@effect/platform-node": "4.0.0-beta.103",
+    "@effect/sql-pg": "4.0.0-beta.103",
+    "@qop/identity": "workspace:*",
+    "drizzle-orm": "1.0.0-rc.4",
+    "effect": "catalog:",
+    "pg": "8.22.0",
+    "viem": "2.55.11"
+  },
+  "devDependencies": {
+    "@effect/sql-pglite": "4.0.0-beta.103",
+    "@effect/vitest": "4.0.0-beta.103",
+    "@electric-sql/pglite": "0.5.4",
+    "@types/node": "24.13.3",
+    "@types/pg": "8.20.4",
+    "drizzle-kit": "1.0.0-rc.4",
+    "typescript": "catalog:",
+    "vitest": "4.1.10"
+  }
+}

@@ -1,0 +1,955 @@
+import { and, asc, eq, gt, gte, inArray, isNull, lt, or } from "drizzle-orm";
+import type { InferSelectModel } from "drizzle-orm";
+import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
+import { Context, Data, DateTime, Effect, Layer, Option } from "effect";
+import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { Hash, Hex } from "viem";
+
+import { Database, DatabaseLive } from "../db/database.ts";
+import type { DatabaseClient } from "../db/database.ts";
+import {
+  registrationAdmissionCodes,
+  registrationHandleLeases,
+  registrationIntents,
+} from "../db/schema.ts";
+import { RegistrationAdmissionUnauthorized } from "./admission.ts";
+import {
+  normalizeCreateRegistrationIntent,
+  normalizeRegistrationAuthorization,
+  normalizeRegistrationDigest,
+  normalizeRegistrationObserveTokenHash,
+  normalizeRegistrationOwnerSignature,
+  normalizeRegistrationQid,
+  normalizeTransactionHash,
+} from "./inputs.ts";
+import type { RegistrationInputError } from "./inputs.ts";
+import { registrationTransitionSources } from "./state.ts";
+import type {
+  CreateRegistrationIntent,
+  RegistrationAuthorization,
+  RegistrationIntentStatus,
+} from "./types.ts";
+
+export type StoredRegistrationIntent = InferSelectModel<
+  typeof registrationIntents
+>;
+
+type TransactionCallback = Parameters<DatabaseClient["transaction"]>[0];
+type Transaction = Parameters<TransactionCallback>[0];
+
+const find = (
+  client: DatabaseClient | Transaction,
+  digest: Hash
+): Effect.Effect<
+  StoredRegistrationIntent | undefined,
+  RegistrationStorePersistenceError
+> =>
+  client
+    .select()
+    .from(registrationIntents)
+    .where(eq(registrationIntents.digest, digest))
+    .limit(1)
+    .pipe(Effect.map((rows) => rows.at(0)));
+
+const findForUpdate = (
+  client: Transaction,
+  digest: Hash
+): Effect.Effect<
+  StoredRegistrationIntent | undefined,
+  RegistrationStorePersistenceError
+> =>
+  client
+    .select()
+    .from(registrationIntents)
+    .where(eq(registrationIntents.digest, digest))
+    .limit(1)
+    .for("update")
+    .pipe(Effect.map((rows) => rows.at(0)));
+
+const findLeaseDigest = (
+  client: DatabaseClient | Transaction,
+  handle: string
+): Effect.Effect<Hash | undefined, RegistrationStorePersistenceError> =>
+  client
+    .select({ digest: registrationHandleLeases.intentDigest })
+    .from(registrationHandleLeases)
+    .where(eq(registrationHandleLeases.handle, handle))
+    .limit(1)
+    .pipe(Effect.map((rows) => rows.at(0)?.digest as Hash | undefined));
+
+const findByObserveTokenHash = (
+  client: DatabaseClient | Transaction,
+  observeTokenHash: Hash
+): Effect.Effect<
+  StoredRegistrationIntent | undefined,
+  RegistrationStorePersistenceError
+> =>
+  client
+    .select()
+    .from(registrationIntents)
+    .where(eq(registrationIntents.observeTokenHash, observeTokenHash))
+    .limit(1)
+    .pipe(Effect.map((rows) => rows.at(0)));
+
+const isExactCreateReplay = (
+  stored: StoredRegistrationIntent,
+  input: CreateRegistrationIntent
+): boolean =>
+  stored.admissionCodeHash === input.admissionCodeHash &&
+  stored.deadline === input.deadline &&
+  stored.deviceCommitment === input.deviceCommitment &&
+  stored.handle === input.handle &&
+  stored.observeTokenHash === input.observeTokenHash &&
+  stored.owner === input.owner &&
+  stored.peerId === input.peerId &&
+  stored.registrationNonce === input.registrationNonce;
+
+export class HandleLeaseConflict extends Data.TaggedError(
+  "HandleLeaseConflict"
+)<{ readonly handle: string }> {}
+
+export class RegistrationIntentConflict extends Data.TaggedError(
+  "RegistrationIntentConflict"
+)<{ readonly digest: string }> {}
+
+export class RegistrationIntentExpired extends Data.TaggedError(
+  "RegistrationIntentExpired"
+)<{ readonly digest: string }> {}
+
+export class RegistrationIntentNotFound extends Data.TaggedError(
+  "RegistrationIntentNotFound"
+)<{ readonly digest: string }> {}
+
+export class RegistrationTransitionConflict extends Data.TaggedError(
+  "RegistrationTransitionConflict"
+)<{
+  readonly actual: RegistrationIntentStatus;
+  readonly digest: string;
+  readonly expected: readonly RegistrationIntentStatus[];
+}> {}
+
+export class RegistrationDraftLimitReached extends Data.TaggedError(
+  "RegistrationDraftLimitReached"
+)<{ readonly handle: string; readonly limit: number }> {}
+
+export class RegistrationAdmissionDraftLimitReached extends Data.TaggedError(
+  "RegistrationAdmissionDraftLimitReached"
+)<{ readonly codeHash: Hash; readonly limit: number }> {}
+
+export type RegistrationStorePersistenceError =
+  | EffectDrizzleQueryError
+  | SqlError;
+
+export type RegistrationStoreError =
+  | HandleLeaseConflict
+  | RegistrationAdmissionDraftLimitReached
+  | RegistrationAdmissionUnauthorized
+  | RegistrationDraftLimitReached
+  | RegistrationInputError
+  | RegistrationIntentConflict
+  | RegistrationIntentExpired
+  | RegistrationIntentNotFound
+  | RegistrationStorePersistenceError
+  | RegistrationTransitionConflict;
+
+export interface RegistrationStoreShape {
+  readonly reserveAuthorization: (
+    digest: Hash,
+    ownerSignature: Hex
+  ) => Effect.Effect<StoredRegistrationIntent, RegistrationStoreError>;
+  readonly authorize: (
+    digest: Hash,
+    authorization: RegistrationAuthorization
+  ) => Effect.Effect<StoredRegistrationIntent, RegistrationStoreError>;
+  readonly create: (
+    input: CreateRegistrationIntent
+  ) => Effect.Effect<StoredRegistrationIntent, RegistrationStoreError>;
+  readonly expire: Effect.Effect<number, RegistrationStorePersistenceError>;
+  readonly get: (
+    digest: Hash
+  ) => Effect.Effect<
+    Option.Option<StoredRegistrationIntent>,
+    RegistrationInputError | RegistrationStorePersistenceError
+  >;
+  readonly getByObserveTokenHash: (
+    observeTokenHash: Hash
+  ) => Effect.Effect<
+    Option.Option<StoredRegistrationIntent>,
+    RegistrationInputError | RegistrationStorePersistenceError
+  >;
+  readonly markConfirmed: (
+    digest: Hash,
+    qid: bigint
+  ) => Effect.Effect<StoredRegistrationIntent, RegistrationStoreError>;
+  readonly markFailed: (
+    digest: Hash,
+    failureCode: string,
+    expectedStatuses?: readonly RegistrationIntentStatus[]
+  ) => Effect.Effect<StoredRegistrationIntent, RegistrationStoreError>;
+  readonly markSubmitted: (
+    digest: Hash,
+    transactionHash: Hash
+  ) => Effect.Effect<StoredRegistrationIntent, RegistrationStoreError>;
+}
+
+const activeStatuses: readonly RegistrationIntentStatus[] =
+  registrationTransitionSources.fail;
+const expirableStatuses: readonly RegistrationIntentStatus[] =
+  registrationTransitionSources.expire;
+
+export const registrationExpirationBatchSize = 100;
+export const registrationDraftLimitPerHandle = 8;
+export const registrationDraftLimitPerAdmission = 8;
+
+const epochSeconds = (value: DateTime.DateTime): bigint =>
+  BigInt(Math.floor(DateTime.toEpochMillis(value) / 1000));
+
+export class RegistrationStore extends Context.Service<
+  RegistrationStore,
+  RegistrationStoreShape
+>()("@qop/api/RegistrationStore") {
+  static readonly layer = Layer.effect(
+    this,
+    Effect.gen(function* () {
+      const { client: db } = yield* Database;
+
+      const transitionFailure = Effect.fn(
+        "RegistrationStore.transitionFailure"
+      )(function* (
+        tx: Transaction,
+        digest: Hash,
+        expected: readonly RegistrationIntentStatus[],
+        now: bigint
+      ): Effect.fn.Return<never, RegistrationStoreError> {
+        const current = yield* find(tx, digest);
+        if (!current) {
+          return yield* new RegistrationIntentNotFound({ digest });
+        }
+        if (
+          current.deadline < now &&
+          expirableStatuses.includes(current.status)
+        ) {
+          return yield* new RegistrationIntentExpired({ digest });
+        }
+        return yield* new RegistrationTransitionConflict({
+          actual: current.status,
+          digest,
+          expected,
+        });
+      });
+
+      const get = Effect.fn("RegistrationStore.get")(function* (digest: Hash) {
+        const canonicalDigest = yield* normalizeRegistrationDigest(digest);
+        return Option.fromUndefinedOr(yield* find(db, canonicalDigest));
+      });
+
+      const getByObserveTokenHash = Effect.fn(
+        "RegistrationStore.getByObserveTokenHash"
+      )(function* (observeTokenHash: Hash) {
+        const canonicalHash =
+          yield* normalizeRegistrationObserveTokenHash(observeTokenHash);
+        return Option.fromUndefinedOr(
+          yield* findByObserveTokenHash(db, canonicalHash)
+        );
+      });
+
+      const acquireHandleLease = Effect.fn(
+        "RegistrationStore.acquireHandleLease"
+      )(function* (
+        tx: Transaction,
+        current: StoredRegistrationIntent,
+        updatedAt: Date
+      ) {
+        for (let attempt = 0; attempt < 3; attempt += 1) {
+          const inserted = yield* tx
+            .insert(registrationHandleLeases)
+            .values({
+              handle: current.handle,
+              intentDigest: current.digest,
+              owner: current.owner,
+              peerId: current.peerId,
+              updatedAt,
+            })
+            .onConflictDoNothing()
+            .returning({ handle: registrationHandleLeases.handle });
+          if (inserted.length === 1) {
+            return;
+          }
+          const incumbent = yield* findLeaseDigest(tx, current.handle);
+          if (incumbent === current.digest) {
+            return;
+          }
+          if (incumbent !== undefined) {
+            return yield* new HandleLeaseConflict({
+              handle: current.handle,
+            });
+          }
+        }
+        return yield* new HandleLeaseConflict({ handle: current.handle });
+      });
+
+      const reserveAuthorization = Effect.fn(
+        "RegistrationStore.reserveAuthorization"
+      )(function* (digest: Hash, ownerSignature: Hex) {
+        const canonicalDigest = yield* normalizeRegistrationDigest(digest);
+        const canonicalOwnerSignature =
+          yield* normalizeRegistrationOwnerSignature(ownerSignature);
+        const now = yield* DateTime.now;
+        const nowSeconds = epochSeconds(now);
+        const updatedAt = DateTime.toDateUtc(now);
+        return yield* db.transaction((tx) =>
+          Effect.gen(function* () {
+            const current = yield* findForUpdate(tx, canonicalDigest);
+            if (!current) {
+              return yield* new RegistrationIntentNotFound({
+                digest: canonicalDigest,
+              });
+            }
+            if (
+              current.ownerSignature === canonicalOwnerSignature &&
+              ["confirmed", "ready", "submitted"].includes(current.status)
+            ) {
+              return current;
+            }
+            if (
+              current.status === "pending_owner_signature" &&
+              current.deadline < nowSeconds
+            ) {
+              return yield* new RegistrationIntentExpired({
+                digest: canonicalDigest,
+              });
+            }
+            if (current.status !== "pending_owner_signature") {
+              return yield* new RegistrationTransitionConflict({
+                actual: current.status,
+                digest: canonicalDigest,
+                expected: registrationTransitionSources.authorize,
+              });
+            }
+            if (
+              current.ownerSignature !== null &&
+              current.ownerSignature !== canonicalOwnerSignature
+            ) {
+              return yield* new RegistrationIntentConflict({
+                digest: canonicalDigest,
+              });
+            }
+            const admissionRows = yield* tx
+              .select()
+              .from(registrationAdmissionCodes)
+              .where(
+                eq(
+                  registrationAdmissionCodes.codeHash,
+                  current.admissionCodeHash
+                )
+              )
+              .limit(1)
+              .for("update");
+            const admission = admissionRows.at(0);
+            if (
+              !admission ||
+              admission.consumedAt !== null ||
+              (admission.expiresAt !== null &&
+                admission.expiresAt <= nowSeconds) ||
+              (admission.claimedByDigest !== null &&
+                admission.claimedByDigest !== canonicalDigest)
+            ) {
+              return yield* new RegistrationAdmissionUnauthorized({
+                codeHash: current.admissionCodeHash,
+              });
+            }
+            if (admission.claimedByDigest === null) {
+              yield* tx
+                .update(registrationAdmissionCodes)
+                .set({
+                  claimedAt: updatedAt,
+                  claimedByDigest: canonicalDigest,
+                })
+                .where(
+                  and(
+                    eq(
+                      registrationAdmissionCodes.codeHash,
+                      current.admissionCodeHash
+                    ),
+                    isNull(registrationAdmissionCodes.claimedByDigest),
+                    isNull(registrationAdmissionCodes.consumedAt),
+                    or(
+                      isNull(registrationAdmissionCodes.expiresAt),
+                      gt(registrationAdmissionCodes.expiresAt, nowSeconds)
+                    )
+                  )
+                );
+            }
+            yield* acquireHandleLease(tx, current, updatedAt);
+            const rows = yield* tx
+              .update(registrationIntents)
+              .set({
+                draftSlot: null,
+                ownerSignature: canonicalOwnerSignature,
+                updatedAt,
+              })
+              .where(eq(registrationIntents.digest, canonicalDigest))
+              .returning();
+            return rows[0] as StoredRegistrationIntent;
+          })
+        );
+      });
+
+      const findPrepareReplay = Effect.fn(
+        "RegistrationStore.findPrepareReplay"
+      )(function* (
+        tx: Transaction,
+        input: CreateRegistrationIntent,
+        nowSeconds: bigint
+      ) {
+        const replay = yield* findByObserveTokenHash(
+          tx,
+          input.observeTokenHash
+        );
+        if (!replay) {
+          return;
+        }
+        if (
+          replay.handle !== input.handle ||
+          replay.admissionCodeHash !== input.admissionCodeHash ||
+          replay.deviceCommitment !== input.deviceCommitment ||
+          replay.owner !== input.owner ||
+          replay.peerId !== input.peerId
+        ) {
+          return yield* new RegistrationIntentConflict({
+            digest: replay.digest,
+          });
+        }
+        if (
+          replay.status === "pending_owner_signature" &&
+          replay.deadline < nowSeconds
+        ) {
+          return yield* new RegistrationIntentExpired({
+            digest: replay.digest,
+          });
+        }
+        if (replay.status === "pending_owner_signature") {
+          return replay;
+        }
+        return yield* new RegistrationIntentConflict({
+          digest: replay.digest,
+        });
+      });
+
+      const create = Effect.fn("RegistrationStore.create")(function* (
+        input: CreateRegistrationIntent
+      ) {
+        const canonicalInput = yield* normalizeCreateRegistrationIntent(input);
+        const now = yield* DateTime.now;
+        const nowSeconds = epochSeconds(now);
+        const nowDate = DateTime.toDateUtc(now);
+
+        return yield* db.transaction((tx) =>
+          Effect.gen(function* () {
+            const existing = yield* find(tx, canonicalInput.digest);
+            if (existing) {
+              if (!isExactCreateReplay(existing, canonicalInput)) {
+                return yield* new RegistrationIntentConflict({
+                  digest: canonicalInput.digest,
+                });
+              }
+              if (existing.status === "confirmed") {
+                return existing;
+              }
+              if (activeStatuses.includes(existing.status)) {
+                if (
+                  existing.status === "pending_owner_signature" &&
+                  existing.deadline < nowSeconds
+                ) {
+                  return yield* new RegistrationIntentExpired({
+                    digest: canonicalInput.digest,
+                  });
+                }
+                return existing;
+              }
+              return yield* new RegistrationIntentConflict({
+                digest: canonicalInput.digest,
+              });
+            }
+
+            const admissionRows = yield* tx
+              .select()
+              .from(registrationAdmissionCodes)
+              .where(
+                eq(
+                  registrationAdmissionCodes.codeHash,
+                  canonicalInput.admissionCodeHash
+                )
+              )
+              .limit(1)
+              .for("update");
+            const admission = admissionRows.at(0);
+            if (
+              !admission ||
+              admission.consumedAt !== null ||
+              (admission.expiresAt !== null &&
+                admission.expiresAt <= nowSeconds)
+            ) {
+              return yield* new RegistrationAdmissionUnauthorized({
+                codeHash: canonicalInput.admissionCodeHash,
+              });
+            }
+
+            const idempotentReplay = yield* findPrepareReplay(
+              tx,
+              canonicalInput,
+              nowSeconds
+            );
+            if (idempotentReplay) {
+              return idempotentReplay;
+            }
+
+            const admissionDrafts = yield* tx
+              .select({ digest: registrationIntents.digest })
+              .from(registrationIntents)
+              .where(
+                and(
+                  eq(
+                    registrationIntents.admissionCodeHash,
+                    canonicalInput.admissionCodeHash
+                  ),
+                  eq(registrationIntents.status, "pending_owner_signature")
+                )
+              )
+              .limit(registrationDraftLimitPerAdmission);
+            if (admissionDrafts.length >= registrationDraftLimitPerAdmission) {
+              return yield* new RegistrationAdmissionDraftLimitReached({
+                codeHash: canonicalInput.admissionCodeHash,
+                limit: registrationDraftLimitPerAdmission,
+              });
+            }
+
+            if (canonicalInput.deadline <= nowSeconds) {
+              return yield* new RegistrationIntentExpired({
+                digest: canonicalInput.digest,
+              });
+            }
+
+            let intent: StoredRegistrationIntent | undefined;
+            for (
+              let draftSlot = 0;
+              draftSlot < registrationDraftLimitPerHandle;
+              draftSlot += 1
+            ) {
+              const inserted = yield* tx
+                .insert(registrationIntents)
+                .values({
+                  admissionCodeHash: canonicalInput.admissionCodeHash,
+                  deadline: canonicalInput.deadline,
+                  deviceCommitment: canonicalInput.deviceCommitment,
+                  digest: canonicalInput.digest,
+                  draftSlot,
+                  handle: canonicalInput.handle,
+                  observeTokenHash: canonicalInput.observeTokenHash,
+                  owner: canonicalInput.owner,
+                  peerId: canonicalInput.peerId,
+                  registrationNonce: canonicalInput.registrationNonce,
+                  status: "pending_owner_signature",
+                  updatedAt: nowDate,
+                })
+                .onConflictDoNothing()
+                .returning();
+              intent = inserted.at(0);
+              if (intent) {
+                break;
+              }
+            }
+            if (!intent) {
+              const concurrentReplay = yield* findPrepareReplay(
+                tx,
+                canonicalInput,
+                nowSeconds
+              );
+              if (concurrentReplay) {
+                return concurrentReplay;
+              }
+              if (yield* find(tx, canonicalInput.digest)) {
+                return yield* new RegistrationIntentConflict({
+                  digest: canonicalInput.digest,
+                });
+              }
+              return yield* new RegistrationDraftLimitReached({
+                handle: canonicalInput.handle,
+                limit: registrationDraftLimitPerHandle,
+              });
+            }
+
+            return intent;
+          })
+        );
+      });
+
+      const authorize = Effect.fn("RegistrationStore.authorize")(function* (
+        digest: Hash,
+        authorization: RegistrationAuthorization
+      ) {
+        const canonicalDigest = yield* normalizeRegistrationDigest(digest);
+        const canonicalAuthorization =
+          yield* normalizeRegistrationAuthorization(authorization);
+        yield* reserveAuthorization(
+          canonicalDigest,
+          canonicalAuthorization.ownerSignature
+        );
+        const now = yield* DateTime.now;
+        const nowSeconds = epochSeconds(now);
+        return yield* db.transaction((tx) =>
+          Effect.gen(function* () {
+            const current = yield* findForUpdate(tx, canonicalDigest);
+            if (
+              current &&
+              current.ownerSignature ===
+                canonicalAuthorization.ownerSignature &&
+              current.registrationSignature ===
+                canonicalAuthorization.registrationSignature &&
+              ["confirmed", "ready", "submitted"].includes(current.status)
+            ) {
+              return current;
+            }
+            if (!current) {
+              return yield* new RegistrationIntentNotFound({
+                digest: canonicalDigest,
+              });
+            }
+            if (
+              current.status === "pending_owner_signature" &&
+              current.deadline < nowSeconds
+            ) {
+              return yield* new RegistrationIntentExpired({
+                digest: canonicalDigest,
+              });
+            }
+            if (current.status !== "pending_owner_signature") {
+              return yield* new RegistrationTransitionConflict({
+                actual: current.status,
+                digest: canonicalDigest,
+                expected: registrationTransitionSources.authorize,
+              });
+            }
+
+            const admissionRows = yield* tx
+              .select()
+              .from(registrationAdmissionCodes)
+              .where(
+                eq(
+                  registrationAdmissionCodes.codeHash,
+                  current.admissionCodeHash
+                )
+              )
+              .limit(1)
+              .for("update");
+            const admission = admissionRows.at(0);
+            if (
+              !admission ||
+              admission.claimedByDigest !== canonicalDigest ||
+              admission.consumedAt !== null
+            ) {
+              return yield* new RegistrationAdmissionUnauthorized({
+                codeHash: current.admissionCodeHash,
+              });
+            }
+
+            yield* acquireHandleLease(tx, current, DateTime.toDateUtc(now));
+
+            const updated = yield* tx
+              .update(registrationIntents)
+              .set({
+                draftSlot: null,
+                ownerSignature: canonicalAuthorization.ownerSignature,
+                registrationSignature:
+                  canonicalAuthorization.registrationSignature,
+                status: "ready",
+                updatedAt: DateTime.toDateUtc(now),
+              })
+              .where(
+                and(
+                  eq(registrationIntents.digest, canonicalDigest),
+                  eq(registrationIntents.status, "pending_owner_signature"),
+                  gte(registrationIntents.deadline, nowSeconds)
+                )
+              )
+              .returning();
+            const authorized = updated.at(0);
+            if (authorized) {
+              yield* tx
+                .update(registrationAdmissionCodes)
+                .set({ consumedAt: DateTime.toDateUtc(now) })
+                .where(
+                  and(
+                    eq(
+                      registrationAdmissionCodes.codeHash,
+                      current.admissionCodeHash
+                    ),
+                    eq(
+                      registrationAdmissionCodes.claimedByDigest,
+                      canonicalDigest
+                    ),
+                    isNull(registrationAdmissionCodes.consumedAt)
+                  )
+                );
+              return authorized;
+            }
+            const replay = yield* find(tx, canonicalDigest);
+            if (
+              replay?.ownerSignature ===
+                canonicalAuthorization.ownerSignature &&
+              replay.registrationSignature ===
+                canonicalAuthorization.registrationSignature &&
+              ["confirmed", "ready", "submitted"].includes(replay.status)
+            ) {
+              return replay;
+            }
+            return yield* transitionFailure(
+              tx,
+              canonicalDigest,
+              registrationTransitionSources.authorize,
+              nowSeconds
+            );
+          })
+        );
+      });
+
+      const markSubmitted = Effect.fn("RegistrationStore.markSubmitted")(
+        function* (digest: Hash, transactionHash: Hash) {
+          const canonicalDigest = yield* normalizeRegistrationDigest(digest);
+          const canonicalTransactionHash =
+            yield* normalizeTransactionHash(transactionHash);
+          const now = yield* DateTime.now;
+          const updated = yield* db
+            .update(registrationIntents)
+            .set({
+              status: "submitted",
+              submittedAt: DateTime.toDateUtc(now),
+              transactionHash: canonicalTransactionHash,
+              updatedAt: DateTime.toDateUtc(now),
+            })
+            .where(
+              and(
+                eq(registrationIntents.digest, canonicalDigest),
+                eq(registrationIntents.status, "ready")
+              )
+            )
+            .returning();
+          const intent = updated.at(0);
+          if (intent) {
+            return intent;
+          }
+          const current = yield* find(db, canonicalDigest);
+          if (
+            current &&
+            current.transactionHash === canonicalTransactionHash &&
+            ["confirmed", "submitted"].includes(current.status)
+          ) {
+            return current;
+          }
+          return yield* db.transaction((tx) =>
+            transitionFailure(
+              tx,
+              canonicalDigest,
+              registrationTransitionSources.submit,
+              epochSeconds(now)
+            )
+          );
+        }
+      );
+
+      const markConfirmed = Effect.fn("RegistrationStore.markConfirmed")(
+        function* (digest: Hash, qid: bigint) {
+          const canonicalDigest = yield* normalizeRegistrationDigest(digest);
+          const canonicalQid = yield* normalizeRegistrationQid(qid);
+          const now = yield* DateTime.now;
+          return yield* db.transaction((tx) =>
+            Effect.gen(function* () {
+              const updated = yield* tx
+                .update(registrationIntents)
+                .set({
+                  confirmedAt: DateTime.toDateUtc(now),
+                  qid: canonicalQid,
+                  status: "confirmed",
+                  updatedAt: DateTime.toDateUtc(now),
+                })
+                .where(
+                  and(
+                    eq(registrationIntents.digest, canonicalDigest),
+                    inArray(registrationIntents.status, ["ready", "submitted"])
+                  )
+                )
+                .returning();
+              let intent = updated.at(0);
+              if (!intent) {
+                const current = yield* find(tx, canonicalDigest);
+                if (
+                  current?.status === "confirmed" &&
+                  current.qid === canonicalQid
+                ) {
+                  intent = current;
+                } else {
+                  return yield* transitionFailure(
+                    tx,
+                    canonicalDigest,
+                    registrationTransitionSources.confirm,
+                    epochSeconds(now)
+                  );
+                }
+              }
+              yield* tx
+                .delete(registrationHandleLeases)
+                .where(
+                  eq(registrationHandleLeases.intentDigest, canonicalDigest)
+                );
+              return intent;
+            })
+          );
+        }
+      );
+
+      const markFailed = Effect.fn("RegistrationStore.markFailed")(function* (
+        digest: Hash,
+        failureCode: string,
+        expectedStatuses: readonly RegistrationIntentStatus[] = activeStatuses
+      ) {
+        const canonicalDigest = yield* normalizeRegistrationDigest(digest);
+        const now = yield* DateTime.now;
+        return yield* db.transaction((tx) =>
+          Effect.gen(function* () {
+            const updated = yield* tx
+              .update(registrationIntents)
+              .set({
+                draftSlot: null,
+                failureCode,
+                status: "failed",
+                updatedAt: DateTime.toDateUtc(now),
+              })
+              .where(
+                and(
+                  eq(registrationIntents.digest, canonicalDigest),
+                  inArray(registrationIntents.status, expectedStatuses)
+                )
+              )
+              .returning();
+            let intent = updated.at(0);
+            if (!intent) {
+              const current = yield* find(tx, canonicalDigest);
+              if (
+                current?.status === "failed" &&
+                current.failureCode === failureCode
+              ) {
+                intent = current;
+              } else {
+                return yield* transitionFailure(
+                  tx,
+                  canonicalDigest,
+                  expectedStatuses,
+                  epochSeconds(now)
+                );
+              }
+            }
+            yield* tx
+              .delete(registrationHandleLeases)
+              .where(
+                eq(registrationHandleLeases.intentDigest, canonicalDigest)
+              );
+            yield* tx
+              .update(registrationAdmissionCodes)
+              .set({ claimedAt: null, claimedByDigest: null })
+              .where(
+                and(
+                  eq(
+                    registrationAdmissionCodes.claimedByDigest,
+                    canonicalDigest
+                  ),
+                  isNull(registrationAdmissionCodes.consumedAt)
+                )
+              );
+            return intent;
+          })
+        );
+      });
+
+      const expire = Effect.gen(function* () {
+        const now = yield* DateTime.now;
+        const nowSeconds = epochSeconds(now);
+        return yield* db.transaction((tx) =>
+          Effect.gen(function* () {
+            const candidates = yield* tx
+              .select({ digest: registrationIntents.digest })
+              .from(registrationIntents)
+              .where(
+                and(
+                  inArray(registrationIntents.status, expirableStatuses),
+                  lt(registrationIntents.deadline, nowSeconds)
+                )
+              )
+              .orderBy(
+                asc(registrationIntents.deadline),
+                asc(registrationIntents.digest)
+              )
+              .limit(registrationExpirationBatchSize)
+              .for("update", { skipLocked: true });
+            const candidateDigests = candidates.map((row) => row.digest);
+            if (candidateDigests.length === 0) {
+              return 0;
+            }
+            const expired = yield* tx
+              .update(registrationIntents)
+              .set({
+                draftSlot: null,
+                status: "expired",
+                updatedAt: DateTime.toDateUtc(now),
+              })
+              .where(
+                and(
+                  inArray(registrationIntents.digest, candidateDigests),
+                  inArray(registrationIntents.status, expirableStatuses),
+                  lt(registrationIntents.deadline, nowSeconds)
+                )
+              )
+              .returning({ digest: registrationIntents.digest });
+            const expiredDigests = expired.map((row) => row.digest);
+            if (expiredDigests.length === 0) {
+              return 0;
+            }
+            yield* tx
+              .delete(registrationHandleLeases)
+              .where(
+                inArray(registrationHandleLeases.intentDigest, expiredDigests)
+              );
+            yield* tx
+              .update(registrationAdmissionCodes)
+              .set({ claimedAt: null, claimedByDigest: null })
+              .where(
+                and(
+                  inArray(
+                    registrationAdmissionCodes.claimedByDigest,
+                    expiredDigests
+                  ),
+                  isNull(registrationAdmissionCodes.consumedAt)
+                )
+              );
+            return expired.length;
+          })
+        );
+      });
+
+      return RegistrationStore.of({
+        authorize,
+        create,
+        expire,
+        get,
+        getByObserveTokenHash,
+        markConfirmed,
+        markFailed,
+        markSubmitted,
+        reserveAuthorization,
+      });
+    })
+  );
+}
+
+export const RegistrationStoreLive = RegistrationStore.layer.pipe(
+  Layer.provide(DatabaseLive)
+);

@@ -7,6 +7,7 @@ export default defineConfig({
     ...(ultracite.ignorePatterns ?? []),
     ".agents/skills/**",
     ".claude/**",
+    "contracts/lib/**",
     "mobile/src/uniwind-types.d.ts",
   ],
 });

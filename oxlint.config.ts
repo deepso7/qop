@@ -9,7 +9,13 @@ export default defineConfig({
     ...(core.ignorePatterns ?? []),
     ".agents/skills/**",
     ".claude/**",
+    "contracts/lib/**",
     "mobile/scripts/**",
     "mobile/src/uniwind-types.d.ts",
   ],
+  rules: {
+    "func-names": "off",
+    "max-classes-per-file": "off",
+    "promise/prefer-await-to-callbacks": "off",
+  },
 });
