@@ -187,6 +187,30 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
       })
     );
 
+    it.effect(
+      "releases a reserved handle after authorization setup fails",
+      () =>
+        Effect.gen(function* () {
+          const store = yield* RegistrationStore;
+          const deadline = yield* deadlineAfter(60);
+          const first = input(34, "releasedhandle", deadline);
+          const competitor = input(35, "releasedhandle", deadline);
+          yield* store.create(first);
+          yield* store.create(competitor);
+          yield* store.reserveAuthorization(
+            first.digest,
+            authorization.ownerSignature
+          );
+          yield* store.releaseAuthorizationReservation(first.digest);
+
+          const authorized = yield* store.authorize(
+            competitor.digest,
+            authorization
+          );
+          assert.strictEqual(authorized.status, "ready");
+        })
+    );
+
     it.effect("atomically replays prepare by idempotency-key hash", () =>
       Effect.gen(function* () {
         const store = yield* RegistrationStore;

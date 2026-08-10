@@ -534,7 +534,7 @@ export class RegistrationEnrollment extends Context.Service<
                   return yield* signer.sign(domain, intent);
                 }).pipe(
                   Effect.tapError(() =>
-                    admissions.release(stored.admissionCodeHash, digest)
+                    store.releaseAuthorizationReservation(digest)
                   )
                 )
               : yield* normalizeRegistrationSignerSignature(
@@ -543,9 +543,7 @@ export class RegistrationEnrollment extends Context.Service<
           const registrationSignature = yield* decodeSignature(
             registrationSignatureHex
           ).pipe(
-            Effect.tapError(() =>
-              admissions.release(stored.admissionCodeHash, digest)
-            )
+            Effect.tapError(() => store.releaseAuthorizationReservation(digest))
           );
           const recoveredRegistrationSigner =
             yield* recoverRegisterIntentSignerV1(
@@ -554,11 +552,11 @@ export class RegistrationEnrollment extends Context.Service<
               registrationSignature
             ).pipe(
               Effect.tapError(() =>
-                admissions.release(stored.admissionCodeHash, digest)
+                store.releaseAuthorizationReservation(digest)
               )
             );
           if (recoveredRegistrationSigner !== signer.address) {
-            yield* admissions.release(stored.admissionCodeHash, digest);
+            yield* store.releaseAuthorizationReservation(digest);
             return yield* new RegistrationSignatureMismatch({
               expected: signer.address,
               kind: "registration",
@@ -573,7 +571,7 @@ export class RegistrationEnrollment extends Context.Service<
             })
             .pipe(
               Effect.tapError(() =>
-                admissions.release(stored.admissionCodeHash, digest)
+                store.releaseAuthorizationReservation(digest)
               )
             );
           const status = yield* verifyAuthorizedRegistrationStatus(

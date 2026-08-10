@@ -170,6 +170,12 @@ export type RegistrationStoreError =
   | RegistrationTransitionConflict;
 
 export interface RegistrationStoreShape {
+  readonly releaseAuthorizationReservation: (
+    digest: Hash
+  ) => Effect.Effect<
+    void,
+    RegistrationInputError | RegistrationStorePersistenceError
+  >;
   readonly reserveAuthorization: (
     digest: Hash,
     ownerSignature: Hex
@@ -421,6 +427,45 @@ export class RegistrationStore extends Context.Service<
               .where(eq(registrationIntents.digest, canonicalDigest))
               .returning();
             return rows[0] as StoredRegistrationIntent;
+          })
+        );
+      });
+
+      const releaseAuthorizationReservation = Effect.fn(
+        "RegistrationStore.releaseAuthorizationReservation"
+      )(function* (digest: Hash) {
+        const canonicalDigest = yield* normalizeRegistrationDigest(digest);
+        yield* db.transaction((tx) =>
+          Effect.gen(function* () {
+            const current = yield* findForUpdate(tx, canonicalDigest);
+            if (
+              !current ||
+              current.status !== "pending_owner_signature" ||
+              current.registrationSignature !== null
+            ) {
+              return;
+            }
+            yield* tx
+              .delete(registrationHandleLeases)
+              .where(
+                eq(registrationHandleLeases.intentDigest, canonicalDigest)
+              );
+            yield* tx
+              .update(registrationAdmissionCodes)
+              .set({ claimedAt: null, claimedByDigest: null })
+              .where(
+                and(
+                  eq(
+                    registrationAdmissionCodes.codeHash,
+                    current.admissionCodeHash
+                  ),
+                  eq(
+                    registrationAdmissionCodes.claimedByDigest,
+                    canonicalDigest
+                  ),
+                  isNull(registrationAdmissionCodes.consumedAt)
+                )
+              );
           })
         );
       });
@@ -986,6 +1031,7 @@ export class RegistrationStore extends Context.Service<
         markConfirmed,
         markFailed,
         markSubmitted,
+        releaseAuthorizationReservation,
         reserveAuthorization,
       });
     })
