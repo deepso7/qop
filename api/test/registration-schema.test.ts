@@ -66,7 +66,7 @@ describe("registration database schema", () => {
       [
         "device_session_challenges_certificate_expiry_idx",
         "device_session_challenges_expiry_idx",
-        "device_session_challenges_open_certificate_flow_unique",
+        "device_session_challenges_open_certificate_unique",
       ]
     );
     assert.deepStrictEqual(
@@ -76,7 +76,6 @@ describe("registration database schema", () => {
     assert.deepStrictEqual(names(config.checks), [
       "device_session_challenges_qid_check",
       "device_session_challenges_time_check",
-      "device_session_challenges_flow_check",
       "device_session_challenges_version_check",
     ]);
     assert.strictEqual(config.foreignKeys.length, 1);
@@ -88,8 +87,6 @@ describe("registration database schema", () => {
         ])
       ),
       {
-        device_session_challenges_flow_check:
-          "\"device_session_challenges\".\"flow\" in ('registration', 'pairing', 'restore')",
         device_session_challenges_qid_check:
           '"device_session_challenges"."qid" > 0',
         device_session_challenges_time_check:

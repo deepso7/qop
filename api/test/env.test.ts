@@ -9,6 +9,7 @@ describe("api environment", () => {
       const env = yield* decodeEnv({
         CHAIN_ID: "31337",
         DATABASE_URL: "postgresql://user:password@localhost:5432/qop",
+        GATEWAY_ID: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         REGISTRY_ADDRESS: "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
         REGISTRY_CONFIRMATIONS: "12",
         RPC_URL: "http://127.0.0.1:8545",

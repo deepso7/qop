@@ -1,4 +1,3 @@
-import type { DeviceSessionChallengeV1 } from "@qop/identity";
 import { sql } from "drizzle-orm";
 import {
   char,
@@ -204,12 +203,10 @@ export const deviceSessionChallenges = pgTable(
       .defaultNow()
       .notNull(),
     expiresAt: uint64("expires_at").notNull(),
-    flow: varchar("flow", { length: 16 })
-      .$type<DeviceSessionChallengeV1["flow"]>()
-      .notNull(),
     issuedAt: uint64("issued_at").notNull(),
     peerId: char("peer_id", { length: 52 }).notNull(),
     qid: uint256("qid").notNull(),
+    verifier: char("verifier", { length: 43 }).notNull(),
     version: integer("version").notNull(),
   },
   (table) => [
@@ -222,17 +219,13 @@ export const deviceSessionChallenges = pgTable(
       table.expiresAt
     ),
     index("device_session_challenges_expiry_idx").on(table.expiresAt),
-    uniqueIndex("device_session_challenges_open_certificate_flow_unique")
-      .on(table.certificateDigest, table.flow)
+    uniqueIndex("device_session_challenges_open_certificate_unique")
+      .on(table.certificateDigest)
       .where(sql`${table.consumedAt} is null`),
     check("device_session_challenges_qid_check", sql`${table.qid} > 0`),
     check(
       "device_session_challenges_time_check",
       sql`${table.expiresAt} > ${table.issuedAt}`
-    ),
-    check(
-      "device_session_challenges_flow_check",
-      sql`${table.flow} in ('registration', 'pairing', 'restore')`
     ),
     check("device_session_challenges_version_check", sql`${table.version} = 1`),
   ]

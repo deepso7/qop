@@ -7,7 +7,6 @@ import {
   verifyDeviceSessionProofV1,
 } from "@qop/identity";
 import type {
-  DeviceSessionChallengeV1,
   DeviceSessionChallengeV1Encoded,
   DeviceSessionPopCryptoError,
 } from "@qop/identity";
@@ -21,6 +20,7 @@ import {
   DeviceCertificateStoreLive,
 } from "../device/store.ts";
 import type { DeviceCertificateStoreError } from "../device/store.ts";
+import { Env } from "../env.ts";
 import type { RegistryChainReadError } from "../registry/chain.ts";
 import { normalizeCertificateDigest } from "../registry/inputs.ts";
 import type { RegistryInputError } from "../registry/inputs.ts";
@@ -43,7 +43,6 @@ export const deviceSessionTtlSeconds = 3600n;
 
 export interface IssueDeviceSessionChallenge {
   readonly certificateDigest: Hash;
-  readonly flow: DeviceSessionChallengeV1["flow"];
 }
 
 export interface AuthenticatedDeviceSession {
@@ -131,10 +130,10 @@ const storedChallengeMatches = (
 ): boolean =>
   stored.certificateDigest === challenge.certificateDigest &&
   stored.expiresAt === BigInt(challenge.expiresAt) &&
-  stored.flow === challenge.flow &&
   stored.issuedAt === BigInt(challenge.issuedAt) &&
   stored.peerId === challenge.peerId &&
   stored.qid === BigInt(challenge.qid) &&
+  stored.verifier === challenge.verifier &&
   stored.version === challenge.version;
 
 const encodeStoredChallenge = (
@@ -143,10 +142,10 @@ const encodeStoredChallenge = (
   certificateDigest: stored.certificateDigest,
   challenge: stored.challenge,
   expiresAt: stored.expiresAt.toString(),
-  flow: stored.flow,
   issuedAt: stored.issuedAt.toString(),
   peerId: stored.peerId,
   qid: stored.qid.toString(),
+  verifier: stored.verifier,
   version: 1,
 });
 
@@ -160,7 +159,15 @@ export class DeviceSessionService extends Context.Service<
       const certificates = yield* DeviceCertificateStore;
       const sessions = yield* DeviceSessionStore;
       const entropy = yield* DeviceSessionEntropy;
+      const env = yield* Env;
       const registry = yield* RegistryReader;
+
+      const currentVerifier = Effect.fn("DeviceSessionService.currentVerifier")(
+        () =>
+          Schema.encodeEffect(Base64Url32)(env.GATEWAY_ID).pipe(
+            Effect.mapError(protocolError("encode-challenge"))
+          )
+      );
 
       const requireCurrentCertificate = Effect.fn(
         "DeviceSessionService.requireCurrentCertificate"
@@ -209,10 +216,10 @@ export class DeviceSessionService extends Context.Service<
           certificateDigest,
           challenge: challengeToken,
           expiresAt: (issuedAt + deviceSessionChallengeTtlSeconds).toString(),
-          flow: input.flow,
           issuedAt: issuedAt.toString(),
           peerId: certificate.peerId,
           qid: certificate.qid.toString(),
+          verifier: yield* currentVerifier(),
           version: 1,
         }).pipe(Effect.mapError(protocolError("decode-challenge")));
         const encoded = yield* encodeDeviceSessionChallengeV1(challenge).pipe(
@@ -241,6 +248,11 @@ export class DeviceSessionService extends Context.Service<
             });
           }
           if (!storedChallengeMatches(stored.value, encodedProof.challenge)) {
+            return yield* new DeviceSessionChallengeBindingMismatch({
+              challengeHash,
+            });
+          }
+          if (encodedProof.challenge.verifier !== (yield* currentVerifier())) {
             return yield* new DeviceSessionChallengeBindingMismatch({
               challengeHash,
             });
@@ -325,5 +337,6 @@ export const DeviceSessionServiceLive = DeviceSessionService.layer.pipe(
   Layer.provide(DeviceCertificateStoreLive),
   Layer.provide(DeviceSessionStoreLive),
   Layer.provide(DeviceSessionEntropy.layer),
-  Layer.provide(RegistryReaderLive)
+  Layer.provide(RegistryReaderLive),
+  Layer.provide(Env.layer)
 );

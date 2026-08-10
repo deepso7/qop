@@ -26,20 +26,14 @@ const DEVICE_SESSION_POP_DOMAIN_BYTES = Uint8Array.from(
 
 export const deviceSessionPopDomain = "qop/device-session-pop/v1" as const;
 export const deviceSessionPopVersion = 1 as const;
-export const deviceSessionEnrollmentFlows = [
-  "pairing",
-  "registration",
-  "restore",
-] as const;
-
 export const DeviceSessionChallengeV1 = Schema.Struct({
   certificateDigest: Hex32,
   challenge: Base64Url32,
   expiresAt: UnixSeconds,
-  flow: Schema.Literals(deviceSessionEnrollmentFlows),
   issuedAt: UnixSeconds,
   peerId: PeerId,
   qid: Qid,
+  verifier: Base64Url32,
   version: Schema.Literal(deviceSessionPopVersion),
 })
   .annotate({
@@ -86,23 +80,6 @@ const bigintToBytes = (value: bigint, length: number): Uint8Array => {
   return bytes;
 };
 
-const flowByte = (flow: DeviceSessionChallengeV1["flow"]): number => {
-  switch (flow) {
-    case "registration": {
-      return 1;
-    }
-    case "pairing": {
-      return 2;
-    }
-    case "restore": {
-      return 3;
-    }
-    default: {
-      throw new Error(`Unsupported device session enrollment flow: ${flow}`);
-    }
-  }
-};
-
 const concatBytes = (parts: readonly Uint8Array[]): Uint8Array => {
   const output = new Uint8Array(
     parts.reduce((length, part) => length + part.length, 0)
@@ -143,10 +120,11 @@ export const hashDeviceSessionChallengeV1 = Effect.fn(
   Effect.sync(() => {
     const payload = concatBytes([
       DEVICE_SESSION_POP_DOMAIN_BYTES,
-      Uint8Array.of(0, deviceSessionPopVersion, flowByte(challenge.flow)),
+      Uint8Array.of(0, deviceSessionPopVersion),
       bigintToBytes(challenge.qid, 32),
       challenge.peerId,
       challenge.certificateDigest,
+      challenge.verifier,
       challenge.challenge,
       bigintToBytes(challenge.issuedAt, 8),
       bigintToBytes(challenge.expiresAt, 8),

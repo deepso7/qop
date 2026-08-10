@@ -1,4 +1,4 @@
-import { ChainId, EthereumAddress } from "@qop/identity";
+import { Base64Url32, ChainId, EthereumAddress } from "@qop/identity";
 import {
   Context,
   Effect,
@@ -29,6 +29,7 @@ const RegistryAddress = RegistryAddressInput.pipe(
 const EnvSchema = Schema.Struct({
   CHAIN_ID: ChainId,
   DATABASE_URL: Schema.Trim.check(Schema.isNonEmpty()),
+  GATEWAY_ID: Base64Url32,
   REGISTRY_ADDRESS: RegistryAddress,
   REGISTRY_CONFIRMATIONS: Confirmations,
   RPC_URL: Schema.URLFromString,

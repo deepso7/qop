@@ -1,5 +1,5 @@
 import type { DeviceSessionChallengeV1Encoded } from "@qop/identity";
-import { and, asc, eq, gt, inArray, isNull, lte } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lte, ne, or } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, DateTime, Effect, Layer, Option } from "effect";
@@ -122,10 +122,10 @@ export class DeviceSessionStore extends Context.Service<
             challenge: input.challenge.challenge,
             challengeHash: input.challengeHash,
             expiresAt: BigInt(input.challenge.expiresAt),
-            flow: input.challenge.flow,
             issuedAt: BigInt(input.challenge.issuedAt),
             peerId: input.challenge.peerId,
             qid: BigInt(input.challenge.qid),
+            verifier: input.challenge.verifier,
             version: input.challenge.version,
           };
           const currentSeconds = epochSeconds(yield* DateTime.now);
@@ -152,7 +152,7 @@ export class DeviceSessionStore extends Context.Service<
                       deviceSessionChallenges.certificateDigest,
                       challenge.certificateDigest
                     ),
-                    eq(deviceSessionChallenges.flow, challenge.flow),
+                    eq(deviceSessionChallenges.verifier, challenge.verifier),
                     isNull(deviceSessionChallenges.consumedAt),
                     gt(deviceSessionChallenges.expiresAt, currentSeconds)
                   )
@@ -170,9 +170,11 @@ export class DeviceSessionStore extends Context.Service<
                       deviceSessionChallenges.certificateDigest,
                       challenge.certificateDigest
                     ),
-                    eq(deviceSessionChallenges.flow, challenge.flow),
                     isNull(deviceSessionChallenges.consumedAt),
-                    lte(deviceSessionChallenges.expiresAt, currentSeconds)
+                    or(
+                      lte(deviceSessionChallenges.expiresAt, currentSeconds),
+                      ne(deviceSessionChallenges.verifier, challenge.verifier)
+                    )
                   )
                 );
               const rows = yield* tx

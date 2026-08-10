@@ -141,6 +141,7 @@ const EnvTestLive = Layer.succeed(
   Env.of({
     CHAIN_ID: 31_337n,
     DATABASE_URL: "postgresql://test",
+    GATEWAY_ID: new Uint8Array(32),
     REGISTRY_ADDRESS,
     REGISTRY_CONFIRMATIONS: 0,
     RPC_URL: new URL("http://127.0.0.1:8545"),

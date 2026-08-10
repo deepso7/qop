@@ -18,7 +18,6 @@ export {
   decodeDeviceSessionProofV1,
   DeviceSessionChallengeV1,
   type DeviceSessionChallengeV1Encoded,
-  deviceSessionEnrollmentFlows,
   deviceSessionPopDomain,
   deviceSessionPopVersion,
   DeviceSessionPopCryptoError,

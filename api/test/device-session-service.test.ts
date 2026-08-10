@@ -29,6 +29,7 @@ import {
   DeviceSessionStore,
 } from "../src/device-session/store.ts";
 import { DeviceCertificateStore } from "../src/device/store.ts";
+import { Env } from "../src/env.ts";
 import { RegistrationStore } from "../src/registration/store.ts";
 import { RegistryReader } from "../src/registry/reader.ts";
 import type {
@@ -40,6 +41,7 @@ import { DeviceAndRegistrationStoresTestLive } from "./support/registration-data
 
 const OWNER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf" as Address;
 const SIGNATURE = `0x${"1".padStart(64, "0")}${"1".padStart(64, "0")}00` as Hex;
+const gatewayId = new Uint8Array(32);
 const secretKey = new Uint8Array(32);
 secretKey[31] = 1;
 const peerId = Effect.runSync(
@@ -116,10 +118,23 @@ const DeviceSessionEntropyTestLive = Layer.succeed(
   })
 );
 
+const EnvTestLive = Layer.succeed(
+  Env,
+  Env.of({
+    CHAIN_ID: 31_337n,
+    DATABASE_URL: "postgresql://test",
+    GATEWAY_ID: gatewayId,
+    REGISTRY_ADDRESS: OWNER,
+    REGISTRY_CONFIRMATIONS: 0,
+    RPC_URL: new URL("http://127.0.0.1:8545"),
+  })
+);
+
 const DeviceSessionServiceTestLive = DeviceSessionService.layer.pipe(
   Layer.provideMerge(DeviceAndRegistrationStoresTestLive),
   Layer.provide(RegistryReaderTestLive),
-  Layer.provide(DeviceSessionEntropyTestLive)
+  Layer.provide(DeviceSessionEntropyTestLive),
+  Layer.provide(EnvTestLive)
 );
 
 const observeCertificate = Effect.fn("test.observeCertificate")(function* (
@@ -188,7 +203,6 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
       const sessions = yield* DeviceSessionService;
       const challenge = yield* sessions.issue({
         certificateDigest: certificate.certificateDigest,
-        flow: "registration",
       });
       assert.strictEqual(
         challenge.certificateDigest,
@@ -196,7 +210,10 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
       );
       assert.strictEqual(challenge.peerId, peerId);
       assert.strictEqual(challenge.qid, certificate.qid.toString());
-      assert.strictEqual(challenge.flow, "registration");
+      assert.strictEqual(
+        challenge.verifier,
+        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      );
       assert.strictEqual(
         BigInt(challenge.expiresAt) - BigInt(challenge.issuedAt),
         300n
@@ -204,7 +221,6 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
       assert.deepStrictEqual(
         yield* sessions.issue({
           certificateDigest: certificate.certificateDigest,
-          flow: "registration",
         }),
         challenge
       );
@@ -276,7 +292,6 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
       const sessions = yield* DeviceSessionService;
       const challenge = yield* sessions.issue({
         certificateDigest: certificate.certificateDigest,
-        flow: "pairing",
       });
       const proof = yield* signChallenge(challenge);
       const results = yield* Effect.all(
@@ -293,6 +308,37 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
     })
   );
 
+  it.effect("rejects and replaces challenges from another gateway", () =>
+    Effect.gen(function* () {
+      gatewayId.fill(0);
+      registryOwnerVersion = 0;
+      revokedDigest = undefined;
+      const certificate = yield* observeCertificate(9);
+      const sessions = yield* DeviceSessionService;
+      const first = yield* sessions.issue({
+        certificateDigest: certificate.certificateDigest,
+      });
+      const firstProof = yield* signChallenge(first);
+
+      gatewayId[31] = 1;
+      const rejected = yield* sessions
+        .authenticate(firstProof)
+        .pipe(Effect.flip);
+      assert.instanceOf(rejected, DeviceSessionChallengeBindingMismatch);
+
+      const replacement = yield* sessions.issue({
+        certificateDigest: certificate.certificateDigest,
+      });
+      assert.notStrictEqual(replacement.challenge, first.challenge);
+      assert.notStrictEqual(replacement.verifier, first.verifier);
+      assert.strictEqual(
+        (yield* sessions.authenticate(yield* signChallenge(replacement)))
+          .certificateDigest,
+        certificate.certificateDigest
+      );
+    }).pipe(Effect.ensuring(Effect.sync(() => gatewayId.fill(0))))
+  );
+
   it.effect("rejects expired and tampered proofs", () =>
     Effect.gen(function* () {
       registryOwnerVersion = 0;
@@ -301,7 +347,6 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
       const sessions = yield* DeviceSessionService;
       const challenge = yield* sessions.issue({
         certificateDigest: certificate.certificateDigest,
-        flow: "restore",
       });
       const proof = yield* signChallenge(challenge);
       yield* TestClock.adjust(Duration.seconds(301));
@@ -311,7 +356,6 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
       const secondCertificate = yield* observeCertificate(4);
       const secondChallenge = yield* sessions.issue({
         certificateDigest: secondCertificate.certificateDigest,
-        flow: "registration",
       });
       const tampered = yield* sessions
         .authenticate({
@@ -348,7 +392,6 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
         const invalidCertificate = yield* observeCertificate(5);
         const invalidChallenge = yield* sessions.issue({
           certificateDigest: invalidCertificate.certificateDigest,
-          flow: "registration",
         });
         const invalidProof = yield* signChallenge(invalidChallenge);
         const replacementSignature = new Uint8Array(64);
@@ -364,7 +407,6 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
         const rotatedCertificate = yield* observeCertificate(6);
         const rotatedChallenge = yield* sessions.issue({
           certificateDigest: rotatedCertificate.certificateDigest,
-          flow: "registration",
         });
         registryOwnerVersion = 1;
         const rotated = yield* sessions
@@ -379,7 +421,6 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
         const rotatedIssue = yield* sessions
           .issue({
             certificateDigest: rotatedCertificate.certificateDigest,
-            flow: "registration",
           })
           .pipe(Effect.flip);
         assert.instanceOf(rotatedIssue, DeviceSessionCertificateRejected);
@@ -389,7 +430,6 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
         const revokedCertificate = yield* observeCertificate(7);
         const revokedChallenge = yield* sessions.issue({
           certificateDigest: revokedCertificate.certificateDigest,
-          flow: "registration",
         });
         revokedDigest = revokedCertificate.certificateDigest;
         const revoked = yield* sessions
@@ -404,7 +444,6 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
         const revokedIssue = yield* sessions
           .issue({
             certificateDigest: revokedCertificate.certificateDigest,
-            flow: "registration",
           })
           .pipe(Effect.flip);
         assert.instanceOf(revokedIssue, DeviceSessionCertificateRejected);
@@ -412,7 +451,7 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
 
         revokedDigest = undefined;
         const unknown = yield* sessions
-          .issue({ certificateDigest: hash(9999), flow: "registration" })
+          .issue({ certificateDigest: hash(9999) })
           .pipe(Effect.flip);
         assert.instanceOf(unknown, DeviceSessionCertificateRejected);
         assert.strictEqual(unknown.reason, "not-found");
@@ -434,7 +473,6 @@ layer(DeviceSessionServiceTestLive, { timeout: "30 seconds" })((it) => {
       const sessions = yield* DeviceSessionService;
       const challenge = yield* sessions.issue({
         certificateDigest: certificate.certificateDigest,
-        flow: "registration",
       });
       const decoded = yield* decodeDeviceSessionChallengeV1(challenge);
       const challengeHash = keccak256(decoded.challenge);

@@ -20,10 +20,11 @@ import {
 const PEER_ID = "12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp";
 const CHALLENGE = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8";
 const CERTIFICATE_DIGEST = `0x${"11".repeat(32)}`;
+const VERIFIER = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const EXPECTED_DIGEST =
-  "0x8aa7a01cbf95f9247d749eae4ad6ad3a7aad0911521acb06a2255c7a8f724488";
+  "0xb066fad1fb38245da7cf029ffd1ca9afa6989ad13cee8b99802bc1b0af0f975f";
 const EXPECTED_SIGNATURE =
-  "NbFinYMwpzatJkXXgQKavVuP9A_mgXHCfjqLrY2l-V0SVIO9Oj6Uoa_19TefumryLGMAWw02tr-YjDy993sqDQ";
+  "C0JfZFOPOCINad8AbdHh57q6RepDldwu-cygsQZPAAb6tURNZCSIuR61qEq1API5z_Fukr4JhxKu0vuM_ydFBQ";
 
 const secretKey = new Uint8Array(32);
 secretKey[31] = 1;
@@ -32,10 +33,10 @@ const encodedChallenge = {
   certificateDigest: CERTIFICATE_DIGEST,
   challenge: CHALLENGE,
   expiresAt: "1700000300",
-  flow: "registration",
   issuedAt: "1700000000",
   peerId: PEER_ID,
   qid: "42",
+  verifier: VERIFIER,
   version: 1,
 } as const;
 
@@ -79,7 +80,7 @@ describe("device session proof of possession", () => {
       })
   );
 
-  it.effect("separates flows and every identity binding in the digest", () =>
+  it.effect("separates every identity binding in the digest", () =>
     Effect.gen(function* () {
       const challenge = yield* decodeDeviceSessionChallengeV1(encodedChallenge);
       const baseline = yield* hashDeviceSessionChallengeV1(challenge);
@@ -89,7 +90,12 @@ describe("device session proof of possession", () => {
         Effect.flatMap(Schema.encodeEffect(PeerId))
       );
       const candidates = [
-        { ...encodedChallenge, flow: "pairing" as const },
+        {
+          ...encodedChallenge,
+          verifier: yield* Schema.encodeEffect(Base64Url32)(
+            new Uint8Array(32).fill(8)
+          ),
+        },
         { ...encodedChallenge, qid: "43" },
         { ...encodedChallenge, peerId: otherPeerId },
         { ...encodedChallenge, certificateDigest: `0x${"22".repeat(32)}` },
