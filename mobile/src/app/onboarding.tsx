@@ -561,10 +561,9 @@ const OnboardingRoute = () => {
       contentContainerClassName="grow"
       contentContainerStyle={{
         paddingBottom: Math.max(insets.bottom, 72),
-        paddingTop:
-          process.env.EXPO_OS === "ios" ? 24 : Math.max(insets.top, 24),
+        paddingTop: Math.max(insets.top, 24),
       }}
-      contentInsetAdjustmentBehavior="automatic"
+      contentInsetAdjustmentBehavior="never"
       keyboardDismissMode={
         process.env.EXPO_OS === "ios" ? "interactive" : "on-drag"
       }
