@@ -463,7 +463,7 @@ const OnboardingRoute = () => {
                 autoCapitalize="none"
                 autoComplete="off"
                 autoCorrect={false}
-                className="h-14 grow border-0 bg-transparent px-1.5 text-lg dark:bg-transparent"
+                className="h-14 grow border-0 bg-transparent px-1.5 py-0 text-lg dark:bg-transparent"
                 editable={!isCreating}
                 enterKeyHint="done"
                 maxLength={33}
