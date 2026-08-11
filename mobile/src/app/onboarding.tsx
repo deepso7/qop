@@ -237,11 +237,11 @@ const VaultErrorScreen = ({ error }: { error: IdentityVaultError | null }) => {
                 </AlertDialogCancel>
                 <AlertDialogAction
                   accessibilityLabel="Delete stored identity"
-                  className="border-destructive/20 bg-destructive/10 active:bg-destructive/20 border"
+                  className="bg-destructive"
                   disabled={resetting}
                   onPress={() => void resetVault()}
                 >
-                  <Text className="text-destructive">Delete identity</Text>
+                  <Text>Delete identity</Text>
                 </AlertDialogAction>
               </AlertDialogFooter>
             </AlertDialogContent>
