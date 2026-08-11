@@ -1,0 +1,17 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="128"
+  height="128"
+  viewBox="0 0 128 128"
+  role="img"
+  aria-labelledby="title description"
+  shape-rendering="crispEdges"
+>
+  <title id="title">qop mark</title>
+  <desc id="description">A lowercase o drawn as thick orange pixels.</desc>
+
+  <path
+    fill="#B96C45"
+    d="M32 16h64v32H32zM16 32h32v64H16zM80 32h32v64H80zM32 80h64v32H32z"
+  />
+</svg>
