@@ -456,7 +456,9 @@ const OnboardingRoute = () => {
           <View className="gap-3">
             <Text variant="label">Your handle</Text>
             <View className="border-border bg-background-element flex-row items-center rounded-xl border px-4">
-              <Text className="text-foreground-secondary text-lg">@</Text>
+              <Text className="text-foreground-secondary text-lg leading-5 ios:translate-y-1">
+                @
+              </Text>
               <Input
                 accessibilityHint="Lowercase letters, numbers, and underscores"
                 accessibilityLabel="qop handle"
