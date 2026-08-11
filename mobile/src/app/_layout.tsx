@@ -8,7 +8,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 
 import { BlurTargetProvider } from "@/components/ui/blur-target";
 import { useTheme } from "@/constants/theme";
-import { IdentityGateProvider, useIdentityGate } from "@/lib/identity-gate";
+import { useIdentityStore } from "@/lib/identity-store";
 
 import "../../global.css";
 
@@ -17,15 +17,21 @@ SplashScreen.setOptions({ duration: 250, fade: true });
 
 const AppStack = () => {
   const colors = useTheme();
-  const { hasIdentityKeys } = useIdentityGate();
+  const hydrate = useIdentityStore((state) => state.hydrate);
+  const status = useIdentityStore((state) => state.status);
+  const isReady = status === "ready";
 
   React.useEffect(() => {
-    if (hasIdentityKeys !== null) {
+    void hydrate();
+  }, [hydrate]);
+
+  React.useEffect(() => {
+    if (status !== "loading") {
       void SplashScreen.hideAsync();
     }
-  }, [hasIdentityKeys]);
+  }, [status]);
 
-  if (hasIdentityKeys === null) {
+  if (status === "loading") {
     return null;
   }
 
@@ -41,10 +47,10 @@ const AppStack = () => {
             headerTintColor: colors.text,
           }}
         >
-          <Stack.Protected guard={!hasIdentityKeys}>
+          <Stack.Protected guard={!isReady}>
             <Stack.Screen name="onboarding" options={{ headerShown: false }} />
           </Stack.Protected>
-          <Stack.Protected guard={hasIdentityKeys}>
+          <Stack.Protected guard={isReady}>
             <Stack.Screen name="index" options={{ headerShown: false }} />
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="chat/[id]" options={{ title: "Chat" }} />
@@ -76,9 +82,7 @@ const RootLayout = () => {
   return (
     <KeyboardProvider>
       <ThemeProvider value={navigationTheme}>
-        <IdentityGateProvider>
-          <AppStack />
-        </IdentityGateProvider>
+        <AppStack />
       </ThemeProvider>
     </KeyboardProvider>
   );

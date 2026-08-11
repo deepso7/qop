@@ -54,6 +54,12 @@ export {
   type IdentityEip712DomainV1Encoded,
 } from "./eip712.ts";
 export { identityProtocolVersion } from "./version.ts";
+export {
+  decodeRecoveryKeyV1,
+  encodeRecoveryKeyV1,
+  ownerAddressFromRecoveryKeyV1,
+  RecoveryKeyError,
+} from "./recovery-key.ts";
 export { hashRegistrationDeviceCommitmentV1 } from "./registration-device-commitment.ts";
 export {
   decodeRegisterIntentV1,
