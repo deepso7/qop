@@ -42,7 +42,7 @@ export const CustomTabList = (props: TabListProps) => {
         tone="element"
       >
         <Text className="mr-auto" variant="label">
-          Expo Starter
+          qop
         </Text>
 
         {props.children}
@@ -67,8 +67,8 @@ const AppTabs = () => (
     <TabSlot style={{ height: "100%" }} />
     <TabList asChild>
       <CustomTabList>
-        <TabTrigger name="home" href="/" asChild>
-          <TabButton>Home</TabButton>
+        <TabTrigger name="chats" href="/chats" asChild>
+          <TabButton>Chats</TabButton>
         </TabTrigger>
         <TabTrigger name="explore" href="/explore" asChild>
           <TabButton>Explore</TabButton>

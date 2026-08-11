@@ -63,7 +63,7 @@ const NoSearchResults = () => (
   </View>
 );
 
-const HomeScreen = () => {
+const ChatsScreen = () => {
   const isOpeningConversation = React.useRef(false);
   const [query, setQuery] = React.useState("");
   const contentContainerStyle = useResolveClassNames("pb-24");
@@ -138,4 +138,4 @@ const HomeScreen = () => {
   );
 };
 
-export default HomeScreen;
+export default ChatsScreen;

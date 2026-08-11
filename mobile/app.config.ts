@@ -5,18 +5,21 @@ type AppVariant = "development" | "preview" | "production";
 const VARIANTS = {
   development: {
     backgroundColor: "#F2EEEA",
+    darkBackgroundColor: "#0D1012",
     identifier: "sh.qop.dev",
     name: "qop Dev",
     scheme: "qop-dev",
   },
   preview: {
     backgroundColor: "#F2EEEA",
+    darkBackgroundColor: "#0D1012",
     identifier: "sh.qop.preview",
     name: "qop Preview",
     scheme: "qop-preview",
   },
   production: {
     backgroundColor: "#B96C45",
+    darkBackgroundColor: "#0D1012",
     identifier: "sh.qop",
     name: "qop",
     scheme: "qop",
@@ -63,7 +66,23 @@ const createExpoConfig = ({ config }: ConfigContext): ExpoConfig => {
     },
     name: variant.name,
     plugins: [
-      ...(config.plugins ?? []),
+      ...(config.plugins ?? []).filter((plugin) => {
+        const name = Array.isArray(plugin) ? plugin[0] : plugin;
+        return name !== "expo-splash-screen";
+      }),
+      [
+        "expo-splash-screen",
+        {
+          backgroundColor: variant.backgroundColor,
+          dark: {
+            backgroundColor: variant.darkBackgroundColor,
+            image: `${iconRoot}/splash-dark.png`,
+          },
+          image: `${iconRoot}/splash-light.png`,
+          imageWidth: 196,
+          resizeMode: "contain",
+        },
+      ],
       [
         "expo-dev-client",
         {

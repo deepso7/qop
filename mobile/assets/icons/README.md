@@ -13,6 +13,7 @@ Each variant contains:
 - `ios.png`: light-appearance fallback used by the top-level Expo icon setting.
 - `ios-light.png`: opaque, full-bleed 1024×1024 iOS light icon.
 - `ios-dark.png`: opaque, full-bleed 1024×1024 iOS dark icon.
+- `splash-light.png` and `splash-dark.png`: transparent 256×256 launch marks matched to each appearance and build variant.
 - `android-foreground.png`: transparent 1024×1024 adaptive foreground.
 - `android-monochrome.png`: single-color Android themed-icon layer.
 - `android-legacy.png`: combined fallback with stepped, grid-aligned corners for pre-adaptive Android launchers.

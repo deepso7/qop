@@ -16,11 +16,11 @@ const AppTabs = () => {
       rippleColor="transparent"
       tintColor={colors.primary}
     >
-      <NativeTabs.Trigger name="index">
-        <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="chats">
+        <NativeTabs.Trigger.Label>Chats</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          md="home"
-          sf={{ default: "house", selected: "house.fill" }}
+          md="chat_bubble"
+          sf={{ default: "bubble.left", selected: "bubble.left.fill" }}
         />
       </NativeTabs.Trigger>
 

@@ -4,6 +4,7 @@ import { deflateSync } from "node:zlib";
 
 const ICON_SIZE = 1024;
 const FAVICON_SIZE = 64;
+const SPLASH_SIZE = 256;
 const LOGICAL_GRID_SIZE = 64;
 const OUTPUT_ROOT = resolve(import.meta.dirname, "../assets/icons");
 
@@ -234,6 +235,24 @@ for (const [name, variant] of Object.entries(VARIANTS)) {
     variant.dark.badgeColor
   );
   writePng(`${name}/ios-dark.png`, iosDark);
+
+  const splashLight = createImage(SPLASH_SIZE, SPLASH_SIZE);
+  drawMark(
+    splashLight,
+    variant.light.mark,
+    variant.badgeCount,
+    variant.light.badgeColor
+  );
+  writePng(`${name}/splash-light.png`, splashLight);
+
+  const splashDark = createImage(SPLASH_SIZE, SPLASH_SIZE);
+  drawMark(
+    splashDark,
+    variant.dark.mark,
+    variant.badgeCount,
+    variant.dark.badgeColor
+  );
+  writePng(`${name}/splash-dark.png`, splashDark);
 
   const foreground = createImage(ICON_SIZE, ICON_SIZE);
   drawMark(foreground, variant.mark, variant.badgeCount, variant.badgeColor);

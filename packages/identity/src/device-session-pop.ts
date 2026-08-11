@@ -1,7 +1,7 @@
-import { ed25519 } from "@noble/curves/ed25519";
+import { ed25519 } from "@noble/curves/ed25519.js";
 import { base58 } from "@scure/base";
 import { Data, Effect, Schema } from "effect";
-import { concatBytes, keccak256, numberToBytes } from "viem";
+import { concatBytes, hexToBytes, keccak256, numberToBytes } from "viem";
 import type { Hash } from "viem";
 
 import { strictParseOptions } from "./internal.ts";
@@ -144,7 +144,7 @@ export const signDeviceSessionChallengeV1 = Effect.fn(
   return yield* Effect.try({
     catch: (cause) =>
       new DeviceSessionPopCryptoError({ cause, operation: "sign" }),
-    try: () => ed25519.sign(digest.slice(2), secretKey),
+    try: () => ed25519.sign(hexToBytes(digest), secretKey),
   });
 });
 
@@ -159,7 +159,7 @@ export const verifyDeviceSessionProofV1 = Effect.fn(
     catch: (cause) =>
       new DeviceSessionPopCryptoError({ cause, operation: "verify" }),
     try: () =>
-      ed25519.verify(proof.signature, digest.slice(2), publicKey, {
+      ed25519.verify(proof.signature, hexToBytes(digest), publicKey, {
         zip215: false,
       }),
   });
