@@ -1,10 +1,15 @@
 import { Handle } from "@qop/identity";
 import { Result, Schema } from "effect";
-import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
-import { ArrowLeft, Check, Copy, Plus } from "lucide-react-native";
+import { ArrowLeft, Check, Plus, Share2 } from "lucide-react-native";
 import * as React from "react";
-import { ActivityIndicator, Keyboard, ScrollView, View } from "react-native";
+import {
+  ActivityIndicator,
+  Keyboard,
+  ScrollView,
+  Share,
+  View,
+} from "react-native";
 import Animated, {
   FadeIn,
   FadeOut,
@@ -13,6 +18,17 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { QopWordmark } from "@/components/brand-mark";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
@@ -48,8 +64,20 @@ const getVaultErrorMessage = (error: IdentityVaultError | null) => {
     case "decode": {
       return "The stored identity could not be verified.";
     }
+    case "delete": {
+      return "Qop could not remove the stored identity.";
+    }
+    case "install-state": {
+      return "Qop could not verify this app installation.";
+    }
+    case "missing-identity": {
+      return "There is no identity to finish setting up.";
+    }
     case "read": {
       return "Qop could not read the identity from secure storage.";
+    }
+    case "stale-install": {
+      return "An identity from a previous installation is locked on this device.";
     }
     case "create": {
       return "Qop could not generate the identity keys.";
@@ -126,17 +154,114 @@ const playSuccessHaptic = () => {
   }
 };
 
+const VaultErrorScreen = ({ error }: { error: IdentityVaultError | null }) => {
+  const isHydrating = useIdentityStore((state) => state.isHydrating);
+  const resetIdentity = useIdentityStore((state) => state.resetIdentity);
+  const retryLoad = useIdentityStore((state) => state.retryLoad);
+  const [resetting, setResetting] = React.useState(false);
+  const canReset =
+    error?.operation === "decode" ||
+    error?.operation === "delete" ||
+    error?.operation === "stale-install";
+
+  const resetVault = React.useCallback(async () => {
+    if (resetting) {
+      return;
+    }
+    setResetting(true);
+    const result = await resetIdentity();
+    if (Result.isFailure(result)) {
+      setResetting(false);
+    }
+  }, [resetIdentity, resetting]);
+
+  return (
+    <Animated.View
+      entering={stepTransition}
+      exiting={stepExit}
+      className="grow justify-between gap-10"
+    >
+      <View className="grow items-center justify-center gap-5 py-8">
+        <QopWordmark width={184} />
+        <View className="max-w-md items-center gap-3">
+          <Text
+            accessibilityRole="header"
+            className="text-center text-3xl leading-10 font-semibold tracking-tight"
+          >
+            Identity vault unavailable.
+          </Text>
+          <Text
+            className="text-center text-foreground-secondary"
+            selectable
+            variant="body"
+          >
+            {getVaultErrorMessage(error)}
+          </Text>
+        </View>
+      </View>
+      <View className="gap-3">
+        <Button
+          className="h-14 rounded-xl"
+          disabled={isHydrating}
+          onPress={retryLoad}
+          size="lg"
+        >
+          {isHydrating ? (
+            <ActivityIndicator colorClassName="accent-primary-foreground" />
+          ) : null}
+          <Text>{isHydrating ? "Trying again…" : "Try again"}</Text>
+        </Button>
+        {canReset ? (
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button
+                className="h-10 self-center rounded-full px-5"
+                disabled={resetting}
+                variant="ghost"
+              >
+                <Text>Reset this device</Text>
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete the stored identity?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This permanently removes the local recovery and device keys.
+                  Only continue if you have saved the recovery key or want to
+                  create a different identity.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel accessibilityLabel="Cancel identity reset">
+                  <Text>Cancel</Text>
+                </AlertDialogCancel>
+                <AlertDialogAction
+                  accessibilityLabel="Delete stored identity"
+                  className="bg-destructive"
+                  disabled={resetting}
+                  onPress={() => void resetVault()}
+                >
+                  <Text>Delete identity</Text>
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        ) : null}
+      </View>
+    </Animated.View>
+  );
+};
+
 const OnboardingRoute = () => {
   const insets = useSafeAreaInsets();
   const createIdentity = useIdentityStore((state) => state.createIdentity);
   const error = useIdentityStore((state) => state.error);
   const finishOnboarding = useIdentityStore((state) => state.finishOnboarding);
   const identity = useIdentityStore((state) => state.identity);
-  const retryLoad = useIdentityStore((state) => state.retryLoad);
   const status = useIdentityStore((state) => state.status);
   const [stage, setStage] = React.useState<CreateStage>("intro");
   const [handle, setHandle] = React.useState("");
-  const [copied, setCopied] = React.useState(false);
+  const [backedUp, setBackedUp] = React.useState(false);
   const [finishing, setFinishing] = React.useState(false);
   const [backupError, setBackupError] = React.useState<string>();
 
@@ -167,17 +292,22 @@ const OnboardingRoute = () => {
     }
   }, [createIdentity, handle, isCreating, isValidHandle]);
 
-  const copyRecoveryKey = React.useCallback(async () => {
+  const exportRecoveryKey = React.useCallback(async () => {
     if (!identity) {
       return;
     }
     try {
-      await Clipboard.setStringAsync(identity.recoveryKey);
-      setCopied(true);
-      setBackupError(undefined);
-      playSuccessHaptic();
+      const result = await Share.share({
+        message: identity.recoveryKey,
+        title: "Qop recovery key",
+      });
+      if (result.action === Share.sharedAction) {
+        setBackedUp(true);
+        setBackupError(undefined);
+        playSuccessHaptic();
+      }
     } catch {
-      setBackupError("Could not copy the recovery key. Select it manually.");
+      setBackupError("Could not export the recovery key. Try again.");
     }
   }, [identity]);
 
@@ -187,47 +317,18 @@ const OnboardingRoute = () => {
     }
     setFinishing(true);
     setBackupError(undefined);
-    const result = await finishOnboarding(copied ? "copied" : "skipped");
+    const result = await finishOnboarding(backedUp ? "copied" : "skipped");
     if (Result.isFailure(result)) {
       setBackupError("Could not save the backup choice. Try again.");
       setFinishing(false);
       return;
     }
     playSuccessHaptic();
-  }, [copied, finishOnboarding, finishing]);
+  }, [backedUp, finishOnboarding, finishing]);
 
   let content: React.ReactNode;
   if (status === "error") {
-    content = (
-      <Animated.View
-        entering={stepTransition}
-        exiting={stepExit}
-        key="vault-error"
-        className="grow justify-between gap-10"
-      >
-        <View className="grow items-center justify-center gap-5 py-8">
-          <QopWordmark width={184} />
-          <View className="max-w-md items-center gap-3">
-            <Text
-              accessibilityRole="header"
-              className="text-center text-3xl leading-10 font-semibold tracking-tight"
-            >
-              Identity vault unavailable.
-            </Text>
-            <Text
-              className="text-center text-foreground-secondary"
-              selectable
-              variant="body"
-            >
-              {getVaultErrorMessage(error)}
-            </Text>
-          </View>
-        </View>
-        <Button className="h-14 rounded-xl" onPress={retryLoad} size="lg">
-          <Text>Try again</Text>
-        </Button>
-      </Animated.View>
-    );
+    content = <VaultErrorScreen error={error} key="vault-error" />;
   } else if (isBackup) {
     content = (
       <Animated.View
@@ -287,17 +388,19 @@ const OnboardingRoute = () => {
             </Text>
           ) : null}
           <Button
-            accessibilityHint="Copies the recovery key to the clipboard"
+            accessibilityHint="Opens the system share sheet to export the recovery key"
             className="h-14 rounded-xl"
-            onPress={copyRecoveryKey}
+            onPress={exportRecoveryKey}
             size="lg"
           >
-            <Icon as={copied ? Check : Copy} className="size-5" />
-            <Text>{copied ? "Recovery key copied" : "Copy recovery key"}</Text>
+            <Icon as={backedUp ? Check : Share2} className="size-5" />
+            <Text>
+              {backedUp ? "Recovery key exported" : "Export recovery key"}
+            </Text>
           </Button>
           <Button
             accessibilityHint={
-              copied
+              backedUp
                 ? "Finishes identity creation"
                 : "Finishes identity creation without confirming a backup"
             }
@@ -310,7 +413,7 @@ const OnboardingRoute = () => {
             {finishing ? (
               <ActivityIndicator colorClassName="accent-foreground-secondary" />
             ) : null}
-            <Text>{copied ? "Continue" : "I'll save it later"}</Text>
+            <Text>{backedUp ? "Continue" : "I'll save it later"}</Text>
           </Button>
         </View>
       </Animated.View>

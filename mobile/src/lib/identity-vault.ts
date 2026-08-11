@@ -8,14 +8,23 @@ import {
   PeerId,
   peerIdFromEd25519SecretKey,
 } from "@qop/identity";
-import { Data, Effect, Result, Schema } from "effect";
+import { Data, Effect, Result, Schema, Semaphore } from "effect";
 import * as Crypto from "expo-crypto";
+import { File, Paths } from "expo-file-system";
 import * as SecureStore from "expo-secure-store";
 
+const INSTALL_MARKER_FILENAME = ".qop-install-v1";
+const INSTALL_STORAGE_KEY = "qop.install.v1";
+const INSTALL_STORAGE_VALUE = "1";
 const IDENTITY_STORAGE_KEY = "qop.identity.v1";
 const secureStoreOptions: SecureStore.SecureStoreOptions = {
   keychainAccessible: SecureStore.WHEN_UNLOCKED_THIS_DEVICE_ONLY,
 };
+const strictParseOptions = {
+  errors: "all",
+  onExcessProperty: "error",
+} as const;
+const createSemaphore = Semaphore.makeUnsafe(1);
 
 const CanonicalBase64Url32 = Base64Url32.pipe(
   Schema.decodeTo(Base64Url32.pipe(Schema.flip))
@@ -37,7 +46,10 @@ const LocalIdentityV1 = Schema.Struct({
   peerId: CanonicalPeerId,
   recoveryKey: RecoveryKeyV1String,
   version: Schema.Literal(1),
-}).annotate({ messageUnexpectedKey: "Unexpected local identity field" });
+}).annotate({
+  messageUnexpectedKey: "Unexpected local identity field",
+  parseOptions: strictParseOptions,
+});
 
 const LocalIdentityJson = Schema.fromJsonString(LocalIdentityV1);
 
@@ -50,7 +62,11 @@ export class IdentityVaultError extends Data.TaggedError("IdentityVaultError")<{
     | "availability"
     | "create"
     | "decode"
+    | "delete"
+    | "install-state"
+    | "missing-identity"
     | "read"
+    | "stale-install"
     | "write";
 }> {}
 
@@ -66,6 +82,52 @@ const ensureSecureStore = Effect.fn("IdentityVault.ensureSecureStore")(
     if (!available) {
       return yield* vaultError("availability");
     }
+  }
+);
+
+const sandboxInstallMarker = () =>
+  new File(Paths.document, INSTALL_MARKER_FILENAME);
+
+const writeSandboxInstallMarker = Effect.fn(
+  "IdentityVault.writeSandboxInstallMarker"
+)(() =>
+  Effect.try({
+    catch: () => vaultError("install-state"),
+    try: () => sandboxInstallMarker().write(INSTALL_STORAGE_VALUE),
+  })
+);
+
+const readInstallState = Effect.fn("IdentityVault.readInstallState")(
+  function* () {
+    const keychainMarker = yield* Effect.tryPromise({
+      catch: () => vaultError("install-state"),
+      try: () =>
+        SecureStore.getItemAsync(INSTALL_STORAGE_KEY, secureStoreOptions),
+    });
+    const sandboxMarkerExists = yield* Effect.try({
+      catch: () => vaultError("install-state"),
+      try: () => sandboxInstallMarker().exists,
+    });
+
+    if (keychainMarker === null) {
+      yield* writeSandboxInstallMarker();
+      yield* Effect.tryPromise({
+        catch: () => vaultError("install-state"),
+        try: () =>
+          SecureStore.setItemAsync(
+            INSTALL_STORAGE_KEY,
+            INSTALL_STORAGE_VALUE,
+            secureStoreOptions
+          ),
+      });
+      return "current" as const;
+    }
+    if (keychainMarker !== INSTALL_STORAGE_VALUE) {
+      return yield* vaultError("install-state");
+    }
+    return sandboxMarkerExists
+      ? ("current" as const)
+      : ("reinstalled" as const);
   }
 );
 
@@ -139,17 +201,32 @@ const writeLocalIdentity = Effect.fn("IdentityVault.writeLocalIdentity")(
 export const loadLocalIdentity = Effect.fn("IdentityVault.loadLocalIdentity")(
   function* () {
     yield* ensureSecureStore();
-    const encoded = yield* Effect.tryPromise({
-      catch: () => vaultError("read"),
-      try: () =>
-        SecureStore.getItemAsync(IDENTITY_STORAGE_KEY, secureStoreOptions),
-    });
-    return encoded === null ? null : yield* decodeStoredIdentity(encoded);
+    const [encoded, installState] = yield* Effect.all(
+      [
+        Effect.tryPromise({
+          catch: () => vaultError("read"),
+          try: () =>
+            SecureStore.getItemAsync(IDENTITY_STORAGE_KEY, secureStoreOptions),
+        }),
+        readInstallState(),
+      ] as const,
+      { concurrency: "unbounded" }
+    );
+    if (encoded === null) {
+      if (installState === "reinstalled") {
+        yield* writeSandboxInstallMarker();
+      }
+      return null;
+    }
+    if (installState === "reinstalled") {
+      return yield* vaultError("stale-install");
+    }
+    return yield* decodeStoredIdentity(encoded);
   }
 );
 
-export const createLocalIdentity = Effect.fn(
-  "IdentityVault.createLocalIdentity"
+const createLocalIdentityUnlocked = Effect.fn(
+  "IdentityVault.createLocalIdentityUnlocked"
 )(function* (input: unknown) {
   const handle = yield* Schema.decodeUnknownEffect(Handle)(input).pipe(
     Effect.mapError(() => vaultError("create"))
@@ -190,6 +267,28 @@ export const createLocalIdentity = Effect.fn(
   yield* writeLocalIdentity(identity);
   return identity;
 });
+
+export const createLocalIdentity = Effect.fn(
+  "IdentityVault.createLocalIdentity"
+)((input: unknown) =>
+  createSemaphore.withPermit(createLocalIdentityUnlocked(input))
+);
+
+export const deleteLocalIdentity = Effect.fn(
+  "IdentityVault.deleteLocalIdentity"
+)(() =>
+  createSemaphore.withPermit(
+    Effect.gen(function* () {
+      yield* ensureSecureStore();
+      yield* Effect.tryPromise({
+        catch: () => vaultError("delete"),
+        try: () =>
+          SecureStore.deleteItemAsync(IDENTITY_STORAGE_KEY, secureStoreOptions),
+      });
+      yield* writeSandboxInstallMarker();
+    })
+  )
+);
 
 export const finishLocalIdentityOnboarding = Effect.fn(
   "IdentityVault.finishLocalIdentityOnboarding"

@@ -65,6 +65,7 @@ const createExpoConfig = ({ config }: ConfigContext): ExpoConfig => {
       },
     },
     name: variant.name,
+    platforms: ["ios", "android"],
     plugins: [
       ...(config.plugins ?? []).filter((plugin) => {
         const name = Array.isArray(plugin) ? plugin[0] : plugin;
@@ -93,10 +94,6 @@ const createExpoConfig = ({ config }: ConfigContext): ExpoConfig => {
     ],
     scheme: variant.scheme,
     slug: config.slug ?? "qop",
-    web: {
-      ...config.web,
-      favicon: `${iconRoot}/favicon.png`,
-    },
   };
 };
 

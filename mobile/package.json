@@ -11,8 +11,9 @@
     "reset-project": "node ./scripts/reset-project.js",
     "android": "APP_VARIANT=development expo run:android",
     "ios": "APP_VARIANT=development expo run:ios",
-    "web": "expo start --web",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@expo/ui": "57.0.8",
@@ -52,6 +53,7 @@
     "expo-crypto": "~57.0.1",
     "expo-dev-client": "57.0.10",
     "expo-device": "57.0.1",
+    "expo-file-system": "57.0.1",
     "expo-font": "57.0.1",
     "expo-glass-effect": "57.0.1",
     "expo-haptics": "~57.0.1",
@@ -84,6 +86,7 @@
   },
   "devDependencies": {
     "@types/react": "19.2.18",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "vitest": "4.1.10"
   }
 }
