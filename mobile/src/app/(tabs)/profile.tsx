@@ -65,10 +65,10 @@ const ProfileScreen = () => {
               </AlertDialogCancel>
               <AlertDialogAction
                 accessibilityLabel="Log out and delete local identity"
-                className="bg-destructive"
                 onPress={() => void resetIdentity()}
+                variant="destructive"
               >
-                <Text className="text-white">Log out</Text>
+                <Text>Log out</Text>
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
