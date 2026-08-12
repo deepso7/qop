@@ -31,6 +31,14 @@ const AppTabs = () => {
           sf={{ default: "square.grid.2x2", selected: "square.grid.2x2.fill" }}
         />
       </NativeTabs.Trigger>
+
+      <NativeTabs.Trigger name="profile">
+        <NativeTabs.Trigger.Label>Profile</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon
+          md="person"
+          sf={{ default: "person", selected: "person.fill" }}
+        />
+      </NativeTabs.Trigger>
     </NativeTabs>
   );
 };

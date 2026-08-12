@@ -73,6 +73,9 @@ const AppTabs = () => (
         <TabTrigger name="ui" href="/ui" asChild>
           <TabButton>UI</TabButton>
         </TabTrigger>
+        <TabTrigger name="profile" href="/profile" asChild>
+          <TabButton>Profile</TabButton>
+        </TabTrigger>
       </CustomTabList>
     </TabList>
   </Tabs>
