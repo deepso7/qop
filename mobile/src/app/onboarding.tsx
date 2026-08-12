@@ -35,6 +35,7 @@ import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
 import { useIdentityStore } from "@/lib/identity-store";
 import type { IdentityVaultError } from "@/lib/identity-vault";
+import { cn } from "@/lib/utils";
 
 const decodeHandle = Schema.decodeUnknownResult(Handle);
 
@@ -456,7 +457,7 @@ const OnboardingRoute = () => {
           <View className="gap-3">
             <Text variant="label">Your handle</Text>
             <View className="border-border bg-background-element flex-row items-center rounded-xl border px-4">
-              <Text className="text-foreground-secondary text-lg leading-5 ios:translate-y-1">
+              <Text className="text-foreground-secondary text-lg leading-5">
                 @
               </Text>
               <Input
@@ -465,7 +466,10 @@ const OnboardingRoute = () => {
                 autoCapitalize="none"
                 autoComplete="off"
                 autoCorrect={false}
-                className="h-14 grow border-0 bg-transparent px-1.5 py-0 text-lg dark:bg-transparent"
+                className={cn(
+                  "h-14 grow border-0 bg-transparent px-1.5 py-0 text-lg dark:bg-transparent",
+                  handle.length > 0 && "ios:-translate-y-1"
+                )}
                 editable={!isCreating}
                 enterKeyHint="done"
                 maxLength={33}
