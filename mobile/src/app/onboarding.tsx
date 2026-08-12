@@ -461,7 +461,7 @@ const OnboardingRoute = () => {
               autoCapitalize="none"
               autoComplete="off"
               autoCorrect={false}
-              className="border-border bg-background-element h-14 rounded-xl px-4 text-lg dark:bg-background-element"
+              className="border-border bg-background-element h-14 rounded-xl px-4 text-[18px] dark:bg-background-element"
               editable={!isCreating}
               enterKeyHint="done"
               maxLength={32}
