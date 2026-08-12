@@ -166,16 +166,16 @@ const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
   );
 };
 
-const ComponentsScreen = () => {
+const UIScreen = () => {
   const [isSheetPresented, setIsSheetPresented] = useState(false);
 
   return (
     <View className="flex-1">
       <Screen variant="catalog">
         <View className="gap-1 px-1 pb-1">
-          <Text variant="title">Components</Text>
+          <Text variant="title">UI</Text>
           <Text className="text-foreground-secondary" variant="caption">
-            Shared primitives and their current states.
+            Shared product primitives and their current states.
           </Text>
         </View>
 
@@ -235,7 +235,7 @@ const ComponentsScreen = () => {
           <HintRow title="Environment" hint="development" />
           <HintRow
             title="File"
-            hint={<Text variant="mono">src/app/components.tsx</Text>}
+            hint={<Text variant="mono">src/app/(tabs)/ui.tsx</Text>}
           />
         </ComponentSection>
 
@@ -301,4 +301,4 @@ const ComponentsScreen = () => {
   );
 };
 
-export default ComponentsScreen;
+export default UIScreen;

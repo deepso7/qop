@@ -24,16 +24,8 @@ const AppTabs = () => {
         />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger name="explore">
-        <NativeTabs.Trigger.Label>Explore</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          md="explore"
-          sf={{ default: "safari", selected: "safari.fill" }}
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="components">
-        <NativeTabs.Trigger.Label>Components</NativeTabs.Trigger.Label>
+      <NativeTabs.Trigger name="ui">
+        <NativeTabs.Trigger.Label>UI</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           md="grid_view"
           sf={{ default: "square.grid.2x2", selected: "square.grid.2x2.fill" }}
