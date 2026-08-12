@@ -70,11 +70,11 @@ const AppTabs = () => (
         <TabTrigger name="chats" href="/chats" asChild>
           <TabButton>Chats</TabButton>
         </TabTrigger>
-        <TabTrigger name="explore" href="/explore" asChild>
-          <TabButton>Explore</TabButton>
+        <TabTrigger name="ui" href="/ui" asChild>
+          <TabButton>UI</TabButton>
         </TabTrigger>
-        <TabTrigger name="components" href="/components" asChild>
-          <TabButton>Components</TabButton>
+        <TabTrigger name="profile" href="/profile" asChild>
+          <TabButton>Profile</TabButton>
         </TabTrigger>
       </CustomTabList>
     </TabList>

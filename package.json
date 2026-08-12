@@ -9,9 +9,9 @@
   "scripts": {
     "check": "ultracite check && pnpm check:packages && pnpm typecheck",
     "check:contracts": "forge fmt --root contracts --check && forge lint --root contracts && forge test --root contracts --force",
-    "check:packages": "pnpm --filter @qop/identity --filter @qop/api run test",
+    "check:packages": "pnpm --filter @qop/identity --filter @qop/api --filter mobile run test",
     "fix": "ultracite fix",
-    "typecheck": "pnpm --filter @qop/identity --filter @qop/api run typecheck"
+    "typecheck": "pnpm --filter @qop/identity --filter @qop/api --filter mobile run typecheck"
   },
   "devDependencies": {
     "@effect/language-service": "0.87.1",

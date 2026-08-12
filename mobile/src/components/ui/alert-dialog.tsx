@@ -1,4 +1,5 @@
 import * as AlertDialogPrimitiveModule from "@rn-primitives/alert-dialog";
+import type { VariantProps } from "class-variance-authority";
 import * as React from "react";
 import { Platform, View } from "react-native";
 import type { ViewProps } from "react-native";
@@ -115,16 +116,22 @@ const AlertDialogDescription = ({
   />
 );
 
+type AlertDialogActionProps = React.ComponentProps<
+  typeof AlertDialogPrimitive.Action
+> &
+  Pick<VariantProps<typeof buttonVariants>, "variant">;
+
 const AlertDialogAction = ({
   className,
+  variant,
   ...props
-}: React.ComponentProps<typeof AlertDialogPrimitive.Action>) => {
-  const textClassName = buttonTextVariants({ className });
+}: AlertDialogActionProps) => {
+  const textClassName = buttonTextVariants({ className, variant });
 
   return (
     <TextClassContext.Provider value={textClassName}>
       <AlertDialogPrimitive.Action
-        className={cn(buttonVariants(), className)}
+        className={cn(buttonVariants({ variant }), className)}
         {...props}
       />
     </TextClassContext.Provider>
