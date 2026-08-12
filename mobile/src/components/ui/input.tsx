@@ -9,7 +9,7 @@ const Input = ({
 }: React.ComponentProps<typeof TextInput> & React.RefAttributes<TextInput>) => (
   <TextInput
     className={cn(
-      "dark:bg-input/30 border-input bg-background text-foreground flex h-11 w-full min-w-0 flex-row items-center rounded-md border px-3 py-2 text-base leading-5",
+      "dark:bg-input/30 border-input bg-background text-foreground h-11 w-full min-w-0 rounded-md border px-3 text-base",
       props.editable === false &&
         cn(
           "opacity-50",
