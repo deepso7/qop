@@ -5,9 +5,11 @@ import { create } from "zustand";
 import {
   createLocalIdentity,
   deleteLocalIdentity,
-  finishLocalIdentityOnboarding,
   IdentityVaultError,
   loadLocalIdentity,
+  revealLocalIdentityRecoveryKey,
+  updateLocalIdentityBackupState,
+  updateLocalIdentityHandle,
 } from "@/lib/identity-vault";
 import type { IdentityBackupState, LocalIdentity } from "@/lib/identity-vault";
 
@@ -30,12 +32,14 @@ interface IdentityState {
 
 interface IdentityActions {
   createIdentity: (handle: string) => Promise<IdentityResult<LocalIdentity>>;
-  finishOnboarding: (
+  setBackupState: (
     backupState: Exclude<IdentityBackupState, "pending">
   ) => Promise<IdentityResult<void>>;
   hydrate: () => Promise<void>;
+  revealRecoveryKey: () => Promise<IdentityResult<string>>;
   resetIdentity: () => Promise<IdentityResult<void>>;
   retryLoad: () => void;
+  updateHandle: (handle: string) => Promise<IdentityResult<void>>;
 }
 
 type IdentityStore = IdentityActions & IdentityState;
@@ -59,8 +63,9 @@ const stateForIdentity = (identity: LocalIdentity | null): IdentityState => {
 
 let loadGeneration = 0;
 let createOperation: Promise<IdentityResult<LocalIdentity>> | null = null;
-let finishOperation: Promise<IdentityResult<void>> | null = null;
+let backupStateOperation: Promise<IdentityResult<void>> | null = null;
 let resetOperation: Promise<IdentityResult<void>> | null = null;
+let updateHandleOperation: Promise<IdentityResult<void>> | null = null;
 
 const runOperation = <A>(
   effect: Effect.Effect<A>,
@@ -113,37 +118,6 @@ export const useIdentityStore = create<IdentityStore>((set, get) => ({
       createOperation = null;
     });
     createOperation = operation;
-    return operation;
-  },
-
-  finishOnboarding: (backupState) => {
-    if (finishOperation) {
-      return finishOperation;
-    }
-
-    const { identity } = get();
-    if (!identity) {
-      return Effect.runPromise(
-        Effect.fail(
-          new IdentityVaultError({ operation: "missing-identity" })
-        ).pipe(Effect.result)
-      );
-    }
-
-    const effect = finishLocalIdentityOnboarding(identity, backupState).pipe(
-      Effect.tap((updatedIdentity) =>
-        Effect.sync(() => {
-          set({ error: null, identity: updatedIdentity, status: "ready" });
-        })
-      )
-    );
-    const operation = runOperation(
-      effect.pipe(Effect.asVoid, Effect.result),
-      () => {
-        finishOperation = null;
-      }
-    );
-    finishOperation = operation;
     return operation;
   },
 
@@ -208,5 +182,67 @@ export const useIdentityStore = create<IdentityStore>((set, get) => ({
 
   retryLoad: () => {
     void get().hydrate();
+  },
+
+  revealRecoveryKey: () =>
+    Effect.runPromise(revealLocalIdentityRecoveryKey().pipe(Effect.result)),
+
+  setBackupState: (backupState) => {
+    if (backupStateOperation) {
+      return backupStateOperation;
+    }
+
+    const { identity } = get();
+    if (!identity) {
+      return Effect.runPromise(
+        Effect.fail(
+          new IdentityVaultError({ operation: "missing-identity" })
+        ).pipe(Effect.result)
+      );
+    }
+
+    const effect = updateLocalIdentityBackupState(backupState).pipe(
+      Effect.tap((updatedIdentity) =>
+        Effect.sync(() => {
+          set({ error: null, identity: updatedIdentity, status: "ready" });
+        })
+      )
+    );
+    const operation = runOperation(
+      effect.pipe(Effect.asVoid, Effect.result),
+      () => {
+        backupStateOperation = null;
+      }
+    );
+    backupStateOperation = operation;
+    return operation;
+  },
+
+  updateHandle: (handle) => {
+    if (updateHandleOperation) {
+      return updateHandleOperation;
+    }
+    if (!get().identity) {
+      return Effect.runPromise(
+        Effect.fail(
+          new IdentityVaultError({ operation: "missing-identity" })
+        ).pipe(Effect.result)
+      );
+    }
+
+    const effect = updateLocalIdentityHandle(handle).pipe(
+      Effect.tap((identity) =>
+        Effect.sync(() => {
+          set({ identity });
+        })
+      ),
+      Effect.asVoid,
+      Effect.result
+    );
+    const operation = runOperation(effect, () => {
+      updateHandleOperation = null;
+    });
+    updateHandleOperation = operation;
+    return operation;
   },
 }));

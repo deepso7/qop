@@ -4,8 +4,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const vaultMock = vi.hoisted(() => ({
   createLocalIdentity: vi.fn(),
   deleteLocalIdentity: vi.fn(),
-  finishLocalIdentityOnboarding: vi.fn(),
   loadLocalIdentity: vi.fn(),
+  revealLocalIdentityRecoveryKey: vi.fn(),
+  updateLocalIdentityBackupState: vi.fn(),
+  updateLocalIdentityHandle: vi.fn(),
 }));
 
 vi.mock("@/lib/identity-vault", () => {
@@ -25,12 +27,10 @@ vi.mock("@/lib/identity-vault", () => {
 
 const identity = {
   backupState: "pending",
-  deviceSecretKey: "device-secret",
-  encryptionSecretKey: "encryption-secret",
+  encryptionPublicKey: "encryption-public",
   handle: "alice",
   ownerAddress: "0x0000000000000000000000000000000000000001",
   peerId: "peer-id",
-  recoveryKey: "recovery-key",
   version: 1,
 };
 
@@ -45,8 +45,12 @@ const loadStore = async () => {
 beforeEach(() => {
   vaultMock.createLocalIdentity.mockReset();
   vaultMock.deleteLocalIdentity.mockReset().mockReturnValue(Effect.void);
-  vaultMock.finishLocalIdentityOnboarding.mockReset();
   vaultMock.loadLocalIdentity.mockReset().mockReturnValue(Effect.succeed(null));
+  vaultMock.revealLocalIdentityRecoveryKey
+    .mockReset()
+    .mockReturnValue(Effect.succeed("recovery-key"));
+  vaultMock.updateLocalIdentityHandle.mockReset();
+  vaultMock.updateLocalIdentityBackupState.mockReset();
 });
 
 describe("identity store", () => {
@@ -89,12 +93,59 @@ describe("identity store", () => {
 
   it("returns a typed failure when there is no identity to finish", async () => {
     const store = await loadStore();
-    const result = await store.getState().finishOnboarding("skipped");
+    const result = await store.getState().setBackupState("skipped");
 
     expect(Result.isFailure(result) && result.failure.operation).toBe(
       "missing-identity"
     );
-    expect(vaultMock.finishLocalIdentityOnboarding).not.toHaveBeenCalled();
+    expect(vaultMock.updateLocalIdentityBackupState).not.toHaveBeenCalled();
+  });
+
+  it("persists a later recovery backup and keeps only public identity state", async () => {
+    const skippedIdentity = { ...identity, backupState: "skipped" };
+    const backedUpIdentity = { ...identity, backupState: "copied" };
+    vaultMock.loadLocalIdentity.mockReturnValue(
+      Effect.succeed(skippedIdentity)
+    );
+    vaultMock.updateLocalIdentityBackupState.mockReturnValue(
+      Effect.succeed(backedUpIdentity)
+    );
+    const store = await loadStore();
+    await store.getState().hydrate();
+
+    const result = await store.getState().setBackupState("copied");
+
+    expect(Result.isSuccess(result)).toBe(true);
+    expect(store.getState()).toMatchObject({
+      identity: backedUpIdentity,
+      status: "ready",
+    });
+    expect(store.getState().identity).not.toHaveProperty("recoveryKey");
+  });
+
+  it("reveals recovery material without retaining it in store state", async () => {
+    const store = await loadStore();
+    const result = await store.getState().revealRecoveryKey();
+
+    expect(Result.isSuccess(result) && result.success).toBe("recovery-key");
+    expect(store.getState()).not.toHaveProperty("recoveryKey");
+    expect(store.getState().identity).toBeNull();
+  });
+
+  it("updates the registration handle without replacing identity keys", async () => {
+    const updated = { ...identity, handle: "bob" };
+    vaultMock.loadLocalIdentity.mockReturnValue(Effect.succeed(identity));
+    vaultMock.updateLocalIdentityHandle.mockReturnValue(
+      Effect.succeed(updated)
+    );
+    const store = await loadStore();
+    await store.getState().hydrate();
+
+    const result = await store.getState().updateHandle("bob");
+
+    expect(Result.isSuccess(result)).toBe(true);
+    expect(vaultMock.updateLocalIdentityHandle).toHaveBeenCalledWith("bob");
+    expect(store.getState().identity).toEqual(updated);
   });
 
   it("keeps the error tree mounted while retrying hydration", async () => {
