@@ -8,7 +8,8 @@ import { frame, opacity, tint } from "@expo/ui/swift-ui/modifiers";
 import * as React from "react";
 
 import { useTheme } from "@/constants/theme";
-import type { NativeAlertProps } from "@/types/native-alert";
+
+import type { NativeAlertProps } from "./native-alert";
 
 // SwiftUI owns presentation and accessibility; QOP supplies semantic action colors.
 const NativeAlert = React.memo(
