@@ -12,6 +12,7 @@ import {
   updateLocalIdentityHandle,
 } from "@/lib/identity-vault";
 import type { IdentityBackupState, LocalIdentity } from "@/lib/identity-vault";
+import { deleteLocalRegistration } from "@/lib/local-registration";
 
 type IdentityStatus =
   | "absent"
@@ -160,7 +161,9 @@ export const useIdentityStore = create<IdentityStore>((set, get) => ({
     }
 
     loadGeneration += 1;
-    const effect = deleteLocalIdentity().pipe(
+    const effect = deleteLocalRegistration().pipe(
+      Effect.mapError(() => new IdentityVaultError({ operation: "delete" })),
+      Effect.andThen(deleteLocalIdentity()),
       Effect.tap(() =>
         Effect.sync(() => {
           set(stateForIdentity(null));

@@ -45,6 +45,7 @@ const EnvSchema = Schema.Struct({
   REGISTRATION_PRIVATE_KEY: PrivateKey,
   REGISTRY_ADDRESS: RegistryAddress,
   REGISTRY_CONFIRMATIONS: Confirmations,
+  RELAYER_PRIVATE_KEY: PrivateKey,
   RPC_URL: Schema.URLFromString,
 });
 

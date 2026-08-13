@@ -1,13 +1,17 @@
 import {
   Base64Url32,
   decodeRecoveryKeyV1,
+  decodeIdentityEip712DomainV1,
+  decodeRegisterIntentV1,
   encodeRecoveryKeyV1,
+  EcdsaSignature,
   encryptionPublicKeyFromSecretKey,
   EthereumAddress,
   Handle,
   ownerAddressFromRecoveryKeyV1,
   PeerId,
   peerIdFromEd25519SecretKey,
+  signRegisterIntentV1,
 } from "@qop/identity";
 import { Data, Effect, Result, Schema, Semaphore } from "effect";
 import * as Crypto from "expo-crypto";
@@ -75,6 +79,7 @@ export class IdentityVaultError extends Data.TaggedError("IdentityVaultError")<{
     | "invalid-handle"
     | "missing-identity"
     | "read"
+    | "sign"
     | "stale-install"
     | "write";
 }> {}
@@ -361,6 +366,33 @@ export const updateLocalIdentityHandle = Effect.fn(
     })
   )
 );
+
+export const signLocalRegistrationIntent = Effect.fn(
+  "IdentityVault.signLocalRegistrationIntent"
+)(function* (domainInput: unknown, intentInput: unknown) {
+  const identity = yield* loadStoredLocalIdentity();
+  if (!identity) {
+    return yield* vaultError("missing-identity");
+  }
+  const [domain, intent, privateKey] = yield* Effect.all(
+    [
+      decodeIdentityEip712DomainV1(domainInput),
+      decodeRegisterIntentV1(intentInput),
+      decodeRecoveryKeyV1(identity.recoveryKey),
+    ] as const,
+    { concurrency: "unbounded" }
+  ).pipe(Effect.mapError(() => vaultError("sign")));
+  if (
+    intent.handle !== identity.handle ||
+    intent.owner !== identity.ownerAddress
+  ) {
+    return yield* vaultError("sign");
+  }
+  return yield* signRegisterIntentV1(domain, intent, privateKey).pipe(
+    Effect.flatMap(Schema.encodeEffect(EcdsaSignature)),
+    Effect.mapError(() => vaultError("sign"))
+  );
+});
 
 export const updateLocalIdentityBackupState = Effect.fn(
   "IdentityVault.updateLocalIdentityBackupState"

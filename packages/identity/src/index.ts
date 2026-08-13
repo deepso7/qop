@@ -64,7 +64,10 @@ export {
   ownerAddressFromRecoveryKeyV1,
   RecoveryKeyError,
 } from "./recovery-key.ts";
-export { hashRegistrationDeviceCommitmentV1 } from "./registration-device-commitment.ts";
+export {
+  hashRegistrationDeviceCommitmentV1,
+  hashRegistrationObserveTokenV1,
+} from "./registration-device-commitment.ts";
 export {
   decodeRegisterIntentV1,
   decodeRevokeDeviceIntentV1,
@@ -81,6 +84,7 @@ export {
   recoverRegisterIntentSignerV1,
   recoverRevokeDeviceIntentSignerV1,
   recoverRotateOwnerIntentSignerV1,
+  signRegisterIntentV1,
   CertificateDigest,
   DeviceCommitment,
   RegisterIntentV1,

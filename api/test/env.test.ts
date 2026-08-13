@@ -14,6 +14,7 @@ describe("api environment", () => {
         REGISTRATION_PRIVATE_KEY: `0x${"11".repeat(32)}`,
         REGISTRY_ADDRESS: "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
         REGISTRY_CONFIRMATIONS: "12",
+        RELAYER_PRIVATE_KEY: `0x${"22".repeat(32)}`,
         RPC_URL: "http://127.0.0.1:8545",
       });
 

@@ -9,6 +9,9 @@ const vaultMock = vi.hoisted(() => ({
   updateLocalIdentityBackupState: vi.fn(),
   updateLocalIdentityHandle: vi.fn(),
 }));
+const registrationMock = vi.hoisted(() => ({
+  deleteLocalRegistration: vi.fn(),
+}));
 
 vi.mock("@/lib/identity-vault", () => {
   class IdentityVaultError extends Error {
@@ -24,6 +27,8 @@ vi.mock("@/lib/identity-vault", () => {
 
   return { IdentityVaultError, ...vaultMock };
 });
+
+vi.mock("@/lib/local-registration", () => registrationMock);
 
 const identity = {
   backupState: "pending",
@@ -43,6 +48,9 @@ const loadStore = async () => {
 };
 
 beforeEach(() => {
+  registrationMock.deleteLocalRegistration
+    .mockReset()
+    .mockReturnValue(Effect.void);
   vaultMock.createLocalIdentity.mockReset();
   vaultMock.deleteLocalIdentity.mockReset().mockReturnValue(Effect.void);
   vaultMock.loadLocalIdentity.mockReset().mockReturnValue(Effect.succeed(null));
@@ -130,6 +138,22 @@ describe("identity store", () => {
     expect(Result.isSuccess(result) && result.success).toBe("recovery-key");
     expect(store.getState()).not.toHaveProperty("recoveryKey");
     expect(store.getState().identity).toBeNull();
+  });
+
+  it("deletes registration retry material with the identity", async () => {
+    vaultMock.loadLocalIdentity.mockReturnValue(Effect.succeed(identity));
+    const store = await loadStore();
+    await store.getState().hydrate();
+
+    const result = await store.getState().resetIdentity();
+
+    expect(Result.isSuccess(result)).toBe(true);
+    expect(registrationMock.deleteLocalRegistration).toHaveBeenCalledOnce();
+    expect(vaultMock.deleteLocalIdentity).toHaveBeenCalledOnce();
+    expect(store.getState()).toMatchObject({
+      identity: null,
+      status: "absent",
+    });
   });
 
   it("updates the registration handle without replacing identity keys", async () => {

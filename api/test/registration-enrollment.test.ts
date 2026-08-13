@@ -32,6 +32,7 @@ import {
 } from "../src/registration/enrollment.ts";
 import type { PreparedRegistration } from "../src/registration/enrollment.ts";
 import { RegistrationInputError } from "../src/registration/inputs.ts";
+import { RegistrationRelayer } from "../src/registration/relayer.ts";
 import { registrationSignerLayer } from "../src/registration/signer.ts";
 import {
   HandleLeaseConflict,
@@ -165,6 +166,16 @@ const EntropyTestLive = Layer.sync(Entropy, () => {
   });
 });
 
+const RegistrationRelayerTestLive = Layer.succeed(
+  RegistrationRelayer,
+  RegistrationRelayer.of({
+    submit: () =>
+      Effect.succeed(
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ),
+  })
+);
+
 const EnvTestLive = Layer.succeed(
   Env,
   Env.of({
@@ -175,6 +186,7 @@ const EnvTestLive = Layer.succeed(
     REGISTRATION_PRIVATE_KEY,
     REGISTRY_ADDRESS,
     REGISTRY_CONFIRMATIONS: 0,
+    RELAYER_PRIVATE_KEY: WRONG_PRIVATE_KEY,
     RPC_URL: new URL("http://127.0.0.1:8545"),
   })
 );
@@ -211,6 +223,7 @@ const RegistrationEnrollmentTestLive = RegistrationEnrollment.layer.pipe(
   Layer.provide(EntropyTestLive),
   Layer.provideMerge(RegistrationStoreTestLive),
   Layer.provide(RegistryReaderTestLive),
+  Layer.provide(RegistrationRelayerTestLive),
   Layer.provide(registrationSignerLayer(REGISTRATION_PRIVATE_KEY)),
   Layer.provide(RegistrationAdmissionTestLive),
   Layer.provide(EnvTestLive)
@@ -257,6 +270,7 @@ const enrollmentLayerWithStore = <Error, Requirements>(
     Layer.provide(EntropyTestLive),
     Layer.provide(storeLayer),
     Layer.provide(RegistryReaderTestLive),
+    Layer.provide(RegistrationRelayerTestLive),
     Layer.provide(registrationSignerLayer(REGISTRATION_PRIVATE_KEY)),
     Layer.provide(RegistrationAdmissionTestLive),
     Layer.provide(EnvTestLive)
@@ -446,9 +460,10 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
     })
   );
 
-  it.effect("verifies the owner and advances the stored intent to ready", () =>
+  it.effect("verifies the owner and submits the stored intent", () =>
     Effect.gen(function* () {
       const enrollment = yield* RegistrationEnrollment;
+      const store = yield* RegistrationStore;
       const prepared = yield* enrollment.prepare({
         admissionCode: ADMISSION_CODE,
         handle: "golf",
@@ -473,8 +488,14 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         EcdsaSignature
       )(authorized.ownerSignature);
 
-      assert.strictEqual(authorized.status, "ready");
+      assert.strictEqual(authorized.status, "submitted");
       assert.strictEqual(authorized.digest, prepared.digest);
+      const submitted = Option.getOrThrow(yield* store.get(prepared.digest));
+      assert.strictEqual(submitted.status, "submitted");
+      assert.strictEqual(
+        submitted.transactionHash,
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      );
       assert.strictEqual(
         yield* recoverRegisterIntentSignerV1(
           domain,
@@ -567,7 +588,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
             digest: prepared.digest,
             ownerSignature,
           })).status,
-          "ready"
+          "submitted"
         );
       })
   );

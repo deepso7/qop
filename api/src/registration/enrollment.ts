@@ -4,12 +4,13 @@ import {
   EcdsaSignature,
   encodeRegisterIntentV1,
   hashRegisterIntentV1,
+  IdentityEip712DomainV1,
   recoverRegisterIntentSignerV1,
   RegistrationNonce,
 } from "@qop/identity";
 import type {
   IdentityCryptoError,
-  IdentityEip712DomainV1,
+  IdentityEip712DomainV1Encoded,
   RegisterIntentV1,
   RegisterIntentV1Encoded,
 } from "@qop/identity";
@@ -52,6 +53,8 @@ import {
   registrationAdmissionCodeInputError,
 } from "./inputs.ts";
 import type { RegistrationInputError } from "./inputs.ts";
+import { RegistrationRelayer } from "./relayer.ts";
+import type { RegistrationRelayerError } from "./relayer.ts";
 import { RegistrationSigner } from "./signer.ts";
 import type { RegistrationSignerError } from "./signer.ts";
 import {
@@ -82,6 +85,7 @@ export interface PrepareRegistration {
 
 export interface PreparedRegistration {
   readonly digest: Hash;
+  readonly domain: IdentityEip712DomainV1Encoded;
   readonly intent: RegisterIntentV1Encoded;
   readonly status: "pending_owner_signature";
 }
@@ -151,6 +155,7 @@ export type RegistrationEnrollmentError =
   | RegistrationInputError
   | RegistrationOwnerUnavailable
   | RegistrationProtocolError
+  | RegistrationRelayerError
   | RegistrationSignatureMismatch
   | RegistrationSignerError
   | RegistrationStoreError
@@ -246,16 +251,21 @@ export class RegistrationEnrollment extends Context.Service<
       const admissions = yield* RegistrationAdmission;
       const env = yield* Env;
       const registry = yield* RegistryReader;
+      const relayer = yield* RegistrationRelayer;
       const signer = yield* RegistrationSigner;
       const store = yield* RegistrationStore;
       const reconciliationSemaphore = yield* Semaphore.make(
         registrationReconciliationConcurrency
       );
+      const submissionSemaphore = yield* Semaphore.make(1);
       const domain: IdentityEip712DomainV1 =
         yield* decodeIdentityEip712DomainV1({
           chainId: env.CHAIN_ID.toString(),
           verifyingContract: env.REGISTRY_ADDRESS,
         }).pipe(Effect.mapError(protocolError("decode-domain")));
+      const encodedDomain = yield* Schema.encodeEffect(IdentityEip712DomainV1)(
+        domain
+      ).pipe(Effect.mapError(protocolError("decode-domain")));
 
       const preparedRegistration = Effect.fn(
         "RegistrationEnrollment.preparedRegistration"
@@ -309,6 +319,7 @@ export class RegistrationEnrollment extends Context.Service<
         }
         return {
           digest: stored.digest,
+          domain: encodedDomain,
           intent: yield* encodeIntent(intent),
           status,
         } satisfies PreparedRegistration;
@@ -577,12 +588,40 @@ export class RegistrationEnrollment extends Context.Service<
           const status = yield* verifyAuthorizedRegistrationStatus(
             authorized.status
           );
+          const submittedStatus =
+            status === "ready"
+              ? yield* submissionSemaphore.withPermits(1)(
+                  Effect.gen(function* () {
+                    const current = yield* store.get(digest);
+                    if (Option.isNone(current)) {
+                      return yield* new RegistrationIntentNotFound({ digest });
+                    }
+                    if (current.value.status !== "ready") {
+                      return yield* verifyAuthorizedRegistrationStatus(
+                        current.value.status
+                      );
+                    }
+                    const transactionHash = yield* relayer.submit(
+                      intent,
+                      ownerSignatureHex,
+                      registrationSignatureHex
+                    );
+                    const submitted = yield* store.markSubmitted(
+                      digest,
+                      transactionHash
+                    );
+                    return yield* verifyAuthorizedRegistrationStatus(
+                      submitted.status
+                    );
+                  })
+                )
+              : status;
           return {
             digest,
             intent: yield* encodeIntent(intent),
             ownerSignature: ownerSignatureHex,
             registrationSignature: registrationSignatureHex,
-            status,
+            status: submittedStatus,
           } satisfies AuthorizedRegistration;
         }
       );

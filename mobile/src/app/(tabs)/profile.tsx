@@ -1,5 +1,5 @@
-import { Handle } from "@qop/identity";
-import { Result, Schema } from "effect";
+import { Base64Url32, Handle } from "@qop/identity";
+import { Effect, Result, Schema } from "effect";
 import * as React from "react";
 import { ActivityIndicator, Platform, Share, View } from "react-native";
 
@@ -11,8 +11,48 @@ import { SectionLabel } from "@/components/ui/section-label";
 import { Surface } from "@/components/ui/surface";
 import { Text } from "@/components/ui/text";
 import { useIdentityStore } from "@/lib/identity-store";
+import {
+  loadLocalRegistration,
+  reconcileLocalRegistration,
+  startLocalRegistration,
+} from "@/lib/local-registration";
+import type { LocalRegistration } from "@/lib/local-registration";
 
 const decodeHandle = Schema.decodeUnknownResult(Handle);
+const decodeAdmissionCode = Schema.decodeUnknownResult(Base64Url32);
+
+const registrationStatusLabel = (
+  registration: LocalRegistration | null | undefined
+) => {
+  switch (registration?.status) {
+    case "confirmed": {
+      return registration.qid
+        ? `Registered · qid ${registration.qid}`
+        : "Registered";
+    }
+    case "submitted": {
+      return "Registration submitted";
+    }
+    case "ready": {
+      return "Registration authorized";
+    }
+    case "pending_owner_signature": {
+      return "Registration awaiting authorization";
+    }
+    case "failed": {
+      return "Registration failed";
+    }
+    case "expired": {
+      return "Registration expired";
+    }
+    case "draft": {
+      return "Registration started";
+    }
+    default: {
+      return "Not registered";
+    }
+  }
+};
 
 const recoveryPresentation = (needsBackup: boolean) => {
   if (needsBackup) {
@@ -46,6 +86,170 @@ const logoutPresentation = (needsBackup: boolean) => {
   };
 };
 
+const useProfileRegistration = () => {
+  const [registration, setRegistration] =
+    React.useState<LocalRegistration | null>();
+  const [admissionCode, setAdmissionCode] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [message, setMessage] = React.useState<string>();
+  const isValidAdmissionCode = React.useMemo(
+    () => Result.isSuccess(decodeAdmissionCode(admissionCode)),
+    [admissionCode]
+  );
+
+  React.useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      const result = await Effect.runPromise(
+        loadLocalRegistration().pipe(Effect.result)
+      );
+      if (!cancelled) {
+        setRegistration(Result.isSuccess(result) ? result.success : null);
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const register = React.useCallback(async () => {
+    if (!isValidAdmissionCode || busy) {
+      return;
+    }
+    setBusy(true);
+    setMessage(undefined);
+    const result = await Effect.runPromise(
+      startLocalRegistration(admissionCode).pipe(Effect.result)
+    );
+    if (Result.isSuccess(result)) {
+      setRegistration(result.success);
+      setAdmissionCode("");
+      setMessage(
+        result.success.status === "confirmed"
+          ? "Identity registered."
+          : "Registration submitted. Check again after it confirms."
+      );
+    } else {
+      setMessage(
+        "Could not register this identity. Check the invitation code and connection."
+      );
+    }
+    setBusy(false);
+  }, [admissionCode, busy, isValidAdmissionCode]);
+
+  const check = React.useCallback(async () => {
+    if (busy) {
+      return;
+    }
+    setBusy(true);
+    setMessage(undefined);
+    const result = await Effect.runPromise(
+      reconcileLocalRegistration().pipe(Effect.result)
+    );
+    if (Result.isSuccess(result)) {
+      setRegistration(result.success);
+      setMessage(
+        result.success.status === "confirmed"
+          ? "Identity registered."
+          : "The registration transaction is still confirming."
+      );
+    } else {
+      setMessage("Could not check registration. Try again.");
+    }
+    setBusy(false);
+  }, [busy]);
+
+  const submit = React.useCallback(() => {
+    void register();
+  }, [register]);
+  const submitCheck = React.useCallback(() => {
+    void check();
+  }, [check]);
+
+  return {
+    admissionCode,
+    busy,
+    isRegistered: registration?.status === "confirmed",
+    isValidAdmissionCode,
+    message,
+    registration,
+    setAdmissionCode,
+    submit,
+    submitCheck,
+  };
+};
+
+const RegistrationSection = React.memo(
+  ({
+    admissionCode,
+    busy,
+    isRegistered,
+    isValidAdmissionCode,
+    message,
+    registration,
+    setAdmissionCode,
+    submit,
+    submitCheck,
+  }: ReturnType<typeof useProfileRegistration>) => (
+    <View className="gap-2">
+      <SectionLabel>Registration</SectionLabel>
+      <Surface
+        className="gap-4 rounded-xl border border-background-selected p-4"
+        tone="element"
+      >
+        <View className="gap-1">
+          <Text variant="label">{registrationStatusLabel(registration)}</Text>
+          <Text className="text-foreground-secondary" variant="caption">
+            Registration anchors your handle and owner key to the qop identity
+            registry.
+          </Text>
+        </View>
+        {registration === null ? (
+          <View className="gap-3">
+            <Input
+              accessibilityLabel="Registration invitation code"
+              autoCapitalize="none"
+              autoComplete="off"
+              autoCorrect={false}
+              editable={!busy}
+              onChangeText={setAdmissionCode}
+              onSubmitEditing={submit}
+              placeholder="Invitation code"
+              spellCheck={false}
+              value={admissionCode}
+            />
+            <Button disabled={!isValidAdmissionCode || busy} onPress={submit}>
+              {busy ? (
+                <ActivityIndicator colorClassName="accent-primary-foreground" />
+              ) : null}
+              <Text>Register identity</Text>
+            </Button>
+          </View>
+        ) : null}
+        {registration && !isRegistered ? (
+          <Button disabled={busy} onPress={submitCheck} variant="outline">
+            {busy ? (
+              <ActivityIndicator colorClassName="accent-foreground-secondary" />
+            ) : null}
+            <Text>Check registration</Text>
+          </Button>
+        ) : null}
+        {message ? (
+          <Text
+            className="text-center text-foreground-secondary"
+            selectable
+            variant="caption"
+          >
+            {message}
+          </Text>
+        ) : null}
+      </Surface>
+    </View>
+  )
+);
+RegistrationSection.displayName = "RegistrationSection";
+
 const ProfileScreen = React.memo(() => {
   const identity = useIdentityStore((state) => state.identity);
   const revealRecoveryKey = useIdentityStore(
@@ -54,6 +258,17 @@ const ProfileScreen = React.memo(() => {
   const resetIdentity = useIdentityStore((state) => state.resetIdentity);
   const setBackupState = useIdentityStore((state) => state.setBackupState);
   const updateHandle = useIdentityStore((state) => state.updateHandle);
+  const {
+    admissionCode,
+    busy: registrationBusy,
+    isRegistered,
+    isValidAdmissionCode,
+    message: registrationMessage,
+    registration,
+    setAdmissionCode,
+    submit: submitRegistration,
+    submitCheck: submitRegistrationCheck,
+  } = useProfileRegistration();
   const [editingHandle, setEditingHandle] = React.useState(false);
   const [handle, setHandle] = React.useState(identity?.handle ?? "");
   const [savingHandle, setSavingHandle] = React.useState(false);
@@ -196,10 +411,12 @@ const ProfileScreen = React.memo(() => {
             <View className="shrink gap-1">
               <Text variant="large">@{identity?.handle}</Text>
               <Text className="text-foreground-secondary" variant="caption">
-                Registration handle · keys stay unchanged
+                {isRegistered
+                  ? "Permanent registered handle"
+                  : "Registration handle · keys stay unchanged"}
               </Text>
             </View>
-            {editingHandle ? null : (
+            {editingHandle || isRegistered ? null : (
               <Button
                 accessibilityLabel="Change registration handle"
                 onPress={beginHandleEdit}
@@ -257,6 +474,18 @@ const ProfileScreen = React.memo(() => {
           ) : null}
         </Surface>
       </View>
+
+      <RegistrationSection
+        admissionCode={admissionCode}
+        busy={registrationBusy}
+        isRegistered={isRegistered}
+        isValidAdmissionCode={isValidAdmissionCode}
+        message={registrationMessage}
+        registration={registration}
+        setAdmissionCode={setAdmissionCode}
+        submit={submitRegistration}
+        submitCheck={submitRegistrationCheck}
+      />
 
       <View className="gap-2">
         <SectionLabel>Recovery</SectionLabel>

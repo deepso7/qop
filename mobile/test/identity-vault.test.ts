@@ -170,6 +170,52 @@ describe("identity vault", () => {
     );
   });
 
+  it("signs registration intents without exposing the recovery key", async () => {
+    const { createLocalIdentity, signLocalRegistrationIntent } =
+      await loadVault();
+    const identity = await Effect.runPromise(createLocalIdentity("alice"));
+    const signature = await Effect.runPromise(
+      signLocalRegistrationIntent(
+        {
+          chainId: "31337",
+          verifyingContract: "0x1111111111111111111111111111111111111111",
+        },
+        {
+          deadline: "1700003600",
+          deviceCommitment: `0x${"02".repeat(32)}`,
+          handle: identity.handle,
+          nonce: `0x${"01".repeat(32)}`,
+          owner: identity.ownerAddress,
+        }
+      )
+    );
+
+    expect(signature).toMatch(/^0x[0-9a-f]{130}$/u);
+  });
+
+  it("refuses to sign a registration for another owner", async () => {
+    const { createLocalIdentity, signLocalRegistrationIntent } =
+      await loadVault();
+    await Effect.runPromise(createLocalIdentity("alice"));
+    const result = await Effect.runPromise(
+      signLocalRegistrationIntent(
+        {
+          chainId: "31337",
+          verifyingContract: "0x1111111111111111111111111111111111111111",
+        },
+        {
+          deadline: "1700003600",
+          deviceCommitment: `0x${"02".repeat(32)}`,
+          handle: "alice",
+          nonce: `0x${"01".repeat(32)}`,
+          owner: "0x0000000000000000000000000000000000000001",
+        }
+      ).pipe(Effect.result)
+    );
+
+    expect(Result.isFailure(result) && result.failure.operation).toBe("sign");
+  });
+
   it("rejects invalid handle updates without changing the vault", async () => {
     const { createLocalIdentity, updateLocalIdentityHandle } =
       await loadVault();

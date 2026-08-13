@@ -9,13 +9,19 @@ import { DeviceObservationLive } from "./device/observation.ts";
 import { Env } from "./env.ts";
 import { QopHttpApiRoutes } from "./http/routes.ts";
 import { RegistrationEnrollmentLive } from "./registration/enrollment.ts";
+import { registrationRelayerLayer } from "./registration/relayer.ts";
 import { registrationSignerLayer } from "./registration/signer.ts";
 
 const ApplicationLive = Layer.unwrap(
   Env.make.pipe(
     Effect.map((env) => {
       const registration = RegistrationEnrollmentLive.pipe(
-        Layer.provide(registrationSignerLayer(env.REGISTRATION_PRIVATE_KEY))
+        Layer.provide(registrationSignerLayer(env.REGISTRATION_PRIVATE_KEY)),
+        Layer.provide(
+          registrationRelayerLayer(env.RELAYER_PRIVATE_KEY).pipe(
+            Layer.provide(Layer.succeed(Env, env))
+          )
+        )
       );
       const routes = QopHttpApiRoutes.pipe(
         Layer.provide(DeviceObservationLive),

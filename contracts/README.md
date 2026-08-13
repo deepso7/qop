@@ -27,3 +27,18 @@ git submodule update --init --recursive
 ```
 
 Run the complete contract gate from the repository root with `pnpm check:contracts`, or run `forge test` from this directory.
+
+## Deploy
+
+The deployment script requires the durable registration-admin address and the hot registration-signer address. For local Anvil development they may be test accounts; a real deployment must use a multisig or equivalent durable account as `REGISTRATION_ADMIN`.
+
+```sh
+REGISTRATION_ADMIN=0x... \
+REGISTRATION_SIGNER=0x... \
+forge script --root contracts contracts/script/DeployQOPIdentityRegistry.s.sol:DeployQOPIdentityRegistry \
+  --broadcast \
+  --private-key 0x... \
+  --rpc-url http://127.0.0.1:8545
+```
+
+Copy the deployed address into the API's `REGISTRY_ADDRESS`, and keep its chain ID aligned with `CHAIN_ID`. The API's funded `RELAYER_PRIVATE_KEY` is operational only and should not be either the registration admin or registration signer.

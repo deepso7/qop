@@ -70,6 +70,9 @@ const getVaultErrorMessage = (error: IdentityVaultError | null) => {
     case "read": {
       return "Qop could not read the identity from secure storage.";
     }
+    case "sign": {
+      return "Qop could not authorize the registration.";
+    }
     case "stale-install": {
       return "An identity from a previous installation is locked on this device.";
     }

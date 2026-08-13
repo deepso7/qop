@@ -22,3 +22,9 @@ export const hashRegistrationDeviceCommitmentV1 = Effect.fn(
       ) as Hash
   )
 );
+
+export const hashRegistrationObserveTokenV1 = Effect.fn(
+  "@qop/identity/hashRegistrationObserveTokenV1"
+)((observeToken: typeof Base64Url32.Type) =>
+  Effect.sync(() => keccak256(observeToken) as Hash)
+);

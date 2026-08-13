@@ -64,6 +64,10 @@ const OBSERVE_TOKEN_HASH =
   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as Hash;
 const IDEMPOTENCY_KEY = "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const ADMISSION_CODE = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const DOMAIN = {
+  chainId: "31337",
+  verifyingContract: "0x1111111111111111111111111111111111111111",
+} as const;
 const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
 
 const intent = {
@@ -156,6 +160,7 @@ const RegistrationEnrollmentTestLive = Layer.succeed(
       });
       return {
         digest: DIGEST,
+        domain: DOMAIN,
         intent,
         status: "pending_owner_signature",
       };
@@ -413,6 +418,7 @@ describe("registration HTTP API", () => {
       } as const;
       const preparedResponse = {
         digest: DIGEST,
+        domain: DOMAIN,
         intent,
         status: "pending_owner_signature",
       } as const;
@@ -478,6 +484,7 @@ describe("registration HTTP API", () => {
         }).pipe(Effect.flip),
         Schema.encodeEffect(PreparedRegistrationResponse)({
           digest: DIGEST,
+          domain: DOMAIN,
           intent: {
             ...intent,
             deadline: "18446744073709551616",

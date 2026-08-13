@@ -4,6 +4,7 @@ import {
   EcdsaSignature,
   Handle,
   Hex32,
+  IdentityEip712DomainV1,
   PeerId,
   Qid,
   RegisterIntentV1,
@@ -31,6 +32,9 @@ const CanonicalDeviceCommitment = DeviceCommitment.pipe(
 );
 const CanonicalRegisterIntent = RegisterIntentV1.pipe(
   Schema.decodeTo(RegisterIntentV1.pipe(Schema.flip))
+);
+const CanonicalIdentityDomain = IdentityEip712DomainV1.pipe(
+  Schema.decodeTo(IdentityEip712DomainV1.pipe(Schema.flip))
 );
 
 const AddressInput = Schema.String.check(
@@ -67,6 +71,7 @@ export const AuthorizeRegistrationPayload = Schema.Struct({
 
 export const PreparedRegistrationResponse = Schema.Struct({
   digest: Digest,
+  domain: CanonicalIdentityDomain,
   intent: CanonicalRegisterIntent,
   status: Schema.Literal("pending_owner_signature"),
 });
