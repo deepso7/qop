@@ -6,6 +6,7 @@ import * as React from "react";
 import {
   ActivityIndicator,
   Keyboard,
+  Platform,
   ScrollView,
   Share,
   View,
@@ -112,6 +113,25 @@ const StepIndicator = React.memo(({ step }: { step: 1 | 2 }) => (
   </View>
 ));
 StepIndicator.displayName = "StepIndicator";
+
+const BackupConfirmationButton = React.memo(
+  ({ onConfirm, visible }: { onConfirm: () => void; visible: boolean }) => {
+    if (!visible) {
+      return null;
+    }
+    return (
+      <Button
+        accessibilityHint="Confirms that the recovery key was saved outside qop"
+        onPress={onConfirm}
+        variant="outline"
+      >
+        <Icon as={Check} className="size-5" />
+        <Text>I saved the recovery key</Text>
+      </Button>
+    );
+  }
+);
+BackupConfirmationButton.displayName = "BackupConfirmationButton";
 
 const stepTransition = FadeIn.duration(180).reduceMotion(ReduceMotion.System);
 const stepExit = FadeOut.duration(100).reduceMotion(ReduceMotion.System);
@@ -345,6 +365,8 @@ const OnboardingRoute = React.memo(() => {
   const [stage, setStage] = React.useState<CreateStage>("intro");
   const [handle, setHandle] = React.useState("");
   const [backedUp, setBackedUp] = React.useState(false);
+  const [awaitingBackupConfirmation, setAwaitingBackupConfirmation] =
+    React.useState(false);
   const [finishing, setFinishing] = React.useState(false);
   const [backupError, setBackupError] = React.useState<string>();
 
@@ -388,12 +410,18 @@ const OnboardingRoute = React.memo(() => {
     if (!recoveryKey) {
       return;
     }
+    setAwaitingBackupConfirmation(false);
     try {
       const result = await Share.share({
         message: recoveryKey,
         title: "Qop recovery key",
       });
       if (result.action === Share.sharedAction) {
+        if (Platform.OS === "android") {
+          setAwaitingBackupConfirmation(true);
+          setBackupError(undefined);
+          return;
+        }
         setBackedUp(true);
         setBackupError(undefined);
         playSuccessHaptic();
@@ -402,6 +430,13 @@ const OnboardingRoute = React.memo(() => {
       setBackupError("Could not export the recovery key. Try again.");
     }
   }, [recoveryKey]);
+
+  const confirmRecoveryBackup = React.useCallback(() => {
+    setAwaitingBackupConfirmation(false);
+    setBackedUp(true);
+    setBackupError(undefined);
+    playSuccessHaptic();
+  }, []);
 
   const continueToApp = React.useCallback(async () => {
     if (finishing) {
@@ -525,6 +560,10 @@ const OnboardingRoute = React.memo(() => {
             )}
             <Text>{recoveryButtonLabel}</Text>
           </Button>
+          <BackupConfirmationButton
+            onConfirm={confirmRecoveryBackup}
+            visible={awaitingBackupConfirmation}
+          />
           <Button
             accessibilityHint={
               backedUp

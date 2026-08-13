@@ -1,7 +1,7 @@
 import { Handle } from "@qop/identity";
 import { Result, Schema } from "effect";
 import * as React from "react";
-import { ActivityIndicator, Share, View } from "react-native";
+import { ActivityIndicator, Platform, Share, View } from "react-native";
 
 import { Screen } from "@/components/screen";
 import {
@@ -69,6 +69,8 @@ const ProfileScreen = React.memo(() => {
   const [savingHandle, setSavingHandle] = React.useState(false);
   const [handleError, setHandleError] = React.useState<string>();
   const [exportingRecoveryKey, setExportingRecoveryKey] = React.useState(false);
+  const [awaitingBackupConfirmation, setAwaitingBackupConfirmation] =
+    React.useState(false);
   const [recoveryMessage, setRecoveryMessage] = React.useState<string>();
   const isValidHandle = React.useMemo(
     () => Result.isSuccess(decodeHandle(handle)),
@@ -115,6 +117,7 @@ const ProfileScreen = React.memo(() => {
       return;
     }
     setExportingRecoveryKey(true);
+    setAwaitingBackupConfirmation(false);
     setRecoveryMessage(undefined);
     const revealed = await revealRecoveryKey();
     if (Result.isFailure(revealed)) {
@@ -128,6 +131,15 @@ const ProfileScreen = React.memo(() => {
         title: "Qop recovery key",
       });
       if (shared.action === Share.sharedAction) {
+        if (Platform.OS === "android") {
+          if (needsBackup) {
+            setAwaitingBackupConfirmation(true);
+            setRecoveryMessage("Confirm once you have saved the recovery key.");
+          } else {
+            setRecoveryMessage("Recovery key share sheet opened.");
+          }
+          return;
+        }
         const saved = await setBackupState("copied");
         setRecoveryMessage(
           Result.isSuccess(saved)
@@ -140,7 +152,22 @@ const ProfileScreen = React.memo(() => {
     } finally {
       setExportingRecoveryKey(false);
     }
-  }, [exportingRecoveryKey, revealRecoveryKey, setBackupState]);
+  }, [exportingRecoveryKey, needsBackup, revealRecoveryKey, setBackupState]);
+
+  const confirmRecoveryBackup = React.useCallback(async () => {
+    if (exportingRecoveryKey) {
+      return;
+    }
+    setExportingRecoveryKey(true);
+    const saved = await setBackupState("copied");
+    if (Result.isSuccess(saved)) {
+      setAwaitingBackupConfirmation(false);
+      setRecoveryMessage("Recovery key marked as backed up.");
+    } else {
+      setRecoveryMessage("Could not save the backup status. Try again.");
+    }
+    setExportingRecoveryKey(false);
+  }, [exportingRecoveryKey, setBackupState]);
 
   const submitHandle = React.useCallback(() => {
     void saveHandle();
@@ -258,6 +285,16 @@ const ProfileScreen = React.memo(() => {
             ) : null}
             <Text>{recovery.buttonLabel}</Text>
           </Button>
+          {awaitingBackupConfirmation ? (
+            <Button
+              accessibilityHint="Confirms that the recovery key was saved outside qop"
+              disabled={exportingRecoveryKey}
+              onPress={confirmRecoveryBackup}
+              variant="outline"
+            >
+              <Text>I saved the recovery key</Text>
+            </Button>
+          ) : null}
           {recoveryMessage ? (
             <Text
               className="text-center text-foreground-secondary"
