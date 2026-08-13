@@ -94,7 +94,7 @@ const getVaultErrorMessage = (error: IdentityVaultError | null) => {
   }
 };
 
-const StepIndicator = ({ step }: { step: 1 | 2 }) => (
+const StepIndicator = React.memo(({ step }: { step: 1 | 2 }) => (
   <View
     accessibilityLabel={`Step ${step} of 2`}
     accessible
@@ -110,7 +110,8 @@ const StepIndicator = ({ step }: { step: 1 | 2 }) => (
       />
     </View>
   </View>
-);
+));
+StepIndicator.displayName = "StepIndicator";
 
 const stepTransition = FadeIn.duration(180).reduceMotion(ReduceMotion.System);
 const stepExit = FadeOut.duration(100).reduceMotion(ReduceMotion.System);
@@ -224,105 +225,114 @@ const getDisplayedBackupError = (
   recoveryKeyError: string | undefined
 ) => backupError ?? recoveryKeyError;
 
-const VaultErrorScreen = ({ error }: { error: IdentityVaultError | null }) => {
-  const isHydrating = useIdentityStore((state) => state.isHydrating);
-  const resetIdentity = useIdentityStore((state) => state.resetIdentity);
-  const retryLoad = useIdentityStore((state) => state.retryLoad);
-  const [resetting, setResetting] = React.useState(false);
-  const canReset =
-    error?.operation === "decode" ||
-    error?.operation === "delete" ||
-    error?.operation === "stale-install";
+const VaultErrorScreen = React.memo(
+  ({ error }: { error: IdentityVaultError | null }) => {
+    const isHydrating = useIdentityStore((state) => state.isHydrating);
+    const resetIdentity = useIdentityStore((state) => state.resetIdentity);
+    const retryLoad = useIdentityStore((state) => state.retryLoad);
+    const [resetting, setResetting] = React.useState(false);
+    const canReset =
+      error?.operation === "decode" ||
+      error?.operation === "delete" ||
+      error?.operation === "stale-install";
 
-  const resetVault = React.useCallback(async () => {
-    if (resetting) {
-      return;
-    }
-    setResetting(true);
-    const result = await resetIdentity();
-    if (Result.isFailure(result)) {
-      setResetting(false);
-    }
-  }, [resetIdentity, resetting]);
+    const resetVault = React.useCallback(async () => {
+      if (resetting) {
+        return;
+      }
+      setResetting(true);
+      const result = await resetIdentity();
+      if (Result.isFailure(result)) {
+        setResetting(false);
+      }
+    }, [resetIdentity, resetting]);
 
-  return (
-    <Animated.View
-      entering={stepTransition}
-      exiting={stepExit}
-      className="grow justify-between gap-10"
-    >
-      <View className="grow items-center justify-center gap-5 py-8">
-        <QopWordmark width={184} />
-        <View className="max-w-md items-center gap-3">
-          <Text
-            accessibilityRole="header"
-            className="text-center text-3xl leading-10 font-semibold tracking-tight"
-          >
-            Identity vault unavailable.
-          </Text>
-          <Text
-            className="text-center text-foreground-secondary"
-            selectable
-            variant="body"
-          >
-            {getVaultErrorMessage(error)}
-          </Text>
+    const confirmReset = React.useCallback(() => {
+      void resetVault();
+    }, [resetVault]);
+
+    return (
+      <Animated.View
+        entering={stepTransition}
+        exiting={stepExit}
+        className="grow justify-between gap-10"
+      >
+        <View className="grow items-center justify-center gap-5 py-8">
+          <QopWordmark width={184} />
+          <View className="max-w-md items-center gap-3">
+            <Text
+              accessibilityRole="header"
+              className="text-center text-3xl leading-10 font-semibold tracking-tight"
+            >
+              Identity vault unavailable.
+            </Text>
+            <Text
+              className="text-center text-foreground-secondary"
+              selectable
+              variant="body"
+            >
+              {getVaultErrorMessage(error)}
+            </Text>
+          </View>
         </View>
-      </View>
-      <View className="gap-3">
-        <Button
-          className="h-14 rounded-xl"
-          disabled={isHydrating}
-          onPress={retryLoad}
-          size="lg"
-        >
-          {isHydrating ? (
-            <ActivityIndicator colorClassName="accent-primary-foreground" />
-          ) : null}
-          <Text>{isHydrating ? "Trying again…" : "Try again"}</Text>
-        </Button>
-        {canReset ? (
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                className="h-10 self-center rounded-full px-5"
-                disabled={resetting}
-                variant="ghost"
-              >
-                <Text>Reset this device</Text>
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete the stored identity?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This permanently removes the local recovery and device keys.
-                  Only continue if you have saved the recovery key or want to
-                  create a different identity.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel accessibilityLabel="Cancel identity reset">
-                  <Text>Cancel</Text>
-                </AlertDialogCancel>
-                <AlertDialogAction
-                  accessibilityLabel="Delete stored identity"
+        <View className="gap-3">
+          <Button
+            className="h-14 rounded-xl"
+            disabled={isHydrating}
+            onPress={retryLoad}
+            size="lg"
+          >
+            {isHydrating ? (
+              <ActivityIndicator colorClassName="accent-primary-foreground" />
+            ) : null}
+            <Text>{isHydrating ? "Trying again…" : "Try again"}</Text>
+          </Button>
+          {canReset ? (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  className="h-10 self-center rounded-full px-5"
                   disabled={resetting}
-                  onPress={() => void resetVault()}
-                  variant="destructive"
+                  variant="ghost"
                 >
-                  <Text>Delete identity</Text>
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        ) : null}
-      </View>
-    </Animated.View>
-  );
-};
+                  <Text>Reset this device</Text>
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    Delete the stored identity?
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This permanently removes the local recovery and device keys.
+                    Only continue if you have saved the recovery key or want to
+                    create a different identity.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel accessibilityLabel="Cancel identity reset">
+                    <Text>Cancel</Text>
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    accessibilityLabel="Delete stored identity"
+                    disabled={resetting}
+                    onPress={confirmReset}
+                    variant="destructive"
+                  >
+                    <Text>Delete identity</Text>
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : null}
+        </View>
+      </Animated.View>
+    );
+  }
+);
+VaultErrorScreen.displayName = "VaultErrorScreen";
 
-const OnboardingRoute = () => {
+const OnboardingRoute = React.memo(() => {
   const insets = useSafeAreaInsets();
   const createIdentity = useIdentityStore((state) => state.createIdentity);
   const error = useIdentityStore((state) => state.error);
@@ -338,7 +348,10 @@ const OnboardingRoute = () => {
   const [finishing, setFinishing] = React.useState(false);
   const [backupError, setBackupError] = React.useState<string>();
 
-  const isValidHandle = Result.isSuccess(decodeHandle(handle));
+  const isValidHandle = React.useMemo(
+    () => Result.isSuccess(decodeHandle(handle)),
+    [handle]
+  );
   const isCreating = status === "creating";
   const isBackup = status === "backup";
   const {
@@ -405,15 +418,31 @@ const OnboardingRoute = () => {
     playSuccessHaptic();
   }, [backedUp, finishing, setBackupState]);
 
+  const submitCreate = React.useCallback(() => {
+    void create();
+  }, [create]);
+
+  const submitRecoveryExport = React.useCallback(() => {
+    void exportRecoveryKey();
+  }, [exportRecoveryKey]);
+
+  const submitContinue = React.useCallback(() => {
+    void continueToApp();
+  }, [continueToApp]);
+
   const displayedBackupError = getDisplayedBackupError(
     backupError,
     recoveryKeyError
   );
-  const recoveryButtonLabel = getRecoveryButtonLabel({
-    backedUp,
-    isOpening: isOpeningRecoveryKey,
-    recoveryKey,
-  });
+  const recoveryButtonLabel = React.useMemo(
+    () =>
+      getRecoveryButtonLabel({
+        backedUp,
+        isOpening: isOpeningRecoveryKey,
+        recoveryKey,
+      }),
+    [backedUp, isOpeningRecoveryKey, recoveryKey]
+  );
 
   let content: React.ReactNode;
   if (status === "error") {
@@ -486,7 +515,7 @@ const OnboardingRoute = () => {
             accessibilityHint="Opens the system share sheet to export the recovery key"
             className="h-14 rounded-xl"
             disabled={isOpeningRecoveryKey}
-            onPress={recoveryKey ? exportRecoveryKey : retryRecoveryKey}
+            onPress={recoveryKey ? submitRecoveryExport : retryRecoveryKey}
             size="lg"
           >
             {isOpeningRecoveryKey ? (
@@ -504,7 +533,7 @@ const OnboardingRoute = () => {
             }
             className="h-10 self-center rounded-full px-5"
             disabled={finishing}
-            onPress={continueToApp}
+            onPress={submitContinue}
             size="sm"
             variant="ghost"
           >
@@ -564,7 +593,7 @@ const OnboardingRoute = () => {
               enterKeyHint="done"
               maxLength={32}
               onChangeText={setHandle}
-              onSubmitEditing={() => void create()}
+              onSubmitEditing={submitCreate}
               placeholder="your_handle"
               returnKeyType="done"
               spellCheck={false}
@@ -591,7 +620,7 @@ const OnboardingRoute = () => {
             accessibilityHint="Generates and securely stores a new qop identity"
             className="h-14 rounded-xl"
             disabled={!isValidHandle || isCreating}
-            onPress={() => void create()}
+            onPress={submitCreate}
             size="lg"
           >
             {isCreating ? (
@@ -669,6 +698,7 @@ const OnboardingRoute = () => {
       </View>
     </ScrollView>
   );
-};
+});
+OnboardingRoute.displayName = "OnboardingRoute";
 
 export default OnboardingRoute;

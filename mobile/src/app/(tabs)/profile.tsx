@@ -56,7 +56,7 @@ const logoutPresentation = (needsBackup: boolean) => {
   };
 };
 
-const ProfileScreen = () => {
+const ProfileScreen = React.memo(() => {
   const identity = useIdentityStore((state) => state.identity);
   const revealRecoveryKey = useIdentityStore(
     (state) => state.revealRecoveryKey
@@ -70,10 +70,23 @@ const ProfileScreen = () => {
   const [handleError, setHandleError] = React.useState<string>();
   const [exportingRecoveryKey, setExportingRecoveryKey] = React.useState(false);
   const [recoveryMessage, setRecoveryMessage] = React.useState<string>();
-  const isValidHandle = Result.isSuccess(decodeHandle(handle));
+  const isValidHandle = React.useMemo(
+    () => Result.isSuccess(decodeHandle(handle)),
+    [handle]
+  );
   const needsBackup = identity?.backupState !== "copied";
-  const logout = logoutPresentation(needsBackup);
-  const recovery = recoveryPresentation(needsBackup);
+  const logout = React.useMemo(
+    () => logoutPresentation(needsBackup),
+    [needsBackup]
+  );
+  const recovery = React.useMemo(
+    () => recoveryPresentation(needsBackup),
+    [needsBackup]
+  );
+
+  const beginHandleEdit = React.useCallback(() => {
+    setEditingHandle(true);
+  }, []);
 
   const cancelHandleEdit = React.useCallback(() => {
     setHandle(identity?.handle ?? "");
@@ -129,6 +142,18 @@ const ProfileScreen = () => {
     }
   }, [exportingRecoveryKey, revealRecoveryKey, setBackupState]);
 
+  const submitHandle = React.useCallback(() => {
+    void saveHandle();
+  }, [saveHandle]);
+
+  const submitRecoveryExport = React.useCallback(() => {
+    void exportRecoveryKey();
+  }, [exportRecoveryKey]);
+
+  const confirmReset = React.useCallback(() => {
+    void resetIdentity();
+  }, [resetIdentity]);
+
   return (
     <Screen bounces={false}>
       <View className="gap-1">
@@ -154,7 +179,7 @@ const ProfileScreen = () => {
             {editingHandle ? null : (
               <Button
                 accessibilityLabel="Change registration handle"
-                onPress={() => setEditingHandle(true)}
+                onPress={beginHandleEdit}
                 size="sm"
                 variant="ghost"
               >
@@ -172,7 +197,7 @@ const ProfileScreen = () => {
                 editable={!savingHandle}
                 maxLength={32}
                 onChangeText={setHandle}
-                onSubmitEditing={() => void saveHandle()}
+                onSubmitEditing={submitHandle}
                 spellCheck={false}
                 value={handle}
               />
@@ -196,7 +221,7 @@ const ProfileScreen = () => {
                     savingHandle ||
                     handle === identity?.handle
                   }
-                  onPress={() => void saveHandle()}
+                  onPress={submitHandle}
                   size="sm"
                 >
                   {savingHandle ? (
@@ -225,7 +250,7 @@ const ProfileScreen = () => {
           </View>
           <Button
             disabled={exportingRecoveryKey}
-            onPress={() => void exportRecoveryKey()}
+            onPress={submitRecoveryExport}
             variant={recovery.buttonVariant}
           >
             {exportingRecoveryKey ? (
@@ -265,7 +290,7 @@ const ProfileScreen = () => {
               </AlertDialogCancel>
               <AlertDialogAction
                 accessibilityLabel="Log out and delete local identity"
-                onPress={() => void resetIdentity()}
+                onPress={confirmReset}
                 variant="destructive"
               >
                 <Text>Log out</Text>
@@ -282,6 +307,7 @@ const ProfileScreen = () => {
       </View>
     </Screen>
   );
-};
+});
+ProfileScreen.displayName = "ProfileScreen";
 
 export default ProfileScreen;
