@@ -4,19 +4,9 @@ import * as React from "react";
 import { ActivityIndicator, Platform, Share, View } from "react-native";
 
 import { Screen } from "@/components/screen";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { NativeAlert } from "@/components/ui/native-alert";
 import { SectionLabel } from "@/components/ui/section-label";
 import { Surface } from "@/components/ui/surface";
 import { Text } from "@/components/ui/text";
@@ -71,6 +61,7 @@ const ProfileScreen = React.memo(() => {
   const [exportingRecoveryKey, setExportingRecoveryKey] = React.useState(false);
   const [awaitingBackupConfirmation, setAwaitingBackupConfirmation] =
     React.useState(false);
+  const [logoutAlertOpen, setLogoutAlertOpen] = React.useState(false);
   const [recoveryMessage, setRecoveryMessage] = React.useState<string>();
   const isValidHandle = React.useMemo(
     () => Result.isSuccess(decodeHandle(handle)),
@@ -178,8 +169,13 @@ const ProfileScreen = React.memo(() => {
   }, [exportRecoveryKey]);
 
   const confirmReset = React.useCallback(() => {
+    setLogoutAlertOpen(false);
     void resetIdentity();
   }, [resetIdentity]);
+
+  const openLogoutAlert = React.useCallback(() => {
+    setLogoutAlertOpen(true);
+  }, []);
 
   return (
     <Screen bounces={false}>
@@ -308,33 +304,22 @@ const ProfileScreen = React.memo(() => {
       </View>
 
       <View className="gap-2">
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button className="h-12 rounded-xl" variant="destructive">
-              <Text>Log out</Text>
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>{logout.title}</AlertDialogTitle>
-              <AlertDialogDescription>
-                {logout.description}
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel accessibilityLabel="Cancel logout">
-                <Text>Cancel</Text>
-              </AlertDialogCancel>
-              <AlertDialogAction
-                accessibilityLabel="Log out and delete local identity"
-                onPress={confirmReset}
-                variant="destructive"
-              >
-                <Text>Log out</Text>
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <Button
+          className="h-12 rounded-xl"
+          onPress={openLogoutAlert}
+          variant="destructive"
+        >
+          <Text>Log out</Text>
+        </Button>
+        <NativeAlert
+          confirmLabel="Log out"
+          description={logout.description}
+          destructive
+          onConfirm={confirmReset}
+          onOpenChange={setLogoutAlertOpen}
+          open={logoutAlertOpen}
+          title={logout.title}
+        />
         <Text
           className="text-center text-foreground-secondary"
           variant="caption"

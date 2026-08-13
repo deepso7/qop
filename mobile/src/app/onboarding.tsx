@@ -19,20 +19,10 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { QopWordmark } from "@/components/brand-mark";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
+import { NativeAlert } from "@/components/ui/native-alert";
 import { Text } from "@/components/ui/text";
 import { useIdentityStore } from "@/lib/identity-store";
 import type { IdentityVaultError } from "@/lib/identity-vault";
@@ -251,6 +241,7 @@ const VaultErrorScreen = React.memo(
     const resetIdentity = useIdentityStore((state) => state.resetIdentity);
     const retryLoad = useIdentityStore((state) => state.retryLoad);
     const [resetting, setResetting] = React.useState(false);
+    const [resetAlertOpen, setResetAlertOpen] = React.useState(false);
     const canReset =
       error?.operation === "decode" ||
       error?.operation === "delete" ||
@@ -268,8 +259,13 @@ const VaultErrorScreen = React.memo(
     }, [resetIdentity, resetting]);
 
     const confirmReset = React.useCallback(() => {
+      setResetAlertOpen(false);
       void resetVault();
     }, [resetVault]);
+
+    const openResetAlert = React.useCallback(() => {
+      setResetAlertOpen(true);
+    }, []);
 
     return (
       <Animated.View
@@ -308,43 +304,24 @@ const VaultErrorScreen = React.memo(
             <Text>{isHydrating ? "Trying again…" : "Try again"}</Text>
           </Button>
           {canReset ? (
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button
-                  className="h-10 self-center rounded-full px-5"
-                  disabled={resetting}
-                  variant="ghost"
-                >
-                  <Text>Reset this device</Text>
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>
-                    Delete the stored identity?
-                  </AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This permanently removes the local recovery and device keys.
-                    Only continue if you have saved the recovery key or want to
-                    create a different identity.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel accessibilityLabel="Cancel identity reset">
-                    <Text>Cancel</Text>
-                  </AlertDialogCancel>
-                  <AlertDialogAction
-                    accessibilityLabel="Delete stored identity"
-                    disabled={resetting}
-                    onPress={confirmReset}
-                    variant="destructive"
-                  >
-                    <Text>Delete identity</Text>
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+            <Button
+              className="h-10 self-center rounded-full px-5"
+              disabled={resetting}
+              onPress={openResetAlert}
+              variant="ghost"
+            >
+              <Text>Reset this device</Text>
+            </Button>
           ) : null}
+          <NativeAlert
+            confirmLabel="Delete identity"
+            description="This permanently removes the local recovery and device keys. Only continue if you have saved the recovery key or want to create a different identity."
+            destructive
+            onConfirm={confirmReset}
+            onOpenChange={setResetAlertOpen}
+            open={resetAlertOpen}
+            title="Delete the stored identity?"
+          />
         </View>
       </Animated.View>
     );
