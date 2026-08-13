@@ -41,6 +41,10 @@ export {
   type IdentityEnvelopeV1Encoded,
 } from "./device-certificate.ts";
 export {
+  DeviceEncryptionCryptoError,
+  encryptionPublicKeyFromSecretKey,
+} from "./device-encryption.ts";
+export {
   decodeIdentityEip712DomainV1,
   deviceCertificateEip712Types,
   hashDeviceCertificateV1,

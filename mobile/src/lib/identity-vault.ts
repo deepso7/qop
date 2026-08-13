@@ -2,6 +2,7 @@ import {
   Base64Url32,
   decodeRecoveryKeyV1,
   encodeRecoveryKeyV1,
+  encryptionPublicKeyFromSecretKey,
   EthereumAddress,
   Handle,
   ownerAddressFromRecoveryKeyV1,
@@ -37,7 +38,7 @@ const RecoveryKeyV1String = Schema.String.check(
   })
 );
 
-const LocalIdentityV1 = Schema.Struct({
+const StoredLocalIdentityV1 = Schema.Struct({
   backupState: Schema.Literals(["copied", "pending", "skipped"]),
   deviceSecretKey: CanonicalBase64Url32,
   encryptionSecretKey: CanonicalBase64Url32,
@@ -51,10 +52,17 @@ const LocalIdentityV1 = Schema.Struct({
   parseOptions: strictParseOptions,
 });
 
-const LocalIdentityJson = Schema.fromJsonString(LocalIdentityV1);
+const StoredLocalIdentityJson = Schema.fromJsonString(StoredLocalIdentityV1);
 
-export type LocalIdentity = typeof LocalIdentityV1.Type;
-export type IdentityBackupState = LocalIdentity["backupState"];
+type StoredLocalIdentity = typeof StoredLocalIdentityV1.Type;
+
+export type LocalIdentity = Pick<
+  StoredLocalIdentity,
+  "backupState" | "handle" | "ownerAddress" | "peerId" | "version"
+> & {
+  readonly encryptionPublicKey: typeof Base64Url32.Encoded;
+};
+export type IdentityBackupState = StoredLocalIdentity["backupState"];
 
 export class IdentityVaultError extends Data.TaggedError("IdentityVaultError")<{
   readonly operation:
@@ -64,6 +72,7 @@ export class IdentityVaultError extends Data.TaggedError("IdentityVaultError")<{
     | "decode"
     | "delete"
     | "install-state"
+    | "invalid-handle"
     | "missing-identity"
     | "read"
     | "stale-install"
@@ -72,6 +81,33 @@ export class IdentityVaultError extends Data.TaggedError("IdentityVaultError")<{
 
 const vaultError = (operation: IdentityVaultError["operation"]) =>
   new IdentityVaultError({ operation });
+
+const publicIdentity = Effect.fn("IdentityVault.publicIdentity")(function* ({
+  backupState,
+  encryptionSecretKey,
+  handle,
+  ownerAddress,
+  peerId,
+  version,
+}: StoredLocalIdentity) {
+  const secretKey = yield* Schema.decodeUnknownEffect(Base64Url32)(
+    encryptionSecretKey
+  ).pipe(Effect.mapError(() => vaultError("decode")));
+  const encryptionPublicKey = yield* encryptionPublicKeyFromSecretKey(
+    secretKey
+  ).pipe(
+    Effect.flatMap(Schema.encodeEffect(Base64Url32)),
+    Effect.mapError(() => vaultError("decode"))
+  );
+  return {
+    backupState,
+    encryptionPublicKey,
+    handle,
+    ownerAddress,
+    peerId,
+    version,
+  };
+});
 
 const ensureSecureStore = Effect.fn("IdentityVault.ensureSecureStore")(
   function* () {
@@ -153,7 +189,7 @@ const makeRecoveryKey = Effect.fn("IdentityVault.makeRecoveryKey")(
 
 const decodeStoredIdentity = Effect.fn("IdentityVault.decodeStoredIdentity")(
   function* (encoded: string) {
-    const identity = yield* Schema.decodeUnknownEffect(LocalIdentityJson)(
+    const identity = yield* Schema.decodeUnknownEffect(StoredLocalIdentityJson)(
       encoded
     ).pipe(Effect.mapError(() => vaultError("decode")));
     const recoveryPrivateKey = yield* decodeRecoveryKeyV1(
@@ -182,8 +218,8 @@ const decodeStoredIdentity = Effect.fn("IdentityVault.decodeStoredIdentity")(
 );
 
 const writeLocalIdentity = Effect.fn("IdentityVault.writeLocalIdentity")(
-  function* (identity: LocalIdentity) {
-    const encoded = yield* Schema.encodeEffect(LocalIdentityJson)(
+  function* (identity: StoredLocalIdentity) {
+    const encoded = yield* Schema.encodeEffect(StoredLocalIdentityJson)(
       identity
     ).pipe(Effect.mapError(() => vaultError("write")));
     yield* Effect.tryPromise({
@@ -198,30 +234,37 @@ const writeLocalIdentity = Effect.fn("IdentityVault.writeLocalIdentity")(
   }
 );
 
+const loadStoredLocalIdentity = Effect.fn(
+  "IdentityVault.loadStoredLocalIdentity"
+)(function* () {
+  yield* ensureSecureStore();
+  const [encoded, installState] = yield* Effect.all(
+    [
+      Effect.tryPromise({
+        catch: () => vaultError("read"),
+        try: () =>
+          SecureStore.getItemAsync(IDENTITY_STORAGE_KEY, secureStoreOptions),
+      }),
+      readInstallState(),
+    ] as const,
+    { concurrency: "unbounded" }
+  );
+  if (encoded === null) {
+    if (installState === "reinstalled") {
+      yield* writeSandboxInstallMarker();
+    }
+    return null;
+  }
+  if (installState === "reinstalled") {
+    return yield* vaultError("stale-install");
+  }
+  return yield* decodeStoredIdentity(encoded);
+});
+
 export const loadLocalIdentity = Effect.fn("IdentityVault.loadLocalIdentity")(
   function* () {
-    yield* ensureSecureStore();
-    const [encoded, installState] = yield* Effect.all(
-      [
-        Effect.tryPromise({
-          catch: () => vaultError("read"),
-          try: () =>
-            SecureStore.getItemAsync(IDENTITY_STORAGE_KEY, secureStoreOptions),
-        }),
-        readInstallState(),
-      ] as const,
-      { concurrency: "unbounded" }
-    );
-    if (encoded === null) {
-      if (installState === "reinstalled") {
-        yield* writeSandboxInstallMarker();
-      }
-      return null;
-    }
-    if (installState === "reinstalled") {
-      return yield* vaultError("stale-install");
-    }
-    return yield* decodeStoredIdentity(encoded);
+    const identity = yield* loadStoredLocalIdentity();
+    return identity === null ? null : yield* publicIdentity(identity);
   }
 );
 
@@ -231,7 +274,7 @@ const createLocalIdentityUnlocked = Effect.fn(
   const handle = yield* Schema.decodeUnknownEffect(Handle)(input).pipe(
     Effect.mapError(() => vaultError("create"))
   );
-  if ((yield* loadLocalIdentity()) !== null) {
+  if ((yield* loadStoredLocalIdentity()) !== null) {
     return yield* vaultError("already-exists");
   }
 
@@ -254,7 +297,7 @@ const createLocalIdentityUnlocked = Effect.fn(
       ] as const,
       { concurrency: "unbounded" }
     ).pipe(Effect.mapError(() => vaultError("create")));
-  const identity: LocalIdentity = {
+  const identity: StoredLocalIdentity = {
     backupState: "pending",
     deviceSecretKey: encodedDeviceSecretKey,
     encryptionSecretKey: encodedEncryptionSecretKey,
@@ -265,7 +308,7 @@ const createLocalIdentityUnlocked = Effect.fn(
     version: 1,
   };
   yield* writeLocalIdentity(identity);
-  return identity;
+  return yield* publicIdentity(identity);
 });
 
 export const createLocalIdentity = Effect.fn(
@@ -290,13 +333,47 @@ export const deleteLocalIdentity = Effect.fn(
   )
 );
 
-export const finishLocalIdentityOnboarding = Effect.fn(
-  "IdentityVault.finishLocalIdentityOnboarding"
-)(function* (
-  identity: LocalIdentity,
-  backupState: Exclude<IdentityBackupState, "pending">
-) {
-  const updated: LocalIdentity = { ...identity, backupState };
-  yield* writeLocalIdentity(updated);
-  return updated;
+export const revealLocalIdentityRecoveryKey = Effect.fn(
+  "IdentityVault.revealLocalIdentityRecoveryKey"
+)(function* () {
+  const identity = yield* loadStoredLocalIdentity();
+  if (!identity) {
+    return yield* vaultError("missing-identity");
+  }
+  return identity.recoveryKey;
 });
+
+export const updateLocalIdentityHandle = Effect.fn(
+  "IdentityVault.updateLocalIdentityHandle"
+)((input: unknown) =>
+  createSemaphore.withPermit(
+    Effect.gen(function* () {
+      const handle = yield* Schema.decodeUnknownEffect(Handle)(input).pipe(
+        Effect.mapError(() => vaultError("invalid-handle"))
+      );
+      const identity = yield* loadStoredLocalIdentity();
+      if (!identity) {
+        return yield* vaultError("missing-identity");
+      }
+      const updated: StoredLocalIdentity = { ...identity, handle };
+      yield* writeLocalIdentity(updated);
+      return yield* publicIdentity(updated);
+    })
+  )
+);
+
+export const updateLocalIdentityBackupState = Effect.fn(
+  "IdentityVault.updateLocalIdentityBackupState"
+)((backupState: Exclude<IdentityBackupState, "pending">) =>
+  createSemaphore.withPermit(
+    Effect.gen(function* () {
+      const identity = yield* loadStoredLocalIdentity();
+      if (!identity) {
+        return yield* vaultError("missing-identity");
+      }
+      const updated: StoredLocalIdentity = { ...identity, backupState };
+      yield* writeLocalIdentity(updated);
+      return yield* publicIdentity(updated);
+    })
+  )
+);

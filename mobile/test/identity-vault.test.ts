@@ -108,16 +108,82 @@ describe("identity vault", () => {
   });
 
   it("creates and reloads a verified identity", async () => {
-    const { createLocalIdentity, loadLocalIdentity } = await loadVault();
+    const {
+      createLocalIdentity,
+      loadLocalIdentity,
+      revealLocalIdentityRecoveryKey,
+    } = await loadVault();
     const created = await Effect.runPromise(
       createLocalIdentity("alice").pipe(Effect.result)
     );
     expect(Result.isSuccess(created)).toBe(true);
+    if (Result.isSuccess(created)) {
+      expect(created.success.encryptionPublicKey).toHaveLength(43);
+      expect(created.success).not.toHaveProperty("deviceSecretKey");
+      expect(created.success).not.toHaveProperty("encryptionSecretKey");
+      expect(created.success).not.toHaveProperty("recoveryKey");
+    }
 
     const loaded = await Effect.runPromise(
       loadLocalIdentity().pipe(Effect.result)
     );
     expect(loaded).toEqual(created);
+    const recoveryKey = await Effect.runPromise(
+      revealLocalIdentityRecoveryKey()
+    );
+    expect(recoveryKey).toMatch(/^qop1_/u);
+  });
+
+  it("updates public metadata without replacing private key material", async () => {
+    const {
+      createLocalIdentity,
+      loadLocalIdentity,
+      updateLocalIdentityBackupState,
+      updateLocalIdentityHandle,
+    } = await loadVault();
+    await Effect.runPromise(createLocalIdentity("alice"));
+    const before = JSON.parse(
+      secureStoreMock.items.get(IDENTITY_STORAGE_KEY) ?? "{}"
+    );
+
+    const updated = await Effect.runPromise(updateLocalIdentityHandle("bob"));
+    expect(updated).toMatchObject({ backupState: "pending", handle: "bob" });
+    expect(updated).not.toHaveProperty("deviceSecretKey");
+    expect(updated).not.toHaveProperty("encryptionSecretKey");
+    expect(updated).not.toHaveProperty("recoveryKey");
+
+    const afterHandleChange = JSON.parse(
+      secureStoreMock.items.get(IDENTITY_STORAGE_KEY) ?? "{}"
+    );
+    expect(afterHandleChange).toMatchObject({
+      deviceSecretKey: before.deviceSecretKey,
+      encryptionSecretKey: before.encryptionSecretKey,
+      recoveryKey: before.recoveryKey,
+    });
+
+    await Effect.runPromise(updateLocalIdentityBackupState("skipped"));
+    await expect(Effect.runPromise(loadLocalIdentity())).resolves.toMatchObject(
+      {
+        backupState: "skipped",
+        handle: "bob",
+      }
+    );
+  });
+
+  it("rejects invalid handle updates without changing the vault", async () => {
+    const { createLocalIdentity, updateLocalIdentityHandle } =
+      await loadVault();
+    await Effect.runPromise(createLocalIdentity("alice"));
+    const before = secureStoreMock.items.get(IDENTITY_STORAGE_KEY);
+
+    const result = await Effect.runPromise(
+      updateLocalIdentityHandle("Alice").pipe(Effect.result)
+    );
+
+    expect(Result.isFailure(result) && result.failure.operation).toBe(
+      "invalid-handle"
+    );
+    expect(secureStoreMock.items.get(IDENTITY_STORAGE_KEY)).toBe(before);
   });
 
   it("rejects malformed, excess, and inconsistent stored data", async () => {

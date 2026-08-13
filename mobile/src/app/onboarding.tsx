@@ -70,6 +70,9 @@ const getVaultErrorMessage = (error: IdentityVaultError | null) => {
     case "install-state": {
       return "Qop could not verify this app installation.";
     }
+    case "invalid-handle": {
+      return "That handle is not valid.";
+    }
     case "missing-identity": {
       return "There is no identity to finish setting up.";
     }
@@ -153,6 +156,73 @@ const playSuccessHaptic = () => {
     );
   }
 };
+
+const useRecoveryKey = (
+  enabled: boolean,
+  revealRecoveryKey: () => Promise<Result.Result<string, IdentityVaultError>>
+) => {
+  const [attempt, setAttempt] = React.useState(0);
+  const [error, setError] = React.useState<string>();
+  const [recoveryKey, setRecoveryKey] = React.useState<string>();
+
+  React.useEffect(() => {
+    if (!enabled) {
+      return;
+    }
+    let cancelled = false;
+    const reveal = async () => {
+      const result = await revealRecoveryKey();
+      if (cancelled) {
+        return;
+      }
+      if (Result.isSuccess(result)) {
+        setRecoveryKey(result.success);
+        setError(undefined);
+      } else {
+        setError("Could not open the recovery key. Try again.");
+      }
+    };
+    void reveal();
+    return () => {
+      cancelled = true;
+    };
+  }, [attempt, enabled, revealRecoveryKey]);
+
+  const retry = React.useCallback(() => {
+    setError(undefined);
+    setAttempt((current) => current + 1);
+  }, []);
+
+  return {
+    error,
+    isOpening: enabled && !recoveryKey && !error,
+    recoveryKey,
+    retry,
+  };
+};
+
+const getRecoveryButtonLabel = ({
+  backedUp,
+  isOpening,
+  recoveryKey,
+}: {
+  backedUp: boolean;
+  isOpening: boolean;
+  recoveryKey: string | undefined;
+}) => {
+  if (backedUp) {
+    return "Recovery key exported";
+  }
+  if (recoveryKey) {
+    return "Export recovery key";
+  }
+  return isOpening ? "Opening recovery key…" : "Try opening recovery key";
+};
+
+const getDisplayedBackupError = (
+  backupError: string | undefined,
+  recoveryKeyError: string | undefined
+) => backupError ?? recoveryKeyError;
 
 const VaultErrorScreen = ({ error }: { error: IdentityVaultError | null }) => {
   const isHydrating = useIdentityStore((state) => state.isHydrating);
@@ -256,8 +326,11 @@ const OnboardingRoute = () => {
   const insets = useSafeAreaInsets();
   const createIdentity = useIdentityStore((state) => state.createIdentity);
   const error = useIdentityStore((state) => state.error);
-  const finishOnboarding = useIdentityStore((state) => state.finishOnboarding);
   const identity = useIdentityStore((state) => state.identity);
+  const revealRecoveryKey = useIdentityStore(
+    (state) => state.revealRecoveryKey
+  );
+  const setBackupState = useIdentityStore((state) => state.setBackupState);
   const status = useIdentityStore((state) => state.status);
   const [stage, setStage] = React.useState<CreateStage>("intro");
   const [handle, setHandle] = React.useState("");
@@ -267,7 +340,13 @@ const OnboardingRoute = () => {
 
   const isValidHandle = Result.isSuccess(decodeHandle(handle));
   const isCreating = status === "creating";
-  const isBackup = status === "backup" && identity !== null;
+  const isBackup = status === "backup";
+  const {
+    error: recoveryKeyError,
+    isOpening: isOpeningRecoveryKey,
+    recoveryKey,
+    retry: retryRecoveryKey,
+  } = useRecoveryKey(isBackup, revealRecoveryKey);
 
   const startCreate = React.useCallback(() => {
     playPrimaryHaptic();
@@ -293,12 +372,12 @@ const OnboardingRoute = () => {
   }, [createIdentity, handle, isCreating, isValidHandle]);
 
   const exportRecoveryKey = React.useCallback(async () => {
-    if (!identity) {
+    if (!recoveryKey) {
       return;
     }
     try {
       const result = await Share.share({
-        message: identity.recoveryKey,
+        message: recoveryKey,
         title: "Qop recovery key",
       });
       if (result.action === Share.sharedAction) {
@@ -309,7 +388,7 @@ const OnboardingRoute = () => {
     } catch {
       setBackupError("Could not export the recovery key. Try again.");
     }
-  }, [identity]);
+  }, [recoveryKey]);
 
   const continueToApp = React.useCallback(async () => {
     if (finishing) {
@@ -317,14 +396,24 @@ const OnboardingRoute = () => {
     }
     setFinishing(true);
     setBackupError(undefined);
-    const result = await finishOnboarding(backedUp ? "copied" : "skipped");
+    const result = await setBackupState(backedUp ? "copied" : "skipped");
     if (Result.isFailure(result)) {
       setBackupError("Could not save the backup choice. Try again.");
       setFinishing(false);
       return;
     }
     playSuccessHaptic();
-  }, [backedUp, finishOnboarding, finishing]);
+  }, [backedUp, finishing, setBackupState]);
+
+  const displayedBackupError = getDisplayedBackupError(
+    backupError,
+    recoveryKeyError
+  );
+  const recoveryButtonLabel = getRecoveryButtonLabel({
+    backedUp,
+    isOpening: isOpeningRecoveryKey,
+    recoveryKey,
+  });
 
   let content: React.ReactNode;
   if (status === "error") {
@@ -349,7 +438,7 @@ const OnboardingRoute = () => {
               Save your recovery key.
             </Text>
             <Text className="max-w-md text-foreground-secondary" variant="body">
-              This key restores @{identity.handle}. Qop cannot reset or replace
+              This key restores @{identity?.handle}. Qop cannot reset or replace
               it for you.
             </Text>
           </View>
@@ -359,13 +448,19 @@ const OnboardingRoute = () => {
               className="border-border bg-code-background rounded-xl border p-4"
               style={{ borderCurve: "continuous" }}
             >
-              <Text
-                accessibilityLabel="Recovery key"
-                className="font-mono text-sm leading-6"
-                selectable
-              >
-                {identity.recoveryKey}
-              </Text>
+              {recoveryKey ? (
+                <Text
+                  accessibilityLabel="Recovery key"
+                  className="font-mono text-sm leading-6"
+                  selectable
+                >
+                  {recoveryKey}
+                </Text>
+              ) : (
+                <View className="h-12 items-center justify-center">
+                  <ActivityIndicator colorClassName="accent-foreground-secondary" />
+                </View>
+              )}
             </View>
             <Text
               className="text-foreground-secondary"
@@ -378,25 +473,28 @@ const OnboardingRoute = () => {
         </View>
 
         <View className="gap-3">
-          {backupError ? (
+          {displayedBackupError ? (
             <Text
               className="text-center text-destructive"
               selectable
               variant="caption"
             >
-              {backupError}
+              {displayedBackupError}
             </Text>
           ) : null}
           <Button
             accessibilityHint="Opens the system share sheet to export the recovery key"
             className="h-14 rounded-xl"
-            onPress={exportRecoveryKey}
+            disabled={isOpeningRecoveryKey}
+            onPress={recoveryKey ? exportRecoveryKey : retryRecoveryKey}
             size="lg"
           >
-            <Icon as={backedUp ? Check : Share2} className="size-5" />
-            <Text>
-              {backedUp ? "Recovery key exported" : "Export recovery key"}
-            </Text>
+            {isOpeningRecoveryKey ? (
+              <ActivityIndicator colorClassName="accent-primary-foreground" />
+            ) : (
+              <Icon as={backedUp ? Check : Share2} className="size-5" />
+            )}
+            <Text>{recoveryButtonLabel}</Text>
           </Button>
           <Button
             accessibilityHint={
