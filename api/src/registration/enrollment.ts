@@ -257,7 +257,6 @@ export class RegistrationEnrollment extends Context.Service<
       const reconciliationSemaphore = yield* Semaphore.make(
         registrationReconciliationConcurrency
       );
-      const submissionSemaphore = yield* Semaphore.make(1);
       const domain: IdentityEip712DomainV1 =
         yield* decodeIdentityEip712DomainV1({
           chainId: env.CHAIN_ID.toString(),
@@ -591,57 +590,42 @@ export class RegistrationEnrollment extends Context.Service<
           const submittedStatus =
             status === "confirmed"
               ? status
-              : yield* submissionSemaphore.withPermits(1)(
-                  Effect.gen(function* () {
-                    const current = yield* store.get(digest);
-                    if (Option.isNone(current)) {
-                      return yield* new RegistrationIntentNotFound({ digest });
-                    }
-                    if (current.value.status === "confirmed") {
-                      return yield* verifyAuthorizedRegistrationStatus(
-                        current.value.status
-                      );
-                    }
-                    const submitted =
-                      current.value.status === "ready"
-                        ? yield* Effect.gen(function* () {
-                            const prepared = yield* relayer.prepare(
-                              intent,
-                              ownerSignatureHex,
-                              registrationSignatureHex
-                            );
-                            return yield* store.markSubmitted(
-                              digest,
-                              prepared.transactionHash,
-                              prepared.serializedTransaction
-                            );
-                          })
-                        : current.value;
-                    if (
-                      submitted.status !== "submitted" ||
-                      !submitted.transactionHash ||
-                      !submitted.serializedTransaction
-                    ) {
-                      return yield* new RegistrationProtocolError({
-                        cause: "Submitted registration is missing relay data",
-                        operation: "verify-state",
-                      });
-                    }
-                    const transactionHash = yield* relayer.broadcast({
-                      serializedTransaction: submitted.serializedTransaction,
-                      transactionHash: submitted.transactionHash,
+              : yield* Effect.gen(function* () {
+                  const submitted = yield* store.prepareSubmission(
+                    digest,
+                    relayer.pendingNonce,
+                    (nonce) =>
+                      relayer.prepare(
+                        intent,
+                        ownerSignatureHex,
+                        registrationSignatureHex,
+                        nonce
+                      )
+                  );
+                  if (
+                    submitted.status !== "submitted" ||
+                    !submitted.transactionHash ||
+                    !submitted.serializedTransaction
+                  ) {
+                    return yield* new RegistrationProtocolError({
+                      cause: "Submitted registration is missing relay data",
+                      operation: "verify-state",
                     });
-                    if (transactionHash !== submitted.transactionHash) {
-                      return yield* new RegistrationProtocolError({
-                        cause: "Relayer returned a different transaction hash",
-                        operation: "verify-state",
-                      });
-                    }
-                    return yield* verifyAuthorizedRegistrationStatus(
-                      submitted.status
-                    );
-                  })
-                );
+                  }
+                  const transactionHash = yield* relayer.broadcast({
+                    serializedTransaction: submitted.serializedTransaction,
+                    transactionHash: submitted.transactionHash,
+                  });
+                  if (transactionHash !== submitted.transactionHash) {
+                    return yield* new RegistrationProtocolError({
+                      cause: "Relayer returned a different transaction hash",
+                      operation: "verify-state",
+                    });
+                  }
+                  return yield* verifyAuthorizedRegistrationStatus(
+                    submitted.status
+                  );
+                });
           return {
             digest,
             intent: yield* encodeIntent(intent),

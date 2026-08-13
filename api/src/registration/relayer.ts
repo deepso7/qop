@@ -4,7 +4,7 @@ import {
   RegisterIntentV1,
 } from "@qop/identity";
 import type { RegisterIntentV1 as RegisterIntent } from "@qop/identity";
-import { Context, Data, Effect, Layer, Schema, Semaphore } from "effect";
+import { Context, Data, Effect, Layer, Schema } from "effect";
 import {
   createPublicClient,
   createWalletClient,
@@ -45,8 +45,10 @@ export interface RegistrationRelayerShape {
   readonly prepare: (
     intent: RegisterIntent,
     ownerSignature: Hex,
-    registrationSignature: Hex
+    registrationSignature: Hex,
+    nonce: bigint
   ) => Effect.Effect<PreparedRegistrationRelay, RegistrationRelayerError>;
+  readonly pendingNonce: Effect.Effect<bigint, RegistrationRelayerError>;
 }
 
 export class RegistrationRelayer extends Context.Service<
@@ -75,13 +77,15 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
     const publicClient = createPublicClient({
       transport: http(env.RPC_URL.toString()),
     });
-    const semaphore = yield* Semaphore.make(1);
-
     const prepare = Effect.fn("RegistrationRelayer.prepare")(function* (
       intent: RegisterIntent,
       ownerSignature: Hex,
-      registrationSignature: Hex
+      registrationSignature: Hex,
+      nonce: bigint
     ) {
+      if (nonce < 0n || nonce > BigInt(Number.MAX_SAFE_INTEGER)) {
+        return yield* new RegistrationRelayerError({ operation: "prepare" });
+      }
       yield* Schema.encodeEffect(RegisterIntentV1)(intent).pipe(
         Effect.andThen(
           Schema.decodeUnknownEffect(EthereumAddress)(intent.owner)
@@ -96,42 +100,41 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
           () => new RegistrationRelayerError({ operation: "prepare" })
         )
       );
-      return yield* semaphore.withPermits(1)(
-        Effect.tryPromise({
-          catch: () => new RegistrationRelayerError({ operation: "prepare" }),
-          try: async () => {
-            const data = encodeFunctionData({
-              abi: registryWriteAbi,
-              args: [
-                {
-                  deadline: intent.deadline,
-                  deviceCommitment: toHex(intent.deviceCommitment),
-                  handle: intent.handle,
-                  nonce: toHex(intent.nonce),
-                  owner: intent.owner as Address,
-                },
-                ownerSignature,
-                registrationSignature,
-              ],
-              functionName: "register",
-            });
-            const request = await client.prepareTransactionRequest({
-              account,
-              chain: undefined,
-              data,
-              to: env.REGISTRY_ADDRESS as Address,
-            });
-            const serializedTransaction = await client.signTransaction({
-              ...request,
-              chain: undefined,
-            });
-            return {
-              serializedTransaction,
-              transactionHash: keccak256(serializedTransaction),
-            } satisfies PreparedRegistrationRelay;
-          },
-        })
-      );
+      return yield* Effect.tryPromise({
+        catch: () => new RegistrationRelayerError({ operation: "prepare" }),
+        try: async () => {
+          const data = encodeFunctionData({
+            abi: registryWriteAbi,
+            args: [
+              {
+                deadline: intent.deadline,
+                deviceCommitment: toHex(intent.deviceCommitment),
+                handle: intent.handle,
+                nonce: toHex(intent.nonce),
+                owner: intent.owner as Address,
+              },
+              ownerSignature,
+              registrationSignature,
+            ],
+            functionName: "register",
+          });
+          const request = await client.prepareTransactionRequest({
+            account,
+            chain: undefined,
+            data,
+            nonce: Number(nonce),
+            to: env.REGISTRY_ADDRESS as Address,
+          });
+          const serializedTransaction = await client.signTransaction({
+            ...request,
+            chain: undefined,
+          });
+          return {
+            serializedTransaction,
+            transactionHash: keccak256(serializedTransaction),
+          } satisfies PreparedRegistrationRelay;
+        },
+      });
     });
 
     const transactionExists = (transactionHash: Hash) =>
@@ -139,6 +142,17 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
         catch: (cause) => cause,
         try: () => publicClient.getTransaction({ hash: transactionHash }),
       }).pipe(Effect.match({ onFailure: () => false, onSuccess: () => true }));
+
+    const pendingNonce = Effect.tryPromise({
+      catch: () => new RegistrationRelayerError({ operation: "prepare" }),
+      try: async () =>
+        BigInt(
+          await publicClient.getTransactionCount({
+            address: account.address,
+            blockTag: "pending",
+          })
+        ),
+    });
 
     const broadcast = Effect.fn("RegistrationRelayer.broadcast")(function* (
       prepared: PreparedRegistrationRelay
@@ -170,7 +184,7 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
       );
     });
 
-    return RegistrationRelayer.of({ broadcast, prepare });
+    return RegistrationRelayer.of({ broadcast, pendingNonce, prepare });
   }
 );
 

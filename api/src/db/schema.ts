@@ -130,6 +130,17 @@ export const registrationIntents = pgTable(
   ]
 );
 
+export const registrationRelayerState = pgTable(
+  "registration_relayer_state",
+  {
+    id: integer("id").primaryKey(),
+    nextNonce: uint64("next_nonce").notNull(),
+  },
+  (table) => [
+    check("registration_relayer_state_singleton_check", sql`${table.id} = 1`),
+  ]
+);
+
 export const registrationAdmissionCodes = pgTable(
   "registration_admission_codes",
   {

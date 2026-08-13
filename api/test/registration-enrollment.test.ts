@@ -170,6 +170,7 @@ const RegistrationRelayerTestLive = Layer.succeed(
   RegistrationRelayer,
   RegistrationRelayer.of({
     broadcast: (prepared) => Effect.succeed(prepared.transactionHash),
+    pendingNonce: Effect.succeed(0n),
     prepare: () =>
       Effect.succeed({
         serializedTransaction: "0x02aa",

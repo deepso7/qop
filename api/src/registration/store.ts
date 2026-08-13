@@ -11,6 +11,7 @@ import {
   registrationAdmissionCodes,
   registrationHandleLeases,
   registrationIntents,
+  registrationRelayerState,
 } from "../db/schema.ts";
 import { epochSeconds } from "../time.ts";
 import { RegistrationAdmissionUnauthorized } from "./admission.ts";
@@ -170,6 +171,11 @@ export type RegistrationStoreError =
   | RegistrationStorePersistenceError
   | RegistrationTransitionConflict;
 
+export interface RegistrationSubmission {
+  readonly serializedTransaction: Hex;
+  readonly transactionHash: Hash;
+}
+
 export interface RegistrationStoreShape {
   readonly releaseAuthorizationReservation: (
     digest: Hash
@@ -216,11 +222,11 @@ export interface RegistrationStoreShape {
     failureCode: string,
     expectedStatuses?: readonly RegistrationIntentStatus[]
   ) => Effect.Effect<StoredRegistrationIntent, RegistrationStoreError>;
-  readonly markSubmitted: (
+  readonly prepareSubmission: <E>(
     digest: Hash,
-    transactionHash: Hash,
-    serializedTransaction: Hex
-  ) => Effect.Effect<StoredRegistrationIntent, RegistrationStoreError>;
+    pendingNonce: Effect.Effect<bigint, E>,
+    prepare: (nonce: bigint) => Effect.Effect<RegistrationSubmission, E>
+  ) => Effect.Effect<StoredRegistrationIntent, RegistrationStoreError | E>;
 }
 
 const activeStatuses: readonly RegistrationIntentStatus[] =
@@ -801,57 +807,91 @@ export class RegistrationStore extends Context.Service<
         );
       });
 
-      const markSubmitted = Effect.fn("RegistrationStore.markSubmitted")(
-        function* (
-          digest: Hash,
-          transactionHash: Hash,
-          serializedTransaction: Hex
-        ) {
-          const canonicalDigest = yield* normalizeRegistrationDigest(digest);
-          const canonicalTransactionHash =
-            yield* normalizeTransactionHash(transactionHash);
-          const canonicalSerializedTransaction =
-            yield* normalizeSerializedTransaction(serializedTransaction);
-          const now = yield* DateTime.now;
-          const updated = yield* db
-            .update(registrationIntents)
-            .set({
-              serializedTransaction: canonicalSerializedTransaction,
-              status: "submitted",
-              submittedAt: DateTime.toDateUtc(now),
-              transactionHash: canonicalTransactionHash,
-              updatedAt: DateTime.toDateUtc(now),
-            })
-            .where(
-              and(
-                eq(registrationIntents.digest, canonicalDigest),
-                eq(registrationIntents.status, "ready")
-              )
-            )
-            .returning();
-          const intent = updated.at(0);
-          if (intent) {
-            return intent;
+      const prepareSubmission: RegistrationStoreShape["prepareSubmission"] =
+        Effect.fn("RegistrationStore.prepareSubmission")(
+          function* (digest, pendingNonce, prepare) {
+            const canonicalDigest = yield* normalizeRegistrationDigest(digest);
+            return yield* db.transaction((tx) =>
+              Effect.gen(function* () {
+                yield* tx
+                  .insert(registrationRelayerState)
+                  .values({ id: 1, nextNonce: 0n })
+                  .onConflictDoNothing();
+                const relayerState = yield* tx
+                  .select()
+                  .from(registrationRelayerState)
+                  .where(eq(registrationRelayerState.id, 1))
+                  .for("update")
+                  .pipe(Effect.map((rows) => rows[0]));
+                if (!relayerState) {
+                  return yield* new RegistrationIntentNotFound({
+                    digest: canonicalDigest,
+                  });
+                }
+
+                const current = yield* findForUpdate(tx, canonicalDigest);
+                if (
+                  current &&
+                  ["confirmed", "submitted"].includes(current.status)
+                ) {
+                  return current;
+                }
+                if (current?.status !== "ready") {
+                  const now = yield* DateTime.now;
+                  return yield* transitionFailure(
+                    tx,
+                    canonicalDigest,
+                    registrationTransitionSources.submit,
+                    epochSeconds(now)
+                  );
+                }
+
+                const chainNonce = yield* pendingNonce;
+                const nonce =
+                  chainNonce > relayerState.nextNonce
+                    ? chainNonce
+                    : relayerState.nextNonce;
+                const submission = yield* prepare(nonce);
+                const canonicalTransactionHash =
+                  yield* normalizeTransactionHash(submission.transactionHash);
+                const canonicalSerializedTransaction =
+                  yield* normalizeSerializedTransaction(
+                    submission.serializedTransaction
+                  );
+                const now = yield* DateTime.now;
+                yield* tx
+                  .update(registrationRelayerState)
+                  .set({ nextNonce: nonce + 1n })
+                  .where(eq(registrationRelayerState.id, 1));
+                const updated = yield* tx
+                  .update(registrationIntents)
+                  .set({
+                    serializedTransaction: canonicalSerializedTransaction,
+                    status: "submitted",
+                    submittedAt: DateTime.toDateUtc(now),
+                    transactionHash: canonicalTransactionHash,
+                    updatedAt: DateTime.toDateUtc(now),
+                  })
+                  .where(
+                    and(
+                      eq(registrationIntents.digest, canonicalDigest),
+                      eq(registrationIntents.status, "ready")
+                    )
+                  )
+                  .returning();
+                return (
+                  updated[0] ??
+                  (yield* transitionFailure(
+                    tx,
+                    canonicalDigest,
+                    registrationTransitionSources.submit,
+                    epochSeconds(now)
+                  ))
+                );
+              })
+            );
           }
-          const current = yield* find(db, canonicalDigest);
-          if (
-            current &&
-            current.transactionHash === canonicalTransactionHash &&
-            current.serializedTransaction === canonicalSerializedTransaction &&
-            ["confirmed", "submitted"].includes(current.status)
-          ) {
-            return current;
-          }
-          return yield* db.transaction((tx) =>
-            transitionFailure(
-              tx,
-              canonicalDigest,
-              registrationTransitionSources.submit,
-              epochSeconds(now)
-            )
-          );
-        }
-      );
+        );
 
       const markConfirmed = Effect.fn("RegistrationStore.markConfirmed")(
         function* (digest: Hash, qid: bigint) {
@@ -1040,7 +1080,7 @@ export class RegistrationStore extends Context.Service<
         getByObserveTokenHash,
         markConfirmed,
         markFailed,
-        markSubmitted,
+        prepareSubmission,
         releaseAuthorizationReservation,
         reserveAuthorization,
       });

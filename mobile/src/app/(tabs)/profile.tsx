@@ -58,6 +58,7 @@ const canStartRegistration = (
   registration: LocalRegistration | null | undefined
 ) =>
   registration === null ||
+  registration?.status === "draft" ||
   registration?.status === "failed" ||
   registration?.status === "expired";
 

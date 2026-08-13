@@ -444,10 +444,14 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
           HandleLeaseConflict
         );
 
-        const submitted = yield* store.markSubmitted(
+        const submitted = yield* store.prepareSubmission(
           registration.digest,
-          uppercaseHash(40_004),
-          "0x02aa"
+          Effect.succeed(0n),
+          () =>
+            Effect.succeed({
+              serializedTransaction: "0x02aa",
+              transactionHash: uppercaseHash(40_004),
+            })
         );
         assert.strictEqual(submitted.status, "submitted");
         assert.strictEqual(submitted.serializedTransaction, "0x02aa");
@@ -477,6 +481,47 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
         yield* store.markFailed(readyCompetitor.digest, "TEST_CLEANUP");
         yield* store.markFailed(submittedCompetitor.digest, "TEST_CLEANUP");
         yield* store.markFailed(replacement.digest, "TEST_CLEANUP");
+      })
+    );
+
+    it.effect("allocates relayer nonces from shared database state", () =>
+      Effect.gen(function* () {
+        const store = yield* RegistrationStore;
+        const deadline = yield* deadlineAfter(60);
+        const first = input(41, "nonceone", deadline);
+        const second = input(42, "noncetwo", deadline);
+        yield* store.create(first);
+        yield* store.create(second);
+        yield* store.authorize(first.digest, authorization);
+        yield* store.authorize(second.digest, authorization);
+
+        const allocated: bigint[] = [];
+        yield* store.prepareSubmission(
+          first.digest,
+          Effect.succeed(5n),
+          (nonce) =>
+            Effect.sync(() => {
+              allocated.push(nonce);
+              return {
+                serializedTransaction: "0x02aa" as const,
+                transactionHash: hash(41_001),
+              };
+            })
+        );
+        yield* store.prepareSubmission(
+          second.digest,
+          Effect.succeed(0n),
+          (nonce) =>
+            Effect.sync(() => {
+              allocated.push(nonce);
+              return {
+                serializedTransaction: "0x02bb" as const,
+                transactionHash: hash(42_001),
+              };
+            })
+        );
+
+        assert.deepStrictEqual(allocated, [5n, 6n]);
       })
     );
 
