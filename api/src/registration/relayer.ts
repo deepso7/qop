@@ -5,7 +5,15 @@ import {
 } from "@qop/identity";
 import type { RegisterIntentV1 as RegisterIntent } from "@qop/identity";
 import { Context, Data, Effect, Layer, Schema, Semaphore } from "effect";
-import { createWalletClient, http, parseAbi, toHex } from "viem";
+import {
+  createPublicClient,
+  createWalletClient,
+  encodeFunctionData,
+  http,
+  keccak256,
+  parseAbi,
+  toHex,
+} from "viem";
 import type { Address, Hash, Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -23,14 +31,22 @@ const PrivateKey = Schema.String.check(
 
 export class RegistrationRelayerError extends Data.TaggedError(
   "RegistrationRelayerError"
-)<{ readonly operation: "configure" | "submit" }> {}
+)<{ readonly operation: "broadcast" | "configure" | "prepare" }> {}
+
+export interface PreparedRegistrationRelay {
+  readonly serializedTransaction: Hex;
+  readonly transactionHash: Hash;
+}
 
 export interface RegistrationRelayerShape {
-  readonly submit: (
+  readonly broadcast: (
+    prepared: PreparedRegistrationRelay
+  ) => Effect.Effect<Hash, RegistrationRelayerError>;
+  readonly prepare: (
     intent: RegisterIntent,
     ownerSignature: Hex,
     registrationSignature: Hex
-  ) => Effect.Effect<Hash, RegistrationRelayerError>;
+  ) => Effect.Effect<PreparedRegistrationRelay, RegistrationRelayerError>;
 }
 
 export class RegistrationRelayer extends Context.Service<
@@ -56,9 +72,12 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
       account,
       transport: http(env.RPC_URL.toString()),
     });
+    const publicClient = createPublicClient({
+      transport: http(env.RPC_URL.toString()),
+    });
     const semaphore = yield* Semaphore.make(1);
 
-    const submit = Effect.fn("RegistrationRelayer.submit")(function* (
+    const prepare = Effect.fn("RegistrationRelayer.prepare")(function* (
       intent: RegisterIntent,
       ownerSignature: Hex,
       registrationSignature: Hex
@@ -74,16 +93,15 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
           Schema.decodeUnknownEffect(EcdsaSignature)(registrationSignature)
         ),
         Effect.mapError(
-          () => new RegistrationRelayerError({ operation: "submit" })
+          () => new RegistrationRelayerError({ operation: "prepare" })
         )
       );
       return yield* semaphore.withPermits(1)(
         Effect.tryPromise({
-          catch: () => new RegistrationRelayerError({ operation: "submit" }),
-          try: () =>
-            client.writeContract({
+          catch: () => new RegistrationRelayerError({ operation: "prepare" }),
+          try: async () => {
+            const data = encodeFunctionData({
               abi: registryWriteAbi,
-              address: env.REGISTRY_ADDRESS as Address,
               args: [
                 {
                   deadline: intent.deadline,
@@ -95,14 +113,64 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
                 ownerSignature,
                 registrationSignature,
               ],
-              chain: undefined,
               functionName: "register",
-            }),
+            });
+            const request = await client.prepareTransactionRequest({
+              account,
+              chain: undefined,
+              data,
+              to: env.REGISTRY_ADDRESS as Address,
+            });
+            const serializedTransaction = await client.signTransaction({
+              ...request,
+              chain: undefined,
+            });
+            return {
+              serializedTransaction,
+              transactionHash: keccak256(serializedTransaction),
+            } satisfies PreparedRegistrationRelay;
+          },
         })
       );
     });
 
-    return RegistrationRelayer.of({ submit });
+    const transactionExists = (transactionHash: Hash) =>
+      Effect.tryPromise({
+        catch: (cause) => cause,
+        try: () => publicClient.getTransaction({ hash: transactionHash }),
+      }).pipe(Effect.match({ onFailure: () => false, onSuccess: () => true }));
+
+    const broadcast = Effect.fn("RegistrationRelayer.broadcast")(function* (
+      prepared: PreparedRegistrationRelay
+    ) {
+      if (
+        keccak256(prepared.serializedTransaction) !== prepared.transactionHash
+      ) {
+        return yield* new RegistrationRelayerError({ operation: "broadcast" });
+      }
+      if (yield* transactionExists(prepared.transactionHash)) {
+        return prepared.transactionHash;
+      }
+      return yield* Effect.tryPromise({
+        catch: () => new RegistrationRelayerError({ operation: "broadcast" }),
+        try: () =>
+          client.sendRawTransaction({
+            serializedTransaction: prepared.serializedTransaction,
+          }),
+      }).pipe(
+        Effect.catch((error) =>
+          transactionExists(prepared.transactionHash).pipe(
+            Effect.flatMap((exists) =>
+              exists
+                ? Effect.succeed(prepared.transactionHash)
+                : Effect.fail(error)
+            )
+          )
+        )
+      );
+    });
+
+    return RegistrationRelayer.of({ broadcast, prepare });
   }
 );
 

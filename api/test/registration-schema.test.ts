@@ -218,7 +218,7 @@ describe("registration database schema", () => {
         registration_intents_status_check:
           "\"registration_intents\".\"status\" in ('pending_owner_signature', 'ready', 'submitted', 'confirmed', 'failed', 'expired')",
         registration_intents_submission_check:
-          '"registration_intents"."status" <> \'submitted\' or ("registration_intents"."submitted_at" is not null and "registration_intents"."transaction_hash" is not null)',
+          '"registration_intents"."status" <> \'submitted\' or ("registration_intents"."submitted_at" is not null and "registration_intents"."transaction_hash" is not null and "registration_intents"."serialized_transaction" is not null)',
       }
     );
   });

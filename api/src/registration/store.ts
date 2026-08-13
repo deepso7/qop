@@ -22,6 +22,7 @@ import {
   normalizeRegistrationObserveTokenHash,
   normalizeRegistrationOwnerSignature,
   normalizeRegistrationQid,
+  normalizeSerializedTransaction,
   normalizeTransactionHash,
 } from "./inputs.ts";
 import type { RegistrationInputError } from "./inputs.ts";
@@ -217,7 +218,8 @@ export interface RegistrationStoreShape {
   ) => Effect.Effect<StoredRegistrationIntent, RegistrationStoreError>;
   readonly markSubmitted: (
     digest: Hash,
-    transactionHash: Hash
+    transactionHash: Hash,
+    serializedTransaction: Hex
   ) => Effect.Effect<StoredRegistrationIntent, RegistrationStoreError>;
 }
 
@@ -800,14 +802,21 @@ export class RegistrationStore extends Context.Service<
       });
 
       const markSubmitted = Effect.fn("RegistrationStore.markSubmitted")(
-        function* (digest: Hash, transactionHash: Hash) {
+        function* (
+          digest: Hash,
+          transactionHash: Hash,
+          serializedTransaction: Hex
+        ) {
           const canonicalDigest = yield* normalizeRegistrationDigest(digest);
           const canonicalTransactionHash =
             yield* normalizeTransactionHash(transactionHash);
+          const canonicalSerializedTransaction =
+            yield* normalizeSerializedTransaction(serializedTransaction);
           const now = yield* DateTime.now;
           const updated = yield* db
             .update(registrationIntents)
             .set({
+              serializedTransaction: canonicalSerializedTransaction,
               status: "submitted",
               submittedAt: DateTime.toDateUtc(now),
               transactionHash: canonicalTransactionHash,
@@ -828,6 +837,7 @@ export class RegistrationStore extends Context.Service<
           if (
             current &&
             current.transactionHash === canonicalTransactionHash &&
+            current.serializedTransaction === canonicalSerializedTransaction &&
             ["confirmed", "submitted"].includes(current.status)
           ) {
             return current;

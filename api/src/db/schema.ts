@@ -7,6 +7,7 @@ import {
   numeric,
   pgTable,
   primaryKey,
+  text,
   timestamp,
   uniqueIndex,
   varchar,
@@ -56,6 +57,7 @@ export const registrationIntents = pgTable(
     qid: uint256("qid"),
     registrationNonce: hash32("registration_nonce").notNull(),
     registrationSignature: signature("registration_signature"),
+    serializedTransaction: text("serialized_transaction").$type<Hex>(),
     status: varchar("status", { length: 32 })
       .$type<RegistrationIntentStatus>()
       .notNull(),
@@ -115,7 +117,7 @@ export const registrationIntents = pgTable(
     ),
     check(
       "registration_intents_submission_check",
-      sql`${table.status} <> 'submitted' or (${table.submittedAt} is not null and ${table.transactionHash} is not null)`
+      sql`${table.status} <> 'submitted' or (${table.submittedAt} is not null and ${table.transactionHash} is not null and ${table.serializedTransaction} is not null)`
     ),
     check(
       "registration_intents_confirmation_check",

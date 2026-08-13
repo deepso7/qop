@@ -54,6 +54,13 @@ const registrationStatusLabel = (
   }
 };
 
+const canStartRegistration = (
+  registration: LocalRegistration | null | undefined
+) =>
+  registration === null ||
+  registration?.status === "failed" ||
+  registration?.status === "expired";
+
 const recoveryPresentation = (needsBackup: boolean) => {
   if (needsBackup) {
     return {
@@ -205,7 +212,7 @@ const RegistrationSection = React.memo(
             registry.
           </Text>
         </View>
-        {registration === null ? (
+        {canStartRegistration(registration) ? (
           <View className="gap-3">
             <Input
               accessibilityLabel="Registration invitation code"
@@ -223,11 +230,15 @@ const RegistrationSection = React.memo(
               {busy ? (
                 <ActivityIndicator colorClassName="accent-primary-foreground" />
               ) : null}
-              <Text>Register identity</Text>
+              <Text>
+                {registration === null ? "Register identity" : "Try again"}
+              </Text>
             </Button>
           </View>
         ) : null}
-        {registration && !isRegistered ? (
+        {registration &&
+        !isRegistered &&
+        !canStartRegistration(registration) ? (
           <Button disabled={busy} onPress={submitCheck} variant="outline">
             {busy ? (
               <ActivityIndicator colorClassName="accent-foreground-secondary" />

@@ -168,4 +168,27 @@ describe("local registration", () => {
     expect(clientMock.prepareRegistration).toHaveBeenCalledOnce();
     expect(clientMock.authorizeRegistration).toHaveBeenCalledTimes(2);
   });
+
+  it("starts a fresh draft after a terminal registration", async () => {
+    const { startLocalRegistration } = await import("@/lib/local-registration");
+    await Effect.runPromise(startLocalRegistration("A".repeat(43)));
+    const stored = JSON.parse(
+      secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
+    );
+    secureStoreMock.items.set(
+      REGISTRATION_STORAGE_KEY,
+      JSON.stringify({ ...stored, status: "failed" })
+    );
+
+    const result = await Effect.runPromise(
+      startLocalRegistration(`${"A".repeat(42)}Q`)
+    );
+
+    expect(result.status).toBe("submitted");
+    expect(clientMock.prepareRegistration).toHaveBeenCalledTimes(2);
+    const restarted = JSON.parse(
+      secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
+    );
+    expect(restarted.idempotencyKey).not.toBe(stored.idempotencyKey);
+  });
 });

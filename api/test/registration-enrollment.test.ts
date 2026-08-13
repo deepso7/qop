@@ -169,10 +169,13 @@ const EntropyTestLive = Layer.sync(Entropy, () => {
 const RegistrationRelayerTestLive = Layer.succeed(
   RegistrationRelayer,
   RegistrationRelayer.of({
-    submit: () =>
-      Effect.succeed(
-        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-      ),
+    broadcast: (prepared) => Effect.succeed(prepared.transactionHash),
+    prepare: () =>
+      Effect.succeed({
+        serializedTransaction: "0x02aa",
+        transactionHash:
+          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      }),
   })
 );
 
@@ -496,6 +499,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         submitted.transactionHash,
         "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       );
+      assert.strictEqual(submitted.serializedTransaction, "0x02aa");
       assert.strictEqual(
         yield* recoverRegisterIntentSignerV1(
           domain,

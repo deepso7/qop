@@ -446,9 +446,11 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
 
         const submitted = yield* store.markSubmitted(
           registration.digest,
-          uppercaseHash(40_004)
+          uppercaseHash(40_004),
+          "0x02aa"
         );
         assert.strictEqual(submitted.status, "submitted");
+        assert.strictEqual(submitted.serializedTransaction, "0x02aa");
         assert.strictEqual(submitted.transactionHash, hash(40_004));
         assert.strictEqual(yield* store.expire, 0);
         const submittedCompetitor = input(

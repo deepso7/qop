@@ -321,7 +321,12 @@ export const startLocalRegistration = Effect.fn(
   registrationSemaphore.withPermit(
     Effect.gen(function* () {
       let registration = yield* readStoredRegistration();
-      if (registration) {
+      if (
+        registration?.status === "failed" ||
+        registration?.status === "expired"
+      ) {
+        registration = yield* createDraft(admissionCode);
+      } else if (registration) {
         yield* verifyStoredOwner(registration);
         if (
           registration.admissionCode !== null &&
