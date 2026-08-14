@@ -8,6 +8,7 @@ import {
   PeerId,
   Qid,
   RegisterIntentV1,
+  RegistrationAdmissionCode,
 } from "@qop/identity";
 import { Schema } from "effect";
 import {
@@ -26,6 +27,9 @@ const CanonicalSignature = EcdsaSignature.pipe(
 const CanonicalQid = Qid.pipe(Schema.decodeTo(Qid.pipe(Schema.flip)));
 const CanonicalBase64Url32 = Base64Url32.pipe(
   Schema.decodeTo(Base64Url32.pipe(Schema.flip))
+);
+const CanonicalAdmissionCode = RegistrationAdmissionCode.pipe(
+  Schema.decodeTo(RegistrationAdmissionCode.pipe(Schema.flip))
 );
 const CanonicalDeviceCommitment = DeviceCommitment.pipe(
   Schema.decodeTo(DeviceCommitment.pipe(Schema.flip))
@@ -56,7 +60,7 @@ const DigestInput = Schema.String.check(
 );
 
 export const PrepareRegistrationPayload = Schema.Struct({
-  admissionCode: CanonicalBase64Url32,
+  admissionCode: CanonicalAdmissionCode,
   deviceCommitment: CanonicalDeviceCommitment,
   handle: Handle,
   idempotencyKey: CanonicalBase64Url32,

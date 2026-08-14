@@ -1,4 +1,4 @@
-import { Base64Url32, Handle } from "@qop/identity";
+import { Handle, RegistrationAdmissionCode } from "@qop/identity";
 import { Effect, Result, Schema } from "effect";
 import * as React from "react";
 import { ActivityIndicator, Platform, Share, View } from "react-native";
@@ -19,7 +19,9 @@ import {
 import type { LocalRegistration } from "@/lib/local-registration";
 
 const decodeHandle = Schema.decodeUnknownResult(Handle);
-const decodeAdmissionCode = Schema.decodeUnknownResult(Base64Url32);
+const decodeAdmissionCode = Schema.decodeUnknownResult(
+  RegistrationAdmissionCode
+);
 
 const registrationStatusLabel = (
   registration: LocalRegistration | null | undefined
@@ -217,13 +219,14 @@ const RegistrationSection = React.memo(
           <View className="gap-3">
             <Input
               accessibilityLabel="Registration invitation code"
-              autoCapitalize="none"
+              autoCapitalize="characters"
               autoComplete="off"
               autoCorrect={false}
               editable={!busy}
+              maxLength={7}
               onChangeText={setAdmissionCode}
               onSubmitEditing={submit}
-              placeholder="Invitation code"
+              placeholder="XXX-XXX"
               spellCheck={false}
               value={admissionCode}
             />

@@ -1,4 +1,4 @@
-import { Base64Url32 } from "@qop/identity";
+import { RegistrationAdmissionCode } from "@qop/identity";
 import { and, eq, gt, isNull, or } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, DateTime, Effect, Layer, Schema } from "effect";
@@ -15,10 +15,14 @@ const admissionCodeHashDomain = stringToBytes("qop/registration-admission/v1");
 export const decodeRegistrationAdmissionCode = Effect.fn(
   "RegistrationAdmission.decodeCode"
 )(function* (input: unknown) {
-  const code = yield* Schema.decodeUnknownEffect(Base64Url32)(input);
+  const code = yield* Schema.decodeUnknownEffect(RegistrationAdmissionCode)(
+    input
+  );
   return {
     code,
-    codeHash: keccak256(concatBytes([admissionCodeHashDomain, code])) as Hash,
+    codeHash: keccak256(
+      concatBytes([admissionCodeHashDomain, stringToBytes(code)])
+    ) as Hash,
   };
 });
 
@@ -35,7 +39,7 @@ export interface RegistrationAdmissionShape {
   readonly create: (
     codeHash: Hash,
     expiresAt?: bigint
-  ) => Effect.Effect<void, EffectDrizzleQueryError | SqlError>;
+  ) => Effect.Effect<boolean, EffectDrizzleQueryError | SqlError>;
   readonly release: (
     codeHash: Hash,
     digest: Hash
@@ -97,10 +101,12 @@ export class RegistrationAdmission extends Context.Service<
         codeHash: Hash,
         expiresAt?: bigint
       ) {
-        yield* db
+        const inserted = yield* db
           .insert(registrationAdmissionCodes)
           .values({ codeHash, expiresAt })
-          .onConflictDoNothing();
+          .onConflictDoNothing()
+          .returning({ codeHash: registrationAdmissionCodes.codeHash });
+        return inserted.length === 1;
       });
 
       return RegistrationAdmission.of({

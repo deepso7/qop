@@ -11,6 +11,7 @@ import {
   PeerId,
   Qid,
   RegisterIntentV1,
+  RegistrationAdmissionCode,
 } from "@qop/identity";
 import { Data, Effect, Schema, Semaphore } from "effect";
 import * as Crypto from "expo-crypto";
@@ -39,6 +40,9 @@ const registrationSemaphore = Semaphore.makeUnsafe(1);
 const CanonicalBase64Url32 = Base64Url32.pipe(
   Schema.decodeTo(Base64Url32.pipe(Schema.flip))
 );
+const CanonicalAdmissionCode = RegistrationAdmissionCode.pipe(
+  Schema.decodeTo(RegistrationAdmissionCode.pipe(Schema.flip))
+);
 const CanonicalHex32 = Hex32.pipe(Schema.decodeTo(Hex32.pipe(Schema.flip)));
 const CanonicalPeerId = PeerId.pipe(Schema.decodeTo(PeerId.pipe(Schema.flip)));
 const CanonicalQid = Qid.pipe(Schema.decodeTo(Qid.pipe(Schema.flip)));
@@ -60,7 +64,7 @@ const RegistrationStatus = Schema.Literals([
 ]);
 
 const StoredLocalRegistrationV1 = Schema.Struct({
-  admissionCode: Schema.NullOr(CanonicalBase64Url32),
+  admissionCode: Schema.NullOr(CanonicalAdmissionCode),
   digest: Schema.NullOr(CanonicalHex32),
   domain: Schema.NullOr(CanonicalDomain),
   idempotencyKey: CanonicalBase64Url32,
@@ -200,7 +204,7 @@ const createDraft = Effect.fn("LocalRegistration.createDraft")(function* (
   admissionCode: string
 ) {
   const identity = yield* loadIdentity();
-  const code = yield* Schema.decodeUnknownEffect(CanonicalBase64Url32)(
+  const code = yield* Schema.decodeUnknownEffect(CanonicalAdmissionCode)(
     admissionCode
   ).pipe(Effect.mapError(() => localError("create")));
   const [idempotencyKey, observeToken] = yield* Effect.all(
@@ -320,27 +324,30 @@ export const startLocalRegistration = Effect.fn(
 )((admissionCode: string) =>
   registrationSemaphore.withPermit(
     Effect.gen(function* () {
+      const code = yield* Schema.decodeUnknownEffect(CanonicalAdmissionCode)(
+        admissionCode
+      ).pipe(Effect.mapError(() => localError("create")));
       let registration = yield* readStoredRegistration();
       if (
         registration?.status === "failed" ||
         registration?.status === "expired"
       ) {
-        registration = yield* createDraft(admissionCode);
+        registration = yield* createDraft(code);
       } else if (registration) {
         yield* verifyStoredOwner(registration);
         if (
           registration.status === "draft" &&
-          registration.admissionCode !== admissionCode
+          registration.admissionCode !== code
         ) {
-          registration = yield* createDraft(admissionCode);
+          registration = yield* createDraft(code);
         } else if (
           registration.admissionCode !== null &&
-          registration.admissionCode !== admissionCode
+          registration.admissionCode !== code
         ) {
           return yield* localError("conflict");
         }
       } else {
-        registration = yield* createDraft(admissionCode);
+        registration = yield* createDraft(code);
       }
       if (registration.status === "draft") {
         registration = yield* prepareDraft(registration);

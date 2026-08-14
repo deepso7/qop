@@ -42,6 +42,8 @@ pnpm --filter @qop/api admission:create
 
 Only the printed code is given to the user; Postgres stores its domain-separated hash. The code is claimed only after a valid owner signature and consumed when the registrar authorization is persisted, so anonymous prepare requests cannot burn codes.
 
+Development invitations contain six uppercase letters or digits and are printed as `XXX-XXX`. The API also accepts lowercase input and the compact `XXXXXX` form. This short format requires request throttling before the registration API is exposed publicly.
+
 Push the API-owned schema directly to the configured development database:
 
 ```sh

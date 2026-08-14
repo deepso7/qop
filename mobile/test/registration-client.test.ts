@@ -39,7 +39,7 @@ describe("registration client", () => {
     const { prepareRegistration } = await import("@/lib/registration-client");
     const result = await Effect.runPromise(
       prepareRegistration({
-        admissionCode: "A".repeat(43),
+        admissionCode: "ABC-123",
         deviceCommitment: prepared.intent.deviceCommitment,
         handle: "alice",
         idempotencyKey: "B".repeat(43),
@@ -69,7 +69,7 @@ describe("registration client", () => {
     const { prepareRegistration } = await import("@/lib/registration-client");
     const result = await Effect.runPromise(
       prepareRegistration({
-        admissionCode: "A".repeat(43),
+        admissionCode: "ABC-123",
         deviceCommitment: prepared.intent.deviceCommitment,
         handle: "alice",
         idempotencyKey: "B".repeat(43),
@@ -100,7 +100,7 @@ describe("registration client", () => {
     const { prepareRegistration } = await import("@/lib/registration-client");
     const result = await Effect.runPromise(
       prepareRegistration({
-        admissionCode: "A".repeat(43),
+        admissionCode: "ABC-123",
         deviceCommitment: prepared.intent.deviceCommitment,
         handle: "alice",
         idempotencyKey: "B".repeat(43),

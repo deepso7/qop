@@ -1,8 +1,7 @@
-import { randomBytes } from "node:crypto";
+import { randomInt } from "node:crypto";
 
 import { NodeRuntime } from "@effect/platform-node";
-import { Base64Url32 } from "@qop/identity";
-import { Effect, Schema } from "effect";
+import { Effect } from "effect";
 
 import {
   decodeRegistrationAdmissionCode,
@@ -12,8 +11,16 @@ import {
 
 Effect.gen(function* () {
   const admissions = yield* RegistrationAdmission;
-  const code = yield* Schema.encodeEffect(Base64Url32)(randomBytes(32));
-  const decoded = yield* decodeRegistrationAdmissionCode(code);
-  yield* admissions.create(decoded.codeHash);
-  yield* Effect.sync(() => console.log(code));
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  while (true) {
+    const compact = Array.from({ length: 6 }, () =>
+      alphabet.charAt(randomInt(alphabet.length))
+    ).join("");
+    const code = `${compact.slice(0, 3)}-${compact.slice(3)}`;
+    const decoded = yield* decodeRegistrationAdmissionCode(code);
+    if (yield* admissions.create(decoded.codeHash)) {
+      yield* Effect.sync(() => console.log(code));
+      return;
+    }
+  }
 }).pipe(Effect.provide(RegistrationAdmissionLive), NodeRuntime.runMain);

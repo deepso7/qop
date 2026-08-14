@@ -118,9 +118,7 @@ beforeEach(() => {
 describe("local registration", () => {
   it("persists retry material and submits an owner-authorized intent", async () => {
     const { startLocalRegistration } = await import("@/lib/local-registration");
-    const result = await Effect.runPromise(
-      startLocalRegistration("A".repeat(43))
-    );
+    const result = await Effect.runPromise(startLocalRegistration("ABC-123"));
 
     expect(result).toMatchObject({ qid: null, status: "submitted" });
     expect(result).not.toHaveProperty("admissionCode");
@@ -145,7 +143,7 @@ describe("local registration", () => {
   it("reconciles the submitted transaction to a qid", async () => {
     const { reconcileLocalRegistration, startLocalRegistration } =
       await import("@/lib/local-registration");
-    await Effect.runPromise(startLocalRegistration("A".repeat(43)));
+    await Effect.runPromise(startLocalRegistration("ABC-123"));
     const result = await Effect.runPromise(reconcileLocalRegistration());
 
     expect(result).toMatchObject({ qid: "42", status: "confirmed" });
@@ -157,11 +155,9 @@ describe("local registration", () => {
     );
     const { startLocalRegistration } = await import("@/lib/local-registration");
     const first = await Effect.runPromise(
-      startLocalRegistration("A".repeat(43)).pipe(Effect.result)
+      startLocalRegistration("ABC-123").pipe(Effect.result)
     );
-    const second = await Effect.runPromise(
-      startLocalRegistration("A".repeat(43))
-    );
+    const second = await Effect.runPromise(startLocalRegistration("abc123"));
 
     expect(first._tag).toBe("Failure");
     expect(second.status).toBe("submitted");
@@ -175,14 +171,12 @@ describe("local registration", () => {
     );
     const { startLocalRegistration } = await import("@/lib/local-registration");
     const first = await Effect.runPromise(
-      startLocalRegistration("A".repeat(43)).pipe(Effect.result)
+      startLocalRegistration("ABC-123").pipe(Effect.result)
     );
     const stored = JSON.parse(
       secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
     );
-    const second = await Effect.runPromise(
-      startLocalRegistration("A".repeat(43))
-    );
+    const second = await Effect.runPromise(startLocalRegistration("abc123"));
 
     expect(first._tag).toBe("Failure");
     expect(stored.status).toBe("draft");
@@ -192,7 +186,7 @@ describe("local registration", () => {
 
   it("starts a fresh draft after a terminal registration", async () => {
     const { startLocalRegistration } = await import("@/lib/local-registration");
-    await Effect.runPromise(startLocalRegistration("A".repeat(43)));
+    await Effect.runPromise(startLocalRegistration("ABC-123"));
     const stored = JSON.parse(
       secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
     );
@@ -201,9 +195,7 @@ describe("local registration", () => {
       JSON.stringify({ ...stored, status: "failed" })
     );
 
-    const result = await Effect.runPromise(
-      startLocalRegistration(`${"A".repeat(42)}Q`)
-    );
+    const result = await Effect.runPromise(startLocalRegistration("XYZ-789"));
 
     expect(result.status).toBe("submitted");
     expect(clientMock.prepareRegistration).toHaveBeenCalledTimes(2);
@@ -215,7 +207,7 @@ describe("local registration", () => {
 
   it("replaces a failed restart draft when given another invitation", async () => {
     const { startLocalRegistration } = await import("@/lib/local-registration");
-    await Effect.runPromise(startLocalRegistration("A".repeat(43)));
+    await Effect.runPromise(startLocalRegistration("ABC-123"));
     const registered = JSON.parse(
       secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
     );
@@ -228,14 +220,12 @@ describe("local registration", () => {
     );
 
     await Effect.runPromise(
-      startLocalRegistration(`${"A".repeat(42)}Q`).pipe(Effect.result)
+      startLocalRegistration("XYZ-789").pipe(Effect.result)
     );
     const failedDraft = JSON.parse(
       secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
     );
-    const result = await Effect.runPromise(
-      startLocalRegistration(`${"A".repeat(42)}g`)
-    );
+    const result = await Effect.runPromise(startLocalRegistration("QOP-456"));
     const replacement = JSON.parse(
       secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
     );

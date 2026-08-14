@@ -53,7 +53,7 @@ import {
 
 const OWNER_PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000001";
-const ADMISSION_CODE = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const ADMISSION_CODE = "ABC-123";
 const REGISTRATION_PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000002";
 const WRONG_PRIVATE_KEY =
@@ -92,7 +92,7 @@ const clientCapability = (label: string) => {
     observeTokenHash: keccak256(observeToken),
   } as const;
 };
-const SECOND_ADMISSION_CODE = idempotencyKey("second-admission-code");
+const SECOND_ADMISSION_CODE = "XYZ-789";
 
 const registryReads: RegistryReads = {
   account: () => Effect.die("account is not used by enrollment tests"),

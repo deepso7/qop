@@ -97,6 +97,32 @@ export const Base64Url32 = CanonicalBase64Url32.pipe(
   )
 );
 
+const RegistrationAdmissionCodeInput = Schema.String.check(
+  Schema.isPattern(/^[A-Za-z0-9]{3}-?[A-Za-z0-9]{3}$/u, {
+    expected:
+      "six letters or digits, optionally separated after three characters",
+  })
+);
+
+const CanonicalRegistrationAdmissionCode = Schema.String.check(
+  Schema.isPattern(/^[A-Z0-9]{3}-[A-Z0-9]{3}$/u, {
+    expected: "a six-character uppercase invitation formatted as XXX-XXX",
+  })
+);
+
+export const RegistrationAdmissionCode = RegistrationAdmissionCodeInput.pipe(
+  Schema.decodeTo(
+    CanonicalRegistrationAdmissionCode,
+    SchemaTransformation.transform({
+      decode: (value) => {
+        const compact = value.replace("-", "").toUpperCase();
+        return `${compact.slice(0, 3)}-${compact.slice(3)}`;
+      },
+      encode: (value) => value,
+    })
+  )
+);
+
 const CanonicalBase64Url64 = Schema.String.check(
   Schema.isPattern(/^[A-Za-z0-9_-]{86}$/u, {
     expected: "an unpadded 86-character base64url string",

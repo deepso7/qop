@@ -10,6 +10,7 @@ export {
   normalizeEthereumAddress,
   PeerId,
   Qid,
+  RegistrationAdmissionCode,
   Uint256,
   UnixSeconds,
 } from "./wire-codecs.ts";

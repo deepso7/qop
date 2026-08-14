@@ -63,7 +63,7 @@ const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
 const OBSERVE_TOKEN_HASH =
   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as Hash;
 const IDEMPOTENCY_KEY = "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const ADMISSION_CODE = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const ADMISSION_CODE = "ABC-123";
 const DOMAIN = {
   chainId: "31337",
   verifyingContract: "0x1111111111111111111111111111111111111111",
@@ -218,7 +218,7 @@ describe("registration HTTP API", () => {
       const client = yield* HttpApiClient.make(QopHttpApi);
       const prepared = yield* client.registrations.prepare({
         payload: {
-          admissionCode: ADMISSION_CODE,
+          admissionCode: "abc123",
           deviceCommitment: intent.deviceCommitment,
           handle: "alice",
           idempotencyKey: IDEMPOTENCY_KEY,
