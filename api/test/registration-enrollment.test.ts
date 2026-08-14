@@ -32,7 +32,10 @@ import {
 } from "../src/registration/enrollment.ts";
 import type { PreparedRegistration } from "../src/registration/enrollment.ts";
 import { RegistrationInputError } from "../src/registration/inputs.ts";
-import { RegistrationRelayer } from "../src/registration/relayer.ts";
+import {
+  RegistrationRelayer,
+  RegistrationRelayerError,
+} from "../src/registration/relayer.ts";
 import { registrationSignerLayer } from "../src/registration/signer.ts";
 import {
   HandleLeaseConflict,
@@ -180,6 +183,29 @@ const RegistrationRelayerTestLive = Layer.succeed(
   })
 );
 
+let retryBroadcastAttempts = 0;
+const BroadcastRetryRelayerTestLive = Layer.sync(RegistrationRelayer, () => {
+  retryBroadcastAttempts = 0;
+  return RegistrationRelayer.of({
+    broadcast: (prepared) =>
+      Effect.suspend(() => {
+        retryBroadcastAttempts += 1;
+        return retryBroadcastAttempts === 1
+          ? Effect.fail(
+              new RegistrationRelayerError({ operation: "broadcast" })
+            )
+          : Effect.succeed(prepared.transactionHash);
+      }),
+    pendingNonce: Effect.succeed(0n),
+    prepare: () =>
+      Effect.succeed({
+        serializedTransaction: "0x02aa",
+        transactionHash:
+          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      }),
+  });
+});
+
 const EnvTestLive = Layer.succeed(
   Env,
   Env.of({
@@ -228,6 +254,16 @@ const RegistrationEnrollmentTestLive = RegistrationEnrollment.layer.pipe(
   Layer.provideMerge(RegistrationStoreTestLive),
   Layer.provide(RegistryReaderTestLive),
   Layer.provide(RegistrationRelayerTestLive),
+  Layer.provide(registrationSignerLayer(REGISTRATION_PRIVATE_KEY)),
+  Layer.provide(RegistrationAdmissionTestLive),
+  Layer.provide(EnvTestLive)
+);
+
+const BroadcastRetryEnrollmentTestLive = RegistrationEnrollment.layer.pipe(
+  Layer.provide(EntropyTestLive),
+  Layer.provideMerge(RegistrationStoreTestLive),
+  Layer.provide(RegistryReaderTestLive),
+  Layer.provide(BroadcastRetryRelayerTestLive),
   Layer.provide(registrationSignerLayer(REGISTRATION_PRIVATE_KEY)),
   Layer.provide(RegistrationAdmissionTestLive),
   Layer.provide(EnvTestLive)
@@ -783,6 +819,37 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
     })
   );
 
+  it.effect("resumes a ready registration during reconciliation", () =>
+    Effect.gen(function* () {
+      const enrollment = yield* RegistrationEnrollment;
+      const store = yield* RegistrationStore;
+      const prepared = yield* enrollment.prepare({
+        admissionCode: ADMISSION_CODE,
+        handle: "resumeready",
+        idempotencyKey: idempotencyKey("resumeready"),
+        ...clientCapability("resumeready"),
+        owner: ownerAccount.address,
+        peerId: PEER_ID,
+      });
+      yield* persistPreparedAuthorization(prepared);
+
+      assert.strictEqual(
+        Option.getOrThrow(yield* store.get(prepared.digest)).status,
+        "ready"
+      );
+      const reconciled = yield* enrollment.reconcile(prepared.digest);
+      const submitted = Option.getOrThrow(yield* store.get(prepared.digest));
+
+      assert.strictEqual(reconciled.status, "submitted");
+      assert.strictEqual(submitted.status, "submitted");
+      assert.strictEqual(submitted.serializedTransaction, "0x02aa");
+      assert.strictEqual(
+        submitted.transactionHash,
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      );
+    })
+  );
+
   it.effect(
     "reconciles confirmed, conflicting, and proven-expired intents",
     () =>
@@ -835,6 +902,42 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           registrationReconciliationFailureCodes.deadlineExpired
         );
       })
+  );
+});
+
+layer(BroadcastRetryEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
+  it.effect("rebroadcasts a persisted submission during reconciliation", () =>
+    Effect.gen(function* () {
+      const enrollment = yield* RegistrationEnrollment;
+      const store = yield* RegistrationStore;
+      const prepared = yield* enrollment.prepare({
+        admissionCode: ADMISSION_CODE,
+        handle: "retrybroadcast",
+        idempotencyKey: idempotencyKey("retrybroadcast"),
+        ...clientCapability("retrybroadcast"),
+        owner: ownerAccount.address,
+        peerId: PEER_ID,
+      });
+      const firstBroadcastError = yield* enrollment
+        .authorize({
+          digest: prepared.digest,
+          ownerSignature: yield* signPreparedIntent(
+            prepared.intent,
+            ownerAccount
+          ),
+        })
+        .pipe(Effect.flip);
+
+      assert.instanceOf(firstBroadcastError, RegistrationRelayerError);
+      assert.strictEqual(
+        Option.getOrThrow(yield* store.get(prepared.digest)).status,
+        "submitted"
+      );
+      const reconciled = yield* enrollment.reconcile(prepared.digest);
+
+      assert.strictEqual(reconciled.status, "submitted");
+      assert.strictEqual(retryBroadcastAttempts, 2);
+    })
   );
 });
 

@@ -266,6 +266,57 @@ export class RegistrationEnrollment extends Context.Service<
         domain
       ).pipe(Effect.mapError(protocolError("decode-domain")));
 
+      const resumeSubmission = Effect.fn(
+        "RegistrationEnrollment.resumeSubmission"
+      )(function* (stored: StoredRegistrationIntent, intent: RegisterIntentV1) {
+        let submitted = stored;
+        if (stored.status === "ready") {
+          const digest = yield* normalizeRegistrationDigest(stored.digest);
+          const ownerSignature = yield* normalizeRegistrationOwnerSignature(
+            stored.ownerSignature
+          );
+          const registrationSignature =
+            yield* normalizeRegistrationSignerSignature(
+              stored.registrationSignature
+            );
+          submitted = yield* store.prepareSubmission(
+            digest,
+            relayer.pendingNonce,
+            (nonce) =>
+              relayer.prepare(
+                intent,
+                ownerSignature,
+                registrationSignature,
+                nonce
+              )
+          );
+        }
+        if (submitted.status === "confirmed") {
+          return submitted;
+        }
+        if (
+          submitted.status !== "submitted" ||
+          !submitted.transactionHash ||
+          !submitted.serializedTransaction
+        ) {
+          return yield* new RegistrationProtocolError({
+            cause: "Submitted registration is missing relay data",
+            operation: "verify-state",
+          });
+        }
+        const transactionHash = yield* relayer.broadcast({
+          serializedTransaction: submitted.serializedTransaction,
+          transactionHash: submitted.transactionHash,
+        });
+        if (transactionHash !== submitted.transactionHash) {
+          return yield* new RegistrationProtocolError({
+            cause: "Relayer returned a different transaction hash",
+            operation: "verify-state",
+          });
+        }
+        return submitted;
+      });
+
       const preparedRegistration = Effect.fn(
         "RegistrationEnrollment.preparedRegistration"
       )(function* (
@@ -591,37 +642,7 @@ export class RegistrationEnrollment extends Context.Service<
             status === "confirmed"
               ? status
               : yield* Effect.gen(function* () {
-                  const submitted = yield* store.prepareSubmission(
-                    digest,
-                    relayer.pendingNonce,
-                    (nonce) =>
-                      relayer.prepare(
-                        intent,
-                        ownerSignatureHex,
-                        registrationSignatureHex,
-                        nonce
-                      )
-                  );
-                  if (
-                    submitted.status !== "submitted" ||
-                    !submitted.transactionHash ||
-                    !submitted.serializedTransaction
-                  ) {
-                    return yield* new RegistrationProtocolError({
-                      cause: "Submitted registration is missing relay data",
-                      operation: "verify-state",
-                    });
-                  }
-                  const transactionHash = yield* relayer.broadcast({
-                    serializedTransaction: submitted.serializedTransaction,
-                    transactionHash: submitted.transactionHash,
-                  });
-                  if (transactionHash !== submitted.transactionHash) {
-                    return yield* new RegistrationProtocolError({
-                      cause: "Relayer returned a different transaction hash",
-                      operation: "verify-state",
-                    });
-                  }
+                  const submitted = yield* resumeSubmission(authorized, intent);
                   return yield* verifyAuthorizedRegistrationStatus(
                     submitted.status
                   );
@@ -693,7 +714,9 @@ export class RegistrationEnrollment extends Context.Service<
               )
             );
           }
-          return reconciledRegistration(stored);
+          return reconciledRegistration(
+            yield* resumeSubmission(stored, yield* decodeStoredIntent(stored))
+          );
         }
       );
 

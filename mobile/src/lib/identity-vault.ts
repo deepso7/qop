@@ -348,25 +348,6 @@ export const revealLocalIdentityRecoveryKey = Effect.fn(
   return identity.recoveryKey;
 });
 
-export const updateLocalIdentityHandle = Effect.fn(
-  "IdentityVault.updateLocalIdentityHandle"
-)((input: unknown) =>
-  createSemaphore.withPermit(
-    Effect.gen(function* () {
-      const handle = yield* Schema.decodeUnknownEffect(Handle)(input).pipe(
-        Effect.mapError(() => vaultError("invalid-handle"))
-      );
-      const identity = yield* loadStoredLocalIdentity();
-      if (!identity) {
-        return yield* vaultError("missing-identity");
-      }
-      const updated: StoredLocalIdentity = { ...identity, handle };
-      yield* writeLocalIdentity(updated);
-      return yield* publicIdentity(updated);
-    })
-  )
-);
-
 export const signLocalRegistrationIntent = Effect.fn(
   "IdentityVault.signLocalRegistrationIntent"
 )(function* (domainInput: unknown, intentInput: unknown) {
