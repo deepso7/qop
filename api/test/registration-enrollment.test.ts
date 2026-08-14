@@ -128,7 +128,10 @@ const registrationProbe = (handle: string, owner: Address, _nonce: Hash) => {
   return Effect.succeed({
     blockNumber: 100n,
     value: {
-      blockTimestamp: handle === "expireme" ? 18_446_744_073_709_551_615n : 0n,
+      blockTimestamp:
+        handle === "expireme" || handle === "retrybroadcastexpired"
+          ? 18_446_744_073_709_551_615n
+          : 0n,
       handleQid,
       ownerQid,
       registrationNonceUsed:
@@ -190,7 +193,7 @@ const BroadcastRetryRelayerTestLive = Layer.sync(RegistrationRelayer, () => {
     broadcast: (prepared) =>
       Effect.suspend(() => {
         retryBroadcastAttempts += 1;
-        return retryBroadcastAttempts === 1
+        return retryBroadcastAttempts < 3
           ? Effect.fail(
               new RegistrationRelayerError({ operation: "broadcast" })
             )
@@ -906,38 +909,53 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
 });
 
 layer(BroadcastRetryEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
-  it.effect("rebroadcasts a persisted submission during reconciliation", () =>
-    Effect.gen(function* () {
-      const enrollment = yield* RegistrationEnrollment;
-      const store = yield* RegistrationStore;
-      const prepared = yield* enrollment.prepare({
-        admissionCode: ADMISSION_CODE,
-        handle: "retrybroadcast",
-        idempotencyKey: idempotencyKey("retrybroadcast"),
-        ...clientCapability("retrybroadcast"),
-        owner: ownerAccount.address,
-        peerId: PEER_ID,
-      });
-      const firstBroadcastError = yield* enrollment
-        .authorize({
-          digest: prepared.digest,
-          ownerSignature: yield* signPreparedIntent(
-            prepared.intent,
-            ownerAccount
-          ),
-        })
-        .pipe(Effect.flip);
+  it.effect(
+    "rebroadcasts an expired submission before marking it terminal",
+    () =>
+      Effect.gen(function* () {
+        const enrollment = yield* RegistrationEnrollment;
+        const store = yield* RegistrationStore;
+        const prepared = yield* enrollment.prepare({
+          admissionCode: ADMISSION_CODE,
+          handle: "retrybroadcastexpired",
+          idempotencyKey: idempotencyKey("retrybroadcastexpired"),
+          ...clientCapability("retrybroadcastexpired"),
+          owner: ownerAccount.address,
+          peerId: PEER_ID,
+        });
+        const firstBroadcastError = yield* enrollment
+          .authorize({
+            digest: prepared.digest,
+            ownerSignature: yield* signPreparedIntent(
+              prepared.intent,
+              ownerAccount
+            ),
+          })
+          .pipe(Effect.flip);
 
-      assert.instanceOf(firstBroadcastError, RegistrationRelayerError);
-      assert.strictEqual(
-        Option.getOrThrow(yield* store.get(prepared.digest)).status,
-        "submitted"
-      );
-      const reconciled = yield* enrollment.reconcile(prepared.digest);
+        assert.instanceOf(firstBroadcastError, RegistrationRelayerError);
+        assert.strictEqual(
+          Option.getOrThrow(yield* store.get(prepared.digest)).status,
+          "submitted"
+        );
+        const retryError = yield* enrollment
+          .reconcile(prepared.digest)
+          .pipe(Effect.flip);
 
-      assert.strictEqual(reconciled.status, "submitted");
-      assert.strictEqual(retryBroadcastAttempts, 2);
-    })
+        assert.instanceOf(retryError, RegistrationRelayerError);
+        assert.strictEqual(
+          Option.getOrThrow(yield* store.get(prepared.digest)).status,
+          "submitted"
+        );
+        const reconciled = yield* enrollment.reconcile(prepared.digest);
+
+        assert.strictEqual(reconciled.status, "failed");
+        assert.strictEqual(
+          reconciled.failureCode,
+          registrationReconciliationFailureCodes.deadlineExpired
+        );
+        assert.strictEqual(retryBroadcastAttempts, 3);
+      })
   );
 });
 

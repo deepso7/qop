@@ -317,6 +317,14 @@ export class RegistrationEnrollment extends Context.Service<
         return submitted;
       });
 
+      const broadcastSubmittedBeforeTerminal = Effect.fn(
+        "RegistrationEnrollment.broadcastSubmittedBeforeTerminal"
+      )(function* (stored: StoredRegistrationIntent) {
+        if (stored.status === "submitted") {
+          yield* resumeSubmission(stored, yield* decodeStoredIntent(stored));
+        }
+      });
+
       const preparedRegistration = Effect.fn(
         "RegistrationEnrollment.preparedRegistration"
       )(function* (
@@ -699,6 +707,7 @@ export class RegistrationEnrollment extends Context.Service<
           }
 
           if (probe.value.handleQid !== null || probe.value.ownerQid !== null) {
+            yield* broadcastSubmittedBeforeTerminal(stored);
             return reconciledRegistration(
               yield* store.markFailed(
                 digest,
@@ -707,6 +716,7 @@ export class RegistrationEnrollment extends Context.Service<
             );
           }
           if (probe.value.blockTimestamp > stored.deadline) {
+            yield* broadcastSubmittedBeforeTerminal(stored);
             return reconciledRegistration(
               yield* store.markFailed(
                 digest,
