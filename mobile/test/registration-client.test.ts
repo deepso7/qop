@@ -56,6 +56,37 @@ describe("registration client", () => {
     );
   });
 
+  it("accepts a checksummed registry address from the environment", async () => {
+    process.env.EXPO_PUBLIC_REGISTRY_ADDRESS =
+      "0x111111111111111111111111111111111111111A";
+    fetchMock.mockResolvedValue(
+      Response.json({
+        ...prepared,
+        domain: {
+          ...prepared.domain,
+          verifyingContract: "0x111111111111111111111111111111111111111a",
+        },
+      })
+    );
+    const { prepareRegistration } = await import("@/lib/registration-client");
+
+    const result = await Effect.runPromise(
+      prepareRegistration({
+        admissionCode: "ABC-123",
+        deviceCommitment: prepared.intent.deviceCommitment,
+        handle: "alice",
+        idempotencyKey: "B".repeat(43),
+        observeTokenHash: `0x${"44".repeat(32)}`,
+        owner: prepared.intent.owner,
+        peerId: "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X",
+      })
+    );
+
+    expect(result.domain.verifyingContract).toBe(
+      "0x111111111111111111111111111111111111111a"
+    );
+  });
+
   it("preserves stable transport errors", async () => {
     fetchMock.mockResolvedValue(
       Response.json(

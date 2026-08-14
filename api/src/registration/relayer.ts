@@ -59,6 +59,9 @@ export class RegistrationRelayer extends Context.Service<
 export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
   function* (input: unknown) {
     const env = yield* Env;
+    if (env.CHAIN_ID > BigInt(Number.MAX_SAFE_INTEGER)) {
+      return yield* new RegistrationRelayerError({ operation: "configure" });
+    }
     const privateKey = yield* Schema.decodeUnknownEffect(PrivateKey)(
       input
     ).pipe(
@@ -70,11 +73,19 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
       catch: () => new RegistrationRelayerError({ operation: "configure" }),
       try: () => privateKeyToAccount(privateKey as Hex),
     });
+    const chain = {
+      id: Number(env.CHAIN_ID),
+      name: "QOP Registry",
+      nativeCurrency: { decimals: 18, name: "Ether", symbol: "ETH" },
+      rpcUrls: { default: { http: [env.RPC_URL.toString()] } },
+    } as const;
     const client = createWalletClient({
       account,
+      chain,
       transport: http(env.RPC_URL.toString()),
     });
     const publicClient = createPublicClient({
+      chain,
       transport: http(env.RPC_URL.toString()),
     });
     const prepare = Effect.fn("RegistrationRelayer.prepare")(function* (
@@ -120,15 +131,11 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
           });
           const request = await client.prepareTransactionRequest({
             account,
-            chain: undefined,
             data,
             nonce: Number(nonce),
             to: env.REGISTRY_ADDRESS as Address,
           });
-          const serializedTransaction = await client.signTransaction({
-            ...request,
-            chain: undefined,
-          });
+          const serializedTransaction = await client.signTransaction(request);
           return {
             serializedTransaction,
             transactionHash: keccak256(serializedTransaction),

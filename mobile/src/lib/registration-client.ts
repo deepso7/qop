@@ -103,7 +103,7 @@ const expectedDomain = Effect.fn("RegistrationClient.expectedDomain")(
     }
     return yield* Schema.decodeUnknownEffect(CanonicalDomain)({
       chainId,
-      verifyingContract,
+      verifyingContract: verifyingContract.toLowerCase(),
     }).pipe(Effect.mapError(() => clientError("configuration")));
   }
 );
