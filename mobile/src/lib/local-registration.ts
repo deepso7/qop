@@ -329,6 +329,11 @@ export const startLocalRegistration = Effect.fn(
       } else if (registration) {
         yield* verifyStoredOwner(registration);
         if (
+          registration.status === "draft" &&
+          registration.admissionCode !== admissionCode
+        ) {
+          registration = yield* createDraft(admissionCode);
+        } else if (
           registration.admissionCode !== null &&
           registration.admissionCode !== admissionCode
         ) {

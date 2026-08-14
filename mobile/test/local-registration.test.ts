@@ -212,4 +212,37 @@ describe("local registration", () => {
     );
     expect(restarted.idempotencyKey).not.toBe(stored.idempotencyKey);
   });
+
+  it("replaces a failed restart draft when given another invitation", async () => {
+    const { startLocalRegistration } = await import("@/lib/local-registration");
+    await Effect.runPromise(startLocalRegistration("A".repeat(43)));
+    const registered = JSON.parse(
+      secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
+    );
+    secureStoreMock.items.set(
+      REGISTRATION_STORAGE_KEY,
+      JSON.stringify({ ...registered, status: "failed" })
+    );
+    clientMock.prepareRegistration.mockReturnValueOnce(
+      Effect.fail(new Error("offline"))
+    );
+
+    await Effect.runPromise(
+      startLocalRegistration(`${"A".repeat(42)}Q`).pipe(Effect.result)
+    );
+    const failedDraft = JSON.parse(
+      secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
+    );
+    const result = await Effect.runPromise(
+      startLocalRegistration(`${"A".repeat(42)}g`)
+    );
+    const replacement = JSON.parse(
+      secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
+    );
+
+    expect(failedDraft.status).toBe("draft");
+    expect(result.status).toBe("submitted");
+    expect(replacement.idempotencyKey).not.toBe(failedDraft.idempotencyKey);
+    expect(clientMock.prepareRegistration).toHaveBeenCalledTimes(3);
+  });
 });
