@@ -23,35 +23,37 @@ const decodeAdmissionCode = Schema.decodeUnknownResult(
   RegistrationAdmissionCode
 );
 
-const registrationStatusLabel = (
+const registrationDescription = (
   registration: LocalRegistration | null | undefined
 ) => {
   switch (registration?.status) {
     case "confirmed": {
       return registration.qid
-        ? `Registered · qid ${registration.qid}`
-        : "Registered";
+        ? `Registered as QID ${registration.qid}. This handle is permanent.`
+        : "Registered. This handle is permanent.";
     }
     case "submitted": {
-      return "Registration submitted";
+      return "Registration submitted and waiting for confirmation.";
     }
     case "ready": {
-      return "Registration authorized";
+      return "Registration is approved and ready to submit.";
     }
     case "pending_owner_signature": {
-      return "Registration awaiting authorization";
+      return "Registration is waiting to be submitted.";
     }
     case "failed": {
-      return "Registration failed";
+      return "Registration failed. Enter an invitation code to try again.";
     }
     case "expired": {
-      return "Registration expired";
+      return "Invitation expired. Enter a new code to try again.";
     }
     case "draft": {
-      return "Registration started";
+      return "Enter your invitation code to finish registration.";
     }
     default: {
-      return "Not registered";
+      return registration === undefined
+        ? "Checking registration…"
+        : "Not registered. Register this identity to make the handle permanent.";
     }
   }
 };
@@ -135,11 +137,6 @@ const useProfileRegistration = () => {
     if (Result.isSuccess(result)) {
       setRegistration(result.success);
       setAdmissionCode("");
-      setMessage(
-        result.success.status === "confirmed"
-          ? "Identity registered."
-          : "Registration submitted. Check again after it confirms."
-      );
     } else {
       setMessage(
         "Could not register this identity. Check the invitation code and connection."
@@ -159,11 +156,6 @@ const useProfileRegistration = () => {
     );
     if (Result.isSuccess(result)) {
       setRegistration(result.success);
-      setMessage(
-        result.success.status === "confirmed"
-          ? "Identity registered."
-          : "The registration transaction is still confirming."
-      );
     } else {
       setMessage("Could not check registration. Try again.");
     }
@@ -190,7 +182,7 @@ const useProfileRegistration = () => {
   };
 };
 
-const RegistrationSection = React.memo(
+const RegistrationControls = React.memo(
   ({
     admissionCode,
     busy,
@@ -202,68 +194,55 @@ const RegistrationSection = React.memo(
     submit,
     submitCheck,
   }: ReturnType<typeof useProfileRegistration>) => (
-    <View className="gap-2">
-      <SectionLabel>Registration</SectionLabel>
-      <Surface
-        className="gap-4 rounded-xl border border-background-selected p-4"
-        tone="element"
-      >
-        <View className="gap-1">
-          <Text variant="label">{registrationStatusLabel(registration)}</Text>
-          <Text className="text-foreground-secondary" variant="caption">
-            Registration anchors your handle and owner key to the qop identity
-            registry.
-          </Text>
-        </View>
-        {canStartRegistration(registration) ? (
-          <View className="gap-3">
-            <Input
-              accessibilityLabel="Registration invitation code"
-              autoCapitalize="characters"
-              autoComplete="off"
-              autoCorrect={false}
-              editable={!busy}
-              maxLength={7}
-              onChangeText={setAdmissionCode}
-              onSubmitEditing={submit}
-              placeholder="XXX-XXX"
-              spellCheck={false}
-              value={admissionCode}
-            />
-            <Button disabled={!isValidAdmissionCode || busy} onPress={submit}>
-              {busy ? (
-                <ActivityIndicator colorClassName="accent-primary-foreground" />
-              ) : null}
-              <Text>
-                {registration === null ? "Register identity" : "Try again"}
-              </Text>
-            </Button>
-          </View>
-        ) : null}
-        {registration &&
-        !isRegistered &&
-        !canStartRegistration(registration) ? (
-          <Button disabled={busy} onPress={submitCheck} variant="outline">
+    <View className="gap-3">
+      {canStartRegistration(registration) ? (
+        <>
+          <Input
+            accessibilityLabel="Registration invitation code"
+            autoCapitalize="characters"
+            autoComplete="off"
+            autoCorrect={false}
+            editable={!busy}
+            maxLength={7}
+            onChangeText={setAdmissionCode}
+            onSubmitEditing={submit}
+            placeholder="XXX-XXX"
+            spellCheck={false}
+            value={admissionCode}
+          />
+          <Button disabled={!isValidAdmissionCode || busy} onPress={submit}>
             {busy ? (
-              <ActivityIndicator colorClassName="accent-foreground-secondary" />
+              <ActivityIndicator colorClassName="accent-primary-foreground" />
             ) : null}
-            <Text>Check registration</Text>
+            <Text>
+              {registration === null ? "Register identity" : "Try again"}
+            </Text>
           </Button>
-        ) : null}
-        {message ? (
-          <Text
-            className="text-center text-foreground-secondary"
-            selectable
-            variant="caption"
-          >
-            {message}
-          </Text>
-        ) : null}
-      </Surface>
+        </>
+      ) : null}
+      {registration &&
+      !isRegistered &&
+      !canStartRegistration(registration) ? (
+        <Button disabled={busy} onPress={submitCheck} variant="outline">
+          {busy ? (
+            <ActivityIndicator colorClassName="accent-foreground-secondary" />
+          ) : null}
+          <Text>Check status</Text>
+        </Button>
+      ) : null}
+      {message ? (
+        <Text
+          className="text-center text-foreground-secondary"
+          selectable
+          variant="caption"
+        >
+          {message}
+        </Text>
+      ) : null}
     </View>
   )
 );
-RegistrationSection.displayName = "RegistrationSection";
+RegistrationControls.displayName = "RegistrationControls";
 
 const ProfileScreen = React.memo(() => {
   const identity = useIdentityStore((state) => state.identity);
@@ -426,9 +405,7 @@ const ProfileScreen = React.memo(() => {
             <View className="shrink gap-1">
               <Text variant="large">@{identity?.handle}</Text>
               <Text className="text-foreground-secondary" variant="caption">
-                {isRegistered
-                  ? "Permanent registered handle"
-                  : "Registration handle · keys stay unchanged"}
+                {registrationDescription(registration)}
               </Text>
             </View>
             {editingHandle || isRegistered ? null : (
@@ -444,6 +421,9 @@ const ProfileScreen = React.memo(() => {
           </View>
           {editingHandle ? (
             <View className="gap-3">
+              <Text className="text-foreground-secondary" variant="caption">
+                Changing your handle does not change your keys.
+              </Text>
               <Input
                 accessibilityLabel="New qop handle"
                 autoCapitalize="none"
@@ -487,20 +467,21 @@ const ProfileScreen = React.memo(() => {
               </View>
             </View>
           ) : null}
+          {isRegistered ? null : (
+            <RegistrationControls
+              admissionCode={admissionCode}
+              busy={registrationBusy}
+              isRegistered={isRegistered}
+              isValidAdmissionCode={isValidAdmissionCode}
+              message={registrationMessage}
+              registration={registration}
+              setAdmissionCode={setAdmissionCode}
+              submit={submitRegistration}
+              submitCheck={submitRegistrationCheck}
+            />
+          )}
         </Surface>
       </View>
-
-      <RegistrationSection
-        admissionCode={admissionCode}
-        busy={registrationBusy}
-        isRegistered={isRegistered}
-        isValidAdmissionCode={isValidAdmissionCode}
-        message={registrationMessage}
-        registration={registration}
-        setAdmissionCode={setAdmissionCode}
-        submit={submitRegistration}
-        submitCheck={submitRegistrationCheck}
-      />
 
       <View className="gap-2">
         <SectionLabel>Recovery</SectionLabel>
