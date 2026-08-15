@@ -11,6 +11,7 @@ The current package exports:
 - Registry-specific cached, fresh, and invalidation operations.
 - Transactional registration-intent storage with at most eight unsigned drafts per handle and per admission code; drafts do not reserve the handle, and the single-live-handle lease is acquired only after owner authorization.
 - Invitation-gated registration enrollment that binds the client-supplied initial-device commitment into the EIP-712 intent, checks fresh onchain availability, verifies the owner, and only then consumes the invitation and applies the registrar signature. Capability redemption later verifies that the commitment matches the initial PeerId and observe token.
+- A funded, separately configured transaction relayer that submits fully authorized registration intents to the registry and persists the transaction hash for reconciliation.
 - Registration HTTP routes: `POST /v1/registrations`, `POST /v1/registrations/:digest/authorize`, and `POST /v1/registrations/:digest/reconcile`; OpenAPI is served at `GET /openapi.json`.
 - Capability-gated initial device observation at `POST /v1/devices/observe`, backed by public certificate storage and a single-use registration-to-certificate claim.
 - A five-minute, gateway-bound device-session challenge service that rechecks certificate rotation/revocation state, verifies MiniP2P Ed25519 proof of possession, and atomically consumes the challenge while issuing a one-hour opaque session. Only token hashes are persisted. Clients should silently repeat PoP after expiry instead of implementing a refresh-token flow. Its routes are `POST /v1/device-sessions/challenges`, `POST /v1/device-sessions/authenticate`, and `POST /v1/device-sessions/resolve`.
@@ -27,6 +28,8 @@ The enrollment service receives the registrar signer as an Effect capability. `s
 
 Prepare requests include three separate client-generated values: a random 32-byte `idempotencyKey`, the hash of a locally generated observe token, and the device commitment computed from that token and the initial PeerId. The API stores separate hashes for prepare replay and later capability redemption, never receives or returns the observe-token preimage during registration, and binds the supplied device commitment into the owner-signed intent. The preimage is disclosed only when `/v1/devices/observe` redeems it.
 
+`REGISTRATION_PRIVATE_KEY` signs gated registration intents. `RELAYER_PRIVATE_KEY` pays gas and submits them; use separate keys so the funded relayer cannot authorize registrations by itself.
+
 Device observation transport errors are stable tagged responses: `DeviceObservationUnauthorized` (401), `DeviceObservationConflict` (409), `DeviceCertificateRejected` (422), `DeviceObservationInvalid` (422), and `DeviceObservationServiceUnavailable` (503). A `capability-consumed` conflict includes the certificate digest already bound to that capability. Exact retries return the original observation even if later rotation or revocation makes the certificate unusable for new authorization; observation stores public material only and does not mint a session.
 
 Registration transport errors are stable tagged responses: `RegistrationUnauthorized` (401), `RegistrationNotFound` (404), `RegistrationConflict` (409), `RegistrationExpired` (410), `RegistrationInvalid` (422), and `RegistrationServiceUnavailable` (503).
@@ -38,6 +41,8 @@ pnpm --filter @qop/api admission:create
 ```
 
 Only the printed code is given to the user; Postgres stores its domain-separated hash. The code is claimed only after a valid owner signature and consumed when the registrar authorization is persisted, so anonymous prepare requests cannot burn codes.
+
+Development invitations contain six uppercase letters or digits and are printed as `XXX-XXX`. The API also accepts lowercase input and the compact `XXXXXX` form. This short format requires request throttling before the registration API is exposed publicly.
 
 Push the API-owned schema directly to the configured development database:
 

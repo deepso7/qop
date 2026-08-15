@@ -7,7 +7,10 @@ const vaultMock = vi.hoisted(() => ({
   loadLocalIdentity: vi.fn(),
   revealLocalIdentityRecoveryKey: vi.fn(),
   updateLocalIdentityBackupState: vi.fn(),
-  updateLocalIdentityHandle: vi.fn(),
+}));
+const registrationMock = vi.hoisted(() => ({
+  deleteLocalRegistration: vi.fn(),
+  loadLocalRegistration: vi.fn(),
 }));
 
 vi.mock("@/lib/identity-vault", () => {
@@ -24,6 +27,8 @@ vi.mock("@/lib/identity-vault", () => {
 
   return { IdentityVaultError, ...vaultMock };
 });
+
+vi.mock("@/lib/local-registration", () => registrationMock);
 
 const identity = {
   backupState: "pending",
@@ -43,13 +48,23 @@ const loadStore = async () => {
 };
 
 beforeEach(() => {
+  registrationMock.deleteLocalRegistration
+    .mockReset()
+    .mockReturnValue(Effect.void);
+  registrationMock.loadLocalRegistration.mockReset().mockReturnValue(
+    Effect.succeed({
+      digest: "0x01",
+      qid: "1",
+      status: "confirmed",
+      version: 1,
+    })
+  );
   vaultMock.createLocalIdentity.mockReset();
   vaultMock.deleteLocalIdentity.mockReset().mockReturnValue(Effect.void);
   vaultMock.loadLocalIdentity.mockReset().mockReturnValue(Effect.succeed(null));
   vaultMock.revealLocalIdentityRecoveryKey
     .mockReset()
     .mockReturnValue(Effect.succeed("recovery-key"));
-  vaultMock.updateLocalIdentityHandle.mockReset();
   vaultMock.updateLocalIdentityBackupState.mockReset();
 });
 
@@ -132,20 +147,37 @@ describe("identity store", () => {
     expect(store.getState().identity).toBeNull();
   });
 
-  it("updates the registration handle without replacing identity keys", async () => {
-    const updated = { ...identity, handle: "bob" };
+  it("deletes registration retry material with the identity", async () => {
     vaultMock.loadLocalIdentity.mockReturnValue(Effect.succeed(identity));
-    vaultMock.updateLocalIdentityHandle.mockReturnValue(
-      Effect.succeed(updated)
+    const store = await loadStore();
+    await store.getState().hydrate();
+
+    const result = await store.getState().resetIdentity();
+
+    expect(Result.isSuccess(result)).toBe(true);
+    expect(registrationMock.deleteLocalRegistration).toHaveBeenCalledOnce();
+    expect(vaultMock.deleteLocalIdentity).toHaveBeenCalledOnce();
+    expect(store.getState()).toMatchObject({
+      identity: null,
+      status: "absent",
+    });
+  });
+
+  it("keeps a backed-up identity in onboarding until registration is confirmed", async () => {
+    const backedUpIdentity = { ...identity, backupState: "copied" };
+    vaultMock.loadLocalIdentity.mockReturnValue(
+      Effect.succeed(backedUpIdentity)
+    );
+    registrationMock.loadLocalRegistration.mockReturnValue(
+      Effect.succeed(null)
     );
     const store = await loadStore();
     await store.getState().hydrate();
 
-    const result = await store.getState().updateHandle("bob");
-
-    expect(Result.isSuccess(result)).toBe(true);
-    expect(vaultMock.updateLocalIdentityHandle).toHaveBeenCalledWith("bob");
-    expect(store.getState().identity).toEqual(updated);
+    expect(store.getState()).toMatchObject({
+      identity: backedUpIdentity,
+      status: "backup",
+    });
   });
 
   it("keeps the error tree mounted while retrying hydration", async () => {

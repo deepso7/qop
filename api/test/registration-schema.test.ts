@@ -8,6 +8,7 @@ import {
   registrationDeviceObservations,
   registrationHandleLeases,
   registrationIntents,
+  registrationRelayerState,
 } from "../src/db/schema.ts";
 
 const names = (values: readonly { readonly name?: string }[]) =>
@@ -16,6 +17,14 @@ const names = (values: readonly { readonly name?: string }[]) =>
 const dialect = new PgDialect();
 
 describe("registration database schema", () => {
+  it("serializes relayer transaction preparation", () => {
+    const config = getTableConfig(registrationRelayerState);
+    assert.strictEqual(config.name, "registration_relayer_state");
+    assert.deepStrictEqual(names(config.checks), [
+      "registration_relayer_state_singleton_check",
+    ]);
+  });
+
   it("pins short-lived device session constraints", () => {
     const config = getTableConfig(deviceSessions);
     assert.strictEqual(config.name, "device_sessions");
@@ -218,7 +227,7 @@ describe("registration database schema", () => {
         registration_intents_status_check:
           "\"registration_intents\".\"status\" in ('pending_owner_signature', 'ready', 'submitted', 'confirmed', 'failed', 'expired')",
         registration_intents_submission_check:
-          '"registration_intents"."status" <> \'submitted\' or ("registration_intents"."submitted_at" is not null and "registration_intents"."transaction_hash" is not null)',
+          '"registration_intents"."status" <> \'submitted\' or ("registration_intents"."submitted_at" is not null and "registration_intents"."transaction_hash" is not null and "registration_intents"."serialized_transaction" is not null)',
       }
     );
   });

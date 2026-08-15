@@ -75,6 +75,7 @@ export class IdentityCryptoError extends Data.TaggedError(
     | "recover-register-intent-signer"
     | "recover-revoke-device-intent-signer"
     | "recover-rotate-owner-intent-signer"
+    | "sign-register-intent"
     | "verify-certificate-owner";
 }> {}
 

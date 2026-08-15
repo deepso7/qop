@@ -9,9 +9,12 @@ import {
   loadLocalIdentity,
   revealLocalIdentityRecoveryKey,
   updateLocalIdentityBackupState,
-  updateLocalIdentityHandle,
 } from "@/lib/identity-vault";
 import type { IdentityBackupState, LocalIdentity } from "@/lib/identity-vault";
+import {
+  deleteLocalRegistration,
+  loadLocalRegistration,
+} from "@/lib/local-registration";
 
 type IdentityStatus =
   | "absent"
@@ -39,7 +42,6 @@ interface IdentityActions {
   revealRecoveryKey: () => Promise<IdentityResult<string>>;
   resetIdentity: () => Promise<IdentityResult<void>>;
   retryLoad: () => void;
-  updateHandle: (handle: string) => Promise<IdentityResult<void>>;
 }
 
 type IdentityStore = IdentityActions & IdentityState;
@@ -51,11 +53,14 @@ const initialState: IdentityState = {
   status: "loading",
 };
 
-const stateForIdentity = (identity: LocalIdentity | null): IdentityState => {
+const stateForIdentity = (
+  identity: LocalIdentity | null,
+  isRegistered = false
+): IdentityState => {
   let status: IdentityStatus = "ready";
   if (identity === null) {
     status = "absent";
-  } else if (identity.backupState === "pending") {
+  } else if (identity.backupState === "pending" || !isRegistered) {
     status = "backup";
   }
   return { error: null, identity, isHydrating: false, status };
@@ -65,7 +70,6 @@ let loadGeneration = 0;
 let createOperation: Promise<IdentityResult<LocalIdentity>> | null = null;
 let backupStateOperation: Promise<IdentityResult<void>> | null = null;
 let resetOperation: Promise<IdentityResult<void>> | null = null;
-let updateHandleOperation: Promise<IdentityResult<void>> | null = null;
 
 const runOperation = <A>(
   effect: Effect.Effect<A>,
@@ -144,11 +148,26 @@ export const useIdentityStore = create<IdentityStore>((set, get) => ({
               }
             }),
           onSuccess: (identity) =>
-            Effect.sync(() => {
-              if (loadGeneration === generation) {
-                set(stateForIdentity(identity));
-              }
-            }),
+            identity === null
+              ? Effect.sync(() => {
+                  if (loadGeneration === generation) {
+                    set(stateForIdentity(null));
+                  }
+                })
+              : loadLocalRegistration().pipe(
+                  Effect.match({
+                    onFailure: () => false,
+                    onSuccess: (registration) =>
+                      registration?.status === "confirmed",
+                  }),
+                  Effect.tap((isRegistered) =>
+                    Effect.sync(() => {
+                      if (loadGeneration === generation) {
+                        set(stateForIdentity(identity, isRegistered));
+                      }
+                    })
+                  )
+                ),
         })
       )
     );
@@ -160,7 +179,9 @@ export const useIdentityStore = create<IdentityStore>((set, get) => ({
     }
 
     loadGeneration += 1;
-    const effect = deleteLocalIdentity().pipe(
+    const effect = deleteLocalRegistration().pipe(
+      Effect.mapError(() => new IdentityVaultError({ operation: "delete" })),
+      Effect.andThen(deleteLocalIdentity()),
       Effect.tap(() =>
         Effect.sync(() => {
           set(stateForIdentity(null));
@@ -215,34 +236,6 @@ export const useIdentityStore = create<IdentityStore>((set, get) => ({
       }
     );
     backupStateOperation = operation;
-    return operation;
-  },
-
-  updateHandle: (handle) => {
-    if (updateHandleOperation) {
-      return updateHandleOperation;
-    }
-    if (!get().identity) {
-      return Effect.runPromise(
-        Effect.fail(
-          new IdentityVaultError({ operation: "missing-identity" })
-        ).pipe(Effect.result)
-      );
-    }
-
-    const effect = updateLocalIdentityHandle(handle).pipe(
-      Effect.tap((identity) =>
-        Effect.sync(() => {
-          set({ identity });
-        })
-      ),
-      Effect.asVoid,
-      Effect.result
-    );
-    const operation = runOperation(effect, () => {
-      updateHandleOperation = null;
-    });
-    updateHandleOperation = operation;
     return operation;
   },
 }));

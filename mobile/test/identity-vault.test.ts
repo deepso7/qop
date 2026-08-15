@@ -134,56 +134,86 @@ describe("identity vault", () => {
     expect(recoveryKey).toMatch(/^qop1_/u);
   });
 
-  it("updates public metadata without replacing private key material", async () => {
+  it("updates backup metadata without replacing private key material", async () => {
     const {
       createLocalIdentity,
       loadLocalIdentity,
       updateLocalIdentityBackupState,
-      updateLocalIdentityHandle,
     } = await loadVault();
     await Effect.runPromise(createLocalIdentity("alice"));
     const before = JSON.parse(
       secureStoreMock.items.get(IDENTITY_STORAGE_KEY) ?? "{}"
     );
 
-    const updated = await Effect.runPromise(updateLocalIdentityHandle("bob"));
-    expect(updated).toMatchObject({ backupState: "pending", handle: "bob" });
+    const updated = await Effect.runPromise(
+      updateLocalIdentityBackupState("skipped")
+    );
+    expect(updated).toMatchObject({ backupState: "skipped", handle: "alice" });
     expect(updated).not.toHaveProperty("deviceSecretKey");
     expect(updated).not.toHaveProperty("encryptionSecretKey");
     expect(updated).not.toHaveProperty("recoveryKey");
 
-    const afterHandleChange = JSON.parse(
+    const afterUpdate = JSON.parse(
       secureStoreMock.items.get(IDENTITY_STORAGE_KEY) ?? "{}"
     );
-    expect(afterHandleChange).toMatchObject({
+    expect(afterUpdate).toMatchObject({
       deviceSecretKey: before.deviceSecretKey,
       encryptionSecretKey: before.encryptionSecretKey,
       recoveryKey: before.recoveryKey,
     });
 
-    await Effect.runPromise(updateLocalIdentityBackupState("skipped"));
     await expect(Effect.runPromise(loadLocalIdentity())).resolves.toMatchObject(
       {
         backupState: "skipped",
-        handle: "bob",
+        handle: "alice",
       }
     );
   });
 
-  it("rejects invalid handle updates without changing the vault", async () => {
-    const { createLocalIdentity, updateLocalIdentityHandle } =
+  it("signs registration intents without exposing the recovery key", async () => {
+    const { createLocalIdentity, signLocalRegistrationIntent } =
+      await loadVault();
+    const identity = await Effect.runPromise(createLocalIdentity("alice"));
+    const signature = await Effect.runPromise(
+      signLocalRegistrationIntent(
+        {
+          chainId: "31337",
+          verifyingContract: "0x1111111111111111111111111111111111111111",
+        },
+        {
+          deadline: "1700003600",
+          deviceCommitment: `0x${"02".repeat(32)}`,
+          handle: identity.handle,
+          nonce: `0x${"01".repeat(32)}`,
+          owner: identity.ownerAddress,
+        }
+      )
+    );
+
+    expect(signature).toMatch(/^0x[0-9a-f]{130}$/u);
+  });
+
+  it("refuses to sign a registration for another owner", async () => {
+    const { createLocalIdentity, signLocalRegistrationIntent } =
       await loadVault();
     await Effect.runPromise(createLocalIdentity("alice"));
-    const before = secureStoreMock.items.get(IDENTITY_STORAGE_KEY);
-
     const result = await Effect.runPromise(
-      updateLocalIdentityHandle("Alice").pipe(Effect.result)
+      signLocalRegistrationIntent(
+        {
+          chainId: "31337",
+          verifyingContract: "0x1111111111111111111111111111111111111111",
+        },
+        {
+          deadline: "1700003600",
+          deviceCommitment: `0x${"02".repeat(32)}`,
+          handle: "alice",
+          nonce: `0x${"01".repeat(32)}`,
+          owner: "0x0000000000000000000000000000000000000001",
+        }
+      ).pipe(Effect.result)
     );
 
-    expect(Result.isFailure(result) && result.failure.operation).toBe(
-      "invalid-handle"
-    );
-    expect(secureStoreMock.items.get(IDENTITY_STORAGE_KEY)).toBe(before);
+    expect(Result.isFailure(result) && result.failure.operation).toBe("sign");
   });
 
   it("rejects malformed, excess, and inconsistent stored data", async () => {

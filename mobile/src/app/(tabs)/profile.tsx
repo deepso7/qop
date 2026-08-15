@@ -1,18 +1,14 @@
-import { Handle } from "@qop/identity";
-import { Result, Schema } from "effect";
+import { Result } from "effect";
 import * as React from "react";
 import { ActivityIndicator, Platform, Share, View } from "react-native";
 
 import { Screen } from "@/components/screen";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { NativeAlert } from "@/components/ui/native-alert";
 import { SectionLabel } from "@/components/ui/section-label";
 import { Surface } from "@/components/ui/surface";
 import { Text } from "@/components/ui/text";
 import { useIdentityStore } from "@/lib/identity-store";
-
-const decodeHandle = Schema.decodeUnknownResult(Handle);
 
 const recoveryPresentation = (needsBackup: boolean) => {
   if (needsBackup) {
@@ -53,20 +49,11 @@ const ProfileScreen = React.memo(() => {
   );
   const resetIdentity = useIdentityStore((state) => state.resetIdentity);
   const setBackupState = useIdentityStore((state) => state.setBackupState);
-  const updateHandle = useIdentityStore((state) => state.updateHandle);
-  const [editingHandle, setEditingHandle] = React.useState(false);
-  const [handle, setHandle] = React.useState(identity?.handle ?? "");
-  const [savingHandle, setSavingHandle] = React.useState(false);
-  const [handleError, setHandleError] = React.useState<string>();
   const [exportingRecoveryKey, setExportingRecoveryKey] = React.useState(false);
   const [awaitingBackupConfirmation, setAwaitingBackupConfirmation] =
     React.useState(false);
   const [logoutAlertOpen, setLogoutAlertOpen] = React.useState(false);
   const [recoveryMessage, setRecoveryMessage] = React.useState<string>();
-  const isValidHandle = React.useMemo(
-    () => Result.isSuccess(decodeHandle(handle)),
-    [handle]
-  );
   const needsBackup = identity?.backupState !== "copied";
   const logout = React.useMemo(
     () => logoutPresentation(needsBackup),
@@ -76,32 +63,6 @@ const ProfileScreen = React.memo(() => {
     () => recoveryPresentation(needsBackup),
     [needsBackup]
   );
-
-  const beginHandleEdit = React.useCallback(() => {
-    setEditingHandle(true);
-  }, []);
-
-  const cancelHandleEdit = React.useCallback(() => {
-    setHandle(identity?.handle ?? "");
-    setHandleError(undefined);
-    setEditingHandle(false);
-  }, [identity?.handle]);
-
-  const saveHandle = React.useCallback(async () => {
-    if (!isValidHandle || savingHandle) {
-      return;
-    }
-    setSavingHandle(true);
-    setHandleError(undefined);
-    const result = await updateHandle(handle);
-    if (Result.isFailure(result)) {
-      setHandleError("Could not save this handle. Try again.");
-      setSavingHandle(false);
-      return;
-    }
-    setSavingHandle(false);
-    setEditingHandle(false);
-  }, [handle, isValidHandle, savingHandle, updateHandle]);
 
   const exportRecoveryKey = React.useCallback(async () => {
     if (exportingRecoveryKey) {
@@ -160,10 +121,6 @@ const ProfileScreen = React.memo(() => {
     setExportingRecoveryKey(false);
   }, [exportingRecoveryKey, setBackupState]);
 
-  const submitHandle = React.useCallback(() => {
-    void saveHandle();
-  }, [saveHandle]);
-
   const submitRecoveryExport = React.useCallback(() => {
     void exportRecoveryKey();
   }, [exportRecoveryKey]);
@@ -189,72 +146,17 @@ const ProfileScreen = React.memo(() => {
       <View className="gap-2">
         <SectionLabel>Identity</SectionLabel>
         <Surface
-          className="gap-4 rounded-xl border border-background-selected p-4"
+          className="rounded-xl border border-background-selected p-4"
           tone="element"
         >
-          <View className="flex-row items-center justify-between gap-4">
-            <View className="shrink gap-1">
-              <Text variant="large">@{identity?.handle}</Text>
-              <Text className="text-foreground-secondary" variant="caption">
-                Registration handle · keys stay unchanged
-              </Text>
-            </View>
-            {editingHandle ? null : (
-              <Button
-                accessibilityLabel="Change registration handle"
-                onPress={beginHandleEdit}
-                size="sm"
-                variant="ghost"
-              >
-                <Text>Change</Text>
-              </Button>
-            )}
+          <View className="gap-1">
+            <Text selectable variant="large">
+              @{identity?.handle}
+            </Text>
+            <Text className="text-foreground-secondary" variant="caption">
+              Permanent registered handle
+            </Text>
           </View>
-          {editingHandle ? (
-            <View className="gap-3">
-              <Input
-                accessibilityLabel="New qop handle"
-                autoCapitalize="none"
-                autoComplete="off"
-                autoCorrect={false}
-                editable={!savingHandle}
-                maxLength={32}
-                onChangeText={setHandle}
-                onSubmitEditing={submitHandle}
-                spellCheck={false}
-                value={handle}
-              />
-              {handleError ? (
-                <Text className="text-destructive" selectable variant="caption">
-                  {handleError}
-                </Text>
-              ) : null}
-              <View className="flex-row justify-end gap-2">
-                <Button
-                  disabled={savingHandle}
-                  onPress={cancelHandleEdit}
-                  size="sm"
-                  variant="ghost"
-                >
-                  <Text>Cancel</Text>
-                </Button>
-                <Button
-                  disabled={
-                    !isValidHandle ||
-                    savingHandle ||
-                    handle === identity?.handle
-                  }
-                  onPress={submitHandle}
-                  size="sm"
-                >
-                  {savingHandle ? (
-                    <ActivityIndicator colorClassName="accent-primary-foreground" />
-                  ) : null}
-                  <Text>Save handle</Text>
-                </Button>
-              </View>
-            </View>
-          ) : null}
         </Surface>
       </View>
 

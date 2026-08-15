@@ -4,6 +4,7 @@ import { TestClock } from "effect/testing";
 import type { Hash } from "viem";
 
 import {
+  decodeRegistrationAdmissionCode,
   RegistrationAdmission,
   RegistrationAdmissionUnauthorized,
 } from "../src/registration/admission.ts";
@@ -13,6 +14,15 @@ const hash = (value: number): Hash =>
   `0x${value.toString(16).padStart(64, "0")}` as Hash;
 
 layer(RegistrationAdmissionTestLive, { timeout: "30 seconds" })((it) => {
+  it.effect("hashes normalized invitation codes identically", () =>
+    Effect.gen(function* () {
+      const canonical = yield* decodeRegistrationAdmissionCode("X1W-YT3");
+      const compact = yield* decodeRegistrationAdmissionCode("x1wyt3");
+      assert.strictEqual(compact.code, "X1W-YT3");
+      assert.strictEqual(compact.codeHash, canonical.codeHash);
+    })
+  );
+
   it.effect("creates codes idempotently and validates them", () =>
     Effect.gen(function* () {
       const admissions = yield* RegistrationAdmission;

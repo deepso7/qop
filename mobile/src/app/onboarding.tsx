@@ -1,5 +1,5 @@
-import { Handle } from "@qop/identity";
-import { Result, Schema } from "effect";
+import { Handle, RegistrationAdmissionCode } from "@qop/identity";
+import { Effect, Result, Schema } from "effect";
 import * as Haptics from "expo-haptics";
 import { ArrowLeft, Check, Plus, Share2 } from "lucide-react-native";
 import * as React from "react";
@@ -25,9 +25,18 @@ import { Input } from "@/components/ui/input";
 import { NativeAlert } from "@/components/ui/native-alert";
 import { Text } from "@/components/ui/text";
 import { useIdentityStore } from "@/lib/identity-store";
-import type { IdentityVaultError } from "@/lib/identity-vault";
+import type { IdentityVaultError, LocalIdentity } from "@/lib/identity-vault";
+import {
+  loadLocalRegistration,
+  reconcileLocalRegistration,
+  startLocalRegistration,
+} from "@/lib/local-registration";
+import type { LocalRegistration } from "@/lib/local-registration";
 
 const decodeHandle = Schema.decodeUnknownResult(Handle);
+const decodeAdmissionCode = Schema.decodeUnknownResult(
+  RegistrationAdmissionCode
+);
 
 type CreateStage = "handle" | "intro";
 
@@ -70,6 +79,9 @@ const getVaultErrorMessage = (error: IdentityVaultError | null) => {
     case "read": {
       return "Qop could not read the identity from secure storage.";
     }
+    case "sign": {
+      return "Qop could not authorize the registration.";
+    }
     case "stale-install": {
       return "An identity from a previous installation is locked on this device.";
     }
@@ -85,20 +97,22 @@ const getVaultErrorMessage = (error: IdentityVaultError | null) => {
   }
 };
 
-const StepIndicator = React.memo(({ step }: { step: 1 | 2 }) => (
+const StepIndicator = React.memo(({ step }: { step: 1 | 2 | 3 }) => (
   <View
-    accessibilityLabel={`Step ${step} of 2`}
+    accessibilityLabel={`Step ${step} of 3`}
     accessible
     className="items-end gap-2"
   >
     <Text className="text-foreground-secondary" variant="mono">
-      {step} / 2
+      {step} / 3
     </Text>
     <View className="flex-row gap-1.5">
-      <View className="bg-primary h-1 w-8 rounded-full" />
-      <View
-        className={`h-1 w-8 rounded-full ${step === 2 ? "bg-primary" : "bg-border"}`}
-      />
+      {[1, 2, 3].map((item) => (
+        <View
+          className={`h-1 w-8 rounded-full ${item <= step ? "bg-primary" : "bg-border"}`}
+          key={item}
+        />
+      ))}
     </View>
   </View>
 ));
@@ -235,6 +249,494 @@ const getDisplayedBackupError = (
   recoveryKeyError: string | undefined
 ) => backupError ?? recoveryKeyError;
 
+const useRecoverySetup = (
+  enabled: boolean,
+  revealRecoveryKey: () => Promise<Result.Result<string, IdentityVaultError>>,
+  setBackupState: (
+    backupState: "copied" | "skipped"
+  ) => Promise<Result.Result<void, IdentityVaultError>>
+) => {
+  const [backedUp, setBackedUp] = React.useState(false);
+  const [awaitingConfirmation, setAwaitingConfirmation] = React.useState(false);
+  const [finishing, setFinishing] = React.useState(false);
+  const [backupError, setBackupError] = React.useState<string>();
+  const {
+    error: recoveryKeyError,
+    isOpening,
+    recoveryKey,
+    retry,
+  } = useRecoveryKey(enabled, revealRecoveryKey);
+
+  const exportRecoveryKey = React.useCallback(async () => {
+    if (!recoveryKey) {
+      return;
+    }
+    setAwaitingConfirmation(false);
+    try {
+      const result = await Share.share({
+        message: recoveryKey,
+        title: "Qop recovery key",
+      });
+      if (result.action === Share.sharedAction) {
+        if (Platform.OS === "android") {
+          setAwaitingConfirmation(true);
+          setBackupError(undefined);
+          return;
+        }
+        setBackedUp(true);
+        setBackupError(undefined);
+        playSuccessHaptic();
+      }
+    } catch {
+      setBackupError("Could not export the recovery key. Try again.");
+    }
+  }, [recoveryKey]);
+
+  const confirmBackup = React.useCallback(() => {
+    setAwaitingConfirmation(false);
+    setBackedUp(true);
+    setBackupError(undefined);
+    playSuccessHaptic();
+  }, []);
+
+  const continueToApp = React.useCallback(async () => {
+    if (finishing) {
+      return;
+    }
+    setFinishing(true);
+    setBackupError(undefined);
+    const result = await setBackupState(backedUp ? "copied" : "skipped");
+    if (Result.isFailure(result)) {
+      setBackupError("Could not save the backup choice. Try again.");
+      setFinishing(false);
+      return;
+    }
+    playSuccessHaptic();
+  }, [backedUp, finishing, setBackupState]);
+
+  const submitExport = React.useCallback(() => {
+    void exportRecoveryKey();
+  }, [exportRecoveryKey]);
+  const submitContinue = React.useCallback(() => {
+    void continueToApp();
+  }, [continueToApp]);
+  const buttonLabel = React.useMemo(
+    () =>
+      getRecoveryButtonLabel({
+        backedUp,
+        isOpening,
+        recoveryKey,
+      }),
+    [backedUp, isOpening, recoveryKey]
+  );
+
+  return {
+    awaitingConfirmation,
+    backedUp,
+    buttonLabel,
+    confirmBackup,
+    error: getDisplayedBackupError(backupError, recoveryKeyError),
+    finishing,
+    isOpening,
+    recoveryKey,
+    retry,
+    submitContinue,
+    submitExport,
+  };
+};
+
+const canStartRegistration = (
+  registration: LocalRegistration | null | undefined
+) =>
+  registration === null ||
+  registration?.status === "draft" ||
+  registration?.status === "failed" ||
+  registration?.status === "expired";
+
+const useOnboardingRegistration = (
+  identity: LocalIdentity | null,
+  hydrate: () => Promise<void>
+) => {
+  const [loadedRegistration, setLoadedRegistration] = React.useState<{
+    ownerAddress: string;
+    value: LocalRegistration | null;
+  }>();
+  const [admissionCode, setAdmissionCode] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  const [message, setMessage] = React.useState<string>();
+  const registration =
+    loadedRegistration?.ownerAddress === identity?.ownerAddress
+      ? loadedRegistration?.value
+      : undefined;
+  const isRegistered = registration?.status === "confirmed";
+  const isValidAdmissionCode = React.useMemo(
+    () => Result.isSuccess(decodeAdmissionCode(admissionCode)),
+    [admissionCode]
+  );
+
+  React.useEffect(() => {
+    if (!identity) {
+      return;
+    }
+    const { ownerAddress } = identity;
+    let cancelled = false;
+    const load = async () => {
+      const result = await Effect.runPromise(
+        loadLocalRegistration().pipe(Effect.result)
+      );
+      if (cancelled) {
+        return;
+      }
+      if (Result.isSuccess(result)) {
+        setLoadedRegistration({ ownerAddress, value: result.success });
+      } else {
+        setLoadedRegistration({ ownerAddress, value: null });
+        setMessage("Could not restore registration progress. Try again.");
+      }
+    };
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [identity]);
+
+  const acceptRegistration = React.useCallback(
+    (nextRegistration: LocalRegistration) => {
+      if (!identity) {
+        return;
+      }
+      setLoadedRegistration({
+        ownerAddress: identity.ownerAddress,
+        value: nextRegistration,
+      });
+      if (nextRegistration.status !== "confirmed") {
+        return;
+      }
+      playSuccessHaptic();
+      if (identity.backupState !== "pending") {
+        void hydrate();
+      }
+    },
+    [hydrate, identity]
+  );
+
+  const register = React.useCallback(async () => {
+    if (!isValidAdmissionCode || busy) {
+      return;
+    }
+    Keyboard.dismiss();
+    setBusy(true);
+    setMessage(undefined);
+    const result = await Effect.runPromise(
+      startLocalRegistration(admissionCode).pipe(Effect.result)
+    );
+    if (Result.isSuccess(result)) {
+      setAdmissionCode("");
+      acceptRegistration(result.success);
+    } else {
+      setMessage(
+        "Could not register this identity. Check the invitation code and connection."
+      );
+    }
+    setBusy(false);
+  }, [acceptRegistration, admissionCode, busy, isValidAdmissionCode]);
+
+  const check = React.useCallback(async () => {
+    if (busy) {
+      return;
+    }
+    setBusy(true);
+    setMessage(undefined);
+    const result = await Effect.runPromise(
+      reconcileLocalRegistration().pipe(Effect.result)
+    );
+    if (Result.isSuccess(result)) {
+      acceptRegistration(result.success);
+    } else {
+      setMessage("Could not check registration. Try again.");
+    }
+    setBusy(false);
+  }, [acceptRegistration, busy]);
+
+  const submit = React.useCallback(() => {
+    void register();
+  }, [register]);
+  const submitCheck = React.useCallback(() => {
+    void check();
+  }, [check]);
+
+  return {
+    admissionCode,
+    busy,
+    isRegistered,
+    isValidAdmissionCode,
+    message,
+    registration,
+    setAdmissionCode,
+    submit,
+    submitCheck,
+  };
+};
+
+type RegistrationStepProps = ReturnType<typeof useOnboardingRegistration> & {
+  handle: string;
+};
+
+const RegistrationStep = React.memo(
+  ({
+    admissionCode,
+    busy,
+    handle,
+    isValidAdmissionCode,
+    message,
+    registration,
+    setAdmissionCode,
+    submit,
+    submitCheck,
+  }: RegistrationStepProps) => {
+    const isLoading = registration === undefined;
+    const canStart = canStartRegistration(registration);
+
+    const registrationStatus = canStart ? (
+      <View className="gap-3">
+        <Text variant="label">Invitation code</Text>
+        <Input
+          accessibilityLabel="Invitation code"
+          autoCapitalize="characters"
+          autoComplete="off"
+          autoCorrect={false}
+          className="border-border bg-background-element h-14 rounded-xl px-4 text-center font-mono text-[18px] tracking-widest dark:bg-background-element"
+          editable={!busy}
+          enterKeyHint="done"
+          maxLength={7}
+          onChangeText={setAdmissionCode}
+          onSubmitEditing={submit}
+          placeholder="XXX-XXX"
+          returnKeyType="done"
+          spellCheck={false}
+          value={admissionCode}
+        />
+        <Text
+          className="text-foreground-secondary"
+          selectable
+          variant="caption"
+        >
+          Invitation codes are six characters and can be used once.
+        </Text>
+      </View>
+    ) : (
+      <View className="border-border bg-background-element gap-2 rounded-xl border p-4">
+        {isLoading ? (
+          <ActivityIndicator colorClassName="accent-foreground-secondary" />
+        ) : null}
+        <Text className="text-center" variant="label">
+          {isLoading ? "Checking registration…" : "Registration submitted"}
+        </Text>
+        {isLoading ? null : (
+          <Text
+            className="text-center text-foreground-secondary"
+            variant="caption"
+          >
+            Sepolia confirmation can take a few seconds.
+          </Text>
+        )}
+      </View>
+    );
+
+    let action: React.ReactNode;
+    if (canStart) {
+      action = (
+        <Button
+          className="h-14 rounded-xl"
+          disabled={!isValidAdmissionCode || busy}
+          onPress={submit}
+          size="lg"
+        >
+          {busy ? (
+            <ActivityIndicator colorClassName="accent-primary-foreground" />
+          ) : null}
+          <Text>{busy ? "Registering…" : "Register identity"}</Text>
+        </Button>
+      );
+    } else if (!isLoading) {
+      action = (
+        <Button
+          className="h-14 rounded-xl"
+          disabled={busy}
+          onPress={submitCheck}
+          size="lg"
+          variant="outline"
+        >
+          {busy ? (
+            <ActivityIndicator colorClassName="accent-foreground-secondary" />
+          ) : null}
+          <Text>{busy ? "Checking…" : "Check status"}</Text>
+        </Button>
+      );
+    }
+
+    return (
+      <Animated.View
+        entering={stepTransition}
+        exiting={stepExit}
+        className="grow justify-between gap-10"
+      >
+        <View className="gap-8">
+          <View className="items-end">
+            <StepIndicator step={2} />
+          </View>
+          <View className="gap-3">
+            <Text
+              accessibilityRole="header"
+              className="max-w-lg text-4xl leading-11 font-semibold tracking-tight"
+            >
+              Register @{handle}.
+            </Text>
+            <Text className="max-w-md text-foreground-secondary" variant="body">
+              Enter your invitation code to make this handle permanent.
+            </Text>
+          </View>
+          {registrationStatus}
+        </View>
+
+        <View className="gap-3">
+          {message ? (
+            <Text
+              className="text-center text-destructive"
+              selectable
+              variant="caption"
+            >
+              {message}
+            </Text>
+          ) : null}
+          {action}
+        </View>
+      </Animated.View>
+    );
+  }
+);
+RegistrationStep.displayName = "RegistrationStep";
+
+type RecoveryStepProps = ReturnType<typeof useRecoverySetup> & {
+  handle: string;
+};
+
+const RecoveryStep = React.memo(
+  ({
+    awaitingConfirmation,
+    backedUp,
+    buttonLabel,
+    confirmBackup,
+    error,
+    finishing,
+    handle,
+    isOpening,
+    recoveryKey,
+    retry,
+    submitContinue,
+    submitExport,
+  }: RecoveryStepProps) => (
+    <Animated.View
+      entering={stepTransition}
+      exiting={stepExit}
+      className="grow justify-between gap-10"
+    >
+      <View className="gap-8">
+        <View className="items-end">
+          <StepIndicator step={3} />
+        </View>
+        <View className="gap-3">
+          <Text
+            accessibilityRole="header"
+            className="max-w-lg text-4xl leading-11 font-semibold tracking-tight"
+          >
+            Save your recovery key.
+          </Text>
+          <Text className="max-w-md text-foreground-secondary" variant="body">
+            This key restores @{handle}. Qop cannot reset or replace it for you.
+          </Text>
+        </View>
+
+        <View className="gap-3">
+          <View
+            className="border-border bg-code-background rounded-xl border p-4"
+            style={{ borderCurve: "continuous" }}
+          >
+            {recoveryKey ? (
+              <Text
+                accessibilityLabel="Recovery key"
+                className="font-mono text-sm leading-6"
+                selectable
+              >
+                {recoveryKey}
+              </Text>
+            ) : (
+              <View className="h-12 items-center justify-center">
+                <ActivityIndicator colorClassName="accent-foreground-secondary" />
+              </View>
+            )}
+          </View>
+          <Text
+            className="text-foreground-secondary"
+            selectable
+            variant="caption"
+          >
+            Anyone with this key controls your qop. Keep it private.
+          </Text>
+        </View>
+      </View>
+
+      <View className="gap-3">
+        {error ? (
+          <Text
+            className="text-center text-destructive"
+            selectable
+            variant="caption"
+          >
+            {error}
+          </Text>
+        ) : null}
+        <Button
+          accessibilityHint="Opens the system share sheet to export the recovery key"
+          className="h-14 rounded-xl"
+          disabled={isOpening}
+          onPress={recoveryKey ? submitExport : retry}
+          size="lg"
+        >
+          {isOpening ? (
+            <ActivityIndicator colorClassName="accent-primary-foreground" />
+          ) : (
+            <Icon as={backedUp ? Check : Share2} className="size-5" />
+          )}
+          <Text>{buttonLabel}</Text>
+        </Button>
+        <BackupConfirmationButton
+          onConfirm={confirmBackup}
+          visible={awaitingConfirmation}
+        />
+        <Button
+          accessibilityHint={
+            backedUp
+              ? "Finishes identity creation"
+              : "Finishes identity creation without confirming a backup"
+          }
+          className="h-10 self-center rounded-full px-5"
+          disabled={finishing}
+          onPress={submitContinue}
+          size="sm"
+          variant="ghost"
+        >
+          {finishing ? (
+            <ActivityIndicator colorClassName="accent-foreground-secondary" />
+          ) : null}
+          <Text>{backedUp ? "Continue" : "I'll save it later"}</Text>
+        </Button>
+      </View>
+    </Animated.View>
+  )
+);
+RecoveryStep.displayName = "RecoveryStep";
+
 const VaultErrorScreen = React.memo(
   ({ error }: { error: IdentityVaultError | null }) => {
     const isHydrating = useIdentityStore((state) => state.isHydrating);
@@ -338,14 +840,11 @@ const OnboardingRoute = React.memo(() => {
     (state) => state.revealRecoveryKey
   );
   const setBackupState = useIdentityStore((state) => state.setBackupState);
+  const hydrate = useIdentityStore((state) => state.hydrate);
   const status = useIdentityStore((state) => state.status);
   const [stage, setStage] = React.useState<CreateStage>("intro");
   const [handle, setHandle] = React.useState("");
-  const [backedUp, setBackedUp] = React.useState(false);
-  const [awaitingBackupConfirmation, setAwaitingBackupConfirmation] =
-    React.useState(false);
-  const [finishing, setFinishing] = React.useState(false);
-  const [backupError, setBackupError] = React.useState<string>();
+  const registrationState = useOnboardingRegistration(identity, hydrate);
 
   const isValidHandle = React.useMemo(
     () => Result.isSuccess(decodeHandle(handle)),
@@ -353,12 +852,11 @@ const OnboardingRoute = React.memo(() => {
   );
   const isCreating = status === "creating";
   const isBackup = status === "backup";
-  const {
-    error: recoveryKeyError,
-    isOpening: isOpeningRecoveryKey,
-    recoveryKey,
-    retry: retryRecoveryKey,
-  } = useRecoveryKey(isBackup, revealRecoveryKey);
+  const recoverySetup = useRecoverySetup(
+    isBackup && registrationState.isRegistered,
+    revealRecoveryKey,
+    setBackupState
+  );
 
   const startCreate = React.useCallback(() => {
     playPrimaryHaptic();
@@ -383,183 +881,28 @@ const OnboardingRoute = React.memo(() => {
     }
   }, [createIdentity, handle, isCreating, isValidHandle]);
 
-  const exportRecoveryKey = React.useCallback(async () => {
-    if (!recoveryKey) {
-      return;
-    }
-    setAwaitingBackupConfirmation(false);
-    try {
-      const result = await Share.share({
-        message: recoveryKey,
-        title: "Qop recovery key",
-      });
-      if (result.action === Share.sharedAction) {
-        if (Platform.OS === "android") {
-          setAwaitingBackupConfirmation(true);
-          setBackupError(undefined);
-          return;
-        }
-        setBackedUp(true);
-        setBackupError(undefined);
-        playSuccessHaptic();
-      }
-    } catch {
-      setBackupError("Could not export the recovery key. Try again.");
-    }
-  }, [recoveryKey]);
-
-  const confirmRecoveryBackup = React.useCallback(() => {
-    setAwaitingBackupConfirmation(false);
-    setBackedUp(true);
-    setBackupError(undefined);
-    playSuccessHaptic();
-  }, []);
-
-  const continueToApp = React.useCallback(async () => {
-    if (finishing) {
-      return;
-    }
-    setFinishing(true);
-    setBackupError(undefined);
-    const result = await setBackupState(backedUp ? "copied" : "skipped");
-    if (Result.isFailure(result)) {
-      setBackupError("Could not save the backup choice. Try again.");
-      setFinishing(false);
-      return;
-    }
-    playSuccessHaptic();
-  }, [backedUp, finishing, setBackupState]);
-
   const submitCreate = React.useCallback(() => {
     void create();
   }, [create]);
 
-  const submitRecoveryExport = React.useCallback(() => {
-    void exportRecoveryKey();
-  }, [exportRecoveryKey]);
-
-  const submitContinue = React.useCallback(() => {
-    void continueToApp();
-  }, [continueToApp]);
-
-  const displayedBackupError = getDisplayedBackupError(
-    backupError,
-    recoveryKeyError
-  );
-  const recoveryButtonLabel = React.useMemo(
-    () =>
-      getRecoveryButtonLabel({
-        backedUp,
-        isOpening: isOpeningRecoveryKey,
-        recoveryKey,
-      }),
-    [backedUp, isOpeningRecoveryKey, recoveryKey]
-  );
-
   let content: React.ReactNode;
   if (status === "error") {
     content = <VaultErrorScreen error={error} key="vault-error" />;
+  } else if (identity && !registrationState.isRegistered) {
+    content = (
+      <RegistrationStep
+        {...registrationState}
+        handle={identity.handle}
+        key="registration"
+      />
+    );
   } else if (isBackup) {
     content = (
-      <Animated.View
-        entering={stepTransition}
-        exiting={stepExit}
+      <RecoveryStep
+        {...recoverySetup}
+        handle={identity?.handle ?? ""}
         key="backup"
-        className="grow justify-between gap-10"
-      >
-        <View className="gap-8">
-          <View className="items-end">
-            <StepIndicator step={2} />
-          </View>
-          <View className="gap-3">
-            <Text
-              accessibilityRole="header"
-              className="max-w-lg text-4xl leading-11 font-semibold tracking-tight"
-            >
-              Save your recovery key.
-            </Text>
-            <Text className="max-w-md text-foreground-secondary" variant="body">
-              This key restores @{identity?.handle}. Qop cannot reset or replace
-              it for you.
-            </Text>
-          </View>
-
-          <View className="gap-3">
-            <View
-              className="border-border bg-code-background rounded-xl border p-4"
-              style={{ borderCurve: "continuous" }}
-            >
-              {recoveryKey ? (
-                <Text
-                  accessibilityLabel="Recovery key"
-                  className="font-mono text-sm leading-6"
-                  selectable
-                >
-                  {recoveryKey}
-                </Text>
-              ) : (
-                <View className="h-12 items-center justify-center">
-                  <ActivityIndicator colorClassName="accent-foreground-secondary" />
-                </View>
-              )}
-            </View>
-            <Text
-              className="text-foreground-secondary"
-              selectable
-              variant="caption"
-            >
-              Anyone with this key controls your qop. Keep it private.
-            </Text>
-          </View>
-        </View>
-
-        <View className="gap-3">
-          {displayedBackupError ? (
-            <Text
-              className="text-center text-destructive"
-              selectable
-              variant="caption"
-            >
-              {displayedBackupError}
-            </Text>
-          ) : null}
-          <Button
-            accessibilityHint="Opens the system share sheet to export the recovery key"
-            className="h-14 rounded-xl"
-            disabled={isOpeningRecoveryKey}
-            onPress={recoveryKey ? submitRecoveryExport : retryRecoveryKey}
-            size="lg"
-          >
-            {isOpeningRecoveryKey ? (
-              <ActivityIndicator colorClassName="accent-primary-foreground" />
-            ) : (
-              <Icon as={backedUp ? Check : Share2} className="size-5" />
-            )}
-            <Text>{recoveryButtonLabel}</Text>
-          </Button>
-          <BackupConfirmationButton
-            onConfirm={confirmRecoveryBackup}
-            visible={awaitingBackupConfirmation}
-          />
-          <Button
-            accessibilityHint={
-              backedUp
-                ? "Finishes identity creation"
-                : "Finishes identity creation without confirming a backup"
-            }
-            className="h-10 self-center rounded-full px-5"
-            disabled={finishing}
-            onPress={submitContinue}
-            size="sm"
-            variant="ghost"
-          >
-            {finishing ? (
-              <ActivityIndicator colorClassName="accent-foreground-secondary" />
-            ) : null}
-            <Text>{backedUp ? "Continue" : "I'll save it later"}</Text>
-          </Button>
-        </View>
-      </Animated.View>
+      />
     );
   } else if (stage === "handle") {
     content = (

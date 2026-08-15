@@ -63,7 +63,11 @@ const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
 const OBSERVE_TOKEN_HASH =
   "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as Hash;
 const IDEMPOTENCY_KEY = "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
-const ADMISSION_CODE = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const ADMISSION_CODE = "ABC-123";
+const DOMAIN = {
+  chainId: "31337",
+  verifyingContract: "0x1111111111111111111111111111111111111111",
+} as const;
 const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
 
 const intent = {
@@ -156,6 +160,7 @@ const RegistrationEnrollmentTestLive = Layer.succeed(
       });
       return {
         digest: DIGEST,
+        domain: DOMAIN,
         intent,
         status: "pending_owner_signature",
       };
@@ -213,7 +218,7 @@ describe("registration HTTP API", () => {
       const client = yield* HttpApiClient.make(QopHttpApi);
       const prepared = yield* client.registrations.prepare({
         payload: {
-          admissionCode: ADMISSION_CODE,
+          admissionCode: "abc123",
           deviceCommitment: intent.deviceCommitment,
           handle: "alice",
           idempotencyKey: IDEMPOTENCY_KEY,
@@ -413,6 +418,7 @@ describe("registration HTTP API", () => {
       } as const;
       const preparedResponse = {
         digest: DIGEST,
+        domain: DOMAIN,
         intent,
         status: "pending_owner_signature",
       } as const;
@@ -478,6 +484,7 @@ describe("registration HTTP API", () => {
         }).pipe(Effect.flip),
         Schema.encodeEffect(PreparedRegistrationResponse)({
           digest: DIGEST,
+          domain: DOMAIN,
           intent: {
             ...intent,
             deadline: "18446744073709551616",

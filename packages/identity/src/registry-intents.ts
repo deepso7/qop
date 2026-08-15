@@ -1,6 +1,7 @@
 import { Effect, Schema } from "effect";
 import { hashTypedData, recoverTypedDataAddress, toHex } from "viem";
 import type { Address } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 
 import {
   IdentityCryptoError,
@@ -15,6 +16,7 @@ import {
   EthereumAddress,
   Handle,
   Hex32,
+  normalizeEcdsaSignature,
   Qid,
   Uint256,
   UnixSeconds,
@@ -43,6 +45,12 @@ export const CertificateDigest = Hex32.check(
 export const DeviceCommitment = Hex32.check(
   Schema.makeFilter((bytes) => bytes.some((byte) => byte !== 0), {
     expected: "a non-zero device commitment",
+  })
+);
+
+const OwnerPrivateKey = Schema.Uint8Array.check(
+  Schema.makeFilter((bytes) => bytes.length === 32, {
+    expected: "a 32-byte owner private key",
   })
 );
 
@@ -252,6 +260,41 @@ export const hashRegisterIntentV1 = Effect.fn(
     )
   )
 );
+
+export const signRegisterIntentV1 = Effect.fn(
+  "@qop/identity/signRegisterIntentV1"
+)(function* (
+  domain: IdentityDomain,
+  intent: RegisterIntentV1,
+  input: Uint8Array
+) {
+  yield* validateRegisterInputs("sign-register-intent", domain, intent);
+  const privateKey = yield* Schema.decodeUnknownEffect(OwnerPrivateKey)(
+    input
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new IdentityCryptoError({ cause, operation: "sign-register-intent" })
+    )
+  );
+  const account = yield* Effect.try({
+    catch: (cause) =>
+      new IdentityCryptoError({ cause, operation: "sign-register-intent" }),
+    try: () => privateKeyToAccount(toHex(privateKey)),
+  });
+  const signature = yield* Effect.tryPromise({
+    catch: (cause) =>
+      new IdentityCryptoError({ cause, operation: "sign-register-intent" }),
+    try: () =>
+      account.signTypedData(makeRegisterIntentTypedDataV1(domain, intent)),
+  });
+  return yield* normalizeEcdsaSignature(signature).pipe(
+    Effect.mapError(
+      (cause) =>
+        new IdentityCryptoError({ cause, operation: "sign-register-intent" })
+    )
+  );
+});
 
 export const hashRotateOwnerIntentV1 = Effect.fn(
   "@qop/identity/hashRotateOwnerIntentV1"

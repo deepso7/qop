@@ -35,6 +35,7 @@ type RegistrationInputField =
   | "qid"
   | "registration-nonce"
   | "registration-signature"
+  | "serialized-transaction"
   | "transaction-hash";
 
 export class RegistrationInputError extends Data.TaggedError(
@@ -162,6 +163,20 @@ export const normalizeRegistrationIdempotencyKeyHash = Effect.fn(
 export const normalizeTransactionHash = Effect.fn(
   "RegistrationInput.normalizeTransactionHash"
 )((input: unknown) => normalizeHex32(input, "transaction-hash"));
+
+const SerializedTransaction = Schema.String.check(
+  Schema.isPattern(/^0x[0-9a-f]+$/u, {
+    expected: "a lowercase 0x-prefixed serialized transaction",
+  })
+);
+
+export const normalizeSerializedTransaction = Effect.fn(
+  "RegistrationInput.normalizeSerializedTransaction"
+)(function* (input: unknown) {
+  return (yield* Schema.decodeUnknownEffect(SerializedTransaction)(input).pipe(
+    Effect.mapError(inputError("serialized-transaction"))
+  )) as Hex;
+});
 
 export const normalizeRegistrationAuthorization = Effect.fn(
   "RegistrationInput.normalizeAuthorization"

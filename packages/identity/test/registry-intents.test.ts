@@ -1,5 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Schema, SchemaIssue } from "effect";
+import { hexToBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 import {
@@ -23,6 +24,7 @@ import {
   recoverRegisterIntentSignerV1,
   recoverRevokeDeviceIntentSignerV1,
   recoverRotateOwnerIntentSignerV1,
+  signRegisterIntentV1,
 } from "../src/index.ts";
 
 const PRIVATE_KEY =
@@ -244,6 +246,23 @@ describe("registry intents", () => {
           revoke,
           revokeSignature
         ),
+        encodedRegisterIntent.owner
+      );
+    })
+  );
+
+  it.effect("signs a registration with owner key bytes", () =>
+    Effect.gen(function* () {
+      const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
+      const intent = yield* decodeRegisterIntentV1(encodedRegisterIntent);
+      const signature = yield* signRegisterIntentV1(
+        domain,
+        intent,
+        hexToBytes(PRIVATE_KEY)
+      );
+
+      assert.strictEqual(
+        yield* recoverRegisterIntentSignerV1(domain, intent, signature),
         encodedRegisterIntent.owner
       );
     })

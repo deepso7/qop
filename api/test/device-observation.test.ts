@@ -111,6 +111,7 @@ const EnvTestLive = Layer.succeed(
     REGISTRATION_PRIVATE_KEY: `0x${"11".repeat(32)}`,
     REGISTRY_ADDRESS,
     REGISTRY_CONFIRMATIONS: 0,
+    RELAYER_PRIVATE_KEY: `0x${"22".repeat(32)}`,
     RPC_URL: new URL("http://127.0.0.1:8545"),
   })
 );

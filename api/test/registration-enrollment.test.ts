@@ -32,6 +32,10 @@ import {
 } from "../src/registration/enrollment.ts";
 import type { PreparedRegistration } from "../src/registration/enrollment.ts";
 import { RegistrationInputError } from "../src/registration/inputs.ts";
+import {
+  RegistrationRelayer,
+  RegistrationRelayerError,
+} from "../src/registration/relayer.ts";
 import { registrationSignerLayer } from "../src/registration/signer.ts";
 import {
   HandleLeaseConflict,
@@ -52,7 +56,7 @@ import {
 
 const OWNER_PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000001";
-const ADMISSION_CODE = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+const ADMISSION_CODE = "ABC-123";
 const REGISTRATION_PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000002";
 const WRONG_PRIVATE_KEY =
@@ -91,7 +95,7 @@ const clientCapability = (label: string) => {
     observeTokenHash: keccak256(observeToken),
   } as const;
 };
-const SECOND_ADMISSION_CODE = idempotencyKey("second-admission-code");
+const SECOND_ADMISSION_CODE = "XYZ-789";
 
 const registryReads: RegistryReads = {
   account: () => Effect.die("account is not used by enrollment tests"),
@@ -124,7 +128,10 @@ const registrationProbe = (handle: string, owner: Address, _nonce: Hash) => {
   return Effect.succeed({
     blockNumber: 100n,
     value: {
-      blockTimestamp: handle === "expireme" ? 18_446_744_073_709_551_615n : 0n,
+      blockTimestamp:
+        handle === "expireme" || handle === "retrybroadcastexpired"
+          ? 18_446_744_073_709_551_615n
+          : 0n,
       handleQid,
       ownerQid,
       registrationNonceUsed:
@@ -165,6 +172,43 @@ const EntropyTestLive = Layer.sync(Entropy, () => {
   });
 });
 
+const RegistrationRelayerTestLive = Layer.succeed(
+  RegistrationRelayer,
+  RegistrationRelayer.of({
+    broadcast: (prepared) => Effect.succeed(prepared.transactionHash),
+    pendingNonce: Effect.succeed(0n),
+    prepare: () =>
+      Effect.succeed({
+        serializedTransaction: "0x02aa",
+        transactionHash:
+          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      }),
+  })
+);
+
+let retryBroadcastAttempts = 0;
+const BroadcastRetryRelayerTestLive = Layer.sync(RegistrationRelayer, () => {
+  retryBroadcastAttempts = 0;
+  return RegistrationRelayer.of({
+    broadcast: (prepared) =>
+      Effect.suspend(() => {
+        retryBroadcastAttempts += 1;
+        return retryBroadcastAttempts < 3
+          ? Effect.fail(
+              new RegistrationRelayerError({ operation: "broadcast" })
+            )
+          : Effect.succeed(prepared.transactionHash);
+      }),
+    pendingNonce: Effect.succeed(0n),
+    prepare: () =>
+      Effect.succeed({
+        serializedTransaction: "0x02aa",
+        transactionHash:
+          "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      }),
+  });
+});
+
 const EnvTestLive = Layer.succeed(
   Env,
   Env.of({
@@ -175,6 +219,7 @@ const EnvTestLive = Layer.succeed(
     REGISTRATION_PRIVATE_KEY,
     REGISTRY_ADDRESS,
     REGISTRY_CONFIRMATIONS: 0,
+    RELAYER_PRIVATE_KEY: WRONG_PRIVATE_KEY,
     RPC_URL: new URL("http://127.0.0.1:8545"),
   })
 );
@@ -211,6 +256,17 @@ const RegistrationEnrollmentTestLive = RegistrationEnrollment.layer.pipe(
   Layer.provide(EntropyTestLive),
   Layer.provideMerge(RegistrationStoreTestLive),
   Layer.provide(RegistryReaderTestLive),
+  Layer.provide(RegistrationRelayerTestLive),
+  Layer.provide(registrationSignerLayer(REGISTRATION_PRIVATE_KEY)),
+  Layer.provide(RegistrationAdmissionTestLive),
+  Layer.provide(EnvTestLive)
+);
+
+const BroadcastRetryEnrollmentTestLive = RegistrationEnrollment.layer.pipe(
+  Layer.provide(EntropyTestLive),
+  Layer.provideMerge(RegistrationStoreTestLive),
+  Layer.provide(RegistryReaderTestLive),
+  Layer.provide(BroadcastRetryRelayerTestLive),
   Layer.provide(registrationSignerLayer(REGISTRATION_PRIVATE_KEY)),
   Layer.provide(RegistrationAdmissionTestLive),
   Layer.provide(EnvTestLive)
@@ -257,6 +313,7 @@ const enrollmentLayerWithStore = <Error, Requirements>(
     Layer.provide(EntropyTestLive),
     Layer.provide(storeLayer),
     Layer.provide(RegistryReaderTestLive),
+    Layer.provide(RegistrationRelayerTestLive),
     Layer.provide(registrationSignerLayer(REGISTRATION_PRIVATE_KEY)),
     Layer.provide(RegistrationAdmissionTestLive),
     Layer.provide(EnvTestLive)
@@ -446,9 +503,10 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
     })
   );
 
-  it.effect("verifies the owner and advances the stored intent to ready", () =>
+  it.effect("verifies the owner and submits the stored intent", () =>
     Effect.gen(function* () {
       const enrollment = yield* RegistrationEnrollment;
+      const store = yield* RegistrationStore;
       const prepared = yield* enrollment.prepare({
         admissionCode: ADMISSION_CODE,
         handle: "golf",
@@ -473,8 +531,15 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         EcdsaSignature
       )(authorized.ownerSignature);
 
-      assert.strictEqual(authorized.status, "ready");
+      assert.strictEqual(authorized.status, "submitted");
       assert.strictEqual(authorized.digest, prepared.digest);
+      const submitted = Option.getOrThrow(yield* store.get(prepared.digest));
+      assert.strictEqual(submitted.status, "submitted");
+      assert.strictEqual(
+        submitted.transactionHash,
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      );
+      assert.strictEqual(submitted.serializedTransaction, "0x02aa");
       assert.strictEqual(
         yield* recoverRegisterIntentSignerV1(
           domain,
@@ -567,7 +632,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
             digest: prepared.digest,
             ownerSignature,
           })).status,
-          "ready"
+          "submitted"
         );
       })
   );
@@ -757,6 +822,37 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
     })
   );
 
+  it.effect("resumes a ready registration during reconciliation", () =>
+    Effect.gen(function* () {
+      const enrollment = yield* RegistrationEnrollment;
+      const store = yield* RegistrationStore;
+      const prepared = yield* enrollment.prepare({
+        admissionCode: ADMISSION_CODE,
+        handle: "resumeready",
+        idempotencyKey: idempotencyKey("resumeready"),
+        ...clientCapability("resumeready"),
+        owner: ownerAccount.address,
+        peerId: PEER_ID,
+      });
+      yield* persistPreparedAuthorization(prepared);
+
+      assert.strictEqual(
+        Option.getOrThrow(yield* store.get(prepared.digest)).status,
+        "ready"
+      );
+      const reconciled = yield* enrollment.reconcile(prepared.digest);
+      const submitted = Option.getOrThrow(yield* store.get(prepared.digest));
+
+      assert.strictEqual(reconciled.status, "submitted");
+      assert.strictEqual(submitted.status, "submitted");
+      assert.strictEqual(submitted.serializedTransaction, "0x02aa");
+      assert.strictEqual(
+        submitted.transactionHash,
+        "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      );
+    })
+  );
+
   it.effect(
     "reconciles confirmed, conflicting, and proven-expired intents",
     () =>
@@ -808,6 +904,57 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           expired.failureCode,
           registrationReconciliationFailureCodes.deadlineExpired
         );
+      })
+  );
+});
+
+layer(BroadcastRetryEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
+  it.effect(
+    "rebroadcasts an expired submission before marking it terminal",
+    () =>
+      Effect.gen(function* () {
+        const enrollment = yield* RegistrationEnrollment;
+        const store = yield* RegistrationStore;
+        const prepared = yield* enrollment.prepare({
+          admissionCode: ADMISSION_CODE,
+          handle: "retrybroadcastexpired",
+          idempotencyKey: idempotencyKey("retrybroadcastexpired"),
+          ...clientCapability("retrybroadcastexpired"),
+          owner: ownerAccount.address,
+          peerId: PEER_ID,
+        });
+        const firstBroadcastError = yield* enrollment
+          .authorize({
+            digest: prepared.digest,
+            ownerSignature: yield* signPreparedIntent(
+              prepared.intent,
+              ownerAccount
+            ),
+          })
+          .pipe(Effect.flip);
+
+        assert.instanceOf(firstBroadcastError, RegistrationRelayerError);
+        assert.strictEqual(
+          Option.getOrThrow(yield* store.get(prepared.digest)).status,
+          "submitted"
+        );
+        const retryError = yield* enrollment
+          .reconcile(prepared.digest)
+          .pipe(Effect.flip);
+
+        assert.instanceOf(retryError, RegistrationRelayerError);
+        assert.strictEqual(
+          Option.getOrThrow(yield* store.get(prepared.digest)).status,
+          "submitted"
+        );
+        const reconciled = yield* enrollment.reconcile(prepared.digest);
+
+        assert.strictEqual(reconciled.status, "failed");
+        assert.strictEqual(
+          reconciled.failureCode,
+          registrationReconciliationFailureCodes.deadlineExpired
+        );
+        assert.strictEqual(retryBroadcastAttempts, 3);
       })
   );
 });
