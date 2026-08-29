@@ -1,6 +1,11 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Environment and registry schemas validate address representations before these viem conversions.
 import { Context, Data, Effect, Layer } from "effect";
-import { createPublicClient, http, keccak256, stringToBytes } from "viem";
+import {
+  createPublicClient,
+  getAddress,
+  http,
+  keccak256,
+  stringToBytes,
+} from "viem";
 import type { Address, Hash } from "viem";
 
 import { Env } from "../env.ts";
@@ -81,7 +86,7 @@ export class RegistryChain extends Context.Service<
       const client = createPublicClient({
         transport: http(env.RPC_URL.toString(), { batch: true }),
       });
-      const registryAddress = env.REGISTRY_ADDRESS as Address;
+      const registryAddress = getAddress(env.REGISTRY_ADDRESS);
       const rpcChainId = yield* Effect.tryPromise({
         catch: (cause) =>
           new RegistryChainError({ cause, operation: "chain-id" }),
@@ -133,6 +138,7 @@ export class RegistryChain extends Context.Service<
           value: {
             handle,
             nonce,
+            // SAFETY: viem decodes the contract's address return as an Address.
             owner: owner.toLowerCase() as Address,
             ownerVersion,
             qid,

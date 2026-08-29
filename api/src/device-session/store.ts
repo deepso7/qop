@@ -1,4 +1,3 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Encoded challenges are schema-validated and successful INSERT ... RETURNING calls supply a row.
 import type { DeviceSessionChallengeV1Encoded } from "@qop/identity";
 import { and, asc, eq, gt, inArray, isNull, lte, ne, or } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
@@ -25,6 +24,7 @@ export const deviceSessionPurgeBatchSize = 100;
 export interface CreateDeviceSessionChallenge {
   readonly challenge: DeviceSessionChallengeV1Encoded;
   readonly challengeHash: Hash;
+  readonly certificateDigest: Hash;
 }
 
 export interface AuthenticateDeviceSession {
@@ -118,7 +118,7 @@ export class DeviceSessionStore extends Context.Service<
       const createChallenge = Effect.fn("DeviceSessionStore.createChallenge")(
         function* (input: CreateDeviceSessionChallenge) {
           const challenge: typeof deviceSessionChallenges.$inferInsert = {
-            certificateDigest: input.challenge.certificateDigest as Hash,
+            certificateDigest: input.certificateDigest,
             challenge: input.challenge.challenge,
             challengeHash: input.challengeHash,
             expiresAt: BigInt(input.challenge.expiresAt),
@@ -181,7 +181,13 @@ export class DeviceSessionStore extends Context.Service<
                 .insert(deviceSessionChallenges)
                 .values(challenge)
                 .returning();
-              return rows[0] as StoredDeviceSessionChallenge;
+              const created = rows.at(0);
+              if (!created) {
+                return yield* Effect.die(
+                  "Device session challenge insert returned no row"
+                );
+              }
+              return created;
             })
           );
         }
@@ -280,7 +286,13 @@ export class DeviceSessionStore extends Context.Service<
                   verifier: challenge.verifier,
                 })
                 .returning();
-              return sessions[0] as StoredDeviceSession;
+              const session = sessions.at(0);
+              if (!session) {
+                return yield* Effect.die(
+                  "Device session insert returned no row"
+                );
+              }
+              return session;
             })
           );
         }

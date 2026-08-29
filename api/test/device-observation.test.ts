@@ -1,4 +1,3 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: These fixed test fixtures use valid Ethereum address, hash, and signature literal representations.
 import { assert, layer } from "@effect/vitest";
 import {
   Base64Url32,
@@ -16,7 +15,7 @@ import {
 import { DateTime, Effect, Layer, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { keccak256 } from "viem";
-import type { Address, Hash, Hex } from "viem";
+import type { Hash } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 import {
@@ -34,12 +33,14 @@ import type {
   RegistryRead,
   RegistryReads,
 } from "../src/registry/reader.ts";
+import { testAddress, testHash, testSignature } from "./support/ethereum.ts";
 import { DeviceAndRegistrationStoresTestLive } from "./support/registration-database.ts";
 
 const OWNER_PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000001";
-const REGISTRY_ADDRESS =
-  "0x1111111111111111111111111111111111111111" as Address;
+const REGISTRY_ADDRESS = testAddress(
+  "0x1111111111111111111111111111111111111111"
+);
 const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
 const SECOND_PEER_ID = Effect.runSync(
   Schema.encodeEffect(PeerId)(
@@ -47,9 +48,8 @@ const SECOND_PEER_ID = Effect.runSync(
   )
 );
 const account = privateKeyToAccount(OWNER_PRIVATE_KEY);
-const owner = account.address.toLowerCase() as Address;
-const AUTHORIZATION_SIGNATURE =
-  `0x${"1".padStart(64, "0")}${"1".padStart(64, "0")}00` as Hex;
+const owner = testAddress(account.address.toLowerCase());
+const AUTHORIZATION_SIGNATURE = testSignature("00");
 
 const read = <Value>(value: Value): RegistryRead<Value> => ({
   blockNumber: 100n,
@@ -139,8 +139,7 @@ const capability = (id: number) => {
   };
 };
 
-const hash = (value: number): Hash =>
-  `0x${value.toString(16).padStart(64, "0")}` as Hash;
+const hash = (value: number): Hash => testHash(value);
 
 const confirmRegistration = Effect.fn("test.confirmRegistration")(function* (
   id: number,

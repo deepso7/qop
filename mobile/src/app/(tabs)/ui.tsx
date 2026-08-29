@@ -32,6 +32,15 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 
 const ExpoSettingsGroupHeight = process.env.EXPO_OS === "android" ? 184 : 168;
 
+type ExpoNativePreviewChildren =
+  | React.ReactNode
+  | ((contentWidth: number) => React.ReactNode);
+
+const isExpoNativePreviewRenderProp = (
+  children: ExpoNativePreviewChildren
+): children is (contentWidth: number) => React.ReactNode =>
+  typeof children === "function";
+
 const ComponentSection = ({
   children,
   title,
@@ -50,7 +59,7 @@ const ExpoNativePreview = ({
   inset = false,
   seedColor,
 }: {
-  children: React.ReactNode | ((contentWidth: number) => React.ReactNode);
+  children: ExpoNativePreviewChildren;
   height: number;
   inset?: boolean;
   seedColor?: string;
@@ -75,8 +84,7 @@ const ExpoNativePreview = ({
             seedColor={seedColor}
             style={{ height, width: "100%" }}
           >
-            {/* oxlint-disable-next-line anti-slop/no-runtime-typeof -- This component's public API explicitly supports a render-prop child. */}
-            {typeof children === "function"
+            {isExpoNativePreviewRenderProp(children)
               ? contentWidth > 0 && children(contentWidth)
               : children}
           </ExpoHost>

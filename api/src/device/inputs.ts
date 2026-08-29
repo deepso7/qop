@@ -4,6 +4,8 @@ import {
 } from "@qop/identity";
 import type { IdentityEnvelopeV1Encoded } from "@qop/identity";
 import { Data, Effect } from "effect";
+import { toHex } from "viem";
+import type { Hex } from "viem";
 
 export class DeviceCertificateInputError extends Data.TaggedError(
   "DeviceCertificateInputError"
@@ -12,20 +14,26 @@ export class DeviceCertificateInputError extends Data.TaggedError(
   readonly field: "envelope";
 }> {}
 
+export interface NormalizedIdentityEnvelope {
+  readonly certificate: IdentityEnvelopeV1Encoded["certificate"];
+  readonly signature: Hex;
+  readonly version: IdentityEnvelopeV1Encoded["version"];
+}
+
 export const normalizeIdentityEnvelope = Effect.fn(
   "DeviceCertificateInput.normalizeEnvelope"
 )(function* (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The identity envelope is decoded at this input boundary.
-  input: unknown
-): Effect.fn.Return<IdentityEnvelopeV1Encoded, DeviceCertificateInputError> {
+  input: IdentityEnvelopeV1Encoded
+): Effect.fn.Return<NormalizedIdentityEnvelope, DeviceCertificateInputError> {
   const envelope = yield* decodeIdentityEnvelopeV1(input).pipe(
     Effect.mapError(
       (cause) => new DeviceCertificateInputError({ cause, field: "envelope" })
     )
   );
-  return yield* encodeIdentityEnvelopeV1(envelope).pipe(
+  const encoded = yield* encodeIdentityEnvelopeV1(envelope).pipe(
     Effect.mapError(
       (cause) => new DeviceCertificateInputError({ cause, field: "envelope" })
     )
   );
+  return { ...encoded, signature: toHex(envelope.signature) };
 });

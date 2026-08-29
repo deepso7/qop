@@ -1,76 +1,57 @@
 import { Effect, Result } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// oxlint-disable anti-slop/no-module-mocking -- Vault tests replace device-only Expo adapters.
+import { createIdentityVault } from "@/lib/identity-vault-core";
 
 const IDENTITY_STORAGE_KEY = "qop.identity.v1";
 const INSTALL_MARKER_FILENAME = ".qop-install-v1";
 const INSTALL_STORAGE_KEY = "qop.install.v1";
 
-interface MockDirectory {
-  readonly path?: string;
-}
-
-const secureStoreMock = vi.hoisted(() => ({
+const secureStoreMock = {
   deleteItemAsync: vi.fn(),
   getItemAsync: vi.fn(),
   isAvailableAsync: vi.fn(),
   items: new Map<string, string>(),
   setItemAsync: vi.fn(),
-}));
+};
 
-const fileSystemMock = vi.hoisted(() => ({
+const fileSystemMock = {
   failRead: false,
   failWrite: false,
   markers: new Set<string>(),
-}));
+};
 
-const cryptoMock = vi.hoisted(() => ({
+const cryptoMock = {
   getRandomBytesAsync: vi.fn(),
   nextByte: 1,
-}));
-
-vi.mock("expo-secure-store", () => ({
-  WHEN_UNLOCKED_THIS_DEVICE_ONLY: "WHEN_UNLOCKED_THIS_DEVICE_ONLY",
-  deleteItemAsync: secureStoreMock.deleteItemAsync,
-  getItemAsync: secureStoreMock.getItemAsync,
-  isAvailableAsync: secureStoreMock.isAvailableAsync,
-  setItemAsync: secureStoreMock.setItemAsync,
-}));
-
-vi.mock("expo-file-system", () => {
-  class File {
-    readonly name: string;
-
-    constructor(_directory: MockDirectory, name: string) {
-      this.name = name;
-    }
-
-    get exists() {
-      if (fileSystemMock.failRead) {
-        throw new Error("marker read failed");
-      }
-      return fileSystemMock.markers.has(this.name);
-    }
-
-    write() {
-      if (fileSystemMock.failWrite) {
-        throw new Error("marker write failed");
-      }
-      fileSystemMock.markers.add(this.name);
-    }
-  }
-
-  return { File, Paths: { document: "document" } };
-});
-
-vi.mock("expo-crypto", () => ({
-  getRandomBytesAsync: cryptoMock.getRandomBytesAsync,
-}));
+};
 
 const deferred = <A>() => Promise.withResolvers<A>();
 
-const loadVault = () => import("@/lib/identity-vault");
+const loadVault = () =>
+  createIdentityVault({
+    makeInstallMarker: () => ({
+      get exists() {
+        if (fileSystemMock.failRead) {
+          throw new Error("marker read failed");
+        }
+        return fileSystemMock.markers.has(INSTALL_MARKER_FILENAME);
+      },
+      write: () => {
+        if (fileSystemMock.failWrite) {
+          throw new Error("marker write failed");
+        }
+        fileSystemMock.markers.add(INSTALL_MARKER_FILENAME);
+      },
+    }),
+    randomBytes: cryptoMock.getRandomBytesAsync,
+    secureStore: {
+      delete: secureStoreMock.deleteItemAsync,
+      get: secureStoreMock.getItemAsync,
+      isAvailable: secureStoreMock.isAvailableAsync,
+      set: secureStoreMock.setItemAsync,
+    },
+  });
 
 beforeEach(() => {
   secureStoreMock.items.clear();

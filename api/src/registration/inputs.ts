@@ -1,4 +1,3 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Each assertion follows schema decoding or a normalizer that establishes the corresponding viem representation.
 import {
   Base64Url32,
   DeviceCommitment,
@@ -13,7 +12,7 @@ import {
   UnixSeconds,
 } from "@qop/identity";
 import { Data, Effect, Schema } from "effect";
-import type { Address, Hash, Hex } from "viem";
+import { isAddress, isHash, isHex } from "viem";
 
 import type {
   CreateRegistrationIntent,
@@ -53,9 +52,23 @@ const inputError =
 
 export const registrationAdmissionCodeInputError = inputError("admission-code");
 
+const hashFrom = (value: string, field: RegistrationInputField) =>
+  isHash(value)
+    ? Effect.succeed(value)
+    : Effect.fail(inputError(field)("Expected a 0x-prefixed hexadecimal hash"));
+
+const hexFrom = (value: string, field: RegistrationInputField) =>
+  isHex(value)
+    ? Effect.succeed(value)
+    : Effect.fail(inputError(field)("Expected 0x-prefixed hexadecimal data"));
+
+const addressFrom = (value: string, field: RegistrationInputField) =>
+  isAddress(value)
+    ? Effect.succeed(value)
+    : Effect.fail(inputError(field)("Expected a 20-byte Ethereum address"));
+
 const normalizeHex32 = Effect.fn("RegistrationInput.normalizeHex32")(function* (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This shared normalization boundary decodes the untrusted value below.
-  input: unknown,
+  input: string,
   field: RegistrationInputField
 ) {
   const value = yield* Schema.decodeUnknownEffect(Schema.String)(input).pipe(
@@ -64,17 +77,15 @@ const normalizeHex32 = Effect.fn("RegistrationInput.normalizeHex32")(function* (
   const bytes = yield* Schema.decodeUnknownEffect(Hex32)(
     value.toLowerCase()
   ).pipe(Effect.mapError(inputError(field)));
-  return (yield* Schema.encodeEffect(Hex32)(bytes).pipe(
-    Effect.mapError(inputError(field))
-  )) as Hash;
+  return yield* Schema.encodeEffect(Hex32)(bytes).pipe(
+    Effect.mapError(inputError(field)),
+    Effect.flatMap((encoded) => hashFrom(encoded, field))
+  );
 });
 
 export const normalizeRegistrationPeerId = Effect.fn(
   "RegistrationInput.normalizePeerId"
-)(function* (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The peer id is decoded below.
-  input: unknown
-) {
+)(function* (input: string) {
   const bytes = yield* Schema.decodeUnknownEffect(PeerId)(input).pipe(
     Effect.mapError(inputError("peer-id"))
   );
@@ -85,10 +96,7 @@ export const normalizeRegistrationPeerId = Effect.fn(
 
 export const normalizeRegistrationOwner = Effect.fn(
   "RegistrationInput.normalizeOwner"
-)(function* (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The owner is decoded below.
-  input: unknown
-) {
+)(function* (input: string) {
   const owner = yield* normalizeEthereumAddress(input).pipe(
     Effect.mapError(inputError("owner"))
   );
@@ -98,15 +106,12 @@ export const normalizeRegistrationOwner = Effect.fn(
       field: "owner",
     });
   }
-  return owner as Address;
+  return yield* addressFrom(owner, "owner");
 });
 
 export const decodeRegistrationIdempotencyKey = Effect.fn(
   "RegistrationInput.decodeIdempotencyKey"
-)(function* (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The idempotency key is decoded below.
-  input: unknown
-) {
+)(function* (input: string) {
   return yield* Schema.decodeUnknownEffect(Base64Url32)(input).pipe(
     Effect.mapError(inputError("idempotency-key"))
   );
@@ -114,94 +119,69 @@ export const decodeRegistrationIdempotencyKey = Effect.fn(
 
 const normalizeRegistrationNonce = Effect.fn(
   "RegistrationInput.normalizeRegistrationNonce"
-)(function* (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The nonce is decoded below.
-  input: unknown
-) {
+)(function* (input: string) {
   const value = yield* Schema.decodeUnknownEffect(Schema.String)(input).pipe(
     Effect.mapError(inputError("registration-nonce"))
   );
   const bytes = yield* Schema.decodeUnknownEffect(RegistrationNonce)(
     value.toLowerCase()
   ).pipe(Effect.mapError(inputError("registration-nonce")));
-  return (yield* Schema.encodeEffect(RegistrationNonce)(bytes).pipe(
-    Effect.mapError(inputError("registration-nonce"))
-  )) as Hash;
+  return yield* Schema.encodeEffect(RegistrationNonce)(bytes).pipe(
+    Effect.mapError(inputError("registration-nonce")),
+    Effect.flatMap((encoded) => hashFrom(encoded, "registration-nonce"))
+  );
 });
 
 const normalizeSignature = Effect.fn("RegistrationInput.normalizeSignature")(
-  function* (
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The signature is decoded below.
-    input: unknown,
-    field: RegistrationInputField
-  ) {
+  function* (input: string, field: RegistrationInputField) {
     const bytes = yield* normalizeEcdsaSignature(input).pipe(
       Effect.mapError(inputError(field))
     );
-    return (yield* Schema.encodeEffect(EcdsaSignature)(bytes).pipe(
-      Effect.mapError(inputError(field))
-    )) as Hex;
+    return yield* Schema.encodeEffect(EcdsaSignature)(bytes).pipe(
+      Effect.mapError(inputError(field)),
+      Effect.flatMap((encoded) => hexFrom(encoded, field))
+    );
   }
 );
 
 export const normalizeDeviceCommitment = Effect.fn(
   "RegistrationInput.normalizeDeviceCommitment"
-)(function* (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The commitment is decoded below.
-  input: unknown
-) {
+)(function* (input: string) {
   const value = yield* Schema.decodeUnknownEffect(Schema.String)(input).pipe(
     Effect.mapError(inputError("device-commitment"))
   );
   const bytes = yield* Schema.decodeUnknownEffect(DeviceCommitment)(
     value.toLowerCase()
   ).pipe(Effect.mapError(inputError("device-commitment")));
-  return (yield* Schema.encodeEffect(DeviceCommitment)(bytes).pipe(
-    Effect.mapError(inputError("device-commitment"))
-  )) as Hash;
+  return yield* Schema.encodeEffect(DeviceCommitment)(bytes).pipe(
+    Effect.mapError(inputError("device-commitment")),
+    Effect.flatMap((encoded) => hashFrom(encoded, "device-commitment"))
+  );
 });
 
 export const normalizeRegistrationOwnerSignature = Effect.fn(
   "RegistrationInput.normalizeOwnerSignature"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The signature is decoded by normalizeSignature.
-  (input: unknown) => normalizeSignature(input, "owner-signature")
-);
+)((input: string) => normalizeSignature(input, "owner-signature"));
 
 export const normalizeRegistrationSignerSignature = Effect.fn(
   "RegistrationInput.normalizeSignerSignature"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The signature is decoded by normalizeSignature.
-  (input: unknown) => normalizeSignature(input, "registration-signature")
-);
+)((input: string) => normalizeSignature(input, "registration-signature"));
 
 export const normalizeRegistrationDigest = Effect.fn(
   "RegistrationInput.normalizeDigest"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The digest is decoded by normalizeHex32.
-  (input: unknown) => normalizeHex32(input, "digest")
-);
+)((input: string) => normalizeHex32(input, "digest"));
 
 export const normalizeRegistrationObserveTokenHash = Effect.fn(
   "RegistrationInput.normalizeObserveTokenHash"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The digest is decoded by normalizeHex32.
-  (input: unknown) => normalizeHex32(input, "observe-token-hash")
-);
+)((input: string) => normalizeHex32(input, "observe-token-hash"));
 
 export const normalizeRegistrationIdempotencyKeyHash = Effect.fn(
   "RegistrationInput.normalizeIdempotencyKeyHash"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The digest is decoded by normalizeHex32.
-  (input: unknown) => normalizeHex32(input, "idempotency-key-hash")
-);
+)((input: string) => normalizeHex32(input, "idempotency-key-hash"));
 
 export const normalizeTransactionHash = Effect.fn(
   "RegistrationInput.normalizeTransactionHash"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The digest is decoded by normalizeHex32.
-  (input: unknown) => normalizeHex32(input, "transaction-hash")
-);
+)((input: string) => normalizeHex32(input, "transaction-hash"));
 
 const SerializedTransaction = Schema.String.check(
   Schema.isPattern(/^0x[0-9a-f]+$/u, {
@@ -211,13 +191,11 @@ const SerializedTransaction = Schema.String.check(
 
 export const normalizeSerializedTransaction = Effect.fn(
   "RegistrationInput.normalizeSerializedTransaction"
-)(function* (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The serialized transaction is decoded below.
-  input: unknown
-) {
-  return (yield* Schema.decodeUnknownEffect(SerializedTransaction)(input).pipe(
-    Effect.mapError(inputError("serialized-transaction"))
-  )) as Hex;
+)(function* (input: string) {
+  const serialized = yield* Schema.decodeUnknownEffect(SerializedTransaction)(
+    input
+  ).pipe(Effect.mapError(inputError("serialized-transaction")));
+  return yield* hexFrom(serialized, "serialized-transaction");
 });
 
 export const normalizeRegistrationAuthorization = Effect.fn(
@@ -263,7 +241,7 @@ export const normalizeCreateRegistrationIntent = Effect.fn(
     observeTokenHash: yield* normalizeRegistrationObserveTokenHash(
       input.observeTokenHash
     ),
-    owner: owner as Address,
+    owner,
     peerId: yield* normalizeRegistrationPeerId(input.peerId),
     registrationNonce: yield* normalizeRegistrationNonce(
       input.registrationNonce

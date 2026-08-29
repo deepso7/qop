@@ -1,4 +1,3 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-chained-type-assertions -- SAFETY: The test installs an intentionally controlled semaphore double.
 import { assert, describe, it } from "@effect/vitest";
 import { Deferred, Duration, Effect, Fiber, Semaphore } from "effect";
 import { TestClock } from "effect/testing";
@@ -249,6 +248,7 @@ describe("cache namespace", () => {
         const continueAdmission = yield* Deferred.make<boolean>();
         const backgroundFinished = yield* Deferred.make<boolean>();
         const controlledSemaphore = {
+          ...semaphore,
           release: (permits: number) =>
             semaphore
               .release(permits)
@@ -280,7 +280,7 @@ describe("cache namespace", () => {
                 .pipe(
                   Effect.tap(() => Deferred.succeed(backgroundFinished, true))
                 ),
-        } as unknown as Semaphore.Semaphore;
+        };
         const cache = yield* makeCacheNamespace({
           backgroundRefreshSemaphore: controlledSemaphore,
           capacity: 1,

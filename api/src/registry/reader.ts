@@ -1,4 +1,3 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Cache keys are constructed with a validated certificate digest suffix.
 import { Context, Duration, Effect, Layer, Semaphore } from "effect";
 import type { Address, Hash } from "viem";
 
@@ -115,9 +114,17 @@ const revocationKey = (qid: bigint, certificateDigest: Hash): string =>
 
 const parseRevocationKey = (
   key: string
-): readonly [qid: bigint, certificateDigest: Hash] => {
+): Effect.Effect<
+  readonly [qid: bigint, certificateDigest: Hash],
+  RegistryInputError
+> => {
   const separator = key.indexOf(":");
-  return [BigInt(key.slice(0, separator)), key.slice(separator + 1) as Hash];
+  return normalizeCertificateDigest(key.slice(separator + 1)).pipe(
+    Effect.map(
+      (certificateDigest) =>
+        [BigInt(key.slice(0, separator)), certificateDigest] as const
+    )
+  );
 };
 
 export class RegistryReader extends Context.Service<
@@ -155,10 +162,12 @@ export class RegistryReader extends Context.Service<
       const revocations = yield* makeCacheNamespace({
         ...cacheOptions,
         capacity: 50_000,
-        lookup: (key: string) => {
-          const [qid, certificateDigest] = parseRevocationKey(key);
-          return chain.deviceRevocation(qid, certificateDigest);
-        },
+        lookup: (key: string) =>
+          parseRevocationKey(key).pipe(
+            Effect.flatMap(([qid, certificateDigest]) =>
+              chain.deviceRevocation(qid, certificateDigest)
+            )
+          ),
         policy: policy.deviceRevocation,
       });
 

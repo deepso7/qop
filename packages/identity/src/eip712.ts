@@ -93,9 +93,8 @@ const validateCertificateInputs = (
 
 export const decodeIdentityEip712DomainV1 = Effect.fn(
   "@qop/identity/decodeIdentityEip712DomainV1"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
-  (input: unknown) => Schema.decodeUnknownEffect(IdentityEip712DomainV1)(input)
+)((input: IdentityEip712DomainV1Encoded) =>
+  Schema.decodeEffect(IdentityEip712DomainV1)(input)
 );
 
 export const hashDeviceCertificateV1 = Effect.fn(

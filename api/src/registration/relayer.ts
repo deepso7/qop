@@ -1,4 +1,3 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Private keys, owners, and registry addresses are schema-validated before viem receives them.
 import {
   EcdsaSignature,
   EthereumAddress,
@@ -11,11 +10,13 @@ import {
   createWalletClient,
   encodeFunctionData,
   http,
+  isAddress,
+  isHex,
   keccak256,
   parseAbi,
   toHex,
 } from "viem";
-import type { Address, Hash, Hex } from "viem";
+import type { Hash, Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 import { Env } from "../env.ts";
@@ -58,14 +59,15 @@ export class RegistrationRelayer extends Context.Service<
 >()("@qop/api/RegistrationRelayer") {}
 
 export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
-  function* (
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The private key is decoded below.
-    input: unknown
-  ) {
+  function* (input: string) {
     const env = yield* Env;
     if (env.CHAIN_ID > BigInt(Number.MAX_SAFE_INTEGER)) {
       return yield* new RegistrationRelayerError({ operation: "configure" });
     }
+    if (!isAddress(env.REGISTRY_ADDRESS)) {
+      return yield* new RegistrationRelayerError({ operation: "configure" });
+    }
+    const registryAddress = env.REGISTRY_ADDRESS;
     const privateKey = yield* Schema.decodeUnknownEffect(PrivateKey)(
       input
     ).pipe(
@@ -73,9 +75,12 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
         () => new RegistrationRelayerError({ operation: "configure" })
       )
     );
+    if (!isHex(privateKey)) {
+      return yield* new RegistrationRelayerError({ operation: "configure" });
+    }
     const account = yield* Effect.try({
       catch: () => new RegistrationRelayerError({ operation: "configure" }),
-      try: () => privateKeyToAccount(privateKey as Hex),
+      try: () => privateKeyToAccount(privateKey),
     });
     const chain = {
       id: Number(env.CHAIN_ID),
@@ -115,6 +120,10 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
           () => new RegistrationRelayerError({ operation: "prepare" })
         )
       );
+      if (!isAddress(intent.owner)) {
+        return yield* new RegistrationRelayerError({ operation: "prepare" });
+      }
+      const { owner } = intent;
       return yield* Effect.tryPromise({
         catch: () => new RegistrationRelayerError({ operation: "prepare" }),
         try: async () => {
@@ -126,7 +135,7 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
                 deviceCommitment: toHex(intent.deviceCommitment),
                 handle: intent.handle,
                 nonce: toHex(intent.nonce),
-                owner: intent.owner as Address,
+                owner,
               },
               ownerSignature,
               registrationSignature,
@@ -137,7 +146,7 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
             account,
             data,
             nonce: Number(nonce),
-            to: env.REGISTRY_ADDRESS as Address,
+            to: registryAddress,
           });
           const serializedTransaction = await client.signTransaction(request);
           return {
@@ -199,6 +208,5 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
   }
 );
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The private key is decoded by makeRegistrationRelayer.
-export const registrationRelayerLayer = (privateKey: unknown) =>
+export const registrationRelayerLayer = (privateKey: string) =>
   Layer.effect(RegistrationRelayer, makeRegistrationRelayer(privateKey));

@@ -1,36 +1,20 @@
 import { Effect, Result } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// oxlint-disable anti-slop/no-module-mocking -- Store tests isolate external persistence adapters.
+import { createIdentityStore } from "@/lib/identity-store-core";
+import { IdentityVaultError } from "@/lib/identity-vault-core";
 
-const vaultMock = vi.hoisted(() => ({
+const vaultMock = {
   createLocalIdentity: vi.fn(),
   deleteLocalIdentity: vi.fn(),
   loadLocalIdentity: vi.fn(),
   revealLocalIdentityRecoveryKey: vi.fn(),
   updateLocalIdentityBackupState: vi.fn(),
-}));
-const registrationMock = vi.hoisted(() => ({
+};
+const registrationMock = {
   deleteLocalRegistration: vi.fn(),
   loadLocalRegistration: vi.fn(),
-}));
-
-vi.mock("@/lib/identity-vault", () => {
-  class IdentityVaultError extends Error {
-    readonly _tag = "IdentityVaultError";
-    readonly operation: string;
-
-    constructor({ operation }: { operation: string }) {
-      super(operation);
-      this.name = "IdentityVaultError";
-      this.operation = operation;
-    }
-  }
-
-  return { IdentityVaultError, ...vaultMock };
-});
-
-vi.mock("@/lib/local-registration", () => registrationMock);
+};
 
 const identity = {
   backupState: "pending",
@@ -43,11 +27,13 @@ const identity = {
 
 const deferred = <A>() => Promise.withResolvers<A>();
 
-const loadStore = async () => {
-  vi.resetModules();
-  const identityStore = await import("@/lib/identity-store");
-  return identityStore.useIdentityStore;
-};
+const loadStore = () =>
+  createIdentityStore({
+    identityVault: vaultMock,
+    makeIdentityVaultError: (operation) =>
+      new IdentityVaultError({ operation }),
+    registration: registrationMock,
+  });
 
 beforeEach(() => {
   registrationMock.deleteLocalRegistration

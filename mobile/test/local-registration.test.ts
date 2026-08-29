@@ -6,7 +6,7 @@ import {
 import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// oxlint-disable anti-slop/no-module-mocking -- Registration tests isolate network and device adapters.
+import { createLocalRegistration } from "@/lib/local-registration-core";
 
 const REGISTRATION_STORAGE_KEY = "qop.registration.v1";
 const OWNER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf";
@@ -23,45 +23,42 @@ let preparedIntent = {
   owner: OWNER,
 };
 
-const secureStoreMock = vi.hoisted(() => ({
+const secureStoreMock = {
   items: new Map<string, string>(),
-}));
-const cryptoMock = vi.hoisted(() => ({ nextByte: 1 }));
-const vaultMock = vi.hoisted(() => ({
+};
+const cryptoMock = { nextByte: 1 };
+const vaultMock = {
   loadLocalIdentity: vi.fn(),
   signLocalRegistrationIntent: vi.fn(),
-}));
-const clientMock = vi.hoisted(() => ({
+};
+const clientMock = {
   authorizeRegistration: vi.fn(),
   prepareRegistration: vi.fn(),
   reconcileRegistration: vi.fn(),
-}));
+};
 
-vi.mock("expo-secure-store", () => ({
-  WHEN_UNLOCKED_THIS_DEVICE_ONLY: "WHEN_UNLOCKED_THIS_DEVICE_ONLY",
-  deleteItemAsync: (key: string) => {
-    secureStoreMock.items.delete(key);
-    return Promise.resolve();
-  },
-  getItemAsync: (key: string) =>
-    Promise.resolve(secureStoreMock.items.get(key) ?? null),
-  setItemAsync: (key: string, value: string) => {
-    secureStoreMock.items.set(key, value);
-    return Promise.resolve();
-  },
-}));
-
-vi.mock("expo-crypto", () => ({
-  getRandomBytesAsync: () => {
-    const bytes = new Uint8Array(32);
-    bytes[31] = cryptoMock.nextByte;
-    cryptoMock.nextByte += 1;
-    return Promise.resolve(bytes);
-  },
-}));
-
-vi.mock("@/lib/identity-vault", () => vaultMock);
-vi.mock("@/lib/registration-client", () => clientMock);
+const loadRegistration = () =>
+  createLocalRegistration({
+    randomBytes: () => {
+      const bytes = new Uint8Array(32);
+      bytes[31] = cryptoMock.nextByte;
+      cryptoMock.nextByte += 1;
+      return Promise.resolve(bytes);
+    },
+    registrationClient: clientMock,
+    secureStore: {
+      delete: (key) => {
+        secureStoreMock.items.delete(key);
+        return Promise.resolve();
+      },
+      get: (key) => Promise.resolve(secureStoreMock.items.get(key) ?? null),
+      set: (key, value) => {
+        secureStoreMock.items.set(key, value);
+        return Promise.resolve();
+      },
+    },
+    vault: vaultMock,
+  });
 
 beforeEach(() => {
   secureStoreMock.items.clear();
@@ -119,7 +116,7 @@ beforeEach(() => {
 
 describe("local registration", () => {
   it("persists retry material and submits an owner-authorized intent", async () => {
-    const { startLocalRegistration } = await import("@/lib/local-registration");
+    const { startLocalRegistration } = loadRegistration();
     const result = await Effect.runPromise(startLocalRegistration("ABC-123"));
 
     expect(result).toMatchObject({ qid: null, status: "submitted" });
@@ -144,7 +141,7 @@ describe("local registration", () => {
 
   it("reconciles the submitted transaction to a qid", async () => {
     const { reconcileLocalRegistration, startLocalRegistration } =
-      await import("@/lib/local-registration");
+      loadRegistration();
     await Effect.runPromise(startLocalRegistration("ABC-123"));
     const result = await Effect.runPromise(reconcileLocalRegistration());
 
@@ -155,7 +152,7 @@ describe("local registration", () => {
     clientMock.authorizeRegistration.mockReturnValueOnce(
       Effect.fail(new Error("offline"))
     );
-    const { startLocalRegistration } = await import("@/lib/local-registration");
+    const { startLocalRegistration } = loadRegistration();
     const first = await Effect.runPromise(
       startLocalRegistration("ABC-123").pipe(Effect.result)
     );
@@ -171,7 +168,7 @@ describe("local registration", () => {
     clientMock.prepareRegistration.mockReturnValueOnce(
       Effect.fail(new Error("offline"))
     );
-    const { startLocalRegistration } = await import("@/lib/local-registration");
+    const { startLocalRegistration } = loadRegistration();
     const first = await Effect.runPromise(
       startLocalRegistration("ABC-123").pipe(Effect.result)
     );
@@ -187,7 +184,7 @@ describe("local registration", () => {
   });
 
   it("starts a fresh draft after a terminal registration", async () => {
-    const { startLocalRegistration } = await import("@/lib/local-registration");
+    const { startLocalRegistration } = loadRegistration();
     await Effect.runPromise(startLocalRegistration("ABC-123"));
     const stored = JSON.parse(
       secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
@@ -208,7 +205,7 @@ describe("local registration", () => {
   });
 
   it("replaces a failed restart draft when given another invitation", async () => {
-    const { startLocalRegistration } = await import("@/lib/local-registration");
+    const { startLocalRegistration } = loadRegistration();
     await Effect.runPromise(startLocalRegistration("ABC-123"));
     const registered = JSON.parse(
       secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"

@@ -1,10 +1,8 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Test routes use fixed valid Ethereum literal fixtures and the asserted JSON response shape is owned by this handler test.
 import { NodeHttpServer } from "@effect/platform-node";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Layer, Schema, SchemaIssue } from "effect";
 import { HttpClient, HttpRouter } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
-import type { Address, Hash, Hex } from "viem";
 
 import { DeviceSessionService } from "../src/device-session/service.ts";
 import { DeviceObservation } from "../src/device/observation.ts";
@@ -35,39 +33,31 @@ import {
   RegistrationIntentNotFound,
   RegistrationTransitionConflict,
 } from "../src/registration/store.ts";
+import { testAddress, testHash, testSignature } from "./support/ethereum.ts";
 
 const OpenApiDocument = Schema.Struct({
   paths: Schema.Record(Schema.String, Schema.Unknown),
 });
 const decodeOpenApiDocument = Schema.decodeUnknownSync(OpenApiDocument);
 
-const OWNER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf" as Address;
-const CHECKSUMMED_OWNER =
-  "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf" as Address;
-const DIGEST =
-  "0x1111111111111111111111111111111111111111111111111111111111111111" as Hash;
-const UNAUTHORIZED_DIGEST =
-  "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff" as Hash;
-const REGISTRAR_MISMATCH_DIGEST =
-  "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee" as Hash;
-const EXPIRED_DIGEST =
-  "0x3333333333333333333333333333333333333333333333333333333333333333" as Hash;
-const TERMINAL_EXPIRED_DIGEST =
-  "0x4444444444444444444444444444444444444444444444444444444444444444" as Hash;
-const FAILED_DIGEST =
-  "0x5555555555555555555555555555555555555555555555555555555555555555" as Hash;
-const NOT_FOUND_DIGEST =
-  "0x6666666666666666666666666666666666666666666666666666666666666666" as Hash;
-const SERVICE_UNAVAILABLE_DIGEST =
-  "0x7777777777777777777777777777777777777777777777777777777777777777" as Hash;
-const NULL_QID_DIGEST =
-  "0x8888888888888888888888888888888888888888888888888888888888888888" as Hash;
+const OWNER = testAddress("0x7e5f4552091a69125d5dfcb7b8c2659029395bdf");
+const CHECKSUMMED_OWNER = testAddress(
+  "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf"
+);
+const DIGEST = testHash("registration");
+const UNAUTHORIZED_DIGEST = testHash("unauthorized");
+const REGISTRAR_MISMATCH_DIGEST = testHash("registrar-mismatch");
+const EXPIRED_DIGEST = testHash("expired");
+const TERMINAL_EXPIRED_DIGEST = testHash("terminal-expired");
+const FAILED_DIGEST = testHash("failed");
+const NOT_FOUND_DIGEST = testHash("not-found");
+const SERVICE_UNAVAILABLE_DIGEST = testHash("service-unavailable");
+const NULL_QID_DIGEST = testHash("null-qid");
 const NONCE =
   "0x2222222222222222222222222222222222222222222222222222222222222222";
-const SIGNATURE = `0x${"1".padStart(64, "0")}${"1".padStart(64, "0")}00` as Hex;
+const SIGNATURE = testSignature("00");
 const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
-const OBSERVE_TOKEN_HASH =
-  "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as Hash;
+const OBSERVE_TOKEN_HASH = testHash("observe-token");
 const IDEMPOTENCY_KEY = "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const ADMISSION_CODE = "ABC-123";
 const DOMAIN = {
@@ -161,7 +151,7 @@ const RegistrationEnrollmentTestLive = Layer.succeed(
         handle: "alice",
         idempotencyKey: IDEMPOTENCY_KEY,
         observeTokenHash: OBSERVE_TOKEN_HASH,
-        owner: CHECKSUMMED_OWNER,
+        owner: OWNER,
         peerId: PEER_ID,
       });
       return {

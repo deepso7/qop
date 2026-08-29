@@ -1,4 +1,3 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: These fixed test fixtures use valid Ethereum address, hash, and signature literal representations.
 import { assert, layer } from "@effect/vitest";
 import {
   Base64Url32,
@@ -12,7 +11,7 @@ import {
 import { DateTime, Duration, Effect, Layer, Result, Schema } from "effect";
 import { TestClock } from "effect/testing";
 import { keccak256 } from "viem";
-import type { Address, Hash, Hex } from "viem";
+import type { Hash } from "viem";
 
 import {
   DeviceSessionCertificateRejected,
@@ -38,10 +37,11 @@ import type {
   RegistryRead,
   RegistryReads,
 } from "../src/registry/reader.ts";
+import { testAddress, testHash, testSignature } from "./support/ethereum.ts";
 import { DeviceAndRegistrationStoresTestLive } from "./support/registration-database.ts";
 
-const OWNER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf" as Address;
-const SIGNATURE = `0x${"1".padStart(64, "0")}${"1".padStart(64, "0")}00` as Hex;
+const OWNER = testAddress("0x7e5f4552091a69125d5dfcb7b8c2659029395bdf");
+const SIGNATURE = testSignature("00");
 const gatewayId = new Uint8Array(32);
 const secretKey = new Uint8Array(32);
 secretKey[31] = 1;
@@ -51,8 +51,7 @@ const peerId = Effect.runSync(
   )
 );
 
-const hash = (value: number): Hash =>
-  `0x${value.toString(16).padStart(64, "0")}` as Hash;
+const hash = (value: number): Hash => testHash(value);
 
 const read = <Value>(value: Value): RegistryRead<Value> => ({
   blockNumber: 100n,
@@ -205,8 +204,7 @@ const observeCertificate = Effect.fn("test.observeCertificate")(function* (
 });
 
 const signChallenge = Effect.fn("test.signChallenge")(function* (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Tests deliberately inject malformed challenges into the decoder.
-  challenge: unknown
+  challenge: Parameters<typeof decodeDeviceSessionChallengeV1>[0]
 ) {
   const decoded = yield* decodeDeviceSessionChallengeV1(challenge);
   const signature = yield* signDeviceSessionChallengeV1(secretKey, decoded);

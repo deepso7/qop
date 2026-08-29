@@ -1,11 +1,10 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Assertions bridge independently schema-validated identity values and database/viem branded types.
 import type { IdentityEnvelopeV1Encoded } from "@qop/identity";
 import { eq } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, DateTime, Effect, Layer, Option } from "effect";
 import type { SqlError } from "effect/unstable/sql/SqlError";
-import type { Hash, Hex } from "viem";
+import type { Hash } from "viem";
 
 import { Database, DatabaseLive } from "../db/database.ts";
 import type { DatabaseClient } from "../db/database.ts";
@@ -169,7 +168,7 @@ export class DeviceCertificateStore extends Context.Service<
               peerId: envelope.certificate.peerId,
               qid: BigInt(envelope.certificate.qid),
               salt: envelope.certificate.salt,
-              signature: envelope.signature as Hex,
+              signature: envelope.signature,
               version: envelope.version,
             };
             yield* tx

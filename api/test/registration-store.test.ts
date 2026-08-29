@@ -1,8 +1,8 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: These fixed test fixtures use valid Ethereum address, hash, and signature literal representations.
 import { assert, layer } from "@effect/vitest";
 import { DateTime, Effect, Option } from "effect";
 import { TestClock } from "effect/testing";
-import type { Address, Hash, Hex } from "viem";
+import { concatHex } from "viem";
+import type { Hex } from "viem";
 
 import {
   RegistrationAdmission,
@@ -22,29 +22,31 @@ import {
   RegistrationTransitionConflict,
 } from "../src/registration/store.ts";
 import type { CreateRegistrationIntent } from "../src/registration/types.ts";
+import { testAddress, testHash, uppercaseHash } from "./support/ethereum.ts";
 import { RegistrationStoreAndAdmissionTestLive } from "./support/registration-database.ts";
 
 const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
-const CHECKSUMMED_OWNER =
-  "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf" as Address;
-const CANONICAL_OWNER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf" as Address;
+const CHECKSUMMED_OWNER = testAddress(
+  "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf"
+);
+const CANONICAL_OWNER = testAddress(
+  "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+);
 
-const hash = (value: number): Hash =>
-  `0x${value.toString(16).padStart(64, "0")}` as Hash;
+const hash = (value: number) => testHash(value);
 
-const uppercaseHash = (value: number): Hash =>
-  hash(value).toUpperCase() as Hash;
+const uppercaseTestHash = (value: number) => uppercaseHash(hash(value));
 
 const walletSignature = (recovery: "1B" | "1C"): Hex => {
   const r = "A".padStart(64, "0");
   const s = "1".padStart(64, "0");
-  return `0x${r}${s}${recovery}` as Hex;
+  return concatHex([`0x${r}`, `0x${s}`, `0x${recovery}`]);
 };
 
 const canonicalSignature = (yParity: "00" | "01"): Hex => {
   const r = "a".padStart(64, "0");
   const s = "1".padStart(64, "0");
-  return `0x${r}${s}${yParity}` as Hex;
+  return concatHex([`0x${r}`, `0x${s}`, `0x${yParity}`]);
 };
 
 const deadlineAfter = Effect.fn("test.deadlineAfter")(function* (
@@ -60,7 +62,7 @@ const input = (
   deadline: bigint,
   options?: { readonly uppercase?: boolean }
 ): CreateRegistrationIntent => {
-  const encodeHash = options?.uppercase ? uppercaseHash : hash;
+  const encodeHash = options?.uppercase ? uppercaseTestHash : hash;
   return {
     admissionCodeHash: encodeHash(50_000 + id),
     deadline,
@@ -451,7 +453,7 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
           () =>
             Effect.succeed({
               serializedTransaction: "0x02aa",
-              transactionHash: uppercaseHash(40_004),
+              transactionHash: uppercaseTestHash(40_004),
             })
         );
         assert.strictEqual(submitted.status, "submitted");

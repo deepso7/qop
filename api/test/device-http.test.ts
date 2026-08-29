@@ -1,11 +1,9 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: These fixed test fixtures use valid Ethereum hash and signature literal representations.
 import { NodeHttpServer } from "@effect/platform-node";
 import { assert, describe, it } from "@effect/vitest";
 import { Base64Url32 } from "@qop/identity";
 import { Effect, Layer, Schema, SchemaIssue } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
-import type { Hash, Hex } from "viem";
 
 import { DeviceSessionService } from "../src/device-session/service.ts";
 import { DeviceCertificateInputError } from "../src/device/inputs.ts";
@@ -28,6 +26,7 @@ import {
 } from "../src/http/device-api.ts";
 import { QopHttpApiRoutes } from "../src/http/routes.ts";
 import { RegistrationEnrollment } from "../src/registration/enrollment.ts";
+import { testHash, testSignature } from "./support/ethereum.ts";
 
 const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
 const OBSERVE_TOKEN = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
@@ -43,9 +42,8 @@ const REJECTED_TOKEN = observeToken(4);
 const INVALID_TOKEN = observeToken(5);
 const UNAVAILABLE_TOKEN = observeToken(6);
 const DECODE_DOMAIN_TOKEN = observeToken(7);
-const SIGNATURE = `0x${"1".padStart(64, "0")}${"1".padStart(64, "0")}00` as Hex;
-const CERTIFICATE_DIGEST =
-  "0x1111111111111111111111111111111111111111111111111111111111111111" as Hash;
+const SIGNATURE = testSignature("00");
+const CERTIFICATE_DIGEST = testHash("certificate");
 const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
 
 const envelope = {

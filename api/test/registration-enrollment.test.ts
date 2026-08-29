@@ -1,4 +1,3 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Fixture accounts and intentional account substitutions use valid identity representations.
 import { assert, layer } from "@effect/vitest";
 import {
   Base64Url32,
@@ -50,6 +49,7 @@ import type {
   RegistryRead,
   RegistryReads,
 } from "../src/registry/reader.ts";
+import { testAddress } from "./support/ethereum.ts";
 import {
   RegistrationStoreTestLive,
   TestDatabaseLive,
@@ -62,14 +62,15 @@ const REGISTRATION_PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000002";
 const WRONG_PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000003";
-const REGISTRY_ADDRESS =
-  "0x1111111111111111111111111111111111111111" as Address;
+const REGISTRY_ADDRESS = testAddress(
+  "0x1111111111111111111111111111111111111111"
+);
 const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
 
 const ownerAccount = privateKeyToAccount(OWNER_PRIVATE_KEY);
 const registrationAccount = privateKeyToAccount(REGISTRATION_PRIVATE_KEY);
 const wrongAccount = privateKeyToAccount(WRONG_PRIVATE_KEY);
-const takenOwner = wrongAccount.address.toLowerCase() as Address;
+const takenOwner = testAddress(wrongAccount.address.toLowerCase());
 
 const read = <Value>(value: Value): RegistryRead<Value> => ({
   blockNumber: 100n,
@@ -336,7 +337,7 @@ const domain = Effect.runSync(
 
 const signPreparedIntent = Effect.fn("test.signPreparedIntent")(function* (
   encodedIntent: Parameters<typeof decodeRegisterIntentV1>[0],
-  account: typeof ownerAccount
+  account: Pick<typeof ownerAccount, "signTypedData">
 ) {
   const intent = yield* decodeRegisterIntentV1(encodedIntent);
   return yield* Effect.promise(() =>
@@ -348,7 +349,10 @@ const persistPreparedAuthorization = Effect.fn(
   "test.persistPreparedAuthorization"
 )(function* (
   prepared: PreparedRegistration,
-  registrationSigner: typeof ownerAccount = registrationAccount as typeof ownerAccount
+  registrationSigner: Pick<
+    typeof ownerAccount,
+    "signTypedData"
+  > = registrationAccount
 ) {
   const store = yield* RegistrationStore;
   const ownerSignature = yield* signPreparedIntent(
@@ -612,7 +616,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         });
         const wrongSignature = yield* signPreparedIntent(
           prepared.intent,
-          wrongAccount as typeof ownerAccount
+          wrongAccount
         );
         const mismatch = yield* enrollment
           .authorize({
@@ -785,7 +789,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       });
       const { ownerSignature } = yield* persistPreparedAuthorization(
         prepared,
-        wrongAccount as typeof ownerAccount
+        wrongAccount
       );
 
       const mismatch = yield* enrollment

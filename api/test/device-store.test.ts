@@ -1,7 +1,5 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: These fixed test fixtures use valid Ethereum address, hash, and signature literal representations.
 import { assert, layer } from "@effect/vitest";
 import { DateTime, Effect, Option, Result } from "effect";
-import type { Address, Hash, Hex } from "viem";
 
 import {
   DeviceCertificateStore,
@@ -9,14 +7,19 @@ import {
 } from "../src/device/store.ts";
 import { RegistrationStore } from "../src/registration/store.ts";
 import type { CreateRegistrationIntent } from "../src/registration/types.ts";
+import {
+  testAddress,
+  testHash,
+  testSignature,
+  uppercaseHash,
+} from "./support/ethereum.ts";
 import { DeviceAndRegistrationStoresTestLive } from "./support/registration-database.ts";
 
-const OWNER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf" as Address;
+const OWNER = testAddress("0x7e5f4552091a69125d5dfcb7b8c2659029395bdf");
 const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
-const SIGNATURE = `0x${"1".padStart(64, "0")}${"1".padStart(64, "0")}00` as Hex;
+const SIGNATURE = testSignature("00");
 
-const hash = (value: number): Hash =>
-  `0x${value.toString(16).padStart(64, "0")}` as Hash;
+const hash = (value: number) => testHash(value);
 
 const registrationInput = Effect.fn("test.registrationInput")(function* (
   id: number,
@@ -69,7 +72,7 @@ layer(DeviceAndRegistrationStoresTestLive, { timeout: "30 seconds" })((it) => {
 
         const certificateDigest = hash(4001);
         const first = yield* certificates.observeFromRegistration({
-          certificateDigest: certificateDigest.toUpperCase() as Hash,
+          certificateDigest: uppercaseHash(certificateDigest),
           envelope,
           registrationIntentDigest: registration.digest,
         });

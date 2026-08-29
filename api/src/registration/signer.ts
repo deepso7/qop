@@ -1,4 +1,3 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Private keys and signatures are schema-validated before their viem branded representations are used.
 import {
   EcdsaSignature,
   makeRegisterIntentTypedDataV1,
@@ -6,6 +5,7 @@ import {
 } from "@qop/identity";
 import type { IdentityEip712DomainV1, RegisterIntentV1 } from "@qop/identity";
 import { Context, Data, Effect, Layer, Schema } from "effect";
+import { isAddress, isHex } from "viem";
 import type { Address, Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
@@ -33,10 +33,7 @@ export class RegistrationSigner extends Context.Service<
 >()("@qop/api/RegistrationSigner") {}
 
 export const makeRegistrationSigner = Effect.fn("RegistrationSigner.make")(
-  function* (
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The private key is decoded below.
-    input: unknown
-  ) {
+  function* (input: string) {
     const privateKey = yield* Schema.decodeUnknownEffect(PrivateKey)(
       input
     ).pipe(
@@ -44,9 +41,12 @@ export const makeRegistrationSigner = Effect.fn("RegistrationSigner.make")(
         () => new RegistrationSignerError({ operation: "configure" })
       )
     );
+    if (!isHex(privateKey)) {
+      return yield* new RegistrationSignerError({ operation: "configure" });
+    }
     const account = yield* Effect.try({
       catch: () => new RegistrationSignerError({ operation: "configure" }),
-      try: () => privateKeyToAccount(privateKey as Hex),
+      try: () => privateKeyToAccount(privateKey),
     });
 
     const sign = Effect.fn("RegistrationSigner.sign")(function* (
@@ -63,20 +63,28 @@ export const makeRegistrationSigner = Effect.fn("RegistrationSigner.make")(
           () => new RegistrationSignerError({ operation: "sign" })
         )
       );
-      return (yield* Schema.encodeEffect(EcdsaSignature)(bytes).pipe(
+      const signature = yield* Schema.encodeEffect(EcdsaSignature)(bytes).pipe(
         Effect.mapError(
           () => new RegistrationSignerError({ operation: "sign" })
         )
-      )) as Hex;
+      );
+      if (!isHex(signature)) {
+        return yield* new RegistrationSignerError({ operation: "sign" });
+      }
+      return signature;
     });
 
+    const address = account.address.toLowerCase();
+    if (!isAddress(address)) {
+      return yield* new RegistrationSignerError({ operation: "configure" });
+    }
+
     return RegistrationSigner.of({
-      address: account.address.toLowerCase() as Address,
+      address,
       sign,
     });
   }
 );
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The private key is decoded by makeRegistrationSigner.
-export const registrationSignerLayer = (privateKey: unknown) =>
+export const registrationSignerLayer = (privateKey: string) =>
   Layer.effect(RegistrationSigner, makeRegistrationSigner(privateKey));

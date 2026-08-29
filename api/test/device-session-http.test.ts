@@ -1,10 +1,12 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: These fixed test fixtures use valid 32-byte hash literal representations.
 import { NodeHttpServer } from "@effect/platform-node";
 import { assert, describe, it } from "@effect/vitest";
+import {
+  decodeDeviceSessionProofV1,
+  encodeDeviceSessionProofV1,
+} from "@qop/identity";
 import { Effect, Layer } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 import { HttpApiClient } from "effect/unstable/httpapi";
-import type { Hash } from "viem";
 
 import {
   DeviceSessionCertificateRejected,
@@ -29,10 +31,11 @@ import {
 } from "../src/http/device-session-api.ts";
 import { QopHttpApiRoutes } from "../src/http/routes.ts";
 import { RegistrationEnrollment } from "../src/registration/enrollment.ts";
+import { testHash } from "./support/ethereum.ts";
 
-const DIGEST = `0x${"1".repeat(64)}` as Hash;
-const REJECTED_DIGEST = `0x${"2".repeat(64)}` as Hash;
-const UNAVAILABLE_DIGEST = `0x${"3".repeat(64)}` as Hash;
+const DIGEST = testHash("session");
+const REJECTED_DIGEST = testHash("rejected-session");
+const UNAVAILABLE_DIGEST = testHash("unavailable-session");
 const TOKEN = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const BINDING_TOKEN = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAE";
 const CONSUMED_TOKEN = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAI";
@@ -54,31 +57,43 @@ const proof = {
   version: 1,
 } as const;
 
+const authenticationFailure = (challengeToken: string) => {
+  if (challengeToken === BINDING_TOKEN) {
+    return new DeviceSessionChallengeBindingMismatch({ challengeHash: DIGEST });
+  }
+  if (challengeToken === CONSUMED_TOKEN) {
+    return new DeviceSessionChallengeConsumed({ challengeHash: DIGEST });
+  }
+  if (challengeToken === INVALID_TOKEN) {
+    return new DeviceSessionProofInvalid({ challengeHash: DIGEST });
+  }
+  return new DeviceSessionChallengeExpired({ challengeHash: DIGEST });
+};
+
 const DeviceSessionTestLive = Layer.succeed(
   DeviceSessionService,
   DeviceSessionService.of({
-    authenticate: (input) => {
-      const challengeToken = (input as { challenge: { challenge: string } })
-        .challenge.challenge;
-      if (challengeToken === BINDING_TOKEN) {
-        return Effect.fail(
-          new DeviceSessionChallengeBindingMismatch({ challengeHash: DIGEST })
-        );
-      }
-      if (challengeToken === CONSUMED_TOKEN) {
-        return Effect.fail(
-          new DeviceSessionChallengeConsumed({ challengeHash: DIGEST })
-        );
-      }
-      if (challengeToken === INVALID_TOKEN) {
-        return Effect.fail(
-          new DeviceSessionProofInvalid({ challengeHash: DIGEST })
-        );
-      }
-      return Effect.fail(
-        new DeviceSessionChallengeExpired({ challengeHash: DIGEST })
-      );
-    },
+    authenticate: (input) =>
+      decodeDeviceSessionProofV1(input).pipe(
+        Effect.mapError(
+          (cause) =>
+            new DeviceSessionProtocolError({
+              cause,
+              operation: "decode-proof",
+            })
+        ),
+        Effect.flatMap(encodeDeviceSessionProofV1),
+        Effect.mapError(
+          (cause) =>
+            new DeviceSessionProtocolError({
+              cause,
+              operation: "encode-proof",
+            })
+        ),
+        Effect.flatMap((encodedProof) =>
+          Effect.fail(authenticationFailure(encodedProof.challenge.challenge))
+        )
+      ),
     issue: ({ certificateDigest }) => {
       if (certificateDigest === REJECTED_DIGEST) {
         return Effect.fail(

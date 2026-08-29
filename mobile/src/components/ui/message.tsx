@@ -36,6 +36,7 @@ import { useBlurTarget } from "@/components/ui/blur-target";
 import { Button } from "@/components/ui/button";
 import type { ButtonProps } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
+import { isPressableStyleCallback } from "@/components/ui/pressable-style";
 import { Text, TextClassContext } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
 
@@ -779,10 +780,9 @@ const MessageAttachment = ({
       "bg-background-element w-56 overflow-hidden rounded-[20px]",
       className
     )}
-    style={[
+    style={(state) => [
       { borderCurve: "continuous" },
-      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Pressable's declared style prop is a callback or style object.
-      typeof style === "function" ? undefined : style,
+      isPressableStyleCallback(style) ? style(state) : style,
     ]}
     {...props}
   >

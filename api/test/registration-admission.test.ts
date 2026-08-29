@@ -1,18 +1,16 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: The helper deterministically builds a valid 0x-prefixed 32-byte hash fixture.
 import { assert, layer } from "@effect/vitest";
 import { DateTime, Effect } from "effect";
 import { TestClock } from "effect/testing";
-import type { Hash } from "viem";
 
 import {
   decodeRegistrationAdmissionCode,
   RegistrationAdmission,
   RegistrationAdmissionUnauthorized,
 } from "../src/registration/admission.ts";
+import { testHash } from "./support/ethereum.ts";
 import { RegistrationAdmissionTestLive } from "./support/registration-database.ts";
 
-const hash = (value: number): Hash =>
-  `0x${value.toString(16).padStart(64, "0")}` as Hash;
+const hash = (value: number) => testHash(value);
 
 layer(RegistrationAdmissionTestLive, { timeout: "30 seconds" })((it) => {
   it.effect("hashes normalized invitation codes identically", () =>

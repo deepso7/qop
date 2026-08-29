@@ -1,4 +1,3 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-chained-type-assertions -- SAFETY: The test adapter owns the PGlite/Drizzle compatibility bridge.
 import * as PgliteClient from "@effect/sql-pglite/PgliteClient";
 import type { PGlite } from "@electric-sql/pglite";
 import { pushSchema } from "drizzle-kit/api-postgres";
@@ -13,6 +12,7 @@ import { DeviceSessionStore } from "../../src/device-session/store.ts";
 import { DeviceCertificateStore } from "../../src/device/store.ts";
 import { RegistrationAdmission } from "../../src/registration/admission.ts";
 import { RegistrationStore } from "../../src/registration/store.ts";
+import { lowercaseHash } from "./ethereum.ts";
 
 const PgliteLive = PgliteClient.layer();
 
@@ -21,12 +21,18 @@ export const TestDatabaseLive = Layer.effect(
   Effect.gen(function* () {
     const pglite = yield* PgliteClient.PgliteClient;
     yield* Effect.tryPromise(async () => {
+      // SAFETY: PgliteClient exposes the PGlite instance that drizzle's schema
+      // tool consumes, but its wrapper does not declare that relationship.
       const database = drizzle({ client: pglite.pglite as PGlite });
       const schema = await pushSchema(databaseSchema, database);
       await schema.apply();
     });
     const client = yield* PgliteDrizzle.makeWithDefaults();
-    return Database.of({ client: client as unknown as DatabaseClient });
+    // SAFETY: The PGlite client implements every query operation used through
+    // DatabaseClient; only Drizzle's driver-specific types differ.
+    return Database.of({
+      client: client as typeof client & DatabaseClient,
+    });
   })
 ).pipe(Layer.provide(PgliteLive));
 
@@ -39,9 +45,7 @@ export const RegistrationStoreTestLive = Layer.effect(
       ...store,
       create: (input) =>
         admission
-          .create(
-            input.admissionCodeHash.toLowerCase() as typeof input.admissionCodeHash
-          )
+          .create(lowercaseHash(input.admissionCodeHash))
           .pipe(Effect.flatMap(() => store.create(input))),
     });
   })

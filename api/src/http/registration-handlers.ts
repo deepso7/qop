@@ -1,10 +1,16 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Route schemas validate each asserted request field before it reaches these handlers.
 import { Effect, Layer } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import type { Address, Hash, Hex } from "viem";
+import type { Hash } from "viem";
 
 import type { RegistrationEnrollmentError } from "../registration/enrollment.ts";
 import { RegistrationEnrollment } from "../registration/enrollment.ts";
+import {
+  normalizeDeviceCommitment,
+  normalizeRegistrationDigest,
+  normalizeRegistrationObserveTokenHash,
+  normalizeRegistrationOwner,
+  normalizeRegistrationOwnerSignature,
+} from "../registration/inputs.ts";
 import { QopHttpApi } from "./api.ts";
 import {
   RegistrationConflict,
@@ -55,6 +61,7 @@ export const mapRegistrationHttpError = (
       return new RegistrationConflict({ kind: "intent-conflict" });
     }
     case "RegistrationTransitionConflict": {
+      // SAFETY: Registration transitions originate from a stored intent whose digest column is a Hash.
       return error.actual === "expired"
         ? new RegistrationExpired({ digest: error.digest as Hash })
         : new RegistrationConflict({
@@ -63,9 +70,11 @@ export const mapRegistrationHttpError = (
           });
     }
     case "RegistrationIntentExpired": {
+      // SAFETY: A registration intent stores its digest in a Hash-typed database column.
       return new RegistrationExpired({ digest: error.digest as Hash });
     }
     case "RegistrationIntentNotFound": {
+      // SAFETY: Lookup errors carry the caller's digest after RegistrationEnrollment normalizes it.
       return new RegistrationNotFound({ digest: error.digest as Hash });
     }
     case "RegistrationSignatureMismatch": {
@@ -93,28 +102,33 @@ export const RegistrationApiHandlers = HttpApiBuilder.group(
 
     return handlers
       .handle("prepare", ({ payload }) =>
-        enrollment
-          .prepare({
-            admissionCode: payload.admissionCode,
-            deviceCommitment: payload.deviceCommitment as Hash,
-            handle: payload.handle,
-            idempotencyKey: payload.idempotencyKey,
-            observeTokenHash: payload.observeTokenHash as Hash,
-            owner: payload.owner as Address,
-            peerId: payload.peerId,
-          })
-          .pipe(transportErrors)
+        Effect.all({
+          deviceCommitment: normalizeDeviceCommitment(payload.deviceCommitment),
+          observeTokenHash: normalizeRegistrationObserveTokenHash(
+            payload.observeTokenHash
+          ),
+          owner: normalizeRegistrationOwner(payload.owner),
+        }).pipe(
+          Effect.flatMap((normalized) =>
+            enrollment.prepare({ ...payload, ...normalized })
+          ),
+          transportErrors
+        )
       )
       .handle("authorize", ({ params, payload }) =>
-        enrollment
-          .authorize({
-            digest: params.digest as Hash,
-            ownerSignature: payload.ownerSignature as Hex,
-          })
-          .pipe(transportErrors)
+        Effect.all({
+          digest: normalizeRegistrationDigest(params.digest),
+          ownerSignature: normalizeRegistrationOwnerSignature(
+            payload.ownerSignature
+          ),
+        }).pipe(
+          Effect.flatMap((normalized) => enrollment.authorize(normalized)),
+          transportErrors
+        )
       )
       .handle("reconcile", ({ params }) =>
-        enrollment.reconcile(params.digest as Hash).pipe(
+        normalizeRegistrationDigest(params.digest).pipe(
+          Effect.flatMap(enrollment.reconcile),
           transportErrors,
           Effect.map((registration) => ({
             ...registration,

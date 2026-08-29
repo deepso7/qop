@@ -6,6 +6,8 @@ import {
   Base64Url64,
   decodeDeviceSessionChallengeV1,
   decodeDeviceSessionProofV1,
+  DeviceSessionChallengeV1,
+  DeviceSessionProofV1,
   DeviceSessionPopCryptoError,
   encodeDeviceSessionChallengeV1,
   encodeDeviceSessionProofV1,
@@ -166,10 +168,9 @@ describe("device session proof of possession", () => {
           );
         }
 
-        const excess = yield* decodeDeviceSessionChallengeV1({
-          ...encodedChallenge,
-          unexpected: true,
-        }).pipe(Effect.exit);
+        const excess = yield* Schema.decodeUnknownEffect(
+          DeviceSessionChallengeV1
+        )({ ...encodedChallenge, unexpected: true }).pipe(Effect.exit);
         assert.isTrue(Exit.isFailure(excess));
         if (Exit.isFailure(excess)) {
           assert.include(
@@ -178,7 +179,9 @@ describe("device session proof of possession", () => {
           );
         }
 
-        const nestedVersion = yield* decodeDeviceSessionProofV1({
+        const nestedVersion = yield* Schema.decodeUnknownEffect(
+          DeviceSessionProofV1
+        )({
           challenge: { ...encodedChallenge, version: 2 },
           signature: EXPECTED_SIGNATURE,
           version: 1,

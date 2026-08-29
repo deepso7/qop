@@ -224,23 +224,20 @@ const validateRevokeDeviceInputs = (
 
 export const decodeRegisterIntentV1 = Effect.fn(
   "@qop/identity/decodeRegisterIntentV1"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
-  (input: unknown) => Schema.decodeUnknownEffect(RegisterIntentV1)(input)
+)((input: RegisterIntentV1Encoded) =>
+  Schema.decodeEffect(RegisterIntentV1)(input)
 );
 
 export const decodeRotateOwnerIntentV1 = Effect.fn(
   "@qop/identity/decodeRotateOwnerIntentV1"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
-  (input: unknown) => Schema.decodeUnknownEffect(RotateOwnerIntentV1)(input)
+)((input: RotateOwnerIntentV1Encoded) =>
+  Schema.decodeEffect(RotateOwnerIntentV1)(input)
 );
 
 export const decodeRevokeDeviceIntentV1 = Effect.fn(
   "@qop/identity/decodeRevokeDeviceIntentV1"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
-  (input: unknown) => Schema.decodeUnknownEffect(RevokeDeviceIntentV1)(input)
+)((input: RevokeDeviceIntentV1Encoded) =>
+  Schema.decodeEffect(RevokeDeviceIntentV1)(input)
 );
 
 export const encodeRegisterIntentV1 = Effect.fn(

@@ -21,10 +21,13 @@ import {
   normalizeEcdsaSignature,
   Base64Url32,
   PeerId,
+  RegisterIntentV1,
   recoverRegisterIntentSignerV1,
   recoverRevokeDeviceIntentSignerV1,
   recoverRotateOwnerIntentSignerV1,
   signRegisterIntentV1,
+  RevokeDeviceIntentV1,
+  RotateOwnerIntentV1,
 } from "../src/index.ts";
 
 const PRIVATE_KEY =
@@ -379,7 +382,7 @@ describe("registry intents", () => {
         "0xdeepso"
       );
 
-      const excessError = yield* decodeRegisterIntentV1({
+      const excessError = yield* Schema.decodeUnknownEffect(RegisterIntentV1)({
         ...encodedRegisterIntent,
         unexpected: true,
       }).pipe(Effect.flip);
@@ -390,7 +393,9 @@ describe("registry intents", () => {
         },
       ]);
 
-      const rotateExcessError = yield* decodeRotateOwnerIntentV1({
+      const rotateExcessError = yield* Schema.decodeUnknownEffect(
+        RotateOwnerIntentV1
+      )({
         ...encodedRotateOwnerIntent,
         unexpected: true,
       }).pipe(Effect.flip);
@@ -401,7 +406,9 @@ describe("registry intents", () => {
         },
       ]);
 
-      const revokeExcessError = yield* decodeRevokeDeviceIntentV1({
+      const revokeExcessError = yield* Schema.decodeUnknownEffect(
+        RevokeDeviceIntentV1
+      )({
         ...encodedRevokeDeviceIntent,
         unexpected: true,
       }).pipe(Effect.flip);

@@ -7,6 +7,7 @@ import {
   decodeIdentityEip712DomainV1,
   EcdsaSignature,
   hashDeviceCertificateV1,
+  IdentityEip712DomainV1,
   makeDeviceCertificateTypedDataV1,
   normalizeEcdsaSignature,
   recoverDeviceCertificateOwnerV1,
@@ -36,11 +37,13 @@ const encodedDomain = {
 } as const;
 
 const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
+type Json = typeof Schema.Json.Type;
 
 const expectDomainIssue = Effect.fn("@qop/identity/test/expectDomainIssue")(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This test helper verifies the decoder's public I/O boundary.
-  function* (input: unknown, path: readonly string[], message: string) {
-    const error = yield* decodeIdentityEip712DomainV1(input).pipe(Effect.flip);
+  function* (input: Json, path: readonly string[], message: string) {
+    const error = yield* Schema.decodeUnknownEffect(IdentityEip712DomainV1)(
+      input
+    ).pipe(Effect.flip);
     assert.deepStrictEqual(formatIssue(error.issue).issues, [
       { message, path },
     ]);

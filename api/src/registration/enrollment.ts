@@ -1,4 +1,3 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Assertions convert values already validated by identity, registration, and database boundaries into viem's branded types.
 import {
   decodeIdentityEip712DomainV1,
   decodeRegisterIntentV1,
@@ -272,6 +271,15 @@ export class RegistrationEnrollment extends Context.Service<
       )(function* (stored: StoredRegistrationIntent, intent: RegisterIntentV1) {
         let submitted = stored;
         if (stored.status === "ready") {
+          if (
+            stored.ownerSignature === null ||
+            stored.registrationSignature === null
+          ) {
+            return yield* new RegistrationProtocolError({
+              cause: "Ready registration is missing a signature",
+              operation: "verify-state",
+            });
+          }
           const digest = yield* normalizeRegistrationDigest(stored.digest);
           const ownerSignature = yield* normalizeRegistrationOwnerSignature(
             stored.ownerSignature
@@ -469,7 +477,8 @@ export class RegistrationEnrollment extends Context.Service<
           observeTokenHash,
           owner,
           peerId,
-          registrationNonce: registrationNonce as Hash,
+          registrationNonce:
+            yield* normalizeRegistrationDigest(registrationNonce),
         });
         return yield* preparedRegistration(stored, expected, false);
       });
@@ -501,12 +510,12 @@ export class RegistrationEnrollment extends Context.Service<
             intent,
             ownerSignature
           );
-          const expectedOwner = stored.owner as Address;
+          const expectedOwner = yield* normalizeRegistrationOwner(stored.owner);
           if (recoveredOwner !== expectedOwner) {
             return yield* new RegistrationSignatureMismatch({
               expected: expectedOwner,
               kind: "owner",
-              recovered: recoveredOwner as Address,
+              recovered: yield* normalizeRegistrationOwner(recoveredOwner),
             });
           }
           const ownerSignatureHex =
@@ -525,7 +534,7 @@ export class RegistrationEnrollment extends Context.Service<
               return yield* new RegistrationSignatureMismatch({
                 expected: expectedOwner,
                 kind: "owner",
-                recovered: persistedOwner as Address,
+                recovered: yield* normalizeRegistrationOwner(persistedOwner),
               });
             }
           }
@@ -630,7 +639,9 @@ export class RegistrationEnrollment extends Context.Service<
             return yield* new RegistrationSignatureMismatch({
               expected: signer.address,
               kind: "registration",
-              recovered: recoveredRegistrationSigner as Address,
+              recovered: yield* normalizeRegistrationOwner(
+                recoveredRegistrationSigner
+              ),
             });
           }
 

@@ -9,6 +9,7 @@ import {
 import type {
   DeviceSessionChallengeV1Encoded,
   DeviceSessionPopCryptoError,
+  DeviceSessionProofV1Encoded,
 } from "@qop/identity";
 import { Context, Data, DateTime, Effect, Layer, Option, Schema } from "effect";
 import { keccak256 } from "viem";
@@ -102,8 +103,7 @@ export type DeviceSessionServiceError =
 
 export interface DeviceSessionServiceContract {
   readonly authenticate: (
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The proof is decoded by authenticate.
-    proof: unknown
+    proof: DeviceSessionProofV1Encoded
   ) => Effect.Effect<AuthenticatedDeviceSession, DeviceSessionServiceError>;
   readonly issue: (
     input: IssueDeviceSessionChallenge
@@ -112,8 +112,7 @@ export interface DeviceSessionServiceContract {
     DeviceSessionServiceError
   >;
   readonly resolve: (
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The token is decoded by resolve.
-    token: unknown
+    token: string
   ) => Effect.Effect<ResolvedDeviceSession, DeviceSessionServiceError>;
 }
 
@@ -244,6 +243,7 @@ export class DeviceSessionService extends Context.Service<
           Effect.mapError(protocolError("encode-challenge"))
         );
         const stored = yield* sessions.createChallenge({
+          certificateDigest,
           challenge: encoded,
           challengeHash: keccak256(challengeBytes),
         });
@@ -251,10 +251,7 @@ export class DeviceSessionService extends Context.Service<
       });
 
       const authenticate = Effect.fn("DeviceSessionService.authenticate")(
-        function* (
-          // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The proof is decoded below.
-          input: unknown
-        ) {
+        function* (input: DeviceSessionProofV1Encoded) {
           const proof = yield* decodeDeviceSessionProofV1(input).pipe(
             Effect.mapError(protocolError("decode-proof"))
           );
@@ -322,8 +319,7 @@ export class DeviceSessionService extends Context.Service<
       );
 
       const resolve = Effect.fn("DeviceSessionService.resolve")(function* (
-        // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The token is decoded below.
-        input: unknown
+        input: string
       ) {
         const tokenBytes = yield* Schema.decodeUnknownEffect(Base64Url32)(
           input

@@ -1,4 +1,3 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: The fake chain and fixed values model valid registry address and hash representations.
 import { assert, describe, it } from "@effect/vitest";
 import { Duration, Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
@@ -9,16 +8,17 @@ import type { RegistryChainContract } from "../src/registry/chain.ts";
 import { RegistryReader } from "../src/registry/reader.ts";
 import type { RegistryAccount } from "../src/registry/types.ts";
 
-const OWNER = "0x1111111111111111111111111111111111111111" as Address;
+const OWNER = "0x1111111111111111111111111111111111111111" satisfies Address;
 const CERTIFICATE_DIGEST =
-  "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" as Hash;
+  "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" satisfies Hash;
 const MIXED_CASE_CERTIFICATE_DIGEST =
-  "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa" as Hash;
-const CANONICAL_OWNER = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd" as Address;
+  "0xAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAaAa" satisfies Hash;
+const CANONICAL_OWNER =
+  "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd" satisfies Address;
 const MIXED_CASE_OWNER =
-  "0xAbCdEfAbCdEfAbCdEfAbCdEfAbCdEfAbCdEfAbCd" as Address;
+  "0xAbCdEfAbCdEfAbCdEfAbCdEfAbCdEfAbCdEfAbCd" satisfies Address;
 
-const account = (owner = OWNER): RegistryAccount => ({
+const account = (owner: Address = OWNER): RegistryAccount => ({
   handle: "alice",
   nonce: 0n,
   owner,
@@ -38,10 +38,15 @@ const makeReader = () => {
     qidByHandle: 0,
     qidByOwner: 0,
   };
-  const observed = {
-    certificateDigests: [] as Hash[],
-    handles: [] as string[],
-    owners: [] as Address[],
+  interface ObservedCalls {
+    certificateDigests: Hash[];
+    handles: string[];
+    owners: Address[];
+  }
+  const observed: ObservedCalls = {
+    certificateDigests: [],
+    handles: [],
+    owners: [],
   };
   const chain: RegistryChainContract = {
     account: (qid) =>
@@ -110,7 +115,8 @@ const makeReader = () => {
 describe("registry reader", () => {
   it.effect("distinguishes cached reads from explicit fresh reads", () => {
     const fixture = makeReader();
-    const nextOwner = "0x2222222222222222222222222222222222222222" as Address;
+    const nextOwner =
+      "0x2222222222222222222222222222222222222222" satisfies Address;
 
     return Effect.gen(function* () {
       const reader = yield* RegistryReader;
@@ -205,7 +211,8 @@ describe("registry reader", () => {
 
   it.effect("invalidates account and owner mappings after rotation", () => {
     const fixture = makeReader();
-    const nextOwner = "0x2222222222222222222222222222222222222222" as Address;
+    const nextOwner =
+      "0x2222222222222222222222222222222222222222" satisfies Address;
 
     return Effect.gen(function* () {
       const reader = yield* RegistryReader;

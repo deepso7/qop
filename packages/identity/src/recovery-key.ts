@@ -64,41 +64,33 @@ export const encodeRecoveryKeyV1 = Effect.fn(
 
 export const decodeRecoveryKeyV1 = Effect.fn(
   "@qop/identity/decodeRecoveryKeyV1"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
-  function* (input: unknown) {
-    const encoded = yield* Schema.decodeUnknownEffect(RecoveryKeyV1String)(
-      input
-    ).pipe(
-      Effect.mapError(() => new RecoveryKeyError({ operation: "decode" }))
-    );
-    const payload = encoded.slice(
-      RECOVERY_KEY_PREFIX.length,
-      RECOVERY_KEY_PREFIX.length + RECOVERY_KEY_PAYLOAD_LENGTH
-    );
-    const encodedChecksum = encoded.slice(-RECOVERY_KEY_CHECKSUM_LENGTH);
-    const privateKey = yield* Schema.decodeUnknownEffect(Base64Url32)(
-      payload
-    ).pipe(
-      Effect.flatMap(Schema.decodeUnknownEffect(OwnerPrivateKey)),
-      Effect.mapError(() => new RecoveryKeyError({ operation: "decode" }))
-    );
-    if (checksum(privateKey) !== encodedChecksum) {
-      return yield* new RecoveryKeyError({ operation: "decode" });
-    }
-    return privateKey;
+)(function* (input: string) {
+  const encoded = yield* Schema.decodeEffect(RecoveryKeyV1String)(input).pipe(
+    Effect.mapError(() => new RecoveryKeyError({ operation: "decode" }))
+  );
+  const payload = encoded.slice(
+    RECOVERY_KEY_PREFIX.length,
+    RECOVERY_KEY_PREFIX.length + RECOVERY_KEY_PAYLOAD_LENGTH
+  );
+  const encodedChecksum = encoded.slice(-RECOVERY_KEY_CHECKSUM_LENGTH);
+  const privateKey = yield* Schema.decodeUnknownEffect(Base64Url32)(
+    payload
+  ).pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(OwnerPrivateKey)),
+    Effect.mapError(() => new RecoveryKeyError({ operation: "decode" }))
+  );
+  if (checksum(privateKey) !== encodedChecksum) {
+    return yield* new RecoveryKeyError({ operation: "decode" });
   }
-);
+  return privateKey;
+});
 
 export const ownerAddressFromRecoveryKeyV1 = Effect.fn(
   "@qop/identity/ownerAddressFromRecoveryKeyV1"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary delegates parsing to decodeRecoveryKeyV1 immediately.
-  function* (input: unknown) {
-    const privateKey = yield* decodeRecoveryKeyV1(input);
-    return yield* Effect.try({
-      catch: () => new RecoveryKeyError({ operation: "derive-owner" }),
-      try: () => privateKeyToAccount(toHex(privateKey)).address.toLowerCase(),
-    });
-  }
-);
+)(function* (input: string) {
+  const privateKey = yield* decodeRecoveryKeyV1(input);
+  return yield* Effect.try({
+    catch: () => new RecoveryKeyError({ operation: "derive-owner" }),
+    try: () => privateKeyToAccount(toHex(privateKey)).address.toLowerCase(),
+  });
+});

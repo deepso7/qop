@@ -1,11 +1,8 @@
 import { Effect, Result } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// oxlint-disable anti-slop/no-module-mocking -- The Expo fetch adapter is isolated at its I/O boundary.
-
-const fetchMock = vi.hoisted(() => vi.fn());
-
-vi.mock("expo/fetch", () => ({ fetch: fetchMock }));
+const fetchMock =
+  vi.fn<(input: URL, init?: RequestInit) => Promise<Response>>();
 
 const prepared = {
   digest: `0x${"11".repeat(32)}`,
@@ -38,7 +35,11 @@ describe("registration client", () => {
         status: 200,
       })
     );
-    const { prepareRegistration } = await import("@/lib/registration-client");
+    const { createRegistrationClient } =
+      await import("@/lib/registration-client-core");
+    const { prepareRegistration } = createRegistrationClient({
+      fetch: fetchMock,
+    });
     const result = await Effect.runPromise(
       prepareRegistration({
         admissionCode: "ABC-123",
@@ -70,7 +71,11 @@ describe("registration client", () => {
         },
       })
     );
-    const { prepareRegistration } = await import("@/lib/registration-client");
+    const { createRegistrationClient } =
+      await import("@/lib/registration-client-core");
+    const { prepareRegistration } = createRegistrationClient({
+      fetch: fetchMock,
+    });
 
     const result = await Effect.runPromise(
       prepareRegistration({
@@ -99,7 +104,11 @@ describe("registration client", () => {
         { status: 409 }
       )
     );
-    const { prepareRegistration } = await import("@/lib/registration-client");
+    const { createRegistrationClient } =
+      await import("@/lib/registration-client-core");
+    const { prepareRegistration } = createRegistrationClient({
+      fetch: fetchMock,
+    });
     const result = await Effect.runPromise(
       prepareRegistration({
         admissionCode: "ABC-123",
@@ -130,7 +139,11 @@ describe("registration client", () => {
         },
       })
     );
-    const { prepareRegistration } = await import("@/lib/registration-client");
+    const { createRegistrationClient } =
+      await import("@/lib/registration-client-core");
+    const { prepareRegistration } = createRegistrationClient({
+      fetch: fetchMock,
+    });
     const result = await Effect.runPromise(
       prepareRegistration({
         admissionCode: "ABC-123",

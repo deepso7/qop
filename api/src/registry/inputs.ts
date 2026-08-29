@@ -1,4 +1,3 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Assertions follow the corresponding identity schema decoder.
 import {
   Handle,
   Hex32,
@@ -6,7 +5,8 @@ import {
   RegistrationNonce,
 } from "@qop/identity";
 import { Data, Effect, Schema } from "effect";
-import type { Address, Hash } from "viem";
+import { toHex } from "viem";
+import type { Address } from "viem";
 
 type RegistryInputOperation =
   | "certificate-digest"
@@ -26,24 +26,21 @@ export class RegistryInputError extends Data.TaggedError("RegistryInputError")<{
 }> {}
 
 export const normalizeRegistryOwner = Effect.fn("RegistryInput.normalizeOwner")(
-  function* (
-    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The owner is decoded below.
-    input: unknown
-  ) {
-    return (yield* normalizeEthereumAddress(input).pipe(
+  function* (input: string) {
+    const owner = yield* normalizeEthereumAddress(input).pipe(
       Effect.mapError(
         (cause) => new RegistryInputError({ cause, operation: "owner" })
       )
-    )) as Address;
+    );
+    const canonicalOwner = owner.toLowerCase();
+    // SAFETY: normalizeEthereumAddress accepts only 20-byte 0x-prefixed Ethereum addresses.
+    return canonicalOwner as Address;
   }
 );
 
 export const normalizeCertificateDigest = Effect.fn(
   "RegistryInput.normalizeCertificateDigest"
-)(function* (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The digest is decoded below.
-  input: unknown
-) {
+)(function* (input: string) {
   const encoded = yield* Schema.decodeUnknownEffect(CertificateDigestInput)(
     input
   ).pipe(
@@ -52,22 +49,20 @@ export const normalizeCertificateDigest = Effect.fn(
         new RegistryInputError({ cause, operation: "certificate-digest" })
     )
   );
-  const canonical = encoded.toLowerCase();
-  yield* Schema.decodeUnknownEffect(Hex32)(canonical).pipe(
+  const bytes = yield* Schema.decodeUnknownEffect(Hex32)(
+    encoded.toLowerCase()
+  ).pipe(
     Effect.mapError(
       (cause) =>
         new RegistryInputError({ cause, operation: "certificate-digest" })
     )
   );
-  return canonical as Hash;
+  return toHex(bytes);
 });
 
 export const normalizeRegistryHandle = Effect.fn(
   "RegistryInput.normalizeHandle"
-)(function* (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The handle is decoded below.
-  input: unknown
-) {
+)(function* (input: string) {
   return yield* Schema.decodeUnknownEffect(Handle)(input).pipe(
     Effect.mapError(
       (cause) => new RegistryInputError({ cause, operation: "handle" })
@@ -77,10 +72,7 @@ export const normalizeRegistryHandle = Effect.fn(
 
 export const normalizeRegistryRegistrationNonce = Effect.fn(
   "RegistryInput.normalizeRegistrationNonce"
-)(function* (
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The nonce is decoded below.
-  input: unknown
-) {
+)(function* (input: string) {
   const encoded = yield* Schema.decodeUnknownEffect(Schema.String)(input).pipe(
     Effect.mapError(
       (cause) =>
@@ -95,10 +87,5 @@ export const normalizeRegistryRegistrationNonce = Effect.fn(
         new RegistryInputError({ cause, operation: "registration-nonce" })
     )
   );
-  return (yield* Schema.encodeEffect(RegistrationNonce)(bytes).pipe(
-    Effect.mapError(
-      (cause) =>
-        new RegistryInputError({ cause, operation: "registration-nonce" })
-    )
-  )) as Hash;
+  return toHex(bytes);
 });

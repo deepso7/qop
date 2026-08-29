@@ -74,9 +74,7 @@ describe("qop recovery keys", () => {
     Effect.gen(function* () {
       const valid = yield* encodeRecoveryKeyV1(PRIVATE_KEY);
       const payload = valid.slice(5, 48);
-      const malformed: readonly unknown[] = [
-        null,
-        1,
+      const malformed = [
         valid.replace("qop1_", "qop2_"),
         valid.slice(0, -1),
         valid.replace(payload[0] ?? "A", "!"),

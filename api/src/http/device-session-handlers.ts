@@ -1,13 +1,12 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Route schemas validate each asserted request field before it reaches these handlers.
 import { Effect, Layer } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import type { Hash } from "viem";
 
 import type { DeviceSessionServiceError } from "../device-session/service.ts";
 import {
   DeviceSessionService,
   DeviceSessionServiceLive,
 } from "../device-session/service.ts";
+import { normalizeCertificateDigest } from "../registry/inputs.ts";
 import { QopHttpApi } from "./api.ts";
 import {
   DeviceSessionConflictHttp,
@@ -55,8 +54,12 @@ export const DeviceSessionApiHandlers = HttpApiBuilder.group(
     const sessions = yield* DeviceSessionService;
     return handlers
       .handle("issueDeviceSessionChallenge", ({ payload }) =>
-        sessions
-          .issue({ certificateDigest: payload.certificateDigest as Hash })
+        normalizeCertificateDigest(payload.certificateDigest)
+          .pipe(
+            Effect.flatMap((certificateDigest) =>
+              sessions.issue({ certificateDigest })
+            )
+          )
           .pipe(transport)
       )
       .handle("authenticateDeviceSession", ({ payload }) =>

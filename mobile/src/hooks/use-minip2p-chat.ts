@@ -1,4 +1,5 @@
 import { peerIdFromSecretKey, useMinip2p } from "@minip2p/react-native";
+import { Result, Schema } from "effect";
 import * as React from "react";
 import { Platform } from "react-native";
 
@@ -29,12 +30,13 @@ const TARGET_SECRET_KEY = IS_ANDROID_CONNECTOR
   ? IOS_POC_SECRET_KEY
   : ANDROID_POC_SECRET_KEY;
 
-interface WireChatMessage {
-  id: string;
-  sentAt: number;
-  text: string;
-  version: 1;
-}
+const WireChatMessageSchema = Schema.Struct({
+  id: Schema.String.check(Schema.isLengthBetween(1, 200)),
+  sentAt: Schema.Int,
+  text: Schema.String.check(Schema.isLengthBetween(1, MAX_MESSAGE_LENGTH)),
+  version: Schema.Literal(1),
+});
+type WireChatMessage = typeof WireChatMessageSchema.Type;
 
 interface ReceivedChatMessage extends WireChatMessage {
   fromPeerId: string;
@@ -57,9 +59,8 @@ interface UseMinip2pChatResult {
   status: Minip2pChatStatus;
 }
 
-// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Promise rejections are untyped at this boundary.
-const errorMessage = (error: unknown) =>
-  error instanceof Error ? error.message : String(error);
+const errorMessage = (cause: unknown) =>
+  cause instanceof Error ? cause.message : String(cause);
 
 const decodeWireMessage = (data: ArrayBuffer): WireChatMessage | undefined => {
   const raw = new TextDecoder().decode(data);
@@ -74,31 +75,8 @@ const decodeWireMessage = (data: ArrayBuffer): WireChatMessage | undefined => {
     return undefined;
   }
 
-  if (!(value instanceof Object)) {
-    return undefined;
-  }
-
-  // SAFETY: JSON.parse returned an object; fields are validated before this value is returned.
-  const candidate = value as Partial<WireChatMessage>;
-  if (
-    candidate.version !== 1 ||
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Parsed JSON requires primitive checks before it can become a wire message.
-    typeof candidate.id !== "string" ||
-    candidate.id.length === 0 ||
-    candidate.id.length > 200 ||
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Parsed JSON requires primitive checks before it can become a wire message.
-    typeof candidate.text !== "string" ||
-    candidate.text.length === 0 ||
-    candidate.text.length > MAX_MESSAGE_LENGTH ||
-    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Parsed JSON requires primitive checks before it can become a wire message.
-    typeof candidate.sentAt !== "number" ||
-    !Number.isSafeInteger(candidate.sentAt)
-  ) {
-    return undefined;
-  }
-
-  // SAFETY: Every WireChatMessage field is validated in the guard above.
-  return candidate as WireChatMessage;
+  const decoded = Schema.decodeUnknownResult(WireChatMessageSchema)(value);
+  return Result.isSuccess(decoded) ? decoded.success : undefined;
 };
 
 const removePeer = (peers: readonly string[], peerId: string) =>

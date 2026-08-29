@@ -1,4 +1,3 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: The database schema enforces digest storage and successful INSERT ... RETURNING calls supply a row.
 import { and, asc, eq, gt, gte, inArray, isNull, lt, or } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
@@ -74,13 +73,25 @@ const findForUpdate = (
 const findLeaseDigest = (
   client: DatabaseClient | Transaction,
   handle: string
-): Effect.Effect<Hash | undefined, RegistrationStorePersistenceError> =>
+): Effect.Effect<
+  Option.Option<Hash>,
+  RegistrationInputError | RegistrationStorePersistenceError
+> =>
   client
     .select({ digest: registrationHandleLeases.intentDigest })
     .from(registrationHandleLeases)
     .where(eq(registrationHandleLeases.handle, handle))
     .limit(1)
-    .pipe(Effect.map((rows) => rows.at(0)?.digest as Hash | undefined));
+    .pipe(
+      Effect.flatMap((rows) => {
+        const digest = Option.fromUndefinedOr(rows.at(0)?.digest);
+        return Option.match(digest, {
+          onNone: () => Effect.succeed(Option.none()),
+          onSome: (value) =>
+            normalizeRegistrationDigest(value).pipe(Effect.map(Option.some)),
+        });
+      })
+    );
 
 const findByObserveTokenHash = (
   client: DatabaseClient | Transaction,
@@ -321,10 +332,10 @@ export class RegistrationStore extends Context.Service<
             return;
           }
           const incumbent = yield* findLeaseDigest(tx, current.handle);
-          if (incumbent === current.digest) {
-            return;
-          }
-          if (incumbent !== undefined) {
+          if (Option.isSome(incumbent)) {
+            if (incumbent.value === current.digest) {
+              return;
+            }
             return yield* new HandleLeaseConflict({
               handle: current.handle,
             });
@@ -435,7 +446,13 @@ export class RegistrationStore extends Context.Service<
               })
               .where(eq(registrationIntents.digest, canonicalDigest))
               .returning();
-            return rows[0] as StoredRegistrationIntent;
+            const updated = rows.at(0);
+            if (!updated) {
+              return yield* new RegistrationIntentNotFound({
+                digest: canonicalDigest,
+              });
+            }
+            return updated;
           })
         );
       });

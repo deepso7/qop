@@ -72,10 +72,8 @@ export class DeviceSessionPopCryptoError extends Data.TaggedError(
 
 export const decodeDeviceSessionChallengeV1 = Effect.fn(
   "@qop/identity/decodeDeviceSessionChallengeV1"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
-  (input: unknown) =>
-    Schema.decodeUnknownEffect(DeviceSessionChallengeV1)(input)
+)((input: DeviceSessionChallengeV1Encoded) =>
+  Schema.decodeEffect(DeviceSessionChallengeV1)(input)
 );
 
 export const encodeDeviceSessionChallengeV1 = Effect.fn(
@@ -86,9 +84,8 @@ export const encodeDeviceSessionChallengeV1 = Effect.fn(
 
 export const decodeDeviceSessionProofV1 = Effect.fn(
   "@qop/identity/decodeDeviceSessionProofV1"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
-  (input: unknown) => Schema.decodeUnknownEffect(DeviceSessionProofV1)(input)
+)((input: DeviceSessionProofV1Encoded) =>
+  Schema.decodeEffect(DeviceSessionProofV1)(input)
 );
 
 export const encodeDeviceSessionProofV1 = Effect.fn(

@@ -1,4 +1,3 @@
-// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: The guarded registration state is narrowed before its asserted confirmed representation is returned.
 import {
   Base64Url32,
   decodeIdentityEip712DomainV1,
@@ -44,7 +43,7 @@ import type {
 export const deviceCertificateFutureSkewSeconds = 300n;
 
 export interface ObserveRegistrationDevice {
-  readonly envelope: unknown;
+  readonly envelope: IdentityEnvelopeV1Encoded;
   readonly observeToken: string;
 }
 
@@ -128,10 +127,7 @@ const requireConfirmedRegistration = Effect.fn(
       actual: registration.status,
     });
   }
-  return registration as StoredRegistrationIntent & {
-    readonly qid: bigint;
-    readonly status: "confirmed";
-  };
+  return { ...registration, qid: registration.qid, status: "confirmed" };
 });
 
 const observedDevice = (

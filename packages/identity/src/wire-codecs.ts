@@ -216,20 +216,18 @@ const WalletEcdsaSignatureString = Schema.String.check(
 
 export const normalizeEcdsaSignature = Effect.fn(
   "@qop/identity/normalizeEcdsaSignature"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
-  (input: unknown) =>
-    Schema.decodeUnknownEffect(WalletEcdsaSignatureString)(input).pipe(
-      Effect.map((signature) => {
-        const bytes = hex.decode(signature.toLowerCase().slice(2));
-        const recovery = bytes.at(-1);
-        if (recovery === 27 || recovery === 28) {
-          bytes[64] = recovery - 27;
-        }
-        return `0x${hex.encode(bytes)}`;
-      }),
-      Effect.flatMap(Schema.decodeUnknownEffect(EcdsaSignature))
-    )
+)((input: string) =>
+  Schema.decodeEffect(WalletEcdsaSignatureString)(input).pipe(
+    Effect.map((signature) => {
+      const bytes = hex.decode(signature.toLowerCase().slice(2));
+      const recovery = bytes.at(-1);
+      if (recovery === 27 || recovery === 28) {
+        bytes[64] = recovery - 27;
+      }
+      return `0x${hex.encode(bytes)}`;
+    }),
+    Effect.flatMap(Schema.decodeEffect(EcdsaSignature))
+  )
 );
 
 const CanonicalUint256String = Schema.String.check(
@@ -300,13 +298,11 @@ const EthereumAddressInput = Schema.String.check(
 
 export const normalizeEthereumAddress = Effect.fn(
   "@qop/identity/normalizeEthereumAddress"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
-  (input: unknown) =>
-    Schema.decodeUnknownEffect(EthereumAddressInput)(input).pipe(
-      Effect.map((address) => address.toLowerCase()),
-      Effect.flatMap(Schema.decodeUnknownEffect(EthereumAddress))
-    )
+)((input: string) =>
+  Schema.decodeEffect(EthereumAddressInput)(input).pipe(
+    Effect.map((address) => address.toLowerCase()),
+    Effect.flatMap(Schema.decodeEffect(EthereumAddress))
+  )
 );
 
 export const Handle = Schema.String.check(

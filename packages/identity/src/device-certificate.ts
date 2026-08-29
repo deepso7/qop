@@ -57,9 +57,8 @@ export type IdentityEnvelopeV1Encoded = typeof IdentityEnvelopeV1.Encoded;
 
 export const decodeDeviceCertificateV1 = Effect.fn(
   "@qop/identity/decodeDeviceCertificateV1"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
-  (input: unknown) => Schema.decodeUnknownEffect(DeviceCertificateV1)(input)
+)((input: DeviceCertificateV1Encoded) =>
+  Schema.decodeEffect(DeviceCertificateV1)(input)
 );
 
 export const encodeDeviceCertificateV1 = Effect.fn(
@@ -70,9 +69,8 @@ export const encodeDeviceCertificateV1 = Effect.fn(
 
 export const decodeIdentityEnvelopeV1 = Effect.fn(
   "@qop/identity/decodeIdentityEnvelopeV1"
-)(
-  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
-  (input: unknown) => Schema.decodeUnknownEffect(IdentityEnvelopeV1)(input)
+)((input: IdentityEnvelopeV1Encoded) =>
+  Schema.decodeEffect(IdentityEnvelopeV1)(input)
 );
 
 export const encodeIdentityEnvelopeV1 = Effect.fn(
