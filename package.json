@@ -14,11 +14,11 @@
     "typecheck": "pnpm --filter @qop/identity --filter @qop/api --filter mobile run typecheck"
   },
   "devDependencies": {
-    "@effect/language-service": "0.87.1",
+    "@effect/language-service": "0.87.2",
     "oxfmt": "0.61.0",
     "oxlint": "1.76.0",
     "typescript": "catalog:",
     "ultracite": "7.9.4"
   },
-  "packageManager": "pnpm@11.18.0"
+  "packageManager": "pnpm@11.24.0"
 }

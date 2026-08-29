@@ -13,14 +13,14 @@
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
-    "@noble/curves": "2.2.0",
-    "@scure/base": "2.2.0",
+    "@noble/curves": "2.4.0",
+    "@scure/base": "2.3.0",
     "effect": "catalog:",
-    "viem": "2.55.11"
+    "viem": "2.56.0"
   },
   "devDependencies": {
     "@effect/vitest": "4.0.0-beta.103",
     "typescript": "catalog:",
-    "vitest": "4.1.10"
+    "vitest": "4.1.11"
   }
 }

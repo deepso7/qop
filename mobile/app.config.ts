@@ -69,8 +69,13 @@ const createExpoConfig = ({ config }: ConfigContext): ExpoConfig => {
     plugins: [
       ...(config.plugins ?? []).filter((plugin) => {
         const name = Array.isArray(plugin) ? plugin[0] : plugin;
-        return name !== "expo-secure-store" && name !== "expo-splash-screen";
+        return (
+          name !== "expo-font" &&
+          name !== "expo-secure-store" &&
+          name !== "expo-splash-screen"
+        );
       }),
+      "expo-font",
       "expo-secure-store",
       [
         "expo-splash-screen",
