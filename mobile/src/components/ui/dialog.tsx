@@ -44,7 +44,7 @@ const DialogOverlay = ({
     <FullWindowOverlay>
       <DialogPrimitive.Overlay
         className={cn(
-          "absolute bottom-0 left-0 right-0 top-0 z-50 flex items-center justify-center bg-black/50 p-2",
+          "absolute top-0 right-0 bottom-0 left-0 z-50 flex items-center justify-center bg-black/50 p-2",
           Platform.select({
             web: "animate-in fade-in-0 fixed cursor-default [&>*]:cursor-auto",
           }),
@@ -94,7 +94,7 @@ const DialogContent = ({
         {children}
         <DialogPrimitive.Close
           className={cn(
-            "absolute right-4 top-4 rounded opacity-70 active:opacity-100",
+            "absolute top-4 right-4 rounded opacity-70 active:opacity-100",
             Platform.select({
               web: "ring-offset-background focus:ring-ring data-[state=open]:bg-accent transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-offset-2",
             })
@@ -137,7 +137,7 @@ const DialogTitle = ({
 }: React.ComponentProps<typeof DialogPrimitive.Title>) => (
   <DialogPrimitive.Title
     className={cn(
-      "text-foreground text-lg font-semibold leading-none",
+      "text-foreground text-lg leading-none font-semibold",
       className
     )}
     {...props}

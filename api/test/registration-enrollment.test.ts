@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Fixture accounts and intentional account substitutions use valid identity representations.
 import { assert, layer } from "@effect/vitest";
 import {
   Base64Url32,

@@ -123,10 +123,10 @@ const messageBubbleVariants = cva("px-4 py-2.5", {
   defaultVariants: { tone: "incoming" },
   variants: {
     tone: {
-      failed: "rounded-[22px] border-2 border-destructive bg-primary",
-      incoming: "rounded-[22px] bg-background-element",
-      outgoing: "rounded-[22px] bg-primary",
-      pending: "rounded-[22px] bg-primary/55",
+      failed: "border-destructive bg-primary rounded-[22px] border-2",
+      incoming: "bg-background-element rounded-[22px]",
+      outgoing: "bg-primary rounded-[22px]",
+      pending: "bg-primary/55 rounded-[22px]",
     },
   },
 });
@@ -363,7 +363,7 @@ const MessageReactionPicker = ({
     accessibilityLabel="Choose a reaction"
     accessibilityRole="toolbar"
     className={cn(
-      "border-border bg-background-element self-start flex-row items-center gap-0.5 rounded-full border p-1.5",
+      "border-border bg-background-element flex-row items-center gap-0.5 self-start rounded-full border p-1.5",
       className
     )}
     {...props}
@@ -781,6 +781,7 @@ const MessageAttachment = ({
     )}
     style={[
       { borderCurve: "continuous" },
+      // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Pressable's declared style prop is a callback or style object.
       typeof style === "function" ? undefined : style,
     ]}
     {...props}

@@ -2,6 +2,28 @@ import { useCSSVariable } from "uniwind";
 
 // Runtime colors are defined in global.css and resolved here for native components.
 export const useTheme = () => {
+  const resolvedColors = useCSSVariable([
+    "--color-background",
+    "--color-background-element",
+    "--color-background-selected",
+    "--color-foreground",
+    "--color-foreground-secondary",
+    "--color-border",
+    "--color-primary",
+    "--color-primary-foreground",
+    "--color-accent-foreground",
+    "--color-card-foreground",
+    "--color-muted-foreground",
+    "--color-popover-foreground",
+    "--color-secondary-foreground",
+    "--color-destructive",
+    "--color-white",
+    "--color-red-500",
+    "--qop-orange-light",
+    "--qop-orange-dark",
+  ]);
+  // SAFETY: These CSS variables are defined as color strings in mobile/global.css.
+  const colors = resolvedColors as string[];
   const [
     background,
     backgroundElement,
@@ -21,26 +43,7 @@ export const useTheme = () => {
     red500,
     gradientStart,
     gradientEnd,
-  ] = useCSSVariable([
-    "--color-background",
-    "--color-background-element",
-    "--color-background-selected",
-    "--color-foreground",
-    "--color-foreground-secondary",
-    "--color-border",
-    "--color-primary",
-    "--color-primary-foreground",
-    "--color-accent-foreground",
-    "--color-card-foreground",
-    "--color-muted-foreground",
-    "--color-popover-foreground",
-    "--color-secondary-foreground",
-    "--color-destructive",
-    "--color-white",
-    "--color-red-500",
-    "--qop-orange-light",
-    "--qop-orange-dark",
-  ]) as string[];
+  ] = colors;
 
   return {
     accentForeground,

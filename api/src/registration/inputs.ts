@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Each assertion follows schema decoding or a normalizer that establishes the corresponding viem representation.
 import {
   Base64Url32,
   DeviceCommitment,
@@ -53,6 +54,7 @@ const inputError =
 export const registrationAdmissionCodeInputError = inputError("admission-code");
 
 const normalizeHex32 = Effect.fn("RegistrationInput.normalizeHex32")(function* (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This shared normalization boundary decodes the untrusted value below.
   input: unknown,
   field: RegistrationInputField
 ) {
@@ -69,7 +71,10 @@ const normalizeHex32 = Effect.fn("RegistrationInput.normalizeHex32")(function* (
 
 export const normalizeRegistrationPeerId = Effect.fn(
   "RegistrationInput.normalizePeerId"
-)(function* (input: unknown) {
+)(function* (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The peer id is decoded below.
+  input: unknown
+) {
   const bytes = yield* Schema.decodeUnknownEffect(PeerId)(input).pipe(
     Effect.mapError(inputError("peer-id"))
   );
@@ -80,7 +85,10 @@ export const normalizeRegistrationPeerId = Effect.fn(
 
 export const normalizeRegistrationOwner = Effect.fn(
   "RegistrationInput.normalizeOwner"
-)(function* (input: unknown) {
+)(function* (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The owner is decoded below.
+  input: unknown
+) {
   const owner = yield* normalizeEthereumAddress(input).pipe(
     Effect.mapError(inputError("owner"))
   );
@@ -95,7 +103,10 @@ export const normalizeRegistrationOwner = Effect.fn(
 
 export const decodeRegistrationIdempotencyKey = Effect.fn(
   "RegistrationInput.decodeIdempotencyKey"
-)(function* (input: unknown) {
+)(function* (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The idempotency key is decoded below.
+  input: unknown
+) {
   return yield* Schema.decodeUnknownEffect(Base64Url32)(input).pipe(
     Effect.mapError(inputError("idempotency-key"))
   );
@@ -103,7 +114,10 @@ export const decodeRegistrationIdempotencyKey = Effect.fn(
 
 const normalizeRegistrationNonce = Effect.fn(
   "RegistrationInput.normalizeRegistrationNonce"
-)(function* (input: unknown) {
+)(function* (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The nonce is decoded below.
+  input: unknown
+) {
   const value = yield* Schema.decodeUnknownEffect(Schema.String)(input).pipe(
     Effect.mapError(inputError("registration-nonce"))
   );
@@ -116,7 +130,11 @@ const normalizeRegistrationNonce = Effect.fn(
 });
 
 const normalizeSignature = Effect.fn("RegistrationInput.normalizeSignature")(
-  function* (input: unknown, field: RegistrationInputField) {
+  function* (
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The signature is decoded below.
+    input: unknown,
+    field: RegistrationInputField
+  ) {
     const bytes = yield* normalizeEcdsaSignature(input).pipe(
       Effect.mapError(inputError(field))
     );
@@ -128,7 +146,10 @@ const normalizeSignature = Effect.fn("RegistrationInput.normalizeSignature")(
 
 export const normalizeDeviceCommitment = Effect.fn(
   "RegistrationInput.normalizeDeviceCommitment"
-)(function* (input: unknown) {
+)(function* (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The commitment is decoded below.
+  input: unknown
+) {
   const value = yield* Schema.decodeUnknownEffect(Schema.String)(input).pipe(
     Effect.mapError(inputError("device-commitment"))
   );
@@ -142,27 +163,45 @@ export const normalizeDeviceCommitment = Effect.fn(
 
 export const normalizeRegistrationOwnerSignature = Effect.fn(
   "RegistrationInput.normalizeOwnerSignature"
-)((input: unknown) => normalizeSignature(input, "owner-signature"));
+)(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The signature is decoded by normalizeSignature.
+  (input: unknown) => normalizeSignature(input, "owner-signature")
+);
 
 export const normalizeRegistrationSignerSignature = Effect.fn(
   "RegistrationInput.normalizeSignerSignature"
-)((input: unknown) => normalizeSignature(input, "registration-signature"));
+)(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The signature is decoded by normalizeSignature.
+  (input: unknown) => normalizeSignature(input, "registration-signature")
+);
 
 export const normalizeRegistrationDigest = Effect.fn(
   "RegistrationInput.normalizeDigest"
-)((input: unknown) => normalizeHex32(input, "digest"));
+)(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The digest is decoded by normalizeHex32.
+  (input: unknown) => normalizeHex32(input, "digest")
+);
 
 export const normalizeRegistrationObserveTokenHash = Effect.fn(
   "RegistrationInput.normalizeObserveTokenHash"
-)((input: unknown) => normalizeHex32(input, "observe-token-hash"));
+)(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The digest is decoded by normalizeHex32.
+  (input: unknown) => normalizeHex32(input, "observe-token-hash")
+);
 
 export const normalizeRegistrationIdempotencyKeyHash = Effect.fn(
   "RegistrationInput.normalizeIdempotencyKeyHash"
-)((input: unknown) => normalizeHex32(input, "idempotency-key-hash"));
+)(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The digest is decoded by normalizeHex32.
+  (input: unknown) => normalizeHex32(input, "idempotency-key-hash")
+);
 
 export const normalizeTransactionHash = Effect.fn(
   "RegistrationInput.normalizeTransactionHash"
-)((input: unknown) => normalizeHex32(input, "transaction-hash"));
+)(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The digest is decoded by normalizeHex32.
+  (input: unknown) => normalizeHex32(input, "transaction-hash")
+);
 
 const SerializedTransaction = Schema.String.check(
   Schema.isPattern(/^0x[0-9a-f]+$/u, {
@@ -172,7 +211,10 @@ const SerializedTransaction = Schema.String.check(
 
 export const normalizeSerializedTransaction = Effect.fn(
   "RegistrationInput.normalizeSerializedTransaction"
-)(function* (input: unknown) {
+)(function* (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The serialized transaction is decoded below.
+  input: unknown
+) {
   return (yield* Schema.decodeUnknownEffect(SerializedTransaction)(input).pipe(
     Effect.mapError(inputError("serialized-transaction"))
   )) as Hex;

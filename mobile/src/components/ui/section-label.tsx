@@ -9,7 +9,7 @@ export const SectionLabel = ({
 }: ComponentProps<typeof Text>) => (
   <Text
     className={cn(
-      "px-1 font-mono text-xs font-semibold uppercase tracking-wider text-muted-foreground",
+      "text-muted-foreground px-1 font-mono text-xs font-semibold tracking-wider uppercase",
       className
     )}
     {...props}

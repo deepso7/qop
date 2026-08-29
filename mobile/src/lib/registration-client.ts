@@ -68,6 +68,14 @@ export interface PrepareRegistrationInput {
   readonly peerId: string;
 }
 
+interface AuthorizeRegistrationInput {
+  readonly ownerSignature: string;
+}
+
+type RegistrationPayload =
+  | PrepareRegistrationInput
+  | AuthorizeRegistrationInput;
+
 export class RegistrationClientError extends Data.TaggedError(
   "RegistrationClientError"
 )<{
@@ -110,7 +118,7 @@ const expectedDomain = Effect.fn("RegistrationClient.expectedDomain")(
 
 const post = Effect.fn("RegistrationClient.post")(function* (
   path: string,
-  payload?: unknown
+  payload?: RegistrationPayload
 ) {
   const baseUrl = yield* apiUrl();
   const response = yield* Effect.tryPromise({
@@ -124,6 +132,7 @@ const post = Effect.fn("RegistrationClient.post")(function* (
   });
   const body = yield* Effect.tryPromise({
     catch: () => clientError("response", response.status),
+    // SAFETY: Fetch's JSON parser resolves an untyped JSON value, which is decoded below.
     try: () => response.json() as Promise<unknown>,
   });
   if (!response.ok) {

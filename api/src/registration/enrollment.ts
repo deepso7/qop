@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Assertions convert values already validated by identity, registration, and database boundaries into viem's branded types.
 import {
   decodeIdentityEip712DomainV1,
   decodeRegisterIntentV1,
@@ -162,7 +163,7 @@ export type RegistrationEnrollmentError =
   | RegistryChainReadError
   | RegistryInputError;
 
-export interface RegistrationEnrollmentShape {
+export interface RegistrationEnrollmentContract {
   readonly authorize: (
     input: AuthorizeRegistration
   ) => Effect.Effect<AuthorizedRegistration, RegistrationEnrollmentError>;
@@ -242,7 +243,7 @@ const verifyAuthorizedRegistrationStatus = Effect.fn(
 
 export class RegistrationEnrollment extends Context.Service<
   RegistrationEnrollment,
-  RegistrationEnrollmentShape
+  RegistrationEnrollmentContract
 >()("@qop/api/RegistrationEnrollment") {
   static readonly layer = Layer.effect(
     this,

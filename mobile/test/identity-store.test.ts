@@ -1,6 +1,8 @@
 import { Effect, Result } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// oxlint-disable anti-slop/no-module-mocking -- Store tests isolate external persistence adapters.
+
 const vaultMock = vi.hoisted(() => ({
   createLocalIdentity: vi.fn(),
   deleteLocalIdentity: vi.fn(),

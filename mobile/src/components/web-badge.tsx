@@ -18,8 +18,8 @@ export const WebBadge = () => {
   const scheme = useColorScheme();
 
   return (
-    <View className="items-center gap-2 pb-2 pt-6">
-      <Text className="text-center text-foreground-secondary" variant="mono">
+    <View className="items-center gap-2 pt-6 pb-2">
+      <Text className="text-foreground-secondary text-center" variant="mono">
         v{version}
       </Text>
       <Image

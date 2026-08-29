@@ -1,6 +1,13 @@
 import type { ConfigContext, ExpoConfig } from "expo/config";
 
 type AppVariant = "development" | "preview" | "production";
+interface AppVariantConfig {
+  readonly backgroundColor: string;
+  readonly darkBackgroundColor: string;
+  readonly identifier: string;
+  readonly name: string;
+  readonly scheme: string;
+}
 
 const VARIANTS = {
   development: {
@@ -24,12 +31,15 @@ const VARIANTS = {
     name: "qop",
     scheme: "qop",
   },
-} as const satisfies Record<AppVariant, object>;
+} as const satisfies Record<AppVariant, AppVariantConfig>;
+
+const isAppVariant = (value: string): value is AppVariant =>
+  Object.hasOwn(VARIANTS, value);
 
 const getAppVariant = (): AppVariant => {
   const appVariant = process.env.APP_VARIANT ?? "production";
-  if (appVariant in VARIANTS) {
-    return appVariant as AppVariant;
+  if (isAppVariant(appVariant)) {
+    return appVariant;
   }
   throw new Error(`Unknown APP_VARIANT: ${appVariant}`);
 };

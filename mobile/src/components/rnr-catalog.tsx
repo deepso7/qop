@@ -520,7 +520,7 @@ const RnrCatalog = () => {
 
           <ContextMenu>
             <ContextMenuTrigger asChild>
-              <Pressable className="border-input min-h-11 justify-center rounded-md border px-4 py-2 active:bg-accent">
+              <Pressable className="border-input active:bg-accent min-h-11 justify-center rounded-md border px-4 py-2">
                 <Text className="text-sm font-medium">Long press</Text>
               </Pressable>
             </ContextMenuTrigger>
@@ -568,7 +568,7 @@ const RnrCatalog = () => {
         </Menubar>
       </CatalogGroup>
 
-      <View className="flex-row items-center gap-2 rounded-lg bg-muted p-3">
+      <View className="bg-muted flex-row items-center gap-2 rounded-lg p-3">
         <CheckCircle2 className="text-foreground size-4 shrink-0" />
         <Text className="min-w-0 flex-1 text-sm">
           Branded QOP primitives use RNR and Uniwind.

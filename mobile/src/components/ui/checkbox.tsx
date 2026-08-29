@@ -56,7 +56,7 @@ const Checkbox = ({
       >
         <Text
           className={cn(
-            "text-background w-full text-center text-[10px] font-bold leading-3",
+            "text-background w-full text-center text-[10px] leading-3 font-bold",
             iconClassName
           )}
         >

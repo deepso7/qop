@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-chained-type-assertions -- SAFETY: The test installs an intentionally controlled semaphore double.
 import { assert, describe, it } from "@effect/vitest";
 import { Deferred, Duration, Effect, Fiber, Semaphore } from "effect";
 import { TestClock } from "effect/testing";

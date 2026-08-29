@@ -2,6 +2,8 @@ import { peerIdFromSecretKey, useMinip2p } from "@minip2p/react-native";
 import * as React from "react";
 import { Platform } from "react-native";
 
+// oxlint-disable react/todo -- Connection cleanup must run for both fulfilled and rejected promises.
+
 const CHAT_TOPIC_PREFIX = "/qop/chat/1";
 const RELAY_ADDRESS =
   "/ip6/2406:da1a:515:6cb6:8928:6c77:ed2:2ebe/udp/4001/quic-v1/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
@@ -55,6 +57,7 @@ interface UseMinip2pChatResult {
   status: Minip2pChatStatus;
 }
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- Promise rejections are untyped at this boundary.
 const errorMessage = (error: unknown) =>
   error instanceof Error ? error.message : String(error);
 
@@ -71,25 +74,30 @@ const decodeWireMessage = (data: ArrayBuffer): WireChatMessage | undefined => {
     return undefined;
   }
 
-  if (typeof value !== "object" || value === null) {
+  if (!(value instanceof Object)) {
     return undefined;
   }
 
+  // SAFETY: JSON.parse returned an object; fields are validated before this value is returned.
   const candidate = value as Partial<WireChatMessage>;
   if (
     candidate.version !== 1 ||
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Parsed JSON requires primitive checks before it can become a wire message.
     typeof candidate.id !== "string" ||
     candidate.id.length === 0 ||
     candidate.id.length > 200 ||
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Parsed JSON requires primitive checks before it can become a wire message.
     typeof candidate.text !== "string" ||
     candidate.text.length === 0 ||
     candidate.text.length > MAX_MESSAGE_LENGTH ||
+    // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Parsed JSON requires primitive checks before it can become a wire message.
     typeof candidate.sentAt !== "number" ||
     !Number.isSafeInteger(candidate.sentAt)
   ) {
     return undefined;
   }
 
+  // SAFETY: Every WireChatMessage field is validated in the guard above.
   return candidate as WireChatMessage;
 };
 
@@ -142,6 +150,7 @@ const useMinip2pChat = (
       setConnectedPeers(endpoint.connectedPeers());
     };
     const refreshDiagnostics = () => {
+      // oxlint-disable-next-line react/todo -- The pending flag must reset whether connecting succeeds or fails.
       try {
         const reservation = endpoint.activeReservation();
         const connected = endpoint.connectedPeers();

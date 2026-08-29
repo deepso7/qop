@@ -28,8 +28,8 @@ export const Screen = ({
   ...props
 }: ScreenProps) => (
   <ScrollView
-    className={cn("flex-1 bg-background", className)}
-    contentContainerClassName={cn("pb-24 web:pb-8", contentContainerClassName)}
+    className={cn("bg-background flex-1", className)}
+    contentContainerClassName={cn("web:pb-8 pb-24", contentContainerClassName)}
     contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}
     {...props}
   >

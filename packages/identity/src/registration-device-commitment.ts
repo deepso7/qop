@@ -13,6 +13,7 @@ export const hashRegistrationDeviceCommitmentV1 = Effect.fn(
 )((peerId: typeof PeerId.Type, observeToken: typeof Base64Url32.Type) =>
   Effect.sync(
     () =>
+      // SAFETY: viem's keccak256 always returns a 32-byte 0x-prefixed hash.
       keccak256(
         concatBytes([
           REGISTRATION_DEVICE_COMMITMENT_DOMAIN,
@@ -26,5 +27,9 @@ export const hashRegistrationDeviceCommitmentV1 = Effect.fn(
 export const hashRegistrationObserveTokenV1 = Effect.fn(
   "@qop/identity/hashRegistrationObserveTokenV1"
 )((observeToken: typeof Base64Url32.Type) =>
-  Effect.sync(() => keccak256(observeToken) as Hash)
+  Effect.sync(
+    () =>
+      // SAFETY: viem's keccak256 always returns a 32-byte 0x-prefixed hash.
+      keccak256(observeToken) as Hash
+  )
 );

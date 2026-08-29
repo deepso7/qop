@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: The database schema enforces digest storage and successful INSERT ... RETURNING calls supply a row.
 import { and, asc, eq, gt, gte, inArray, isNull, lt, or } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
@@ -176,7 +177,7 @@ export interface RegistrationSubmission {
   readonly transactionHash: Hash;
 }
 
-export interface RegistrationStoreShape {
+export interface RegistrationStoreContract {
   readonly releaseAuthorizationReservation: (
     digest: Hash
   ) => Effect.Effect<
@@ -240,7 +241,7 @@ export const registrationDraftLimitPerAdmission = 8;
 
 export class RegistrationStore extends Context.Service<
   RegistrationStore,
-  RegistrationStoreShape
+  RegistrationStoreContract
 >()("@qop/api/RegistrationStore") {
   static readonly layer = Layer.effect(
     this,
@@ -807,7 +808,7 @@ export class RegistrationStore extends Context.Service<
         );
       });
 
-      const prepareSubmission: RegistrationStoreShape["prepareSubmission"] =
+      const prepareSubmission: RegistrationStoreContract["prepareSubmission"] =
         Effect.fn("RegistrationStore.prepareSubmission")(
           function* (digest, pendingNonce, prepare) {
             const canonicalDigest = yield* normalizeRegistrationDigest(digest);

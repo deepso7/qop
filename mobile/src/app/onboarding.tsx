@@ -33,6 +33,9 @@ import {
 } from "@/lib/local-registration";
 import type { LocalRegistration } from "@/lib/local-registration";
 
+// oxlint-disable react/function-component-definition -- Memoized inline components retain concise local prop declarations.
+// oxlint-disable react/exhaustive-effect-dependencies -- The retry counter intentionally re-runs recovery-key retrieval.
+
 const decodeHandle = Schema.decodeUnknownResult(Handle);
 const decodeAdmissionCode = Schema.decodeUnknownResult(
   RegistrationAdmissionCode
@@ -505,7 +508,7 @@ const RegistrationStep = React.memo(
           autoCapitalize="characters"
           autoComplete="off"
           autoCorrect={false}
-          className="border-border bg-background-element h-14 rounded-xl px-4 text-center font-mono text-[18px] tracking-widest dark:bg-background-element"
+          className="border-border bg-background-element dark:bg-background-element h-14 rounded-xl px-4 text-center font-mono text-[18px] tracking-widest"
           editable={!busy}
           enterKeyHint="done"
           maxLength={7}
@@ -534,7 +537,7 @@ const RegistrationStep = React.memo(
         </Text>
         {isLoading ? null : (
           <Text
-            className="text-center text-foreground-secondary"
+            className="text-foreground-secondary text-center"
             variant="caption"
           >
             Sepolia confirmation can take a few seconds.
@@ -592,7 +595,7 @@ const RegistrationStep = React.memo(
             >
               Register @{handle}.
             </Text>
-            <Text className="max-w-md text-foreground-secondary" variant="body">
+            <Text className="text-foreground-secondary max-w-md" variant="body">
               Enter your invitation code to make this handle permanent.
             </Text>
           </View>
@@ -602,7 +605,7 @@ const RegistrationStep = React.memo(
         <View className="gap-3">
           {message ? (
             <Text
-              className="text-center text-destructive"
+              className="text-destructive text-center"
               selectable
               variant="caption"
             >
@@ -652,7 +655,7 @@ const RecoveryStep = React.memo(
           >
             Save your recovery key.
           </Text>
-          <Text className="max-w-md text-foreground-secondary" variant="body">
+          <Text className="text-foreground-secondary max-w-md" variant="body">
             This key restores @{handle}. Qop cannot reset or replace it for you.
           </Text>
         </View>
@@ -689,7 +692,7 @@ const RecoveryStep = React.memo(
       <View className="gap-3">
         {error ? (
           <Text
-            className="text-center text-destructive"
+            className="text-destructive text-center"
             selectable
             variant="caption"
           >
@@ -785,7 +788,7 @@ const VaultErrorScreen = React.memo(
               Identity vault unavailable.
             </Text>
             <Text
-              className="text-center text-foreground-secondary"
+              className="text-foreground-secondary text-center"
               selectable
               variant="body"
             >
@@ -934,7 +937,7 @@ const OnboardingRoute = React.memo(() => {
             >
               Create your qop.
             </Text>
-            <Text className="max-w-md text-foreground-secondary" variant="body">
+            <Text className="text-foreground-secondary max-w-md" variant="body">
               Choose the handle people will know you by.
             </Text>
           </View>
@@ -947,7 +950,7 @@ const OnboardingRoute = React.memo(() => {
               autoCapitalize="none"
               autoComplete="off"
               autoCorrect={false}
-              className="border-border bg-background-element h-14 rounded-xl px-4 text-[18px] dark:bg-background-element"
+              className="border-border bg-background-element dark:bg-background-element h-14 rounded-xl px-4 text-[18px]"
               editable={!isCreating}
               enterKeyHint="done"
               maxLength={32}
@@ -990,7 +993,7 @@ const OnboardingRoute = React.memo(() => {
             <Text>{isCreating ? "Creating…" : `Create @${handle}`}</Text>
           </Button>
           <Text
-            className="text-center text-foreground-secondary"
+            className="text-foreground-secondary text-center"
             selectable
             variant="caption"
           >
@@ -1017,7 +1020,7 @@ const OnboardingRoute = React.memo(() => {
               Message people, not platforms.
             </Text>
             <Text
-              className="max-w-sm text-center text-foreground-secondary"
+              className="text-foreground-secondary max-w-sm text-center"
               variant="body"
             >
               Create a qop that you control with one recovery key.
@@ -1040,7 +1043,7 @@ const OnboardingRoute = React.memo(() => {
 
   return (
     <ScrollView
-      className="flex-1 bg-background"
+      className="bg-background flex-1"
       contentContainerClassName="grow"
       contentContainerStyle={{
         paddingBottom: Math.max(insets.bottom, 72),
@@ -1052,7 +1055,7 @@ const OnboardingRoute = React.memo(() => {
       }
       keyboardShouldPersistTaps="handled"
     >
-      <View className="w-full max-w-xl grow self-center gap-10 px-6 py-3 sm:px-10 sm:py-8">
+      <View className="w-full max-w-xl grow gap-10 self-center px-6 py-3 sm:px-10 sm:py-8">
         {content}
       </View>
     </ScrollView>

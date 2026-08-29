@@ -152,7 +152,7 @@ const SelectContent = ({
                 Platform.select({
                   native: "p-1",
                   web: cn(
-                    "animate-in fade-in-0 zoom-in-95 origin-(--radix-select-content-transform-origin) max-h-52 overflow-y-auto overflow-x-hidden",
+                    "animate-in fade-in-0 zoom-in-95 max-h-52 origin-(--radix-select-content-transform-origin) overflow-x-hidden overflow-y-auto",
                     props.side === "bottom" && "slide-in-from-top-2",
                     props.side === "top" && "slide-in-from-bottom-2"
                   ),
@@ -209,7 +209,7 @@ const SelectItem = ({
 }: Omit<React.ComponentProps<typeof SelectPrimitive.Item>, "children">) => (
   <SelectPrimitive.Item
     className={cn(
-      "active:bg-accent group relative flex min-h-11 w-full flex-row items-center gap-2 rounded-sm py-2 pl-2 pr-8 web:min-h-0 web:py-1.5",
+      "active:bg-accent group web:min-h-0 web:py-1.5 relative flex min-h-11 w-full flex-row items-center gap-2 rounded-sm py-2 pr-8 pl-2",
       Platform.select({
         web: "focus:bg-accent focus:text-accent-foreground *:[span]:last:flex *:[span]:last:items-center *:[span]:last:gap-2 cursor-default outline-none data-[disabled]:pointer-events-none [&_svg]:pointer-events-none",
       }),
@@ -223,7 +223,7 @@ const SelectItem = ({
         <Icon as={Check} className="text-muted-foreground size-4 shrink-0" />
       </SelectPrimitive.ItemIndicator>
     </View>
-    <SelectPrimitive.ItemText className="text-foreground group-active:text-accent-foreground select-none text-sm" />
+    <SelectPrimitive.ItemText className="text-foreground group-active:text-accent-foreground text-sm select-none" />
   </SelectPrimitive.Item>
 );
 

@@ -60,6 +60,7 @@ const validEnvelope = {
 const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
 
 const expectEnvelopeIssue = Effect.fn("@qop/identity/test/expectEnvelopeIssue")(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This test helper verifies the decoder's public I/O boundary.
   function* (input: unknown, path: readonly string[], message: string) {
     const error = yield* decodeIdentityEnvelopeV1(input).pipe(Effect.flip);
     assert.deepStrictEqual(formatIssue(error.issue).issues, [
@@ -69,8 +70,10 @@ const expectEnvelopeIssue = Effect.fn("@qop/identity/test/expectEnvelopeIssue")(
 );
 
 const expectCodecIssue = Effect.fn("@qop/identity/test/expectCodecIssue")(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This test helper verifies codecs at their public I/O boundary.
   function* (
     schema: Schema.Codec<unknown, unknown>,
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The helper passes this untrusted test input directly to the supplied codec.
     input: unknown,
     message: string
   ) {

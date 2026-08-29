@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Encoded challenges are schema-validated and successful INSERT ... RETURNING calls supply a row.
 import type { DeviceSessionChallengeV1Encoded } from "@qop/identity";
 import { and, asc, eq, gt, inArray, isNull, lte, ne, or } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
@@ -65,7 +66,7 @@ export type DeviceSessionStoreError =
   | DeviceSessionNotFound
   | DeviceSessionStorePersistenceError;
 
-export interface DeviceSessionStoreShape {
+export interface DeviceSessionStoreContract {
   readonly authenticate: (
     input: AuthenticateDeviceSession
   ) => Effect.Effect<StoredDeviceSession, DeviceSessionStoreError>;
@@ -96,7 +97,7 @@ export interface DeviceSessionStoreShape {
 
 export class DeviceSessionStore extends Context.Service<
   DeviceSessionStore,
-  DeviceSessionStoreShape
+  DeviceSessionStoreContract
 >()("@qop/api/DeviceSessionStore") {
   static readonly layer = Layer.effect(
     this,

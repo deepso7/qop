@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: These fixed test fixtures use valid Ethereum address, hash, and signature literal representations.
 import { assert, layer } from "@effect/vitest";
 import { DateTime, Effect, Option } from "effect";
 import { TestClock } from "effect/testing";

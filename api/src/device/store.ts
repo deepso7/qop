@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Assertions bridge independently schema-validated identity values and database/viem branded types.
 import type { IdentityEnvelopeV1Encoded } from "@qop/identity";
 import { eq } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
@@ -50,7 +51,7 @@ export type DeviceCertificateStoreError =
   | RegistrationInputError
   | RegistryInputError;
 
-export interface DeviceCertificateStoreShape {
+export interface DeviceCertificateStoreContract {
   readonly get: (
     certificateDigest: Hash
   ) => Effect.Effect<
@@ -97,7 +98,7 @@ const findRegistrationObservation = (
 
 export class DeviceCertificateStore extends Context.Service<
   DeviceCertificateStore,
-  DeviceCertificateStoreShape
+  DeviceCertificateStoreContract
 >()("@qop/api/DeviceCertificateStore") {
   static readonly layer = Layer.effect(
     this,

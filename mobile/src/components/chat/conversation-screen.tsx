@@ -267,7 +267,7 @@ const ConversationScreen = ({
   return (
     <KeyboardAvoidingView
       behavior="height"
-      className="flex-1 bg-background"
+      className="bg-background flex-1"
       keyboardVerticalOffset={headerHeight}
     >
       <View className="border-border gap-1 border-b px-4 py-2">
@@ -309,7 +309,7 @@ const ConversationScreen = ({
         renderItem={renderItem}
       />
       <Animated.View
-        className="border-border border-t bg-background px-3 pt-2"
+        className="border-border bg-background border-t px-3 pt-2"
         style={composerStyle}
       >
         <ChatComposer className="border-0 p-0">

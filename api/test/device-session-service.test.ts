@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: These fixed test fixtures use valid Ethereum address, hash, and signature literal representations.
 import { assert, layer } from "@effect/vitest";
 import {
   Base64Url32,
@@ -204,6 +205,7 @@ const observeCertificate = Effect.fn("test.observeCertificate")(function* (
 });
 
 const signChallenge = Effect.fn("test.signChallenge")(function* (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Tests deliberately inject malformed challenges into the decoder.
   challenge: unknown
 ) {
   const decoded = yield* decodeDeviceSessionChallengeV1(challenge);

@@ -24,6 +24,7 @@ const Accordion = ({
 }: Omit<React.ComponentProps<typeof AccordionPrimitive.Root>, "asChild">) => (
   <LayoutAnimationConfig skipEntering>
     <AccordionPrimitive.Root
+      // SAFETY: The root props are received directly from the primitive's public component props.
       {...(props as AccordionPrimitiveModule.RootProps)}
       asChild={Platform.OS !== "web"}
     >

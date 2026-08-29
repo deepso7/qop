@@ -11,6 +11,8 @@ import type { ChatRowProps } from "@/components/ui/chat-row";
 import { ChatSearch } from "@/components/ui/chat-search";
 import { Text } from "@/components/ui/text";
 
+// oxlint-disable react/todo -- The opening guard must always reset after navigation completes or rejects.
+
 interface Conversation extends ChatRowProps {
   id: string;
 }
@@ -57,7 +59,7 @@ const conversationKey = ({ id }: Conversation) => id;
 const NoSearchResults = () => (
   <View className="items-center gap-1 px-6 py-12">
     <Text className="font-semibold">No chats found</Text>
-    <Text className="text-center text-foreground-secondary" variant="caption">
+    <Text className="text-foreground-secondary text-center" variant="caption">
       Try a name or a word from a recent message.
     </Text>
   </View>
@@ -120,7 +122,7 @@ const ChatsScreen = () => {
   );
 
   return (
-    <View className="flex-1 bg-background">
+    <View className="bg-background flex-1">
       <FlashList
         contentContainerStyle={contentContainerStyle}
         contentInsetAdjustmentBehavior="automatic"

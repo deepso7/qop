@@ -1,3 +1,4 @@
+import { isValidElement } from "react";
 import type { ReactNode } from "react";
 import { View } from "react-native";
 
@@ -16,12 +17,12 @@ export const HintRow = ({
   <View className="flex-row items-center justify-between gap-4">
     <Text variant="caption">{title}</Text>
     <Surface className="shrink rounded-md px-2.5 py-1" tone="selected">
-      {typeof hint === "string" ? (
+      {isValidElement(hint) ? (
+        hint
+      ) : (
         <Text className="text-foreground-secondary" variant="mono">
           {hint}
         </Text>
-      ) : (
-        hint
       )}
     </Surface>
   </View>

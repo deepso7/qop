@@ -54,6 +54,7 @@ const OwnerPrivateKey = Schema.Uint8Array.check(
   })
 );
 
+// oxlint-disable-next-line no-redeclare -- The schema and its inferred type intentionally share the public API name.
 export const RegisterIntentV1 = Schema.Struct({
   deadline: UnixSeconds,
   deviceCommitment: DeviceCommitment,
@@ -68,6 +69,7 @@ export const RegisterIntentV1 = Schema.Struct({
 export type RegisterIntentV1 = typeof RegisterIntentV1.Type;
 export type RegisterIntentV1Encoded = typeof RegisterIntentV1.Encoded;
 
+// oxlint-disable-next-line no-redeclare -- The schema and its inferred type intentionally share the public API name.
 export const RotateOwnerIntentV1 = Schema.Struct({
   deadline: UnixSeconds,
   newOwner: NonZeroEthereumAddress,
@@ -81,6 +83,7 @@ export const RotateOwnerIntentV1 = Schema.Struct({
 export type RotateOwnerIntentV1 = typeof RotateOwnerIntentV1.Type;
 export type RotateOwnerIntentV1Encoded = typeof RotateOwnerIntentV1.Encoded;
 
+// oxlint-disable-next-line no-redeclare -- The schema and its inferred type intentionally share the public API name.
 export const RevokeDeviceIntentV1 = Schema.Struct({
   certificateDigest: CertificateDigest,
   deadline: UnixSeconds,
@@ -125,6 +128,7 @@ export const revokeDeviceIntentEip712Types = {
 const typedDataDomain = (domain: IdentityDomain) => ({
   chainId: domain.chainId,
   name: identityEip712DomainName,
+  // SAFETY: The domain schema accepts only canonical 20-byte hex addresses.
   verifyingContract: domain.verifyingContract as Address,
   version: identityEip712DomainVersion,
 });
@@ -140,6 +144,7 @@ export const makeRegisterIntentTypedDataV1 = (
       deviceCommitment: toHex(intent.deviceCommitment),
       handle: intent.handle,
       nonce: toHex(intent.nonce),
+      // SAFETY: The intent schema accepts only canonical 20-byte hex addresses.
       owner: intent.owner as Address,
     },
     primaryType: "RegisterV1",
@@ -154,6 +159,7 @@ export const makeRotateOwnerIntentTypedDataV1 = (
     domain: typedDataDomain(domain),
     message: {
       deadline: intent.deadline,
+      // SAFETY: The intent schema accepts only canonical 20-byte hex addresses.
       newOwner: intent.newOwner as Address,
       nonce: intent.nonce,
       qid: intent.qid,
@@ -218,15 +224,24 @@ const validateRevokeDeviceInputs = (
 
 export const decodeRegisterIntentV1 = Effect.fn(
   "@qop/identity/decodeRegisterIntentV1"
-)((input: unknown) => Schema.decodeUnknownEffect(RegisterIntentV1)(input));
+)(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
+  (input: unknown) => Schema.decodeUnknownEffect(RegisterIntentV1)(input)
+);
 
 export const decodeRotateOwnerIntentV1 = Effect.fn(
   "@qop/identity/decodeRotateOwnerIntentV1"
-)((input: unknown) => Schema.decodeUnknownEffect(RotateOwnerIntentV1)(input));
+)(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
+  (input: unknown) => Schema.decodeUnknownEffect(RotateOwnerIntentV1)(input)
+);
 
 export const decodeRevokeDeviceIntentV1 = Effect.fn(
   "@qop/identity/decodeRevokeDeviceIntentV1"
-)((input: unknown) => Schema.decodeUnknownEffect(RevokeDeviceIntentV1)(input));
+)(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
+  (input: unknown) => Schema.decodeUnknownEffect(RevokeDeviceIntentV1)(input)
+);
 
 export const encodeRegisterIntentV1 = Effect.fn(
   "@qop/identity/encodeRegisterIntentV1"

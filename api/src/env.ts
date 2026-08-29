@@ -37,7 +37,7 @@ const Port = Schema.NumberFromString.check(
   Schema.isBetween({ maximum: 65_535, minimum: 1 })
 );
 
-const EnvSchema = Schema.Struct({
+export const EnvSchema = Schema.Struct({
   CHAIN_ID: ChainId,
   DATABASE_URL: Schema.Trim.check(Schema.isNonEmpty()),
   GATEWAY_ID: Base64Url32,
@@ -51,11 +51,10 @@ const EnvSchema = Schema.Struct({
 
 type EnvType = Schema.Schema.Type<typeof EnvSchema>;
 
-export const decodeEnv = (input: unknown) =>
-  Schema.decodeUnknownEffect(EnvSchema)(input, { errors: "all" });
-
 export class Env extends Context.Service<Env, EnvType>()("@qop/api/Env", {
-  make: decodeEnv(process.env).pipe(
+  make: Schema.decodeUnknownEffect(EnvSchema)(process.env, {
+    errors: "all",
+  }).pipe(
     Effect.mapError((error) =>
       SchemaIssue.makeFormatterStandardSchemaV1()(error.issue)
     ),

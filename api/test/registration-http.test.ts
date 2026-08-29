@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Test routes use fixed valid Ethereum literal fixtures and the asserted JSON response shape is owned by this handler test.
 import { NodeHttpServer } from "@effect/platform-node";
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Layer, Schema, SchemaIssue } from "effect";
@@ -34,6 +35,11 @@ import {
   RegistrationIntentNotFound,
   RegistrationTransitionConflict,
 } from "../src/registration/store.ts";
+
+const OpenApiDocument = Schema.Struct({
+  paths: Schema.Record(Schema.String, Schema.Unknown),
+});
+const decodeOpenApiDocument = Schema.decodeUnknownSync(OpenApiDocument);
 
 const OWNER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf" as Address;
 const CHECKSUMMED_OWNER =
@@ -249,9 +255,7 @@ describe("registration HTTP API", () => {
     Effect.gen(function* () {
       const response = yield* HttpClient.get("/openapi.json");
       assert.strictEqual(response.status, 200);
-      const document = (yield* response.json) as {
-        readonly paths: Readonly<Record<string, unknown>>;
-      };
+      const document = decodeOpenApiDocument(yield* response.json);
       assert.hasAllKeys(document.paths, [
         "/v1/device-sessions/authenticate",
         "/v1/device-sessions/challenges",

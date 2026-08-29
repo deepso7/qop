@@ -9,6 +9,8 @@ import expoLogo from "@/assets/images/expo-logo.png";
 import logoGlow from "@/assets/images/logo-glow.png";
 import { useTheme } from "@/constants/theme";
 
+// oxlint-disable react/todo -- Splash cleanup intentionally runs after either async outcome.
+
 const INITIAL_SCALE_FACTOR = Dimensions.get("screen").height / 90;
 const DURATION = 600;
 
@@ -92,6 +94,7 @@ export const AnimatedSplashOverlay = () => {
   ) : (
     <View
       onLayout={async () => {
+        // oxlint-disable-next-line react/todo -- Animation begins after either splash-screen outcome.
         try {
           await SplashScreen.hideAsync();
         } finally {

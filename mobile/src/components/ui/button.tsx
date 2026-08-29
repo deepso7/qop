@@ -170,6 +170,7 @@ const Button = ({
         style={(state: PressableStateCallbackType) => [
           { borderCurve: "continuous" },
           animatedStyle,
+          // oxlint-disable-next-line anti-slop/no-runtime-typeof -- Pressable's declared style prop is a callback or style object.
           typeof style === "function" ? style(state) : style,
         ]}
         {...props}

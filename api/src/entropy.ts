@@ -6,11 +6,11 @@ export class EntropyError extends Data.TaggedError("EntropyError")<{
   readonly cause: unknown;
 }> {}
 
-export interface EntropyShape {
+export interface EntropyContract {
   readonly bytes32: Effect.Effect<Uint8Array, EntropyError>;
 }
 
-export class Entropy extends Context.Service<Entropy, EntropyShape>()(
+export class Entropy extends Context.Service<Entropy, EntropyContract>()(
   "@qop/api/Entropy"
 ) {
   static readonly layer = Layer.succeed(

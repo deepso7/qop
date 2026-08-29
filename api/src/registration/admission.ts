@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: keccak256 returns a canonical 0x-prefixed 32-byte hash.
 import { RegistrationAdmissionCode } from "@qop/identity";
 import { and, eq, gt, isNull, or } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
@@ -14,7 +15,10 @@ const admissionCodeHashDomain = stringToBytes("qop/registration-admission/v1");
 
 export const decodeRegistrationAdmissionCode = Effect.fn(
   "RegistrationAdmission.decodeCode"
-)(function* (input: unknown) {
+)(function* (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The admission code is decoded below.
+  input: unknown
+) {
   const code = yield* Schema.decodeUnknownEffect(RegistrationAdmissionCode)(
     input
   );
@@ -35,7 +39,7 @@ export type RegistrationAdmissionError =
   | RegistrationAdmissionUnauthorized
   | SqlError;
 
-export interface RegistrationAdmissionShape {
+export interface RegistrationAdmissionContract {
   readonly create: (
     codeHash: Hash,
     expiresAt?: bigint
@@ -51,7 +55,7 @@ export interface RegistrationAdmissionShape {
 
 export class RegistrationAdmission extends Context.Service<
   RegistrationAdmission,
-  RegistrationAdmissionShape
+  RegistrationAdmissionContract
 >()("@qop/api/RegistrationAdmission") {
   static readonly layer = Layer.effect(
     this,

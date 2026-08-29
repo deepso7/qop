@@ -17,8 +17,8 @@ const Separator = ({
     accessibilityElementsHidden={decorative}
     accessibilityRole={decorative ? "none" : undefined}
     className={cn(
-      "shrink-0 bg-border",
-      orientation === "horizontal" ? "h-hairline w-full" : "h-full w-hairline",
+      "bg-border shrink-0",
+      orientation === "horizontal" ? "h-hairline w-full" : "w-hairline h-full",
       className
     )}
     {...props}

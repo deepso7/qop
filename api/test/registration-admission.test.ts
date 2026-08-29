@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: The helper deterministically builds a valid 0x-prefixed 32-byte hash fixture.
 import { assert, layer } from "@effect/vitest";
 import { DateTime, Effect } from "effect";
 import { TestClock } from "effect/testing";

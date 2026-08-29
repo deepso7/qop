@@ -38,6 +38,7 @@ const encodedDomain = {
 const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
 
 const expectDomainIssue = Effect.fn("@qop/identity/test/expectDomainIssue")(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This test helper verifies the decoder's public I/O boundary.
   function* (input: unknown, path: readonly string[], message: string) {
     const error = yield* decodeIdentityEip712DomainV1(input).pipe(Effect.flip);
     assert.deepStrictEqual(formatIssue(error.issue).issues, [

@@ -16,6 +16,7 @@ import {
 
 const ED25519_PEER_ID_PREFIX_LENGTH = 6;
 const DEVICE_SESSION_POP_DOMAIN = "qop/device-session-pop/v1";
+// SAFETY: Every character in this ASCII protocol domain has a Unicode code point.
 const DEVICE_SESSION_POP_DOMAIN_BYTES = Uint8Array.from(
   [...DEVICE_SESSION_POP_DOMAIN].map((character) =>
     character.codePointAt(0)
@@ -23,6 +24,7 @@ const DEVICE_SESSION_POP_DOMAIN_BYTES = Uint8Array.from(
 );
 
 export const deviceSessionPopVersion = 1 as const;
+// oxlint-disable-next-line no-redeclare -- The schema and its inferred type intentionally share the public API name.
 export const DeviceSessionChallengeV1 = Schema.Struct({
   certificateDigest: Hex32,
   challenge: Base64Url32,
@@ -48,6 +50,7 @@ export type DeviceSessionChallengeV1 = typeof DeviceSessionChallengeV1.Type;
 export type DeviceSessionChallengeV1Encoded =
   typeof DeviceSessionChallengeV1.Encoded;
 
+// oxlint-disable-next-line no-redeclare -- The schema and its inferred type intentionally share the public API name.
 export const DeviceSessionProofV1 = Schema.Struct({
   challenge: DeviceSessionChallengeV1,
   signature: Base64Url64,
@@ -69,8 +72,10 @@ export class DeviceSessionPopCryptoError extends Data.TaggedError(
 
 export const decodeDeviceSessionChallengeV1 = Effect.fn(
   "@qop/identity/decodeDeviceSessionChallengeV1"
-)((input: unknown) =>
-  Schema.decodeUnknownEffect(DeviceSessionChallengeV1)(input)
+)(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
+  (input: unknown) =>
+    Schema.decodeUnknownEffect(DeviceSessionChallengeV1)(input)
 );
 
 export const encodeDeviceSessionChallengeV1 = Effect.fn(
@@ -81,7 +86,10 @@ export const encodeDeviceSessionChallengeV1 = Effect.fn(
 
 export const decodeDeviceSessionProofV1 = Effect.fn(
   "@qop/identity/decodeDeviceSessionProofV1"
-)((input: unknown) => Schema.decodeUnknownEffect(DeviceSessionProofV1)(input));
+)(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
+  (input: unknown) => Schema.decodeUnknownEffect(DeviceSessionProofV1)(input)
+);
 
 export const encodeDeviceSessionProofV1 = Effect.fn(
   "@qop/identity/encodeDeviceSessionProofV1"
@@ -104,6 +112,7 @@ export const hashDeviceSessionChallengeV1 = Effect.fn(
       numberToBytes(challenge.issuedAt, { size: 8 }),
       numberToBytes(challenge.expiresAt, { size: 8 }),
     ]);
+    // SAFETY: viem's keccak256 always returns a 32-byte 0x-prefixed hash.
     return keccak256(payload) as Hash;
   })
 );

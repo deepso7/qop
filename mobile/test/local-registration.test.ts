@@ -6,6 +6,8 @@ import {
 import { Effect } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// oxlint-disable anti-slop/no-module-mocking -- Registration tests isolate network and device adapters.
+
 const REGISTRATION_STORAGE_KEY = "qop.registration.v1";
 const OWNER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf";
 const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";

@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Assertions follow the corresponding identity schema decoder.
 import {
   Handle,
   Hex32,
@@ -25,7 +26,10 @@ export class RegistryInputError extends Data.TaggedError("RegistryInputError")<{
 }> {}
 
 export const normalizeRegistryOwner = Effect.fn("RegistryInput.normalizeOwner")(
-  function* (input: unknown) {
+  function* (
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The owner is decoded below.
+    input: unknown
+  ) {
     return (yield* normalizeEthereumAddress(input).pipe(
       Effect.mapError(
         (cause) => new RegistryInputError({ cause, operation: "owner" })
@@ -36,7 +40,10 @@ export const normalizeRegistryOwner = Effect.fn("RegistryInput.normalizeOwner")(
 
 export const normalizeCertificateDigest = Effect.fn(
   "RegistryInput.normalizeCertificateDigest"
-)(function* (input: unknown) {
+)(function* (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The digest is decoded below.
+  input: unknown
+) {
   const encoded = yield* Schema.decodeUnknownEffect(CertificateDigestInput)(
     input
   ).pipe(
@@ -57,7 +64,10 @@ export const normalizeCertificateDigest = Effect.fn(
 
 export const normalizeRegistryHandle = Effect.fn(
   "RegistryInput.normalizeHandle"
-)(function* (input: unknown) {
+)(function* (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The handle is decoded below.
+  input: unknown
+) {
   return yield* Schema.decodeUnknownEffect(Handle)(input).pipe(
     Effect.mapError(
       (cause) => new RegistryInputError({ cause, operation: "handle" })
@@ -67,7 +77,10 @@ export const normalizeRegistryHandle = Effect.fn(
 
 export const normalizeRegistryRegistrationNonce = Effect.fn(
   "RegistryInput.normalizeRegistrationNonce"
-)(function* (input: unknown) {
+)(function* (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The nonce is decoded below.
+  input: unknown
+) {
   const encoded = yield* Schema.decodeUnknownEffect(Schema.String)(input).pipe(
     Effect.mapError(
       (cause) =>

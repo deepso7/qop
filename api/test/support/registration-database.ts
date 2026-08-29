@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion, anti-slop/no-chained-type-assertions -- SAFETY: The test adapter owns the PGlite/Drizzle compatibility bridge.
 import * as PgliteClient from "@effect/sql-pglite/PgliteClient";
 import type { PGlite } from "@electric-sql/pglite";
 import { pushSchema } from "drizzle-kit/api-postgres";

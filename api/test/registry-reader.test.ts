@@ -1,10 +1,11 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: The fake chain and fixed values model valid registry address and hash representations.
 import { assert, describe, it } from "@effect/vitest";
 import { Duration, Effect, Layer } from "effect";
 import { TestClock } from "effect/testing";
 import type { Address, Hash } from "viem";
 
 import { RegistryChain } from "../src/registry/chain.ts";
-import type { RegistryChainShape } from "../src/registry/chain.ts";
+import type { RegistryChainContract } from "../src/registry/chain.ts";
 import { RegistryReader } from "../src/registry/reader.ts";
 import type { RegistryAccount } from "../src/registry/types.ts";
 
@@ -42,7 +43,7 @@ const makeReader = () => {
     handles: [] as string[],
     owners: [] as Address[],
   };
-  const chain: RegistryChainShape = {
+  const chain: RegistryChainContract = {
     account: (qid) =>
       Effect.sync(() => {
         calls.account += 1;

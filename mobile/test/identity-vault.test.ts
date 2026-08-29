@@ -1,9 +1,15 @@
 import { Effect, Result } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// oxlint-disable anti-slop/no-module-mocking -- Vault tests replace device-only Expo adapters.
+
 const IDENTITY_STORAGE_KEY = "qop.identity.v1";
 const INSTALL_MARKER_FILENAME = ".qop-install-v1";
 const INSTALL_STORAGE_KEY = "qop.install.v1";
+
+interface MockDirectory {
+  readonly path?: string;
+}
 
 const secureStoreMock = vi.hoisted(() => ({
   deleteItemAsync: vi.fn(),
@@ -36,7 +42,7 @@ vi.mock("expo-file-system", () => {
   class File {
     readonly name: string;
 
-    constructor(_directory: unknown, name: string) {
+    constructor(_directory: MockDirectory, name: string) {
       this.name = name;
     }
 

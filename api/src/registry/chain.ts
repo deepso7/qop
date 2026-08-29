@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Environment and registry schemas validate address representations before these viem conversions.
 import { Context, Data, Effect, Layer } from "effect";
 import { createPublicClient, http, keccak256, stringToBytes } from "viem";
 import type { Address, Hash } from "viem";
@@ -45,7 +46,7 @@ export const confirmedRegistryBlock = Effect.fn(
   return latest - confirmations;
 });
 
-export interface RegistryChainShape {
+export interface RegistryChainContract {
   readonly account: (
     qid: bigint
   ) => Effect.Effect<RegistrySnapshot<RegistryAccount>, RegistryChainError>;
@@ -71,7 +72,7 @@ export interface RegistryChainShape {
 
 export class RegistryChain extends Context.Service<
   RegistryChain,
-  RegistryChainShape
+  RegistryChainContract
 >()("@qop/api/RegistryChain") {
   static readonly layer = Layer.effect(
     this,

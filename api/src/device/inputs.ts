@@ -15,6 +15,7 @@ export class DeviceCertificateInputError extends Data.TaggedError(
 export const normalizeIdentityEnvelope = Effect.fn(
   "DeviceCertificateInput.normalizeEnvelope"
 )(function* (
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The identity envelope is decoded at this input boundary.
   input: unknown
 ): Effect.fn.Return<IdentityEnvelopeV1Encoded, DeviceCertificateInputError> {
   const envelope = yield* decodeIdentityEnvelopeV1(input).pipe(

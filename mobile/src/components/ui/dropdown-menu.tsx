@@ -51,14 +51,14 @@ const DropdownMenuSubTrigger = ({
   const { open } = DropdownMenuPrimitive.useSubContext();
   const icon = getSubmenuIcon(open);
   const textClassName = cn(
-    "text-sm select-none group-active:text-accent-foreground",
+    "group-active:text-accent-foreground text-sm select-none",
     open && "text-accent-foreground"
   );
   return (
     <TextClassContext.Provider value={textClassName}>
       <DropdownMenuPrimitive.SubTrigger
         className={cn(
-          "active:bg-accent group flex min-h-11 flex-row items-center justify-between rounded-sm px-2 py-2 web:min-h-0 web:py-1.5",
+          "active:bg-accent group web:min-h-0 web:py-1.5 flex min-h-11 flex-row items-center justify-between rounded-sm px-2 py-2",
           Platform.select({
             web: "focus:bg-accent focus:text-accent-foreground cursor-default outline-none [&_svg]:pointer-events-none",
           }),
@@ -114,6 +114,7 @@ const DropdownMenuContent = ({
     <FullWindowOverlay>
       <DropdownMenuPrimitive.Overlay
         style={
+          // SAFETY: flattening this array retains the absolute-fill view-style shape.
           StyleSheet.flatten([
             StyleSheet.absoluteFill,
             overlayStyle,
@@ -132,7 +133,7 @@ const DropdownMenuContent = ({
                 "bg-popover border-border min-w-32 overflow-hidden rounded-md border p-1 shadow-lg shadow-black/5",
                 Platform.select({
                   web: cn(
-                    "animate-in fade-in-0 zoom-in-95 max-h-(--radix-context-menu-content-available-height) origin-(--radix-context-menu-content-transform-origin) z-50 cursor-default",
+                    "animate-in fade-in-0 zoom-in-95 z-50 max-h-(--radix-context-menu-content-available-height) origin-(--radix-context-menu-content-transform-origin) cursor-default",
                     props.side === "bottom" && "slide-in-from-top-2",
                     props.side === "top" && "slide-in-from-bottom-2"
                   ),
@@ -159,7 +160,7 @@ const DropdownMenuItem = ({
   variant?: "default" | "destructive";
 }) => {
   const textClassName = cn(
-    "select-none text-sm text-popover-foreground group-active:text-popover-foreground",
+    "text-popover-foreground group-active:text-popover-foreground text-sm select-none",
     variant === "destructive" &&
       "text-destructive group-active:text-destructive"
   );
@@ -168,7 +169,7 @@ const DropdownMenuItem = ({
     <TextClassContext.Provider value={textClassName}>
       <DropdownMenuPrimitive.Item
         className={cn(
-          "active:bg-accent group relative flex min-h-11 flex-row items-center gap-2 rounded-sm px-2 py-2 web:min-h-0 web:py-1.5",
+          "active:bg-accent group web:min-h-0 web:py-1.5 relative flex min-h-11 flex-row items-center gap-2 rounded-sm px-2 py-2",
           Platform.select({
             web: cn(
               "focus:bg-accent focus:text-accent-foreground cursor-default outline-none data-[disabled]:pointer-events-none",
@@ -198,7 +199,7 @@ const DropdownMenuCheckboxItem = ({
   <TextClassContext.Provider value="text-sm text-popover-foreground select-none group-active:text-accent-foreground">
     <DropdownMenuPrimitive.CheckboxItem
       className={cn(
-        "active:bg-accent group relative flex min-h-11 flex-row items-center gap-2 rounded-sm py-2 pl-8 pr-2 web:min-h-0 web:py-1.5",
+        "active:bg-accent group web:min-h-0 web:py-1.5 relative flex min-h-11 flex-row items-center gap-2 rounded-sm py-2 pr-2 pl-8",
         Platform.select({
           web: "focus:bg-accent focus:text-accent-foreground cursor-default outline-none data-[disabled]:pointer-events-none",
         }),
@@ -233,7 +234,7 @@ const DropdownMenuRadioItem = ({
   <TextClassContext.Provider value="text-sm text-popover-foreground select-none group-active:text-accent-foreground">
     <DropdownMenuPrimitive.RadioItem
       className={cn(
-        "active:bg-accent group relative flex min-h-11 flex-row items-center gap-2 rounded-sm py-2 pl-8 pr-2 web:min-h-0 web:py-1.5",
+        "active:bg-accent group web:min-h-0 web:py-1.5 relative flex min-h-11 flex-row items-center gap-2 rounded-sm py-2 pr-2 pl-8",
         Platform.select({
           web: "focus:bg-accent focus:text-accent-foreground cursor-default outline-none data-[disabled]:pointer-events-none",
         }),

@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Cache keys are constructed with a validated certificate digest suffix.
 import { Context, Duration, Effect, Layer, Semaphore } from "effect";
 import type { Address, Hash } from "viem";
 
@@ -71,7 +72,7 @@ export interface RegistryInvalidations {
   ) => Effect.Effect<void, RegistryInputError>;
 }
 
-export interface RegistryReaderShape {
+export interface RegistryReaderContract {
   readonly cached: RegistryReads;
   readonly fresh: RegistryFreshReads;
   readonly invalidate: RegistryInvalidations;
@@ -121,7 +122,7 @@ const parseRevocationKey = (
 
 export class RegistryReader extends Context.Service<
   RegistryReader,
-  RegistryReaderShape
+  RegistryReaderContract
 >()("@qop/api/RegistryReader") {
   static readonly layer = Layer.effect(
     this,

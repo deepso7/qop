@@ -12,6 +12,7 @@ export const identityEip712DomainName = "QOP Identity" as const;
 // EIP712 constructor. Wire-schema versions evolve independently.
 export const identityEip712DomainVersion = "1" as const;
 
+// oxlint-disable-next-line no-redeclare -- The schema and its inferred type intentionally share the public API name.
 export const IdentityEip712DomainV1 = Schema.Struct({
   chainId: ChainId,
   verifyingContract: EthereumAddress,
@@ -45,6 +46,7 @@ export const makeDeviceCertificateTypedDataV1 = (
     domain: {
       chainId: domain.chainId,
       name: identityEip712DomainName,
+      // SAFETY: The domain schema accepts only canonical 20-byte hex addresses.
       verifyingContract: domain.verifyingContract as Address,
       version: identityEip712DomainVersion,
     },
@@ -91,8 +93,9 @@ const validateCertificateInputs = (
 
 export const decodeIdentityEip712DomainV1 = Effect.fn(
   "@qop/identity/decodeIdentityEip712DomainV1"
-)((input: unknown) =>
-  Schema.decodeUnknownEffect(IdentityEip712DomainV1)(input)
+)(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
+  (input: unknown) => Schema.decodeUnknownEffect(IdentityEip712DomainV1)(input)
 );
 
 export const hashDeviceCertificateV1 = Effect.fn(

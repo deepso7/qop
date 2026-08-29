@@ -275,6 +275,7 @@ export const loadLocalIdentity = Effect.fn("IdentityVault.loadLocalIdentity")(
 
 const createLocalIdentityUnlocked = Effect.fn(
   "IdentityVault.createLocalIdentityUnlocked"
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Input is parsed immediately by the Handle schema.
 )(function* (input: unknown) {
   const handle = yield* Schema.decodeUnknownEffect(Handle)(input).pipe(
     Effect.mapError(() => vaultError("create"))
@@ -318,6 +319,7 @@ const createLocalIdentityUnlocked = Effect.fn(
 
 export const createLocalIdentity = Effect.fn(
   "IdentityVault.createLocalIdentity"
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The underlying service parses this public boundary input.
 )((input: unknown) =>
   createSemaphore.withPermit(createLocalIdentityUnlocked(input))
 );
@@ -350,6 +352,7 @@ export const revealLocalIdentityRecoveryKey = Effect.fn(
 
 export const signLocalRegistrationIntent = Effect.fn(
   "IdentityVault.signLocalRegistrationIntent"
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- Both inputs are parsed immediately by their respective EIP-712 schemas.
 )(function* (domainInput: unknown, intentInput: unknown) {
   const identity = yield* loadStoredLocalIdentity();
   if (!identity) {

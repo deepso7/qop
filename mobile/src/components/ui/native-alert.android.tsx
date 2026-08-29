@@ -12,7 +12,8 @@ import type { NativeAlertProps } from "./native-alert";
 
 // Android uses a real Material 3 dialog so its surface and actions follow QOP's theme.
 const NativeAlert = React.memo(
-  ({
+  // oxlint-disable-next-line eslint/prefer-arrow-callback -- The named function keeps the memoized component identifiable in DevTools.
+  function NativeAlert({
     cancelLabel = "Cancel",
     confirmLabel,
     description,
@@ -21,7 +22,7 @@ const NativeAlert = React.memo(
     onOpenChange,
     open,
     title,
-  }: NativeAlertProps) => {
+  }: NativeAlertProps) {
     const theme = useTheme();
 
     const close = React.useCallback(() => {

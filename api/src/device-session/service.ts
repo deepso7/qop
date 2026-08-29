@@ -100,8 +100,9 @@ export type DeviceSessionServiceError =
   | RegistryChainReadError
   | RegistryInputError;
 
-export interface DeviceSessionServiceShape {
+export interface DeviceSessionServiceContract {
   readonly authenticate: (
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The proof is decoded by authenticate.
     proof: unknown
   ) => Effect.Effect<AuthenticatedDeviceSession, DeviceSessionServiceError>;
   readonly issue: (
@@ -111,6 +112,7 @@ export interface DeviceSessionServiceShape {
     DeviceSessionServiceError
   >;
   readonly resolve: (
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The token is decoded by resolve.
     token: unknown
   ) => Effect.Effect<ResolvedDeviceSession, DeviceSessionServiceError>;
 }
@@ -151,7 +153,7 @@ const encodeStoredChallenge = (
 
 export class DeviceSessionService extends Context.Service<
   DeviceSessionService,
-  DeviceSessionServiceShape
+  DeviceSessionServiceContract
 >()("@qop/api/DeviceSessionService") {
   static readonly layer = Layer.effect(
     this,
@@ -249,7 +251,10 @@ export class DeviceSessionService extends Context.Service<
       });
 
       const authenticate = Effect.fn("DeviceSessionService.authenticate")(
-        function* (input: unknown) {
+        function* (
+          // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The proof is decoded below.
+          input: unknown
+        ) {
           const proof = yield* decodeDeviceSessionProofV1(input).pipe(
             Effect.mapError(protocolError("decode-proof"))
           );
@@ -317,6 +322,7 @@ export class DeviceSessionService extends Context.Service<
       );
 
       const resolve = Effect.fn("DeviceSessionService.resolve")(function* (
+        // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The token is decoded below.
         input: unknown
       ) {
         const tokenBytes = yield* Schema.decodeUnknownEffect(Base64Url32)(

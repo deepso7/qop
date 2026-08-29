@@ -1,22 +1,25 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 
-import { decodeEnv } from "../src/env.ts";
+import { EnvSchema } from "../src/env.ts";
 
 describe("api environment", () => {
   it.effect("normalizes a checksummed registry address", () =>
     Effect.gen(function* () {
-      const env = yield* decodeEnv({
-        CHAIN_ID: "31337",
-        DATABASE_URL: "postgresql://user:password@localhost:5432/qop",
-        GATEWAY_ID: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
-        PORT: "3000",
-        REGISTRATION_PRIVATE_KEY: `0x${"11".repeat(32)}`,
-        REGISTRY_ADDRESS: "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
-        REGISTRY_CONFIRMATIONS: "12",
-        RELAYER_PRIVATE_KEY: `0x${"22".repeat(32)}`,
-        RPC_URL: "http://127.0.0.1:8545",
-      });
+      const env = yield* Schema.decodeUnknownEffect(EnvSchema)(
+        {
+          CHAIN_ID: "31337",
+          DATABASE_URL: "postgresql://user:password@localhost:5432/qop",
+          GATEWAY_ID: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+          PORT: "3000",
+          REGISTRATION_PRIVATE_KEY: `0x${"11".repeat(32)}`,
+          REGISTRY_ADDRESS: "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",
+          REGISTRY_CONFIRMATIONS: "12",
+          RELAYER_PRIVATE_KEY: `0x${"22".repeat(32)}`,
+          RPC_URL: "http://127.0.0.1:8545",
+        },
+        { errors: "all" }
+      );
 
       assert.strictEqual(
         env.REGISTRY_ADDRESS,

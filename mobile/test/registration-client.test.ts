@@ -1,6 +1,8 @@
 import { Effect, Result } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// oxlint-disable anti-slop/no-module-mocking -- The Expo fetch adapter is isolated at its I/O boundary.
+
 const fetchMock = vi.hoisted(() => vi.fn());
 
 vi.mock("expo/fetch", () => ({ fetch: fetchMock }));

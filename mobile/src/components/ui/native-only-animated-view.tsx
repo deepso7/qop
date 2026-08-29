@@ -20,6 +20,7 @@ const NativeOnlyAnimatedView = (
         React.RefAttributes<typeof AnimatedPressable> & { as: "Pressable" })
 ) => {
   if (Platform.OS === "web") {
+    // SAFETY: Animated view props always contain React children supplied by the caller.
     return props.children as React.ReactNode;
   }
   if (props.as === "Pressable") {

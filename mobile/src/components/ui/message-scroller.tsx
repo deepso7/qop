@@ -292,6 +292,7 @@ const MessageScrollerInner = <ItemT,>(
   );
 };
 
+// SAFETY: MessageScrollerInner is generic; forwardRef cannot retain that generic parameter.
 const MessageScroller = React.forwardRef(MessageScrollerInner) as <ItemT>(
   props: MessageScrollerProps<ItemT> &
     React.RefAttributes<MessageScrollerHandle>

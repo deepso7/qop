@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: The guarded registration state is narrowed before its asserted confirmed representation is returned.
 import {
   Base64Url32,
   decodeIdentityEip712DomainV1,
@@ -102,7 +103,7 @@ export type DeviceObservationError =
   | RegistrationStorePersistenceError
   | RegistryChainReadError;
 
-export interface DeviceObservationShape {
+export interface DeviceObservationContract {
   readonly observeFromRegistration: (
     input: ObserveRegistrationDevice
   ) => Effect.Effect<ObservedRegistrationDevice, DeviceObservationError>;
@@ -145,7 +146,7 @@ const observedDevice = (
 
 export class DeviceObservation extends Context.Service<
   DeviceObservation,
-  DeviceObservationShape
+  DeviceObservationContract
 >()("@qop/api/DeviceObservation") {
   static readonly layer = Layer.effect(
     this,

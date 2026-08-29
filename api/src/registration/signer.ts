@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Private keys and signatures are schema-validated before their viem branded representations are used.
 import {
   EcdsaSignature,
   makeRegisterIntentTypedDataV1,
@@ -18,7 +19,7 @@ export class RegistrationSignerError extends Data.TaggedError(
   "RegistrationSignerError"
 )<{ readonly operation: "configure" | "sign" }> {}
 
-export interface RegistrationSignerShape {
+export interface RegistrationSignerContract {
   readonly address: Address;
   readonly sign: (
     domain: IdentityEip712DomainV1,
@@ -28,11 +29,14 @@ export interface RegistrationSignerShape {
 
 export class RegistrationSigner extends Context.Service<
   RegistrationSigner,
-  RegistrationSignerShape
+  RegistrationSignerContract
 >()("@qop/api/RegistrationSigner") {}
 
 export const makeRegistrationSigner = Effect.fn("RegistrationSigner.make")(
-  function* (input: unknown) {
+  function* (
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The private key is decoded below.
+    input: unknown
+  ) {
     const privateKey = yield* Schema.decodeUnknownEffect(PrivateKey)(
       input
     ).pipe(
@@ -73,5 +77,6 @@ export const makeRegistrationSigner = Effect.fn("RegistrationSigner.make")(
   }
 );
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The private key is decoded by makeRegistrationSigner.
 export const registrationSignerLayer = (privateKey: unknown) =>
   Layer.effect(RegistrationSigner, makeRegistrationSigner(privateKey));

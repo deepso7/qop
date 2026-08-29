@@ -13,7 +13,8 @@ import type { NativeAlertProps } from "./native-alert";
 
 // SwiftUI owns presentation and accessibility; QOP supplies semantic action colors.
 const NativeAlert = React.memo(
-  ({
+  // oxlint-disable-next-line eslint/prefer-arrow-callback -- The named function keeps the memoized component identifiable in DevTools.
+  function NativeAlert({
     cancelLabel = "Cancel",
     confirmLabel,
     description,
@@ -22,7 +23,7 @@ const NativeAlert = React.memo(
     onOpenChange,
     open,
     title,
-  }: NativeAlertProps) => {
+  }: NativeAlertProps) {
     const theme = useTheme();
 
     const close = React.useCallback(() => {

@@ -9,5 +9,5 @@ export const strictParseOptions = {
 export const toViemSignature = (signature: Uint8Array): Signature => ({
   r: toHex(signature.subarray(0, 32)),
   s: toHex(signature.subarray(32, 64)),
-  yParity: signature[64] as 0 | 1,
+  yParity: signature[64] === 0 ? 0 : 1,
 });

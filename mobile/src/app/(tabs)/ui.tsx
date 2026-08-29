@@ -38,7 +38,7 @@ const ComponentSection = ({
 }: React.PropsWithChildren<{ title: string }>) => (
   <View className="gap-2">
     <SectionLabel>{title}</SectionLabel>
-    <Surface className="gap-4 rounded-xl border border-background-selected p-4">
+    <Surface className="border-background-selected gap-4 rounded-xl border p-4">
       {children}
     </Surface>
   </View>
@@ -66,7 +66,7 @@ const ExpoNativePreview = ({
   };
 
   return (
-    <View className="overflow-hidden rounded-xl bg-background-element/50">
+    <View className="bg-background-element/50 overflow-hidden rounded-xl">
       <View className={inset ? "px-4 py-3" : undefined}>
         <View onLayout={handleLayout}>
           <ExpoHost
@@ -75,6 +75,7 @@ const ExpoNativePreview = ({
             seedColor={seedColor}
             style={{ height, width: "100%" }}
           >
+            {/* oxlint-disable-next-line anti-slop/no-runtime-typeof -- This component's public API explicitly supports a render-prop child. */}
             {typeof children === "function"
               ? contentWidth > 0 && children(contentWidth)
               : children}
@@ -219,7 +220,7 @@ const UIScreen = () => {
 
         <ComponentSection title="Surfaces">
           <View className="flex-row gap-3">
-            <Surface className="flex-1 rounded-xl border border-background-selected p-4">
+            <Surface className="border-background-selected flex-1 rounded-xl border p-4">
               <Text variant="caption">Default</Text>
             </Surface>
             <Surface className="flex-1 rounded-xl p-4" tone="element">

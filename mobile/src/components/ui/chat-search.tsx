@@ -13,7 +13,8 @@ interface ChatSearchProps extends Omit<
 }
 
 const ChatSearch = React.forwardRef<TextInput, ChatSearchProps>(
-  (
+  // oxlint-disable-next-line eslint/prefer-arrow-callback -- The named render function improves DevTools output.
+  function ChatSearch(
     {
       className,
       defaultValue,
@@ -23,13 +24,13 @@ const ChatSearch = React.forwardRef<TextInput, ChatSearchProps>(
       ...props
     },
     ref
-  ) => {
+  ) {
     const [uncontrolledValue, setUncontrolledValue] = React.useState(
       defaultValue ?? ""
     );
     const isControlled = value !== undefined;
     const currentValue = isControlled ? value : uncontrolledValue;
-    const canClear = !isControlled || typeof onChangeText === "function";
+    const canClear = !isControlled || onChangeText !== undefined;
     const hasClearableValue = canClear && currentValue.length > 0;
 
     const handleChangeText = React.useCallback(
@@ -49,18 +50,18 @@ const ChatSearch = React.forwardRef<TextInput, ChatSearchProps>(
     return (
       <View
         className={cn(
-          "h-11 flex-row items-center gap-2 rounded-[14px] bg-background-element px-3",
+          "bg-background-element h-11 flex-row items-center gap-2 rounded-[14px] px-3",
           className
         )}
         style={{ borderCurve: "continuous" }}
       >
-        <Icon as={Search} className="size-[18px] text-foreground-secondary" />
+        <Icon as={Search} className="text-foreground-secondary size-[18px]" />
         <TextInput
           ref={ref}
           accessibilityLabel="Search chats"
           autoCapitalize="none"
           autoCorrect={false}
-          className="min-w-0 flex-1 py-0 text-[16px] leading-5 text-foreground"
+          className="text-foreground min-w-0 flex-1 py-0 text-[16px] leading-5"
           clearButtonMode="never"
           onChangeText={handleChangeText}
           placeholder={placeholder}
@@ -74,11 +75,11 @@ const ChatSearch = React.forwardRef<TextInput, ChatSearchProps>(
           <Pressable
             accessibilityLabel="Clear search"
             accessibilityRole="button"
-            className="size-7 items-center justify-center rounded-full bg-background-selected active:opacity-70"
+            className="bg-background-selected size-7 items-center justify-center rounded-full active:opacity-70"
             hitSlop={6}
             onPress={handleClear}
           >
-            <Icon as={X} className="size-3.5 text-foreground-secondary" />
+            <Icon as={X} className="text-foreground-secondary size-3.5" />
           </Pressable>
         ) : null}
       </View>

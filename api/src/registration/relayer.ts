@@ -1,3 +1,4 @@
+// oxlint-disable anti-slop/require-safety-comment-for-type-assertion -- SAFETY: Private keys, owners, and registry addresses are schema-validated before viem receives them.
 import {
   EcdsaSignature,
   EthereumAddress,
@@ -38,7 +39,7 @@ export interface PreparedRegistrationRelay {
   readonly transactionHash: Hash;
 }
 
-export interface RegistrationRelayerShape {
+export interface RegistrationRelayerContract {
   readonly broadcast: (
     prepared: PreparedRegistrationRelay
   ) => Effect.Effect<Hash, RegistrationRelayerError>;
@@ -53,11 +54,14 @@ export interface RegistrationRelayerShape {
 
 export class RegistrationRelayer extends Context.Service<
   RegistrationRelayer,
-  RegistrationRelayerShape
+  RegistrationRelayerContract
 >()("@qop/api/RegistrationRelayer") {}
 
 export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
-  function* (input: unknown) {
+  function* (
+    // oxlint-disable-next-line anti-slop/no-unknown-parameters -- The private key is decoded below.
+    input: unknown
+  ) {
     const env = yield* Env;
     if (env.CHAIN_ID > BigInt(Number.MAX_SAFE_INTEGER)) {
       return yield* new RegistrationRelayerError({ operation: "configure" });
@@ -195,5 +199,6 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
   }
 );
 
+// oxlint-disable-next-line anti-slop/no-unknown-parameters -- The private key is decoded by makeRegistrationRelayer.
 export const registrationRelayerLayer = (privateKey: unknown) =>
   Layer.effect(RegistrationRelayer, makeRegistrationRelayer(privateKey));

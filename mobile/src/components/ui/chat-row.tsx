@@ -23,11 +23,11 @@ interface ChatRowProps extends React.ComponentProps<typeof Pressable> {
   unreadCount?: number;
 }
 
-const securityCopy: Record<ChatRowSecurity, string> = {
+const securityCopy = {
   changed: "Safety number changed",
   unverified: "Unverified contact",
   verified: "Verified contact",
-};
+} satisfies Record<ChatRowSecurity, string>;
 
 const ChatRowIdentity = ({
   avatarFallback,
@@ -38,15 +38,15 @@ const ChatRowIdentity = ({
   <View className="relative shrink-0">
     <View
       className={cn(
-        "size-14 items-center justify-center bg-background-element",
+        "bg-background-element size-14 items-center justify-center",
         group ? "rounded-[18px]" : "rounded-full"
       )}
       style={{ borderCurve: "continuous" }}
     >
       {group ? (
-        <Icon as={Users} className="size-6 text-foreground-secondary" />
+        <Icon as={Users} className="text-foreground-secondary size-6" />
       ) : (
-        <Text className="text-lg font-semibold text-foreground-secondary">
+        <Text className="text-foreground-secondary text-lg font-semibold">
           {avatarFallback ?? name.slice(0, 2).toUpperCase()}
         </Text>
       )}
@@ -54,7 +54,7 @@ const ChatRowIdentity = ({
     {online ? (
       <View
         accessibilityLabel="Online"
-        className="absolute right-0 bottom-0 size-3.5 rounded-full border-2 border-background bg-primary"
+        className="border-background bg-primary absolute right-0 bottom-0 size-3.5 rounded-full border-2"
       />
     ) : null}
   </View>
@@ -65,7 +65,8 @@ const ChatRow = React.forwardRef<
   React.ElementRef<typeof Pressable>,
   ChatRowProps
 >(
-  (
+  // oxlint-disable-next-line eslint/prefer-arrow-callback -- The named render function improves DevTools output.
+  function ChatRow(
     {
       accessibilityHint,
       accessibilityRole,
@@ -86,9 +87,9 @@ const ChatRow = React.forwardRef<
       ...props
     },
     ref
-  ) => {
+  ) {
     const hasUnread = unreadCount > 0;
-    const opensConversation = typeof onPress === "function";
+    const opensConversation = onPress !== undefined;
     const accessibilityStatus = [
       hasUnread ? `${unreadCount} unread` : undefined,
       security ? securityCopy[security] : undefined,
@@ -118,7 +119,7 @@ const ChatRow = React.forwardRef<
           accessibilityRole={
             accessibilityRole ?? (opensConversation ? "button" : undefined)
           }
-          className="flex-row items-center gap-3 active:bg-background-element/70"
+          className="active:bg-background-element/70 flex-row items-center gap-3"
           disabled={disabled}
           onPress={onPress}
           style={{ opacity: disabled ? 0.5 : 1 }}
@@ -136,7 +137,7 @@ const ChatRow = React.forwardRef<
               <View className="min-w-0 flex-1 gap-1">
                 <View className="flex-row items-center gap-1.5">
                   <Text
-                    className="min-w-0 shrink text-[17px] font-semibold leading-5"
+                    className="min-w-0 shrink text-[17px] leading-5 font-semibold"
                     numberOfLines={1}
                   >
                     {name}
@@ -145,13 +146,13 @@ const ChatRow = React.forwardRef<
 
                 <Text
                   className={cn(
-                    "text-[15px] leading-5 text-foreground-secondary",
-                    hasUnread && "font-medium text-foreground"
+                    "text-foreground-secondary text-[15px] leading-5",
+                    hasUnread && "text-foreground font-medium"
                   )}
                   numberOfLines={1}
                 >
                   {draft ? (
-                    <Text className="font-medium text-destructive">
+                    <Text className="text-destructive font-medium">
                       Draft:{" "}
                     </Text>
                   ) : null}
@@ -166,8 +167,8 @@ const ChatRow = React.forwardRef<
                 {time ? (
                   <Text
                     className={cn(
-                      "text-xs text-foreground-secondary",
-                      hasUnread && "font-medium text-primary"
+                      "text-foreground-secondary text-xs",
+                      hasUnread && "text-primary font-medium"
                     )}
                     style={{ fontVariant: ["tabular-nums"] }}
                   >
@@ -177,9 +178,9 @@ const ChatRow = React.forwardRef<
                   <View />
                 )}
                 {hasUnread ? (
-                  <View className="min-w-5 items-center justify-center rounded-full bg-primary px-1.5 py-0.5">
+                  <View className="bg-primary min-w-5 items-center justify-center rounded-full px-1.5 py-0.5">
                     <Text
-                      className="text-xs font-semibold text-primary-foreground"
+                      className="text-primary-foreground text-xs font-semibold"
                       style={{ fontVariant: ["tabular-nums"] }}
                     >
                       {unreadCount > 99 ? "99+" : unreadCount}

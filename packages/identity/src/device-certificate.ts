@@ -16,6 +16,7 @@ export const OwnerVersion = Schema.Number.check(
   Schema.isBetween({ maximum: UINT32_MAX, minimum: 0 })
 );
 
+// oxlint-disable-next-line no-redeclare -- The schema and its inferred type intentionally share the public API name.
 export const DeviceCertificateV1 = Schema.Struct({
   encryptionPublicKey: Base64Url32,
   expiresAt: UnixSeconds,
@@ -41,6 +42,7 @@ export const DeviceCertificateV1 = Schema.Struct({
 export type DeviceCertificateV1 = typeof DeviceCertificateV1.Type;
 export type DeviceCertificateV1Encoded = typeof DeviceCertificateV1.Encoded;
 
+// oxlint-disable-next-line no-redeclare -- The schema and its inferred type intentionally share the public API name.
 export const IdentityEnvelopeV1 = Schema.Struct({
   certificate: DeviceCertificateV1,
   signature: EcdsaSignature,
@@ -55,7 +57,10 @@ export type IdentityEnvelopeV1Encoded = typeof IdentityEnvelopeV1.Encoded;
 
 export const decodeDeviceCertificateV1 = Effect.fn(
   "@qop/identity/decodeDeviceCertificateV1"
-)((input: unknown) => Schema.decodeUnknownEffect(DeviceCertificateV1)(input));
+)(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
+  (input: unknown) => Schema.decodeUnknownEffect(DeviceCertificateV1)(input)
+);
 
 export const encodeDeviceCertificateV1 = Effect.fn(
   "@qop/identity/encodeDeviceCertificateV1"
@@ -65,7 +70,10 @@ export const encodeDeviceCertificateV1 = Effect.fn(
 
 export const decodeIdentityEnvelopeV1 = Effect.fn(
   "@qop/identity/decodeIdentityEnvelopeV1"
-)((input: unknown) => Schema.decodeUnknownEffect(IdentityEnvelopeV1)(input));
+)(
+  // oxlint-disable-next-line anti-slop/no-unknown-parameters -- This public I/O boundary parses input with the schema immediately.
+  (input: unknown) => Schema.decodeUnknownEffect(IdentityEnvelopeV1)(input)
+);
 
 export const encodeIdentityEnvelopeV1 = Effect.fn(
   "@qop/identity/encodeIdentityEnvelopeV1"
