@@ -91,8 +91,8 @@ importers:
         specifier: 57.0.14
         version: 57.0.14(@babel/core@7.29.7(supports-color@8.1.1))(@types/react@19.2.18)(expo@57.0.18)(react-dom@19.2.3(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
       '@minip2p/react-native':
-        specifier: 0.4.7
-        version: 0.4.7(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
+        specifier: 0.4.9
+        version: 0.4.9(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
       '@qop/identity':
         specifier: workspace:*
         version: link:../packages/identity
@@ -1162,11 +1162,11 @@ packages:
     resolution: {integrity: sha512-hloP58zRVCRSpgDxmqCWJNlizAlUgJFqG2ypq79DCvyv9tHjRYMDOcPFjzfl/A1/YxDvRCZz8wvZvmapQnKwFQ==}
     engines: {node: '>=12'}
 
-  '@minip2p/core@0.4.7':
-    resolution: {integrity: sha512-ObUivGcRfw35OYwpkZuk3DK72InVAeJLysAOQrXEE9DphKcjFEEP/Ktr85jAcRxIA+Fz/CbbcNP8/163usVUJg==}
+  '@minip2p/core@0.4.9':
+    resolution: {integrity: sha512-WjRqbE5AJ7KiRIIGG1aF3Y2btinmHDZkkNIjcDIE00HMpNXEgoxc3pIgvRSyNKdh8gV9buNgPS4bEYuCVwyWuQ==}
 
-  '@minip2p/react-native@0.4.7':
-    resolution: {integrity: sha512-8puBBuzbu8+EoMCS+te1lPiaPXhaK6b4kpczrEDZJhzOpNQrpHDM4eFGea2WjrbZs1J11bpR/4Sd784fryRSJg==}
+  '@minip2p/react-native@0.4.9':
+    resolution: {integrity: sha512-7jXZUkPXsXIiC16ywt0jgLyel5i+rVvQwycS+qcQR7MEoEiiQsw+NaIhIvpSK3X4IpfA+9S/yW6woTOVpHelrA==}
     peerDependencies:
       react: '*'
       react-native: '*'
@@ -6819,11 +6819,11 @@ snapshots:
     dependencies:
       jsbi: 4.3.2
 
-  '@minip2p/core@0.4.7': {}
+  '@minip2p/core@0.4.9': {}
 
-  '@minip2p/react-native@0.4.7(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)':
+  '@minip2p/react-native@0.4.9(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)':
     dependencies:
-      '@minip2p/core': 0.4.7
+      '@minip2p/core': 0.4.9
       '@ubjs/core': 0.31.0-5
       react: 19.2.3
       react-native: 0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1)
