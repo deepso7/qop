@@ -5,11 +5,7 @@ import { makeCacheNamespace } from "../cache/namespace.ts";
 import type { CacheNamespaceRead } from "../cache/namespace.ts";
 import { RegistryChain, RegistryChainLive } from "./chain.ts";
 import type { RegistryChainReadError } from "./chain.ts";
-import {
-  normalizeCertificateDigest,
-  normalizeRegistryHandle,
-  normalizeRegistryOwner,
-} from "./inputs.ts";
+import { normalizeRegistryHandle, normalizeRegistryOwner } from "./inputs.ts";
 import type { RegistryInputError } from "./inputs.ts";
 import type {
   RegistryAccount,
@@ -28,10 +24,6 @@ export interface RegistryReads {
   readonly account: (
     qid: bigint
   ) => Effect.Effect<RegistryRead<RegistryAccount>, RegistryChainReadError>;
-  readonly deviceRevocation: (
-    qid: bigint,
-    certificateDigest: Hash
-  ) => Effect.Effect<RegistryRead<boolean>, RegistryChainReadError>;
   readonly qidByHandle: (
     handle: string
   ) => Effect.Effect<RegistryRead<bigint | null>, RegistryChainReadError>;
@@ -54,10 +46,6 @@ export interface RegistryFreshReads extends RegistryReads {
 export interface RegistryInvalidations {
   readonly account: (qid: bigint) => Effect.Effect<void>;
   readonly all: Effect.Effect<void>;
-  readonly deviceRevocation: (
-    qid: bigint,
-    certificateDigest: Hash
-  ) => Effect.Effect<void, RegistryInputError>;
   readonly ownerRotation: (
     qid: bigint,
     previousOwner: Address,
@@ -82,12 +70,6 @@ const policy = {
     freshFor: () => Duration.seconds(15),
     staleFor: () => Duration.minutes(1),
   },
-  deviceRevocation: {
-    freshFor: (snapshot: RegistrySnapshot<boolean>) =>
-      snapshot.value ? Duration.days(1) : Duration.seconds(15),
-    staleFor: (snapshot: RegistrySnapshot<boolean>) =>
-      snapshot.value ? Duration.days(7) : Duration.minutes(1),
-  },
   qidByHandle: {
     freshFor: (snapshot: RegistrySnapshot<bigint | null>) =>
       snapshot.value === null ? Duration.seconds(10) : Duration.days(1),
@@ -108,24 +90,6 @@ const flatten = <Value>(
   freshness: read.freshness,
   value: read.value.value,
 });
-
-const revocationKey = (qid: bigint, certificateDigest: Hash): string =>
-  `${qid}:${certificateDigest}`;
-
-const parseRevocationKey = (
-  key: string
-): Effect.Effect<
-  readonly [qid: bigint, certificateDigest: Hash],
-  RegistryInputError
-> => {
-  const separator = key.indexOf(":");
-  return normalizeCertificateDigest(key.slice(separator + 1)).pipe(
-    Effect.map(
-      (certificateDigest) =>
-        [BigInt(key.slice(0, separator)), certificateDigest] as const
-    )
-  );
-};
 
 export class RegistryReader extends Context.Service<
   RegistryReader,
@@ -159,27 +123,9 @@ export class RegistryReader extends Context.Service<
         lookup: chain.qidByOwner,
         policy: policy.qidByOwner,
       });
-      const revocations = yield* makeCacheNamespace({
-        ...cacheOptions,
-        capacity: 50_000,
-        lookup: (key: string) =>
-          parseRevocationKey(key).pipe(
-            Effect.flatMap(([qid, certificateDigest]) =>
-              chain.deviceRevocation(qid, certificateDigest)
-            )
-          ),
-        policy: policy.deviceRevocation,
-      });
 
       const reads = (mode: "cached" | "fresh"): RegistryReads => ({
         account: (qid) => accounts[mode](qid).pipe(Effect.map(flatten)),
-        deviceRevocation: (qid, certificateDigest) =>
-          normalizeCertificateDigest(certificateDigest).pipe(
-            Effect.flatMap((canonicalDigest) =>
-              revocations[mode](revocationKey(qid, canonicalDigest))
-            ),
-            Effect.map(flatten)
-          ),
         qidByHandle: (handle) =>
           normalizeRegistryHandle(handle).pipe(
             Effect.flatMap(handles[mode]),
@@ -192,14 +138,12 @@ export class RegistryReader extends Context.Service<
           ),
       });
 
-      const fresh: RegistryFreshReads = {
-        ...reads("fresh"),
-        registrationProbe: chain.registrationProbe,
-      };
-
       return RegistryReader.of({
         cached: reads("cached"),
-        fresh,
+        fresh: {
+          ...reads("fresh"),
+          registrationProbe: chain.registrationProbe,
+        },
         invalidate: {
           account: accounts.invalidate,
           all: Effect.all(
@@ -207,16 +151,9 @@ export class RegistryReader extends Context.Service<
               accounts.invalidateAll,
               handles.invalidateAll,
               owners.invalidateAll,
-              revocations.invalidateAll,
             ],
             { discard: true }
           ),
-          deviceRevocation: (qid, certificateDigest) =>
-            normalizeCertificateDigest(certificateDigest).pipe(
-              Effect.flatMap((canonicalDigest) =>
-                revocations.invalidate(revocationKey(qid, canonicalDigest))
-              )
-            ),
           ownerRotation: (qid, previousOwner, newOwner) =>
             Effect.all([
               normalizeRegistryOwner(previousOwner),

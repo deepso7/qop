@@ -4,8 +4,6 @@ import { NodeHttpServer, NodeRuntime } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 
-import { DeviceSessionServiceLive } from "./device-session/service.ts";
-import { DeviceObservationLive } from "./device/observation.ts";
 import { Env } from "./env.ts";
 import { QopHttpApiRoutes } from "./http/routes.ts";
 import { RegistrationEnrollmentLive } from "./registration/enrollment.ts";
@@ -23,11 +21,7 @@ const ApplicationLive = Layer.unwrap(
           )
         )
       );
-      const routes = QopHttpApiRoutes.pipe(
-        Layer.provide(DeviceObservationLive),
-        Layer.provide(DeviceSessionServiceLive),
-        Layer.provide(registration)
-      );
+      const routes = QopHttpApiRoutes.pipe(Layer.provide(registration));
       return HttpRouter.serve(routes).pipe(
         Layer.provideMerge(
           NodeHttpServer.layer(createServer, { port: env.PORT })

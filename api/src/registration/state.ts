@@ -1,10 +1,8 @@
 import type { RegistrationIntentStatus } from "./types.ts";
 
 export const registrationTransitionSources = {
-  authorize: ["pending_owner_signature"],
   confirm: ["ready", "submitted"],
-  expire: ["pending_owner_signature"],
-  fail: ["pending_owner_signature", "ready", "submitted"],
+  fail: ["ready", "submitted"],
   submit: ["ready"],
 } as const satisfies Record<
   string,

@@ -68,6 +68,7 @@ export class RegistrationAdmission extends Context.Service<
           .where(
             and(
               eq(registrationAdmissionCodes.codeHash, codeHash),
+              isNull(registrationAdmissionCodes.claimedByDigest),
               isNull(registrationAdmissionCodes.consumedAt),
               or(
                 isNull(registrationAdmissionCodes.expiresAt),

@@ -5,8 +5,8 @@ import {
 } from "@qop/identity";
 import type { IdentityEip712DomainV1, RegisterIntentV1 } from "@qop/identity";
 import { Context, Data, Effect, Layer, Schema } from "effect";
-import { isAddress, isHex } from "viem";
-import type { Address, Hex } from "viem";
+import { isHex } from "viem";
+import type { Hex } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 const PrivateKey = Schema.String.check(
@@ -20,7 +20,6 @@ export class RegistrationSignerError extends Data.TaggedError(
 )<{ readonly operation: "configure" | "sign" }> {}
 
 export interface RegistrationSignerContract {
-  readonly address: Address;
   readonly sign: (
     domain: IdentityEip712DomainV1,
     intent: RegisterIntentV1
@@ -74,15 +73,7 @@ export const makeRegistrationSigner = Effect.fn("RegistrationSigner.make")(
       return signature;
     });
 
-    const address = account.address.toLowerCase();
-    if (!isAddress(address)) {
-      return yield* new RegistrationSignerError({ operation: "configure" });
-    }
-
-    return RegistrationSigner.of({
-      address,
-      sign,
-    });
+    return RegistrationSigner.of({ sign });
   }
 );
 

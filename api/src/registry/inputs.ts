@@ -1,6 +1,5 @@
 import {
   Handle,
-  Hex32,
   normalizeEthereumAddress,
   RegistrationNonce,
 } from "@qop/identity";
@@ -8,17 +7,7 @@ import { Data, Effect, Schema } from "effect";
 import { toHex } from "viem";
 import type { Address } from "viem";
 
-type RegistryInputOperation =
-  | "certificate-digest"
-  | "handle"
-  | "owner"
-  | "registration-nonce";
-
-const CertificateDigestInput = Schema.String.check(
-  Schema.isPattern(/^0x[0-9a-f]{64}$/iu, {
-    expected: "a 32-byte 0x-prefixed certificate digest",
-  })
-);
+type RegistryInputOperation = "handle" | "owner" | "registration-nonce";
 
 export class RegistryInputError extends Data.TaggedError("RegistryInputError")<{
   readonly cause: unknown;
@@ -37,28 +26,6 @@ export const normalizeRegistryOwner = Effect.fn("RegistryInput.normalizeOwner")(
     return canonicalOwner as Address;
   }
 );
-
-export const normalizeCertificateDigest = Effect.fn(
-  "RegistryInput.normalizeCertificateDigest"
-)(function* (input: string) {
-  const encoded = yield* Schema.decodeUnknownEffect(CertificateDigestInput)(
-    input
-  ).pipe(
-    Effect.mapError(
-      (cause) =>
-        new RegistryInputError({ cause, operation: "certificate-digest" })
-    )
-  );
-  const bytes = yield* Schema.decodeUnknownEffect(Hex32)(
-    encoded.toLowerCase()
-  ).pipe(
-    Effect.mapError(
-      (cause) =>
-        new RegistryInputError({ cause, operation: "certificate-digest" })
-    )
-  );
-  return toHex(bytes);
-});
 
 export const normalizeRegistryHandle = Effect.fn(
   "RegistryInput.normalizeHandle"
