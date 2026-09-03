@@ -6,35 +6,31 @@ import { privateKeyToAccount } from "viem/accounts";
 import {
   decodeIdentityEip712DomainV1,
   decodeRegisterIntentV1,
-  decodeRevokeDeviceIntentV1,
+  decodeRotateDeviceIntentV1,
   decodeRotateOwnerIntentV1,
   encodeRegisterIntentV1,
-  encodeRevokeDeviceIntentV1,
+  encodeRotateDeviceIntentV1,
   encodeRotateOwnerIntentV1,
   hashRegisterIntentV1,
-  hashRegistrationDeviceCommitmentV1,
-  hashRevokeDeviceIntentV1,
+  hashRotateDeviceIntentV1,
   hashRotateOwnerIntentV1,
   makeRegisterIntentTypedDataV1,
-  makeRevokeDeviceIntentTypedDataV1,
+  makeRotateDeviceIntentTypedDataV1,
   makeRotateOwnerIntentTypedDataV1,
   normalizeEcdsaSignature,
-  Base64Url32,
-  PeerId,
-  RegisterIntentV1,
   recoverRegisterIntentSignerV1,
-  recoverRevokeDeviceIntentSignerV1,
+  recoverRotateDeviceIntentSignerV1,
   recoverRotateOwnerIntentSignerV1,
-  signRegisterIntentV1,
-  RevokeDeviceIntentV1,
+  RegisterIntentV1,
+  RotateDeviceIntentV1,
   RotateOwnerIntentV1,
+  signRegisterIntentV1,
 } from "../src/index.ts";
 
 const PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000001";
 const SECOND_PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000002";
-const EXPECTED_OWNER = "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf";
 
 const encodedDomain = {
   chainId: "11155111",
@@ -43,10 +39,10 @@ const encodedDomain = {
 
 const encodedRegisterIntent = {
   deadline: "1700003600",
-  deviceCommitment: `0x${"02".repeat(32)}`,
+  deviceKey: `0x${"02".repeat(32)}`,
   handle: "alice",
   nonce: `0x${"01".repeat(32)}`,
-  owner: EXPECTED_OWNER.toLowerCase(),
+  owner: "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
 } as const;
 
 const encodedRotateOwnerIntent = {
@@ -56,45 +52,33 @@ const encodedRotateOwnerIntent = {
   qid: "42",
 } as const;
 
-const encodedRevokeDeviceIntent = {
-  certificateDigest:
-    "0x0fe41d712ec3ec99c4f62ed1b97c04ec30bd56985f9cf698d3c554db062119bd",
+const encodedRotateDeviceIntent = {
   deadline: "1700003600",
-  nonce: "8",
+  newDeviceKey: `0x${"09".repeat(32)}`,
+  nonce: "9",
   qid: "42",
 } as const;
 
 const expectedDigests = {
   register:
-    "0xbf150ff19a934618ba8d52f9d125632f04ce2cf3408ebd81a43356975daf7620",
-  revoke: "0xb1c5b8ecf82d6fab75d309bc820a474a36dbe795cc42f891d569379dc5435a6b",
-  rotate: "0xcfd2c2208d584d29013cb01bbcd1f1ae5cef6c3546b82c682c52a66633e24c6c",
+    "0x53dc6c862551e88c6021e67e163d162b1491a6a6b5e92a85196d2f9cea4aca9a",
+  rotateDevice:
+    "0x862b85ff610fa552a28ef5c22ddde5aa7a7eceb8590b7460c3cb4f26768be180",
+  rotateOwner:
+    "0xcfd2c2208d584d29013cb01bbcd1f1ae5cef6c3546b82c682c52a66633e24c6c",
 } as const;
 
 const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
 
 describe("registry intents", () => {
-  it.effect("pins the initial device commitment", () =>
-    Effect.gen(function* () {
-      const peerId = yield* Schema.decodeUnknownEffect(PeerId)(
-        "12D3KooWEyoppNCUx8Yx66oV9fJnriXwCcXwDDUA2kj6vnc6iDEp"
-      );
-      const observeToken = yield* Schema.decodeUnknownEffect(Base64Url32)(
-        "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-      );
-      assert.strictEqual(
-        yield* hashRegistrationDeviceCommitmentV1(peerId, observeToken),
-        "0x6c4ad152875d4d6bf1b77c99f7f3ce1e8ca6a90b46c8238ed82223d8449d8cfc"
-      );
-    })
-  );
-
   it.effect("round-trips strict canonical wire values", () =>
     Effect.gen(function* () {
       const register = yield* decodeRegisterIntentV1(encodedRegisterIntent);
-      const rotate = yield* decodeRotateOwnerIntentV1(encodedRotateOwnerIntent);
-      const revoke = yield* decodeRevokeDeviceIntentV1(
-        encodedRevokeDeviceIntent
+      const rotateOwner = yield* decodeRotateOwnerIntentV1(
+        encodedRotateOwnerIntent
+      );
+      const rotateDevice = yield* decodeRotateDeviceIntentV1(
+        encodedRotateDeviceIntent
       );
 
       assert.deepStrictEqual(
@@ -102,16 +86,16 @@ describe("registry intents", () => {
         encodedRegisterIntent
       );
       assert.deepStrictEqual(
-        yield* encodeRotateOwnerIntentV1(rotate),
+        yield* encodeRotateOwnerIntentV1(rotateOwner),
         encodedRotateOwnerIntent
       );
       assert.deepStrictEqual(
-        yield* encodeRevokeDeviceIntentV1(revoke),
-        encodedRevokeDeviceIntent
+        yield* encodeRotateDeviceIntentV1(rotateDevice),
+        encodedRotateDeviceIntent
       );
       assert.strictEqual(register.owner, encodedRegisterIntent.owner);
-      assert.strictEqual(rotate.nonce, 7n);
-      assert.strictEqual(revoke.qid, 42n);
+      assert.strictEqual(rotateOwner.nonce, 7n);
+      assert.strictEqual(rotateDevice.qid, 42n);
     })
   );
 
@@ -119,20 +103,25 @@ describe("registry intents", () => {
     Effect.gen(function* () {
       const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
       const register = yield* decodeRegisterIntentV1(encodedRegisterIntent);
-      const rotate = yield* decodeRotateOwnerIntentV1(encodedRotateOwnerIntent);
-      const revoke = yield* decodeRevokeDeviceIntentV1(
-        encodedRevokeDeviceIntent
+      const rotateOwner = yield* decodeRotateOwnerIntentV1(
+        encodedRotateOwnerIntent
+      );
+      const rotateDevice = yield* decodeRotateDeviceIntentV1(
+        encodedRotateDeviceIntent
       );
 
-      const [registerDigest, rotateDigest, revokeDigest] = yield* Effect.all([
-        hashRegisterIntentV1(domain, register),
-        hashRotateOwnerIntentV1(domain, rotate),
-        hashRevokeDeviceIntentV1(domain, revoke),
-      ]);
-
-      assert.strictEqual(registerDigest, expectedDigests.register);
-      assert.strictEqual(rotateDigest, expectedDigests.rotate);
-      assert.strictEqual(revokeDigest, expectedDigests.revoke);
+      assert.strictEqual(
+        yield* hashRegisterIntentV1(domain, register),
+        expectedDigests.register
+      );
+      assert.strictEqual(
+        yield* hashRotateOwnerIntentV1(domain, rotateOwner),
+        expectedDigests.rotateOwner
+      );
+      assert.strictEqual(
+        yield* hashRotateDeviceIntentV1(domain, rotateDevice),
+        expectedDigests.rotateDevice
+      );
     })
   );
 
@@ -140,35 +129,36 @@ describe("registry intents", () => {
     Effect.gen(function* () {
       const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
       for (const [encoded, expected] of [
+        [encodedRegisterIntent, expectedDigests.register],
         [
           {
             deadline: "1700000001",
-            deviceCommitment: `0x${"03".repeat(32)}`,
+            deviceKey: `0x${"03".repeat(32)}`,
             handle: "0xdeepso",
             nonce: `0x${"04".repeat(32)}`,
             owner: "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf",
           },
-          "0x9eed1767b802634c5b1af5f5ac4317f26e777a591c02645522119e00f04a8c96",
+          "0x5588faff7c3f5d0f7184f36937cca34a11f0d6293d76570d1d96831d3c9cb3ef",
         ],
         [
           {
             deadline: "18446744073709551615",
-            deviceCommitment: `0x${"05".repeat(32)}`,
+            deviceKey: `0x${"05".repeat(32)}`,
             handle: "123kate",
             nonce: `0x${"06".repeat(32)}`,
             owner: "0x6813eb9362372eef6200f3b1dbc3f819671cba69",
           },
-          "0x08281d04b4529216418b2ae7c96e386e2f543723acd79332a9aace27df2c10f6",
+          "0x8c73b10b7da9d84c1c0b382ecfe2b7a289b4b94b11e9c5fd792519f0966e92cb",
         ],
         [
           {
             deadline: "42",
-            deviceCommitment: `0x${"07".repeat(32)}`,
+            deviceKey: `0x${"07".repeat(32)}`,
             handle: "a_b9",
             nonce: `0x${"08".repeat(32)}`,
             owner: "0x1eff47bc3a10a45d4b230b5d10e37751fe6aa718",
           },
-          "0x87119cfb83d76629575d94e4cf73cc289bb7bbddf68489cdb20ba8832fe51be1",
+          "0x7bbdd775ad87bf649cc9245b381c601b893609d70606565253c8c5f9f4ae3ad8",
         ],
       ] as const) {
         const intent = yield* decodeRegisterIntentV1(encoded);
@@ -186,38 +176,31 @@ describe("registry intents", () => {
       const secondAccount = privateKeyToAccount(SECOND_PRIVATE_KEY);
       const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
       const register = yield* decodeRegisterIntentV1(encodedRegisterIntent);
-      const rotate = yield* decodeRotateOwnerIntentV1(encodedRotateOwnerIntent);
-      const revoke = yield* decodeRevokeDeviceIntentV1(
-        encodedRevokeDeviceIntent
+      const rotateOwner = yield* decodeRotateOwnerIntentV1(
+        encodedRotateOwnerIntent
+      );
+      const rotateDevice = yield* decodeRotateDeviceIntentV1(
+        encodedRotateDeviceIntent
       );
 
-      const registerWalletSignature = yield* Effect.promise(() =>
+      const registerSignature = yield* Effect.promise(() =>
         account.signTypedData(makeRegisterIntentTypedDataV1(domain, register))
-      );
-      const rotateWalletSignature = yield* Effect.promise(() =>
-        account.signTypedData(makeRotateOwnerIntentTypedDataV1(domain, rotate))
-      );
-      const newOwnerRotateWalletSignature = yield* Effect.promise(() =>
-        secondAccount.signTypedData(
-          makeRotateOwnerIntentTypedDataV1(domain, rotate)
+      ).pipe(Effect.flatMap(normalizeEcdsaSignature));
+      const rotateOwnerSignature = yield* Effect.promise(() =>
+        account.signTypedData(
+          makeRotateOwnerIntentTypedDataV1(domain, rotateOwner)
         )
-      );
-      const revokeWalletSignature = yield* Effect.promise(() =>
-        account.signTypedData(makeRevokeDeviceIntentTypedDataV1(domain, revoke))
-      );
-
-      const registerSignature = yield* normalizeEcdsaSignature(
-        registerWalletSignature
-      );
-      const rotateSignature = yield* normalizeEcdsaSignature(
-        rotateWalletSignature
-      );
-      const newOwnerRotateSignature = yield* normalizeEcdsaSignature(
-        newOwnerRotateWalletSignature
-      );
-      const revokeSignature = yield* normalizeEcdsaSignature(
-        revokeWalletSignature
-      );
+      ).pipe(Effect.flatMap(normalizeEcdsaSignature));
+      const newOwnerSignature = yield* Effect.promise(() =>
+        secondAccount.signTypedData(
+          makeRotateOwnerIntentTypedDataV1(domain, rotateOwner)
+        )
+      ).pipe(Effect.flatMap(normalizeEcdsaSignature));
+      const rotateDeviceSignature = yield* Effect.promise(() =>
+        account.signTypedData(
+          makeRotateDeviceIntentTypedDataV1(domain, rotateDevice)
+        )
+      ).pipe(Effect.flatMap(normalizeEcdsaSignature));
 
       assert.strictEqual(
         yield* recoverRegisterIntentSignerV1(
@@ -230,24 +213,24 @@ describe("registry intents", () => {
       assert.strictEqual(
         yield* recoverRotateOwnerIntentSignerV1(
           domain,
-          rotate,
-          rotateSignature
+          rotateOwner,
+          rotateOwnerSignature
         ),
         encodedRegisterIntent.owner
       );
       assert.strictEqual(
         yield* recoverRotateOwnerIntentSignerV1(
           domain,
-          rotate,
-          newOwnerRotateSignature
+          rotateOwner,
+          newOwnerSignature
         ),
         encodedRotateOwnerIntent.newOwner
       );
       assert.strictEqual(
-        yield* recoverRevokeDeviceIntentSignerV1(
+        yield* recoverRotateDeviceIntentSignerV1(
           domain,
-          revoke,
-          revokeSignature
+          rotateDevice,
+          rotateDeviceSignature
         ),
         encodedRegisterIntent.owner
       );
@@ -271,218 +254,54 @@ describe("registry intents", () => {
     })
   );
 
-  it.effect("binds recovered signers to the signer and exact payload", () =>
+  it.effect("keeps every intent schema strict", () =>
     Effect.gen(function* () {
-      const account = privateKeyToAccount(PRIVATE_KEY);
-      const secondAccount = privateKeyToAccount(SECOND_PRIVATE_KEY);
-      const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
-      const register = yield* decodeRegisterIntentV1(encodedRegisterIntent);
-      const rotate = yield* decodeRotateOwnerIntentV1(encodedRotateOwnerIntent);
-
-      const wrongSignerWalletSignature = yield* Effect.promise(() =>
-        secondAccount.signTypedData(
-          makeRegisterIntentTypedDataV1(domain, register)
-        )
-      );
-      const rotateWalletSignature = yield* Effect.promise(() =>
-        account.signTypedData(makeRotateOwnerIntentTypedDataV1(domain, rotate))
-      );
-      const wrongSignerSignature = yield* normalizeEcdsaSignature(
-        wrongSignerWalletSignature
-      );
-      const rotateSignature = yield* normalizeEcdsaSignature(
-        rotateWalletSignature
-      );
-
-      const wrongSigner = yield* recoverRegisterIntentSignerV1(
-        domain,
-        register,
-        wrongSignerSignature
-      );
-      assert.strictEqual(wrongSigner, secondAccount.address.toLowerCase());
-      assert.notStrictEqual(wrongSigner, register.owner);
-
-      const alteredRotate = yield* decodeRotateOwnerIntentV1({
-        ...encodedRotateOwnerIntent,
-        nonce: "8",
-      });
-      assert.notStrictEqual(
-        yield* recoverRotateOwnerIntentSignerV1(
-          domain,
-          alteredRotate,
-          rotateSignature
-        ),
-        account.address.toLowerCase()
-      );
-    })
-  );
-
-  it.effect("separates every intent digest by chain and registry", () =>
-    Effect.gen(function* () {
-      const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
-      const otherChain = yield* decodeIdentityEip712DomainV1({
-        ...encodedDomain,
-        chainId: "1",
-      });
-      const otherRegistry = yield* decodeIdentityEip712DomainV1({
-        ...encodedDomain,
-        verifyingContract: "0x2222222222222222222222222222222222222222",
-      });
-      const register = yield* decodeRegisterIntentV1(encodedRegisterIntent);
-      const rotate = yield* decodeRotateOwnerIntentV1(encodedRotateOwnerIntent);
-      const revoke = yield* decodeRevokeDeviceIntentV1(
-        encodedRevokeDeviceIntent
-      );
-
-      const [baseDigests, chainDigests, registryDigests] = yield* Effect.all([
-        Effect.all([
-          hashRegisterIntentV1(domain, register),
-          hashRotateOwnerIntentV1(domain, rotate),
-          hashRevokeDeviceIntentV1(domain, revoke),
-        ]),
-        Effect.all([
-          hashRegisterIntentV1(otherChain, register),
-          hashRotateOwnerIntentV1(otherChain, rotate),
-          hashRevokeDeviceIntentV1(otherChain, revoke),
-        ]),
-        Effect.all([
-          hashRegisterIntentV1(otherRegistry, register),
-          hashRotateOwnerIntentV1(otherRegistry, rotate),
-          hashRevokeDeviceIntentV1(otherRegistry, revoke),
-        ]),
-      ]);
-
-      for (const index of [0, 1, 2]) {
-        assert.notStrictEqual(baseDigests[index], chainDigests[index]);
-        assert.notStrictEqual(baseDigests[index], registryDigests[index]);
-        assert.notStrictEqual(chainDigests[index], registryDigests[index]);
-      }
-    })
-  );
-
-  it.effect("pins handle and excess-property policy failures", () =>
-    Effect.gen(function* () {
-      const expectedMessage =
-        "Expected a handle starting with a lowercase ASCII letter or digit and containing only lowercase ASCII letters, digits, or underscores";
-      for (const handle of ["Alice", "_deepso", "deep-so"]) {
-        const error = yield* decodeRegisterIntentV1({
-          ...encodedRegisterIntent,
-          handle,
+      for (const [schema, encoded, message] of [
+        [
+          RegisterIntentV1,
+          encodedRegisterIntent,
+          "Unexpected registration intent field",
+        ],
+        [
+          RotateOwnerIntentV1,
+          encodedRotateOwnerIntent,
+          "Unexpected owner rotation intent field",
+        ],
+        [
+          RotateDeviceIntentV1,
+          encodedRotateDeviceIntent,
+          "Unexpected device rotation intent field",
+        ],
+      ] as const) {
+        const error = yield* Schema.decodeUnknownEffect(schema)({
+          ...encoded,
+          unexpected: true,
         }).pipe(Effect.flip);
         assert.deepStrictEqual(formatIssue(error.issue).issues, [
-          { message: expectedMessage, path: ["handle"] },
+          { message, path: ["unexpected"] },
         ]);
       }
+    })
+  );
 
-      assert.strictEqual(
-        (yield* decodeRegisterIntentV1({
-          ...encodedRegisterIntent,
-          handle: "0xdeepso",
-        })).handle,
-        "0xdeepso"
-      );
-
-      const excessError = yield* Schema.decodeUnknownEffect(RegisterIntentV1)({
+  it.effect("rejects zero device keys", () =>
+    Effect.gen(function* () {
+      const registerError = yield* decodeRegisterIntentV1({
         ...encodedRegisterIntent,
-        unexpected: true,
+        deviceKey: `0x${"00".repeat(32)}`,
       }).pipe(Effect.flip);
-      assert.deepStrictEqual(formatIssue(excessError.issue).issues, [
-        {
-          message: "Unexpected registration intent field",
-          path: ["unexpected"],
-        },
+      assert.deepStrictEqual(formatIssue(registerError.issue).issues, [
+        { message: "Expected a non-zero device key", path: ["deviceKey"] },
       ]);
 
-      const rotateExcessError = yield* Schema.decodeUnknownEffect(
-        RotateOwnerIntentV1
-      )({
-        ...encodedRotateOwnerIntent,
-        unexpected: true,
+      const rotateError = yield* decodeRotateDeviceIntentV1({
+        ...encodedRotateDeviceIntent,
+        newDeviceKey: `0x${"00".repeat(32)}`,
       }).pipe(Effect.flip);
-      assert.deepStrictEqual(formatIssue(rotateExcessError.issue).issues, [
+      assert.deepStrictEqual(formatIssue(rotateError.issue).issues, [
         {
-          message: "Unexpected owner rotation intent field",
-          path: ["unexpected"],
-        },
-      ]);
-
-      const revokeExcessError = yield* Schema.decodeUnknownEffect(
-        RevokeDeviceIntentV1
-      )({
-        ...encodedRevokeDeviceIntent,
-        unexpected: true,
-      }).pipe(Effect.flip);
-      assert.deepStrictEqual(formatIssue(revokeExcessError.issue).issues, [
-        {
-          message: "Unexpected device revocation intent field",
-          path: ["unexpected"],
-        },
-      ]);
-
-      const oversizedNonce = yield* decodeRotateOwnerIntentV1({
-        ...encodedRotateOwnerIntent,
-        nonce: (2n ** 256n).toString(),
-      }).pipe(Effect.flip);
-      assert.deepStrictEqual(formatIssue(oversizedNonce.issue).issues, [
-        {
-          message: "Expected a uint256",
-          path: ["nonce"],
-        },
-      ]);
-
-      const zeroRegistrationNonce = yield* decodeRegisterIntentV1({
-        ...encodedRegisterIntent,
-        nonce: `0x${"00".repeat(32)}`,
-      }).pipe(Effect.flip);
-      assert.deepStrictEqual(formatIssue(zeroRegistrationNonce.issue).issues, [
-        {
-          message: "Expected a non-zero registration nonce",
-          path: ["nonce"],
-        },
-      ]);
-
-      const zeroDeviceCommitment = yield* decodeRegisterIntentV1({
-        ...encodedRegisterIntent,
-        deviceCommitment: `0x${"00".repeat(32)}`,
-      }).pipe(Effect.flip);
-      assert.deepStrictEqual(formatIssue(zeroDeviceCommitment.issue).issues, [
-        {
-          message: "Expected a non-zero device commitment",
-          path: ["deviceCommitment"],
-        },
-      ]);
-
-      const zeroCertificateDigest = yield* decodeRevokeDeviceIntentV1({
-        ...encodedRevokeDeviceIntent,
-        certificateDigest: `0x${"00".repeat(32)}`,
-      }).pipe(Effect.flip);
-      assert.deepStrictEqual(formatIssue(zeroCertificateDigest.issue).issues, [
-        {
-          message: "Expected a non-zero certificate digest",
-          path: ["certificateDigest"],
-        },
-      ]);
-
-      const zeroOwner = "0x0000000000000000000000000000000000000000";
-      const zeroRegisterOwner = yield* decodeRegisterIntentV1({
-        ...encodedRegisterIntent,
-        owner: zeroOwner,
-      }).pipe(Effect.flip);
-      assert.deepStrictEqual(formatIssue(zeroRegisterOwner.issue).issues, [
-        {
-          message: "Expected a non-zero Ethereum address",
-          path: ["owner"],
-        },
-      ]);
-
-      const zeroRotationOwner = yield* decodeRotateOwnerIntentV1({
-        ...encodedRotateOwnerIntent,
-        newOwner: zeroOwner,
-      }).pipe(Effect.flip);
-      assert.deepStrictEqual(formatIssue(zeroRotationOwner.issue).issues, [
-        {
-          message: "Expected a non-zero Ethereum address",
-          path: ["newOwner"],
+          message: "Expected a non-zero device key",
+          path: ["newDeviceKey"],
         },
       ]);
     })

@@ -36,15 +36,9 @@ export const RegistrationNonce = Hex32.check(
   })
 );
 
-export const CertificateDigest = Hex32.check(
+export const DeviceKey = Hex32.check(
   Schema.makeFilter((bytes) => bytes.some((byte) => byte !== 0), {
-    expected: "a non-zero certificate digest",
-  })
-);
-
-export const DeviceCommitment = Hex32.check(
-  Schema.makeFilter((bytes) => bytes.some((byte) => byte !== 0), {
-    expected: "a non-zero device commitment",
+    expected: "a non-zero device key",
   })
 );
 
@@ -57,7 +51,7 @@ const OwnerPrivateKey = Schema.Uint8Array.check(
 // oxlint-disable-next-line no-redeclare -- The schema and its inferred type intentionally share the public API name.
 export const RegisterIntentV1 = Schema.Struct({
   deadline: UnixSeconds,
-  deviceCommitment: DeviceCommitment,
+  deviceKey: DeviceKey,
   handle: Handle,
   nonce: RegistrationNonce,
   owner: NonZeroEthereumAddress,
@@ -84,24 +78,24 @@ export type RotateOwnerIntentV1 = typeof RotateOwnerIntentV1.Type;
 export type RotateOwnerIntentV1Encoded = typeof RotateOwnerIntentV1.Encoded;
 
 // oxlint-disable-next-line no-redeclare -- The schema and its inferred type intentionally share the public API name.
-export const RevokeDeviceIntentV1 = Schema.Struct({
-  certificateDigest: CertificateDigest,
+export const RotateDeviceIntentV1 = Schema.Struct({
   deadline: UnixSeconds,
+  newDeviceKey: DeviceKey,
   nonce: Uint256,
   qid: Qid,
 }).annotate({
-  messageUnexpectedKey: "Unexpected device revocation intent field",
+  messageUnexpectedKey: "Unexpected device rotation intent field",
   parseOptions: strictParseOptions,
 });
 
-export type RevokeDeviceIntentV1 = typeof RevokeDeviceIntentV1.Type;
-export type RevokeDeviceIntentV1Encoded = typeof RevokeDeviceIntentV1.Encoded;
+export type RotateDeviceIntentV1 = typeof RotateDeviceIntentV1.Type;
+export type RotateDeviceIntentV1Encoded = typeof RotateDeviceIntentV1.Encoded;
 
 export const registerIntentEip712Types = {
   RegisterV1: [
     { name: "handle", type: "string" },
     { name: "owner", type: "address" },
-    { name: "deviceCommitment", type: "bytes32" },
+    { name: "deviceKey", type: "bytes32" },
     { name: "nonce", type: "bytes32" },
     { name: "deadline", type: "uint64" },
   ],
@@ -116,10 +110,10 @@ export const rotateOwnerIntentEip712Types = {
   ],
 } as const;
 
-export const revokeDeviceIntentEip712Types = {
-  RevokeDeviceV1: [
+export const rotateDeviceIntentEip712Types = {
+  RotateDeviceV1: [
     { name: "qid", type: "uint256" },
-    { name: "certificateDigest", type: "bytes32" },
+    { name: "newDeviceKey", type: "bytes32" },
     { name: "nonce", type: "uint256" },
     { name: "deadline", type: "uint64" },
   ],
@@ -141,7 +135,7 @@ export const makeRegisterIntentTypedDataV1 = (
     domain: typedDataDomain(domain),
     message: {
       deadline: intent.deadline,
-      deviceCommitment: toHex(intent.deviceCommitment),
+      deviceKey: toHex(intent.deviceKey),
       handle: intent.handle,
       nonce: toHex(intent.nonce),
       // SAFETY: The intent schema accepts only canonical 20-byte hex addresses.
@@ -168,20 +162,20 @@ export const makeRotateOwnerIntentTypedDataV1 = (
     types: rotateOwnerIntentEip712Types,
   }) as const;
 
-export const makeRevokeDeviceIntentTypedDataV1 = (
+export const makeRotateDeviceIntentTypedDataV1 = (
   domain: IdentityDomain,
-  intent: RevokeDeviceIntentV1
+  intent: RotateDeviceIntentV1
 ) =>
   ({
     domain: typedDataDomain(domain),
     message: {
-      certificateDigest: toHex(intent.certificateDigest),
       deadline: intent.deadline,
+      newDeviceKey: toHex(intent.newDeviceKey),
       nonce: intent.nonce,
       qid: intent.qid,
     },
-    primaryType: "RevokeDeviceV1",
-    types: revokeDeviceIntentEip712Types,
+    primaryType: "RotateDeviceV1",
+    types: rotateDeviceIntentEip712Types,
   }) as const;
 
 const validateSignature = (
@@ -212,13 +206,13 @@ const validateRotateOwnerInputs = (
     Effect.mapError((cause) => new IdentityCryptoError({ cause, operation }))
   );
 
-const validateRevokeDeviceInputs = (
+const validateRotateDeviceInputs = (
   operation: IdentityCryptoError["operation"],
   domain: IdentityDomain,
-  intent: RevokeDeviceIntentV1
+  intent: RotateDeviceIntentV1
 ) =>
   Schema.encodeEffect(IdentityEip712DomainV1)(domain).pipe(
-    Effect.andThen(Schema.encodeEffect(RevokeDeviceIntentV1)(intent)),
+    Effect.andThen(Schema.encodeEffect(RotateDeviceIntentV1)(intent)),
     Effect.mapError((cause) => new IdentityCryptoError({ cause, operation }))
   );
 
@@ -234,10 +228,10 @@ export const decodeRotateOwnerIntentV1 = Effect.fn(
   Schema.decodeEffect(RotateOwnerIntentV1)(input)
 );
 
-export const decodeRevokeDeviceIntentV1 = Effect.fn(
-  "@qop/identity/decodeRevokeDeviceIntentV1"
-)((input: RevokeDeviceIntentV1Encoded) =>
-  Schema.decodeEffect(RevokeDeviceIntentV1)(input)
+export const decodeRotateDeviceIntentV1 = Effect.fn(
+  "@qop/identity/decodeRotateDeviceIntentV1"
+)((input: RotateDeviceIntentV1Encoded) =>
+  Schema.decodeEffect(RotateDeviceIntentV1)(input)
 );
 
 export const encodeRegisterIntentV1 = Effect.fn(
@@ -250,10 +244,10 @@ export const encodeRotateOwnerIntentV1 = Effect.fn(
   Schema.encodeEffect(RotateOwnerIntentV1)(intent)
 );
 
-export const encodeRevokeDeviceIntentV1 = Effect.fn(
-  "@qop/identity/encodeRevokeDeviceIntentV1"
-)((intent: RevokeDeviceIntentV1) =>
-  Schema.encodeEffect(RevokeDeviceIntentV1)(intent)
+export const encodeRotateDeviceIntentV1 = Effect.fn(
+  "@qop/identity/encodeRotateDeviceIntentV1"
+)((intent: RotateDeviceIntentV1) =>
+  Schema.encodeEffect(RotateDeviceIntentV1)(intent)
 );
 
 export const hashRegisterIntentV1 = Effect.fn(
@@ -326,19 +320,19 @@ export const hashRotateOwnerIntentV1 = Effect.fn(
   )
 );
 
-export const hashRevokeDeviceIntentV1 = Effect.fn(
-  "@qop/identity/hashRevokeDeviceIntentV1"
-)((domain: IdentityDomain, intent: RevokeDeviceIntentV1) =>
-  validateRevokeDeviceInputs("hash-revoke-device-intent", domain, intent).pipe(
+export const hashRotateDeviceIntentV1 = Effect.fn(
+  "@qop/identity/hashRotateDeviceIntentV1"
+)((domain: IdentityDomain, intent: RotateDeviceIntentV1) =>
+  validateRotateDeviceInputs("hash-rotate-device-intent", domain, intent).pipe(
     Effect.flatMap(() =>
       Effect.try({
         catch: (cause) =>
           new IdentityCryptoError({
             cause,
-            operation: "hash-revoke-device-intent",
+            operation: "hash-rotate-device-intent",
           }),
         try: () =>
-          hashTypedData(makeRevokeDeviceIntentTypedDataV1(domain, intent)),
+          hashTypedData(makeRotateDeviceIntentTypedDataV1(domain, intent)),
       })
     )
   )
@@ -403,32 +397,32 @@ export const recoverRotateOwnerIntentSignerV1 = Effect.fn(
     )
 );
 
-export const recoverRevokeDeviceIntentSignerV1 = Effect.fn(
-  "@qop/identity/recoverRevokeDeviceIntentSignerV1"
+export const recoverRotateDeviceIntentSignerV1 = Effect.fn(
+  "@qop/identity/recoverRotateDeviceIntentSignerV1"
 )(
   (
     domain: IdentityDomain,
-    intent: RevokeDeviceIntentV1,
+    intent: RotateDeviceIntentV1,
     signature: Uint8Array
   ) =>
-    validateRevokeDeviceInputs(
-      "recover-revoke-device-intent-signer",
+    validateRotateDeviceInputs(
+      "recover-rotate-device-intent-signer",
       domain,
       intent
     ).pipe(
       Effect.andThen(
-        validateSignature("recover-revoke-device-intent-signer", signature)
+        validateSignature("recover-rotate-device-intent-signer", signature)
       ),
       Effect.flatMap(() =>
         Effect.tryPromise({
           catch: (cause) =>
             new IdentityCryptoError({
               cause,
-              operation: "recover-revoke-device-intent-signer",
+              operation: "recover-rotate-device-intent-signer",
             }),
           try: () =>
             recoverTypedDataAddress({
-              ...makeRevokeDeviceIntentTypedDataV1(domain, intent),
+              ...makeRotateDeviceIntentTypedDataV1(domain, intent),
               signature: toViemSignature(signature),
             }),
         })
