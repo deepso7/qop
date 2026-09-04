@@ -27,10 +27,13 @@ export interface StoredMessage {
   readonly contactQid: string;
   readonly direction: MessageDirection;
   readonly id: string;
+  readonly receivedAt: number;
   readonly sentAt: number;
   readonly status: MessageStatus;
   readonly text: string;
 }
+
+export type MessageInput = Omit<StoredMessage, "receivedAt">;
 
 export interface Conversation extends Contact {
   readonly latestMessageText: string | null;
@@ -53,6 +56,7 @@ interface MessageRow {
   contactQid: string;
   direction: MessageDirection;
   id: string;
+  receivedAt: number;
   sentAt: number;
   status: MessageStatus;
   text: string;
@@ -65,6 +69,9 @@ interface ConversationRow extends ContactRow {
 }
 
 let databasePromise: Promise<SQLite.SQLiteDatabase> | undefined;
+
+const failInterruptedMessagesSql = `UPDATE messages SET status = 'failed'
+  WHERE direction = 'out' AND status = 'sending'`;
 
 const openDatabase = async () => {
   const database = await SQLite.openDatabaseAsync("qop.db");
@@ -93,6 +100,7 @@ const openDatabase = async () => {
     DROP INDEX IF EXISTS messages_contact_sent_idx;
     CREATE INDEX IF NOT EXISTS messages_contact_received_idx
       ON messages(contact_qid, received_at);
+    ${failInterruptedMessagesSql};
   `);
   return database;
 };
@@ -227,7 +235,7 @@ export const markConversationRead = async (qid: string): Promise<void> => {
 };
 
 export const insertMessage = async (
-  message: StoredMessage
+  message: MessageInput
 ): Promise<boolean> => {
   const database = await getDatabase();
   const receivedAt = Date.now();
@@ -263,12 +271,19 @@ export const updateMessageStatus = async (
   );
 };
 
+// Endpoint shutdown and app startup make interrupted sends manually retryable.
+export const failInterruptedMessages = async (): Promise<void> => {
+  const database = await getDatabase();
+  await database.runAsync(failInterruptedMessagesSql);
+};
+
 const messageSelect = `SELECT
   id,
   contact_qid AS contactQid,
   direction,
   text,
   sent_at AS sentAt,
+  received_at AS receivedAt,
   status
 FROM messages`;
 

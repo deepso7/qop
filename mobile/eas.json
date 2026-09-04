@@ -5,18 +5,21 @@
       "distribution": "internal",
       "env": {
         "APP_VARIANT": "development"
-      }
+      },
+      "node": "24.13.0"
     },
     "preview": {
       "distribution": "internal",
       "env": {
         "APP_VARIANT": "preview"
-      }
+      },
+      "node": "24.13.0"
     },
     "production": {
       "env": {
         "APP_VARIANT": "production"
-      }
+      },
+      "node": "24.13.0"
     }
   }
 }

@@ -2,12 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   deleteAll,
+  failInterruptedMessages,
+  getMessageById,
   insertMessage,
   listConversations,
   listMessages,
   markConversationRead,
   upsertContact,
 } from "@/lib/db";
+import type { MessageInput } from "@/lib/db";
 
 beforeEach(async () => {
   await deleteAll();
@@ -47,6 +50,7 @@ describe("message chronology", () => {
     const messages = await listMessages("1");
     expect(messages.map(({ id }) => id)).toEqual(["later", "earlier"]);
     expect(messages.map(({ sentAt }) => sentAt)).toEqual([20, 10]);
+    expect(messages.map(({ receivedAt }) => receivedAt)).toEqual([100, 200]);
     expect(await listConversations()).toMatchObject([
       { latestMessageText: "first", latestMessageTime: 200, unreadCount: 1 },
     ]);
@@ -119,5 +123,67 @@ describe("message chronology", () => {
     });
     const conversations = await listConversations();
     expect(conversations.map(({ qid }) => qid)).toEqual(["2", "1"]);
+  });
+});
+
+describe("interrupted sends", () => {
+  it("makes only outgoing sending messages retryable without changing their contents", async () => {
+    const inputs: MessageInput[] = [
+      {
+        contactQid: "1",
+        direction: "out",
+        id: "sending",
+        sentAt: 100,
+        status: "sending",
+        text: "keep for retry",
+      },
+      {
+        contactQid: "1",
+        direction: "out",
+        id: "sent",
+        sentAt: 100,
+        status: "sent",
+        text: "delivered",
+      },
+      {
+        contactQid: "1",
+        direction: "out",
+        id: "failed",
+        sentAt: 100,
+        status: "failed",
+        text: "already failed",
+      },
+      {
+        contactQid: "1",
+        direction: "in",
+        id: "received",
+        sentAt: 100,
+        status: "received",
+        text: "incoming",
+      },
+      {
+        contactQid: "1",
+        direction: "in",
+        id: "incoming-sending",
+        sentAt: 100,
+        status: "sending",
+        text: "incoming state",
+      },
+    ];
+    await Promise.all(inputs.map((input) => insertMessage(input)));
+    const before = await listMessages("1");
+    await failInterruptedMessages();
+    const after = await listMessages("1");
+    expect(after).toEqual(
+      before.map((message) =>
+        message.id === "sending" ? { ...message, status: "failed" } : message
+      )
+    );
+    expect(await getMessageById("sending")).toEqual({
+      ...before[0],
+      status: "failed",
+    });
+    await failInterruptedMessages();
+    expect(await listMessages("1")).toEqual(after);
   });
 });

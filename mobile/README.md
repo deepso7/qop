@@ -60,3 +60,16 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+## Native verification before merging
+
+These checks require two development builds connected to the configured registry and relay. Automated tests cover the SQL, wire validation, session authorization, and store lifecycle; they do not exercise the native transport.
+
+- Register two distinct accounts and exchange messages in both directions. Confirm acknowledgements, persistence after restart, and matching arrival order and bubble times.
+- Interrupt a send by closing the app, then reopen it. The message should be retryable with its original ID; retry should not duplicate it on the recipient.
+- Disconnect and reconnect a peer, then exchange messages again. A new connection must verify against the registry.
+- After establishing a verified connection, make RPC unavailable. Messages on that connection should continue; a new connection should fail verification.
+- Rotate a device key. The old live connection may continue, but the old key must fail verification after reconnecting. The replacement device must connect successfully.
+- Trigger dropped native events or queue overflow in a debug build. Check that invalidated connections cannot deliver chat messages and that relay reservation and messaging recover after restarting the endpoint.
+
+EAS profiles pin Node.js 24.13.0 to match the local validation runtime.

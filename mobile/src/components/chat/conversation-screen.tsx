@@ -82,7 +82,7 @@ const ConversationMessage = React.memo(
             <Text selectable>{item.text}</Text>
             <MessageMeta
               status={metaStatus}
-              time={timeFormatter.format(new Date(item.sentAt))}
+              time={timeFormatter.format(new Date(item.receivedAt))}
             />
           </MessageBubble>
           {item.status === "failed" ? (

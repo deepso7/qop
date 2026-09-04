@@ -113,7 +113,7 @@ export class RegistryChain extends Context.Service<
         qid: bigint
       ) {
         const blockNumber = yield* confirmedBlock;
-        const [owner, deviceKey, ownerVersion, registeredAt, nonce, handle] =
+        const { owner, deviceKey, ownerVersion, registeredAt, nonce, handle } =
           yield* Effect.tryPromise({
             catch: (cause) =>
               new RegistryChainError({ cause, operation: "account" }),
