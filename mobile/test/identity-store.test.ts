@@ -15,6 +15,7 @@ const registrationMock = {
   deleteLocalRegistration: vi.fn(),
   loadLocalRegistration: vi.fn(),
 };
+const deleteAllData = vi.fn();
 
 const identity = {
   backupState: "pending",
@@ -41,6 +42,7 @@ const deferred = <A>() => Promise.withResolvers<A>();
 
 const loadStore = () =>
   createIdentityStore({
+    deleteAllData,
     identityVault: vaultMock,
     makeIdentityVaultError: (operation) =>
       new IdentityVaultError({ operation }),
@@ -48,6 +50,7 @@ const loadStore = () =>
   });
 
 beforeEach(() => {
+  deleteAllData.mockReset().mockImplementation(() => Promise.resolve());
   registrationMock.deleteLocalRegistration
     .mockReset()
     .mockReturnValue(Effect.void);
@@ -154,6 +157,7 @@ describe("identity store", () => {
 
     expect(Result.isSuccess(result)).toBe(true);
     expect(registrationMock.deleteLocalRegistration).toHaveBeenCalledOnce();
+    expect(deleteAllData).toHaveBeenCalledOnce();
     expect(vaultMock.deleteLocalIdentity).toHaveBeenCalledOnce();
     expect(store.getState()).toMatchObject({
       identity: null,

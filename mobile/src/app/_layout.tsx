@@ -9,6 +9,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 import { BlurTargetProvider } from "@/components/ui/blur-target";
 import { useTheme } from "@/constants/theme";
 import { useIdentityStore } from "@/lib/identity-store";
+import { useP2pStore } from "@/lib/p2p-store";
 
 import "../../global.css";
 
@@ -19,6 +20,8 @@ const AppStack = () => {
   const colors = useTheme();
   const hydrate = useIdentityStore((state) => state.hydrate);
   const status = useIdentityStore((state) => state.status);
+  const startP2p = useP2pStore((state) => state.start);
+  const stopP2p = useP2pStore((state) => state.stop);
   const isReady = status === "ready";
 
   React.useEffect(() => {
@@ -30,6 +33,14 @@ const AppStack = () => {
       void SplashScreen.hideAsync();
     }
   }, [status]);
+
+  React.useEffect(() => {
+    if (status === "ready") {
+      void startP2p();
+      return stopP2p;
+    }
+    stopP2p();
+  }, [startP2p, status, stopP2p]);
 
   if (status === "loading") {
     return null;
@@ -54,6 +65,7 @@ const AppStack = () => {
             <Stack.Screen name="index" options={{ headerShown: false }} />
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="chat/[id]" options={{ title: "Chat" }} />
+            <Stack.Screen name="new-chat" options={{ title: "New chat" }} />
           </Stack.Protected>
         </Stack>
       </BlurTargetProvider>

@@ -1,3 +1,4 @@
+import { deleteAll } from "./db";
 import { createIdentityStore } from "./identity-store-core";
 import {
   createLocalIdentity,
@@ -19,6 +20,7 @@ export type {
 } from "./identity-store-core";
 
 export const useIdentityStore = createIdentityStore({
+  deleteAllData: deleteAll,
   identityVault: {
     createLocalIdentity,
     deleteLocalIdentity,

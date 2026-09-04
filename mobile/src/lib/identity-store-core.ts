@@ -20,6 +20,7 @@ export type IdentityStatus =
   | "error"
   | "loading"
   | "ready"
+  | "resetting"
   | "unregistered";
 
 type IdentityResult<A> = Result.Result<A, IdentityVaultError>;
@@ -75,6 +76,7 @@ const stateForIdentity = (
 };
 
 export interface IdentityStoreDependencies {
+  readonly deleteAllData: () => Promise<void>;
   readonly identityVault: Pick<
     ReturnType<typeof createIdentityVault>,
     | "createLocalIdentity"
@@ -107,6 +109,7 @@ const runOperation = <A>(
 };
 
 export const createIdentityStore = ({
+  deleteAllData,
   identityVault,
   makeIdentityVaultError,
   registration,
@@ -226,7 +229,12 @@ export const createIdentityStore = ({
       }
 
       loadGeneration += 1;
-      const effect = deleteLocalRegistration().pipe(
+      set({ error: null, isHydrating: false, status: "resetting" });
+      const effect = Effect.tryPromise({
+        catch: () => makeIdentityVaultError("delete"),
+        try: deleteAllData,
+      }).pipe(
+        Effect.andThen(deleteLocalRegistration()),
         Effect.mapError(() => makeIdentityVaultError("delete")),
         Effect.andThen(deleteLocalIdentity()),
         Effect.tap(() =>

@@ -2,7 +2,7 @@
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
-Set `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_RPC_URL`, `EXPO_PUBLIC_REGISTRY_ADDRESS`, and `EXPO_PUBLIC_REGISTRY_CHAIN_ID` before running the app. The registry values pin the EIP-712 domain the local owner key may authorize, and the RPC URL lets the app read registrations directly from the chain. Native devices and emulators must use API and RPC addresses that can reach the development machine; `127.0.0.1` only works when those services are available inside that device's network namespace.
+Set `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_RPC_URL`, `EXPO_PUBLIC_REGISTRY_ADDRESS`, `EXPO_PUBLIC_REGISTRY_CHAIN_ID`, and `EXPO_PUBLIC_RELAY_ADDRS` before running the app. `EXPO_PUBLIC_RELAY_ADDRS` is a comma-separated list of minip2p relay multiaddresses. The registry values pin the EIP-712 domain the local owner key may authorize, and the RPC URL lets the app read registrations directly from the chain. The API is used only during registration. Native devices and emulators must use API and RPC addresses that can reach the development machine; `127.0.0.1` only works when those services are available inside that device's network namespace.
 
 ## Get started
 
