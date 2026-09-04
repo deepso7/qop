@@ -92,6 +92,7 @@ export interface IdentityStoreDependencies {
     ReturnType<typeof createLocalRegistration>,
     "deleteLocalRegistration" | "loadLocalRegistration"
   >;
+  readonly stopP2p: () => Promise<void>;
 }
 
 const runOperation = <A>(
@@ -113,6 +114,7 @@ export const createIdentityStore = ({
   identityVault,
   makeIdentityVaultError,
   registration,
+  stopP2p,
 }: IdentityStoreDependencies) => {
   const {
     createLocalIdentity,
@@ -241,7 +243,10 @@ export const createIdentityStore = ({
       set({ error: null, isHydrating: false, status: "resetting" });
       const effect = Effect.tryPromise({
         catch: () => makeIdentityVaultError("delete"),
-        try: deleteAllData,
+        try: async () => {
+          await stopP2p();
+          await deleteAllData();
+        },
       }).pipe(
         Effect.andThen(deleteLocalRegistration()),
         Effect.mapError(() => makeIdentityVaultError("delete")),

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { encodeAck } from "@/lib/chat-wire";
-import { performSend } from "@/lib/p2p-send";
+import { performSend, withTimeout } from "@/lib/p2p-send";
 
 const id = "c56a4180-65aa-42ec-a945-5fd21dec0538";
 const frame = {
@@ -71,5 +71,21 @@ describe("performSend", () => {
       performSend({ contact, endpoint, frame, timeoutMs: 5 })
     ).rejects.toThrow("Timed out");
     expect(stream.reset).toHaveBeenCalledOnce();
+  });
+});
+
+describe("withTimeout", () => {
+  it("rejects after the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = Promise.withResolvers<never>();
+      const result = withTimeout(pending.promise, 100);
+      const assertion = expect(result).rejects.toThrow("Timed out");
+
+      await vi.advanceTimersByTimeAsync(100);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

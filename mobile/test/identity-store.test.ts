@@ -16,6 +16,7 @@ const registrationMock = {
   loadLocalRegistration: vi.fn(),
 };
 const deleteAllData = vi.fn();
+const stopP2p = vi.fn();
 
 const identity = {
   backupState: "pending",
@@ -47,10 +48,12 @@ const loadStore = () =>
     makeIdentityVaultError: (operation) =>
       new IdentityVaultError({ operation }),
     registration: registrationMock,
+    stopP2p,
   });
 
 beforeEach(() => {
   deleteAllData.mockReset().mockImplementation(() => Promise.resolve());
+  stopP2p.mockReset().mockImplementation(() => Promise.resolve());
   registrationMock.deleteLocalRegistration
     .mockReset()
     .mockReturnValue(Effect.void);
@@ -150,10 +153,16 @@ describe("identity store", () => {
 
   it("deletes registration retry material with the identity", async () => {
     vaultMock.loadLocalIdentity.mockReturnValue(Effect.succeed(identity));
+    const stopped = deferred<null>();
+    stopP2p.mockReturnValueOnce(stopped.promise);
     const store = await loadStore();
     await store.getState().hydrate();
 
-    const result = await store.getState().resetIdentity();
+    const reset = store.getState().resetIdentity();
+    await vi.waitFor(() => expect(stopP2p).toHaveBeenCalledOnce());
+    expect(deleteAllData).not.toHaveBeenCalled();
+    stopped.resolve(null);
+    const result = await reset;
 
     expect(Result.isSuccess(result)).toBe(true);
     expect(registrationMock.deleteLocalRegistration).toHaveBeenCalledOnce();

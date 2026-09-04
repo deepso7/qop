@@ -87,10 +87,11 @@ const openDatabase = async () => {
       direction TEXT NOT NULL CHECK (direction IN ('in','out')),
       text TEXT NOT NULL,
       sent_at INTEGER NOT NULL,
+      received_at INTEGER NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('sending','sent','failed','received'))
     );
-    CREATE INDEX IF NOT EXISTS messages_contact_sent_idx
-      ON messages(contact_qid, sent_at);
+    CREATE INDEX IF NOT EXISTS messages_contact_received_idx
+      ON messages(contact_qid, received_at);
   `);
   return database;
 };
@@ -187,7 +188,7 @@ export const listConversations = async (): Promise<Conversation[]> => {
       COALESCE(SUM(
         CASE
           WHEN messages.direction = 'in'
-            AND messages.sent_at > contacts.last_read_at THEN 1
+            AND messages.received_at > contacts.last_read_at THEN 1
           ELSE 0
         END
       ), 0) AS unreadCount
@@ -196,11 +197,11 @@ export const listConversations = async (): Promise<Conversation[]> => {
     LEFT JOIN messages AS latest ON latest.id = (
       SELECT id FROM messages
       WHERE contact_qid = contacts.qid
-      ORDER BY sent_at DESC, rowid DESC
+      ORDER BY received_at DESC, rowid DESC
       LIMIT 1
     )
     GROUP BY contacts.qid
-    ORDER BY COALESCE(latest.sent_at, contacts.created_at) DESC
+    ORDER BY COALESCE(latest.received_at, contacts.created_at) DESC
   `);
   return rows.map((row) => ({
     ...contactFromRow(row),
@@ -215,7 +216,7 @@ export const markConversationRead = async (qid: string): Promise<void> => {
   await database.runAsync(
     `UPDATE contacts
      SET last_read_at = COALESCE(
-       (SELECT MAX(sent_at) FROM messages WHERE contact_qid = ?),
+       (SELECT MAX(received_at) FROM messages WHERE contact_qid = ?),
        last_read_at
      )
      WHERE qid = ?`,
@@ -228,15 +229,17 @@ export const insertMessage = async (
   message: StoredMessage
 ): Promise<boolean> => {
   const database = await getDatabase();
+  const receivedAt = Date.now();
   const result = await database.runAsync(
     `INSERT OR IGNORE INTO messages(
-      id, contact_qid, direction, text, sent_at, status
-    ) VALUES (?, ?, ?, ?, ?, ?)`,
+      id, contact_qid, direction, text, sent_at, received_at, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     message.id,
     message.contactQid,
     message.direction,
     message.text,
     message.sentAt,
+    receivedAt,
     message.status
   );
   return result.changes > 0;
@@ -278,7 +281,7 @@ export const listMessages = async (
 ): Promise<StoredMessage[]> => {
   const database = await getDatabase();
   return database.getAllAsync<MessageRow>(
-    `${messageSelect} WHERE contact_qid = ? ORDER BY sent_at, rowid`,
+    `${messageSelect} WHERE contact_qid = ? ORDER BY received_at, rowid`,
     contactQid
   );
 };

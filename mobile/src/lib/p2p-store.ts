@@ -4,12 +4,7 @@ import { Effect } from "effect";
 import { randomUUID } from "expo-crypto";
 import { create } from "zustand";
 
-import {
-  CHAT_PROTOCOL,
-  decodeFrame,
-  encodeAck,
-  MAX_CHAT_PAYLOAD_BYTES,
-} from "./chat-wire";
+import { CHAT_PROTOCOL, encodeAck } from "./chat-wire";
 import type { ChatFrame } from "./chat-wire";
 import {
   getContactByPeerId,
@@ -22,9 +17,9 @@ import {
 import type { Contact, StoredMessage } from "./db";
 import { useIdentityStore } from "./identity-store";
 import { loadDeviceSecretKey } from "./identity-vault";
-import { performSend } from "./p2p-send";
+import { createResolveSender, readVerifiedChat } from "./p2p-receive";
+import { performSend, withTimeout } from "./p2p-send";
 import { lookupHandle } from "./registry";
-import type { RegistryAccount } from "./registry";
 
 // oxlint-disable eslint/no-use-before-define -- Store helpers run only after the store is initialized.
 
@@ -44,7 +39,7 @@ interface P2pActions {
   readonly retryMessage: (id: string) => Promise<void>;
   readonly sendMessage: (contact: Contact, text: string) => string;
   readonly start: () => Promise<void>;
-  readonly stop: () => void;
+  readonly stop: () => Promise<void>;
 }
 
 type P2pStore = P2pActions & P2pState;
@@ -59,74 +54,77 @@ const initialState: P2pState = {
 let endpoint: Minip2p | undefined;
 let unsubscribe: Unsubscribe[] = [];
 let generation = 0;
+const inFlightJobs = new Set<Promise<void>>();
 
 const errorMessage = (error: Error | string) =>
   error instanceof Error ? error.message : String(error);
 
-const contactFromAccount = (account: RegistryAccount) => ({
-  createdAt: Number(account.registeredAt) * 1000,
-  deviceKey: account.deviceKey,
-  handle: account.handle,
-  owner: account.owner,
-  peerId: account.peerId,
-  qid: account.qid.toString(),
+const resolveSender = createResolveSender({
+  getContactByPeerId,
+  lookupHandle: (handle) => Effect.runPromise(lookupHandle(handle)),
+  upsertContact,
 });
 
-const readStream = async (stream: Pick<Stream, "read">) => {
-  const chunks: Uint8Array[] = [];
-  let byteLength = 0;
-  for (;;) {
-    // Stream chunks are ordered, so reads cannot run concurrently.
-    // oxlint-disable-next-line eslint/no-await-in-loop
-    const chunk = await stream.read();
-    if (!chunk) {
-      break;
-    }
-    byteLength += chunk.byteLength;
-    if (byteLength > MAX_CHAT_PAYLOAD_BYTES) {
-      throw new Error("Chat frame exceeds 16 KB");
-    }
-    chunks.push(chunk);
-  }
-  const bytes = new Uint8Array(byteLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
+const isCurrentGeneration = (jobGeneration: number) =>
+  generation === jobGeneration;
+
+const trackJob = (job: Promise<void>) => {
+  inFlightJobs.add(job);
+  const removeWhenDone = async () => {
+    await Promise.allSettled([job]);
+    inFlightJobs.delete(job);
+  };
+  void removeWhenDone();
+  return job;
 };
 
-const resolveSender = async (
-  peerId: string,
-  fromHandle: string
-): Promise<Contact | null> => {
-  const known = await getContactByPeerId(peerId);
-  if (known?.handle === fromHandle) {
-    return known;
+const cleanupEndpoint = (activeEndpoint: Minip2p | undefined) => {
+  const listeners = unsubscribe;
+  unsubscribe = [];
+  for (const removeListener of listeners) {
+    removeListener();
   }
-
-  const account = await Effect.runPromise(lookupHandle(fromHandle));
-  if (!account || account.peerId !== peerId) {
-    return null;
+  if (endpoint === activeEndpoint) {
+    endpoint = undefined;
   }
-  await upsertContact(contactFromAccount(account));
-  return getContactByQid(account.qid.toString());
 };
 
-export const receiveChatStream = async (stream: Stream): Promise<void> => {
+const waitForInFlightJobs = async () => {
+  if (inFlightJobs.size === 0) {
+    return;
+  }
   try {
-    if (stream.protocolId !== CHAT_PROTOCOL) {
+    const settleJobs = async () => {
+      await Promise.allSettled(inFlightJobs);
+    };
+    await withTimeout(settleJobs(), 5000, "Timed out stopping P2P jobs");
+  } catch {
+    // Stopping is capped so a stalled native stream cannot block identity reset.
+  }
+};
+
+const receiveChatStream = async (
+  stream: Stream,
+  jobGeneration: number
+): Promise<void> => {
+  try {
+    const received = await readVerifiedChat(
+      stream,
+      (peerId, fromHandle) =>
+        resolveSender(peerId, fromHandle, () =>
+          isCurrentGeneration(jobGeneration)
+        ),
+      10_000
+    );
+    if (!received || !isCurrentGeneration(jobGeneration)) {
       stream.reset();
       return;
     }
-    const frame = decodeFrame(await readStream(stream));
-    const contact = await resolveSender(stream.peerId, frame.fromHandle);
-    if (!contact) {
-      stream.reset();
+    const { contact, frame } = received;
+    if (!isCurrentGeneration(jobGeneration)) {
       return;
     }
-    const inserted = await insertMessage({
+    await insertMessage({
       contactQid: contact.qid,
       direction: "in",
       id: frame.id,
@@ -134,11 +132,12 @@ export const receiveChatStream = async (stream: Stream): Promise<void> => {
       status: "received",
       text: frame.text,
     });
+    if (!isCurrentGeneration(jobGeneration)) {
+      return;
+    }
     stream.write(encodeAck({ ack: frame.id, v: 1 }));
     stream.closeWrite();
-    if (inserted) {
-      useP2pStore.setState((state) => ({ revision: state.revision + 1 }));
-    }
+    useP2pStore.setState((state) => ({ revision: state.revision + 1 }));
   } catch {
     stream.reset();
   }
@@ -146,12 +145,19 @@ export const receiveChatStream = async (stream: Stream): Promise<void> => {
 
 const sendStoredMessage = async (
   message: StoredMessage,
-  contact: Contact
+  contact: Contact,
+  jobGeneration: number
 ): Promise<void> => {
   try {
+    if (!isCurrentGeneration(jobGeneration)) {
+      return;
+    }
     const activeEndpoint = endpoint;
     const fromHandle = useIdentityStore.getState().identity?.handle;
     if (!activeEndpoint || !fromHandle) {
+      if (!isCurrentGeneration(jobGeneration)) {
+        return;
+      }
       await updateMessageStatus(message.id, "failed");
       return;
     }
@@ -169,15 +175,23 @@ const sendStoredMessage = async (
       frame,
       timeoutMs: 10_000,
     });
+    if (!isCurrentGeneration(jobGeneration)) {
+      return;
+    }
     await updateMessageStatus(message.id, "sent");
   } catch {
     try {
+      if (!isCurrentGeneration(jobGeneration)) {
+        return;
+      }
       await updateMessageStatus(message.id, "failed");
     } catch {
       // A storage failure is reflected in the store without leaking a rejection.
     }
   } finally {
-    useP2pStore.setState((state) => ({ revision: state.revision + 1 }));
+    if (isCurrentGeneration(jobGeneration)) {
+      useP2pStore.setState((state) => ({ revision: state.revision + 1 }));
+    }
   }
 };
 
@@ -192,32 +206,46 @@ export const useP2pStore = create<P2pStore>((set, get) => ({
     }
   },
 
-  retryMessage: async (id) => {
-    try {
-      const message = await getMessageById(id);
-      if (
-        !message ||
-        message.direction !== "out" ||
-        message.status !== "failed"
-      ) {
-        return;
+  retryMessage: (id) => {
+    const jobGeneration = generation;
+    const retry = async () => {
+      try {
+        const message = await getMessageById(id);
+        if (
+          !message ||
+          message.direction !== "out" ||
+          message.status !== "failed"
+        ) {
+          return;
+        }
+        const contact = await getContactByQid(message.contactQid);
+        if (!contact || !isCurrentGeneration(jobGeneration)) {
+          return;
+        }
+        await updateMessageStatus(id, "sending");
+        if (!isCurrentGeneration(jobGeneration)) {
+          return;
+        }
+        set((state) => ({ revision: state.revision + 1 }));
+        await sendStoredMessage(
+          { ...message, status: "sending" },
+          contact,
+          jobGeneration
+        );
+      } catch (error) {
+        if (isCurrentGeneration(jobGeneration)) {
+          set({
+            error: errorMessage(error instanceof Error ? error : String(error)),
+          });
+        }
       }
-      const contact = await getContactByQid(message.contactQid);
-      if (!contact) {
-        return;
-      }
-      await updateMessageStatus(id, "sending");
-      set((state) => ({ revision: state.revision + 1 }));
-      void sendStoredMessage({ ...message, status: "sending" }, contact);
-    } catch (error) {
-      set({
-        error: errorMessage(error instanceof Error ? error : String(error)),
-      });
-    }
+    };
+    return trackJob(retry());
   },
 
   sendMessage: (contact, text) => {
     const id = randomUUID();
+    const jobGeneration = generation;
     const message: StoredMessage = {
       contactQid: contact.qid,
       direction: "out",
@@ -228,16 +256,24 @@ export const useP2pStore = create<P2pStore>((set, get) => ({
     };
     const persistAndSend = async () => {
       try {
+        if (!isCurrentGeneration(jobGeneration)) {
+          return;
+        }
         await insertMessage(message);
+        if (!isCurrentGeneration(jobGeneration)) {
+          return;
+        }
         set((state) => ({ revision: state.revision + 1 }));
-        await sendStoredMessage(message, contact);
+        await sendStoredMessage(message, contact, jobGeneration);
       } catch (error) {
-        set({
-          error: errorMessage(error instanceof Error ? error : String(error)),
-        });
+        if (isCurrentGeneration(jobGeneration)) {
+          set({
+            error: errorMessage(error instanceof Error ? error : String(error)),
+          });
+        }
       }
     };
-    void persistAndSend();
+    void trackJob(persistAndSend());
     return id;
   },
 
@@ -277,28 +313,63 @@ export const useP2pStore = create<P2pStore>((set, get) => ({
       }
       endpoint = created;
       const refreshPeers = () => {
-        set({ connectedPeerIds: created.connectedPeers() });
+        if (generation === startGeneration) {
+          set({ connectedPeerIds: created.connectedPeers() });
+        }
       };
       unsubscribe = [
         bindAppState(created),
-        created.on("relayReserved", () => set({ relayReserved: true })),
-        created.on("relayReservationLost", () =>
-          set({ relayReserved: created.activeReservation() !== undefined })
-        ),
+        created.onClose((reason) => {
+          if (generation !== startGeneration || endpoint !== created) {
+            return;
+          }
+          generation += 1;
+          cleanupEndpoint(created);
+          set({
+            connectedPeerIds: [],
+            error:
+              reason.reason === "driverFailed"
+                ? errorMessage(reason.error)
+                : "P2P endpoint closed",
+            peerId: undefined,
+            relayReserved: false,
+            status: "failed",
+          });
+        }),
+        created.on("relayReserved", () => {
+          if (generation === startGeneration) {
+            set({ relayReserved: true });
+          }
+        }),
+        created.on("relayReservationLost", () => {
+          if (generation === startGeneration) {
+            set({ relayReserved: created.activeReservation() !== undefined });
+          }
+        }),
         created.on("peerReady", refreshPeers),
         created.on("connectionClosed", refreshPeers),
-        created.on("driverFailed", ({ detail }) =>
-          set({ error: detail, status: "failed" })
-        ),
+        created.on("driverFailed", ({ detail }) => {
+          if (generation === startGeneration) {
+            set({ error: detail, status: "failed" });
+          }
+        }),
         created.on("queueOverflow", refreshPeers),
         created.on("stream", (stream) => {
-          if (stream.protocolId === CHAT_PROTOCOL) {
-            void receiveChatStream(stream);
+          if (
+            generation === startGeneration &&
+            stream.protocolId === CHAT_PROTOCOL
+          ) {
+            void trackJob(receiveChatStream(stream, startGeneration));
           } else {
             stream.reset();
           }
         }),
       ];
+      if (generation !== startGeneration) {
+        cleanupEndpoint(created);
+        created.close();
+        return;
+      }
       set({
         connectedPeerIds: created.connectedPeers(),
         error: undefined,
@@ -316,14 +387,12 @@ export const useP2pStore = create<P2pStore>((set, get) => ({
     }
   },
 
-  stop: () => {
+  stop: async () => {
     generation += 1;
-    for (const removeListener of unsubscribe) {
-      removeListener();
-    }
-    unsubscribe = [];
-    endpoint?.close();
-    endpoint = undefined;
+    const activeEndpoint = endpoint;
+    cleanupEndpoint(activeEndpoint);
+    activeEndpoint?.close();
     set(initialState);
+    await waitForInFlightJobs();
   },
 }));

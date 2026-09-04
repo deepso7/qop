@@ -30,4 +30,8 @@ export const useIdentityStore = createIdentityStore({
   },
   makeIdentityVaultError: (operation) => new IdentityVaultError({ operation }),
   registration: { deleteLocalRegistration, loadLocalRegistration },
+  stopP2p: async () => {
+    const { useP2pStore } = await import("./p2p-store");
+    await useP2pStore.getState().stop();
+  },
 });

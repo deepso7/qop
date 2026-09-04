@@ -1,4 +1,9 @@
-import { router, Stack, useLocalSearchParams } from "expo-router";
+import {
+  router,
+  Stack,
+  useFocusEffect,
+  useLocalSearchParams,
+} from "expo-router";
 import * as React from "react";
 import { ActivityIndicator, ScrollView, View } from "react-native";
 
@@ -7,24 +12,38 @@ import { Button } from "@/components/ui/button";
 import { Text } from "@/components/ui/text";
 import { getContactByQid } from "@/lib/db";
 import type { Contact } from "@/lib/db";
+import { useP2pStore } from "@/lib/p2p-store";
 
 const ChatRoute = () => {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [contact, setContact] = React.useState<Contact | null>();
+  const loadGeneration = React.useRef(0);
+  const revision = useP2pStore((state) => state.revision);
 
-  React.useEffect(() => {
-    let active = true;
-    const load = async () => {
+  const loadContact = React.useCallback(
+    async (_revision?: number) => {
+      const currentLoad = loadGeneration.current + 1;
+      loadGeneration.current = currentLoad;
       const loaded = await getContactByQid(id);
-      if (active) {
+      if (loadGeneration.current === currentLoad) {
         setContact(loaded);
       }
-    };
-    void load();
-    return () => {
-      active = false;
-    };
-  }, [id]);
+    },
+    [id]
+  );
+
+  useFocusEffect(
+    React.useCallback(() => {
+      void loadContact();
+      return () => {
+        loadGeneration.current += 1;
+      };
+    }, [loadContact])
+  );
+
+  React.useEffect(() => {
+    void loadContact(revision);
+  }, [loadContact, revision]);
 
   if (contact === undefined) {
     return (

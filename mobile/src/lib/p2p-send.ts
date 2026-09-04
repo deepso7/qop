@@ -66,14 +66,15 @@ const readAck = async (stream: SendStream) => {
   return decodeAck(concatChunks(chunks, byteLength));
 };
 
-const withTimeout = <A>(promise: Promise<A>, timeoutMs: number): Promise<A> => {
+export const withTimeout = <A>(
+  promise: Promise<A>,
+  timeoutMs: number,
+  message = "Timed out waiting for chat ack"
+): Promise<A> => {
   let timer: ReturnType<typeof setTimeout> | undefined;
   // oxlint-disable-next-line promise/avoid-new -- A timer needs a rejecting promise for Promise.race.
   const timeout = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(
-      () => reject(new Error("Timed out waiting for chat ack")),
-      timeoutMs
-    );
+    timer = setTimeout(() => reject(new Error(message)), timeoutMs);
   });
   return Promise.race([promise, timeout]).finally(() => {
     if (timer) {

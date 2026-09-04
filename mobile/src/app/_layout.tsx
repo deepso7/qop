@@ -37,9 +37,11 @@ const AppStack = () => {
   React.useEffect(() => {
     if (status === "ready") {
       void startP2p();
-      return stopP2p;
+      return () => {
+        void stopP2p();
+      };
     }
-    stopP2p();
+    void stopP2p();
   }, [startP2p, status, stopP2p]);
 
   if (status === "loading") {
