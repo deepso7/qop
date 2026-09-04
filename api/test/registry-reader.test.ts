@@ -91,7 +91,7 @@ describe("registry reader", () => {
     }
   );
 
-  it.effect("refreshes handle misses and keeps confirmed hits", () => {
+  it.effect("refreshes handle misses", () => {
     const fixture = makeReader();
     fixture.setHandleQid(null);
     return Effect.gen(function* () {

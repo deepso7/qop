@@ -1,5 +1,5 @@
 import { ChainId } from "@qop/identity";
-import { Effect, Schema } from "effect";
+import { Effect, Schema, Semaphore } from "effect";
 import { createPublicClient, http, isAddress } from "viem";
 
 import { createRegistryReader, RegistryReaderError } from "./registry-core";
@@ -61,8 +61,15 @@ export const createConfiguredRegistry = ({
     }
     return createRegistryReader({ client });
   });
-  const cachedConfiguredReader = Effect.runSync(
-    Effect.cached(configuredReader())
+  const initialization = Semaphore.makeUnsafe(1);
+  let initializedReader: ReturnType<typeof createRegistryReader> | undefined;
+  const cachedConfiguredReader = initialization.withPermit(
+    Effect.gen(function* () {
+      if (!initializedReader) {
+        initializedReader = yield* configuredReader();
+      }
+      return initializedReader;
+    })
   );
 
   const lookupHandle = Effect.fn("Registry.lookupHandle")((handle: string) =>

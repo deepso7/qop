@@ -90,7 +90,9 @@ export const performSend = async ({
   timeoutMs,
 }: PerformSendInput): Promise<void> => {
   await endpoint.connect(contact.peerId, { timeoutMs: 15_000 });
-  const stream = await endpoint.openStream(contact.peerId, CHAT_PROTOCOL);
+  const stream = await endpoint.openStream(contact.peerId, CHAT_PROTOCOL, {
+    timeoutMs,
+  });
   try {
     stream.write(encodeFrame(frame));
     stream.closeWrite();

@@ -349,7 +349,10 @@ const useRecoverySetup = (
 
 const canStartRegistration = (
   registration: LocalRegistration | null | undefined
-) => registration === null || registration?.status === "failed";
+) =>
+  registration === null ||
+  registration?.status === "failed" ||
+  registration?.status === "pending";
 
 const useOnboardingRegistration = (
   identity: LocalIdentity | null,
@@ -389,7 +392,11 @@ const useOnboardingRegistration = (
         );
         return;
       }
-      setMessage(undefined);
+      setMessage(
+        nextRegistration.status === "pending"
+          ? "Submission not confirmed. Retry with your invitation code while we check the registry."
+          : undefined
+      );
       if (nextRegistration.status !== "confirmed") {
         return;
       }
@@ -410,7 +417,9 @@ const useOnboardingRegistration = (
       startLocalRegistration(admissionCode).pipe(Effect.result)
     );
     if (Result.isSuccess(result)) {
-      setAdmissionCode("");
+      if (result.success.status !== "pending") {
+        setAdmissionCode("");
+      }
       acceptRegistration(result.success);
     } else {
       setMessage(
@@ -421,7 +430,10 @@ const useOnboardingRegistration = (
   }, [acceptRegistration, admissionCode, busy, isValidAdmissionCode]);
 
   React.useEffect(() => {
-    if (registration?.status !== "submitted") {
+    if (
+      registration?.status !== "submitted" &&
+      registration?.status !== "pending"
+    ) {
       return;
     }
     let mounted = true;
@@ -859,7 +871,14 @@ const OnboardingRoute = React.memo(() => {
   }, [create]);
 
   let content: React.ReactNode;
-  if (status === "error") {
+  if (status === "resetting" || status === "loading") {
+    content = (
+      <ActivityIndicator
+        accessibilityLabel="Loading identity"
+        colorClassName="accent-foreground-secondary"
+      />
+    );
+  } else if (status === "error") {
     content = <VaultErrorScreen error={error} key="vault-error" />;
   } else if (isBackup) {
     content = (

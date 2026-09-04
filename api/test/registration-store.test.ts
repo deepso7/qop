@@ -12,6 +12,7 @@ import {
 } from "../src/registration/admission.ts";
 import {
   RegistrationActiveHandleConflict,
+  RegistrationDeadlineInvalid,
   RegistrationStore,
 } from "../src/registration/store.ts";
 import type { CreateRegistrationIntent } from "../src/registration/types.ts";
@@ -141,12 +142,26 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
                 };
               })
           );
+          const second = input(8, "relaynext", yield* deadlineAfter(60));
+          yield* store.create(second);
+          yield* store.prepareSubmission(
+            second.digest,
+            Effect.succeed(3n),
+            (nonce) =>
+              Effect.sync(() => {
+                allocated.push(nonce);
+                return {
+                  serializedTransaction: "0x02bb" as const,
+                  transactionHash: testHash("transaction-next"),
+                };
+              })
+          );
           const confirmed = yield* store.markConfirmed(
             registration.digest,
             42n
           );
 
-          assert.deepStrictEqual(allocated, [5n]);
+          assert.deepStrictEqual(allocated, [5n, 6n]);
           assert.strictEqual(submitted.status, "submitted");
           assert.strictEqual(confirmed.status, "confirmed");
           assert.strictEqual(confirmed.qid, 42n);
@@ -160,6 +175,50 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
 );
 
 layer(RegistrationStoreLockTestLive, { timeout: "30 seconds" })((it) => {
+  it.effect(
+    "rejects an intent that expires while waiting for the admission lock",
+    () =>
+      Effect.gen(function* () {
+        const admissions = yield* RegistrationAdmission;
+        const store = yield* RegistrationStore;
+        const { client: db } = yield* Database;
+        const registration = input(9, "expiredintent", yield* deadlineAfter(1));
+        yield* admissions.create(registration.admissionCodeHash);
+        const locked = yield* Deferred.make<boolean>();
+        const release = yield* Deferred.make<boolean>();
+        const lockFiber = yield* Effect.forkChild(
+          db.transaction((tx) =>
+            Effect.gen(function* () {
+              yield* tx
+                .select()
+                .from(registrationAdmissionCodes)
+                .where(
+                  eq(
+                    registrationAdmissionCodes.codeHash,
+                    registration.admissionCodeHash
+                  )
+                )
+                .for("update");
+              yield* Deferred.succeed(locked, true);
+              yield* Deferred.await(release);
+            })
+          )
+        );
+        yield* Deferred.await(locked);
+        const createFiber = yield* Effect.forkChild(store.create(registration));
+        yield* Effect.yieldNow;
+        yield* TestClock.adjust("2 seconds");
+        yield* Deferred.succeed(release, true);
+        yield* Fiber.join(lockFiber);
+        assert.instanceOf(
+          yield* Fiber.join(createFiber).pipe(Effect.flip),
+          RegistrationDeadlineInvalid
+        );
+        assert.isTrue(Option.isNone(yield* store.get(registration.digest)));
+        yield* admissions.validate(registration.admissionCodeHash);
+      })
+  );
+
   it.effect("checks admission expiry after acquiring its row lock", () =>
     Effect.gen(function* () {
       const admissions = yield* RegistrationAdmission;

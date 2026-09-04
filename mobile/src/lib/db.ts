@@ -90,6 +90,8 @@ const openDatabase = async () => {
       received_at INTEGER NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('sending','sent','failed','received'))
     );
+    CREATE INDEX IF NOT EXISTS messages_contact_sent_idx
+      ON messages(contact_qid, sent_at);
     CREATE INDEX IF NOT EXISTS messages_contact_received_idx
       ON messages(contact_qid, received_at);
   `);
@@ -197,11 +199,11 @@ export const listConversations = async (): Promise<Conversation[]> => {
     LEFT JOIN messages AS latest ON latest.id = (
       SELECT id FROM messages
       WHERE contact_qid = contacts.qid
-      ORDER BY received_at DESC, rowid DESC
+      ORDER BY sent_at DESC, rowid DESC
       LIMIT 1
     )
     GROUP BY contacts.qid
-    ORDER BY COALESCE(latest.received_at, contacts.created_at) DESC
+    ORDER BY COALESCE(latest.sent_at, contacts.created_at) DESC
   `);
   return rows.map((row) => ({
     ...contactFromRow(row),
@@ -281,7 +283,7 @@ export const listMessages = async (
 ): Promise<StoredMessage[]> => {
   const database = await getDatabase();
   return database.getAllAsync<MessageRow>(
-    `${messageSelect} WHERE contact_qid = ? ORDER BY received_at, rowid`,
+    `${messageSelect} WHERE contact_qid = ? ORDER BY sent_at, rowid`,
     contactQid
   );
 };

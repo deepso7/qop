@@ -77,18 +77,23 @@ const NewChatRoute = () => {
     if (!result) {
       return;
     }
-    await upsertContact({
-      createdAt: Number(result.registeredAt) * 1000,
-      deviceKey: result.deviceKey,
-      handle: result.handle,
-      owner: result.owner,
-      peerId: result.peerId,
-      qid: result.qid.toString(),
-    });
-    router.replace({
-      params: { id: result.qid.toString() },
-      pathname: "/chat/[id]",
-    });
+    setMessage(undefined);
+    try {
+      await upsertContact({
+        createdAt: Number(result.registeredAt) * 1000,
+        deviceKey: result.deviceKey,
+        handle: result.handle,
+        owner: result.owner,
+        peerId: result.peerId,
+        qid: result.qid.toString(),
+      });
+      router.replace({
+        params: { id: result.qid.toString() },
+        pathname: "/chat/[id]",
+      });
+    } catch {
+      setMessage("Could not save this contact. Tap Start chat to retry.");
+    }
   }, [result]);
 
   return (

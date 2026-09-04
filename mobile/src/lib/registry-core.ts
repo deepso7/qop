@@ -14,12 +14,18 @@ export const registryAbi = [
     inputs: [{ name: "qid", type: "uint256" }],
     name: "account",
     outputs: [
-      { name: "owner", type: "address" },
-      { name: "deviceKey", type: "bytes32" },
-      { name: "ownerVersion", type: "uint32" },
-      { name: "registeredAt", type: "uint64" },
-      { name: "nonce", type: "uint256" },
-      { name: "handle", type: "string" },
+      {
+        components: [
+          { name: "owner", type: "address" },
+          { name: "deviceKey", type: "bytes32" },
+          { name: "ownerVersion", type: "uint32" },
+          { name: "registeredAt", type: "uint64" },
+          { name: "nonce", type: "uint256" },
+          { name: "handle", type: "string" },
+        ],
+        name: "",
+        type: "tuple",
+      },
     ],
     stateMutability: "view",
     type: "function",
@@ -62,18 +68,16 @@ const ChainQid = Schema.BigInt.check(
     expected: "a uint256 qid",
   })
 );
-const ContractAccountResult = Schema.Tuple([
-  EthereumAddressInput,
-  Hex32Input,
-  OwnerVersion,
-  RegisteredAt,
-  Schema.BigInt,
-  Handle,
-]);
+const ContractAccountResult = Schema.Struct({
+  deviceKey: Hex32Input,
+  handle: Handle,
+  nonce: ChainQid,
+  owner: EthereumAddressInput,
+  ownerVersion: OwnerVersion,
+  registeredAt: RegisteredAt,
+});
 
-type RegistryContractResult =
-  | bigint
-  | readonly [string, string, number, bigint, bigint, string];
+type RegistryContractResult = bigint | typeof ContractAccountResult.Type;
 
 export interface RegistryAccount {
   readonly deviceKey: typeof Hex32.Encoded;
@@ -126,10 +130,15 @@ export const createRegistryReader = ({
       args: [qid],
       functionName: "account",
     });
-    const [ownerInput, deviceKeyInput, ownerVersion, registeredAt, , handle] =
-      yield* Schema.decodeUnknownEffect(ContractAccountResult)(result).pipe(
-        Effect.mapError(() => readerError("decode"))
-      );
+    const {
+      owner: ownerInput,
+      deviceKey: deviceKeyInput,
+      ownerVersion,
+      registeredAt,
+      handle,
+    } = yield* Schema.decodeUnknownEffect(ContractAccountResult)(result).pipe(
+      Effect.mapError(() => readerError("decode"))
+    );
     const owner = yield* Schema.decodeUnknownEffect(EthereumAddress)(
       ownerInput.toLowerCase()
     ).pipe(Effect.mapError(() => readerError("decode")));

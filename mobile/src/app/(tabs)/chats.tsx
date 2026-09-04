@@ -49,6 +49,11 @@ const ChatsScreen = () => {
   const [query, setQuery] = React.useState("");
   const [conversations, setConversations] = React.useState<Conversation[]>([]);
   const [loaded, setLoaded] = React.useState(false);
+  const [loadError, setLoadError] = React.useState(false);
+  const [retryCount, retryLoad] = React.useReducer(
+    (count: number) => count + 1,
+    0
+  );
   const connectedPeerIds = useP2pStore((state) => state.connectedPeerIds);
   const revision = useP2pStore((state) => state.revision);
   const contentContainerStyle = useResolveClassNames("pb-24");
@@ -56,11 +61,16 @@ const ChatsScreen = () => {
   useFocusEffect(
     React.useCallback(() => {
       let active = true;
-      const load = async (_revision: number) => {
+      const load = async (_revision: number, _retryCount: number) => {
         try {
           const rows = await listConversations();
           if (active) {
             setConversations(rows);
+            setLoadError(false);
+          }
+        } catch {
+          if (active) {
+            setLoadError(true);
           }
         } finally {
           if (active) {
@@ -68,11 +78,11 @@ const ChatsScreen = () => {
           }
         }
       };
-      void load(revision);
+      void load(revision, retryCount);
       return () => {
         active = false;
       };
-    }, [revision])
+    }, [revision, retryCount])
   );
 
   const normalizedQuery = query.trim().toLocaleLowerCase();
@@ -167,6 +177,14 @@ const ChatsScreen = () => {
 
   return (
     <View className="bg-background flex-1">
+      {loadError ? (
+        <View className="gap-3 p-5">
+          <Text>Could not load your chats.</Text>
+          <Button onPress={retryLoad} variant="outline">
+            <Text>Retry</Text>
+          </Button>
+        </View>
+      ) : null}
       <FlashList
         contentContainerStyle={contentContainerStyle}
         contentInsetAdjustmentBehavior="automatic"
@@ -176,7 +194,7 @@ const ChatsScreen = () => {
         }
         keyboardShouldPersistTaps="handled"
         keyExtractor={conversationKey}
-        ListEmptyComponent={empty}
+        ListEmptyComponent={loadError ? null : empty}
         ListHeaderComponent={listHeader}
         renderItem={renderConversation}
       />

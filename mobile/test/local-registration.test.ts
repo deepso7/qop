@@ -7,6 +7,7 @@ import { Effect, Result } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createLocalRegistration } from "@/lib/local-registration-core";
+import { RegistrationClientError } from "@/lib/registration-client-core";
 
 const REGISTRATION_STORAGE_KEY = "qop.registration.v2";
 const OWNER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf";
@@ -114,6 +115,97 @@ beforeEach(() => {
 });
 
 describe("local registration", () => {
+  it("persists before POST and reuses the request after a lost response and restart", async () => {
+    clientMock.register.mockImplementationOnce(() =>
+      Effect.sync(() => {
+        expect(secureStoreMock.items.has(REGISTRATION_STORAGE_KEY)).toBe(true);
+      }).pipe(
+        Effect.andThen(
+          Effect.fail(
+            new RegistrationClientError({
+              kind: null,
+              operation: "network",
+              status: null,
+              tag: null,
+            })
+          )
+        )
+      )
+    );
+    const first = await Effect.runPromise(
+      loadRegistration().startLocalRegistration("ABC-123")
+    );
+    expect(first.status).toBe("pending");
+    const retry = await Effect.runPromise(
+      loadRegistration().startLocalRegistration("ABC-123")
+    );
+    expect(retry.digest).toBe(first.digest);
+    expect(retry.nonce).toBe(first.nonce);
+    expect(retry.status).toBe("submitted");
+    expect(clientMock.register.mock.calls[1]).toEqual(
+      clientMock.register.mock.calls[0]
+    );
+  });
+
+  it("confirms a lost POST response directly from the chain after restart", async () => {
+    clientMock.register.mockReturnValueOnce(
+      Effect.fail(
+        new RegistrationClientError({
+          kind: null,
+          operation: "network",
+          status: null,
+          tag: null,
+        })
+      )
+    );
+    const pending = await Effect.runPromise(
+      loadRegistration().startLocalRegistration("ABC-123")
+    );
+    registryMock.lookupOwner.mockReturnValue(Effect.succeed(account()));
+    const confirmed = await Effect.runPromise(
+      loadRegistration().checkLocalRegistration()
+    );
+    expect(confirmed).toMatchObject({
+      digest: pending.digest,
+      qid: "42",
+      status: "confirmed",
+    });
+    expect(clientMock.register).toHaveBeenCalledOnce();
+  });
+
+  it("releases a pending request after its deadline when the API never received it", async () => {
+    clientMock.register.mockReturnValueOnce(
+      Effect.fail(
+        new RegistrationClientError({
+          kind: null,
+          operation: "network",
+          status: null,
+          tag: null,
+        })
+      )
+    );
+    await Effect.runPromise(
+      loadRegistration().startLocalRegistration("ABC-123")
+    );
+    now += 1801n;
+    clientMock.getRegistration.mockReturnValueOnce(
+      Effect.fail(
+        new RegistrationClientError({
+          kind: null,
+          operation: "response",
+          status: 404,
+          tag: "RegistrationIntentNotFound",
+        })
+      )
+    );
+    expect(
+      await Effect.runPromise(loadRegistration().checkLocalRegistration())
+    ).toMatchObject({
+      failureCode: "REGISTRATION_NOT_FOUND",
+      status: "failed",
+    });
+  });
+
   it("stores submitted state with the locally computed digest", async () => {
     const { startLocalRegistration } = loadRegistration();
     const result = await Effect.runPromise(startLocalRegistration("abc123"));
@@ -178,7 +270,7 @@ describe("local registration", () => {
     );
 
     expect(Result.isFailure(result) && result.failure.operation).toBe("verify");
-    expect(secureStoreMock.items.has(REGISTRATION_STORAGE_KEY)).toBe(false);
+    expect(secureStoreMock.items.has(REGISTRATION_STORAGE_KEY)).toBe(true);
   });
 
   it("confirms from the owner lookup on chain", async () => {
@@ -253,8 +345,8 @@ describe("local registration", () => {
 
     expect(clientMock.getRegistration).toHaveBeenCalledOnce();
     expect(result).toMatchObject({
-      failureCode: "DEADLINE_PASSED",
-      status: "failed",
+      failureCode: null,
+      status: "submitted",
     });
   });
 

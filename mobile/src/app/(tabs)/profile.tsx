@@ -9,7 +9,6 @@ import { SectionLabel } from "@/components/ui/section-label";
 import { Surface } from "@/components/ui/surface";
 import { Text } from "@/components/ui/text";
 import { useIdentityStore } from "@/lib/identity-store";
-import { useP2pStore } from "@/lib/p2p-store";
 
 // oxlint-disable react/todo -- The export spinner must reset after either share-sheet outcome.
 
@@ -54,7 +53,6 @@ const ProfileScreen = React.memo(
       (state) => state.revealRecoveryKey
     );
     const resetIdentity = useIdentityStore((state) => state.resetIdentity);
-    const stopP2p = useP2pStore((state) => state.stop);
     const setBackupState = useIdentityStore((state) => state.setBackupState);
     const [exportingRecoveryKey, setExportingRecoveryKey] =
       React.useState(false);
@@ -137,9 +135,8 @@ const ProfileScreen = React.memo(
 
     const confirmReset = React.useCallback(() => {
       setLogoutAlertOpen(false);
-      stopP2p();
       void resetIdentity();
-    }, [resetIdentity, stopP2p]);
+    }, [resetIdentity]);
 
     const openLogoutAlert = React.useCallback(() => {
       setLogoutAlertOpen(true);

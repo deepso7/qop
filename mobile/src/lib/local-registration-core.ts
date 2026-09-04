@@ -12,7 +12,7 @@ import {
   UnixSeconds,
 } from "@qop/identity";
 import type { IdentityEip712DomainV1Encoded } from "@qop/identity";
-import { Data, Effect, Schema, Semaphore } from "effect";
+import { Data, Effect, Result, Schema, Semaphore } from "effect";
 
 import type { createIdentityVault } from "./identity-vault-core";
 import type { createRegistrationClient } from "./registration-client-core";
@@ -45,7 +45,7 @@ const StoredLocalRegistrationV2 = Schema.Struct({
   nonce: CanonicalNonce,
   ownerAddress: EthereumAddress,
   qid: Schema.NullOr(CanonicalQid),
-  status: Schema.Literals(["submitted", "confirmed", "failed"]),
+  status: Schema.Literals(["pending", "submitted", "confirmed", "failed"]),
   version: Schema.Literal(2),
 }).annotate({
   messageUnexpectedKey: "Unexpected local registration field",
@@ -199,6 +199,13 @@ export const createLocalRegistration = ({
           return existing;
         }
 
+        const pending = existing?.status === "pending" ? existing : null;
+        if (pending) {
+          yield* verifyOwner(pending);
+          if (now() > BigInt(pending.deadline)) {
+            return pending;
+          }
+        }
         const identity = yield* loadIdentity();
         const admissionCode = yield* Schema.decodeUnknownEffect(
           CanonicalAdmissionCode
@@ -206,8 +213,10 @@ export const createLocalRegistration = ({
         const domain = yield* decodeIdentityEip712DomainV1(domainInput).pipe(
           Effect.mapError(() => localError("configuration"))
         );
-        const nonce = yield* makeNonce();
-        const deadline = (now() + REGISTRATION_DEADLINE_SECONDS).toString();
+        const nonce = pending?.nonce ?? (yield* makeNonce());
+        const deadline =
+          pending?.deadline ??
+          (now() + REGISTRATION_DEADLINE_SECONDS).toString();
         const intentInput = {
           deadline,
           deviceKey: identity.deviceKey,
@@ -227,13 +236,7 @@ export const createLocalRegistration = ({
         const ownerSignature = yield* vault
           .signRegisterIntent(domainInput, canonicalIntent)
           .pipe(Effect.mapError(() => localError("sign")));
-        const registered = yield* registrationClient
-          .register({ admissionCode, intent: canonicalIntent, ownerSignature })
-          .pipe(Effect.mapError(() => localError("network")));
-        if (registered.digest !== digest) {
-          return yield* localError("verify");
-        }
-        const submitted: LocalRegistration = {
+        const request: LocalRegistration = {
           deadline,
           digest,
           failureCode: null,
@@ -241,8 +244,38 @@ export const createLocalRegistration = ({
           nonce,
           ownerAddress: identity.ownerAddress,
           qid: null,
-          status: "submitted",
+          status: "pending",
           version: 2,
+        };
+        // Save the digest before the request can reach the relayer.
+        yield* writeStoredRegistration(request);
+        const result = yield* registrationClient
+          .register({ admissionCode, intent: canonicalIntent, ownerSignature })
+          .pipe(Effect.result);
+        if (Result.isFailure(result)) {
+          const { status } = result.failure;
+          if (
+            status !== null &&
+            status >= 400 &&
+            status < 500 &&
+            status !== 408
+          ) {
+            const failed: LocalRegistration = {
+              ...request,
+              failureCode: result.failure.tag ?? "REGISTRATION_REJECTED",
+              status: "failed",
+            };
+            yield* writeStoredRegistration(failed);
+            return failed;
+          }
+          return request;
+        }
+        if (result.success.digest !== digest) {
+          return yield* localError("verify");
+        }
+        const submitted: LocalRegistration = {
+          ...request,
+          status: "submitted",
         };
         yield* writeStoredRegistration(submitted);
         return submitted;
@@ -259,7 +292,10 @@ export const createLocalRegistration = ({
         if (!registration) {
           return yield* localError("verify");
         }
-        if (registration.status !== "submitted") {
+        if (
+          registration.status !== "submitted" &&
+          registration.status !== "pending"
+        ) {
           yield* verifyOwner(registration);
           return registration;
         }
@@ -310,7 +346,19 @@ export const createLocalRegistration = ({
         }
         const reconciled = yield* registrationClient
           .getRegistration(registration.digest)
-          .pipe(Effect.mapError(() => localError("network")));
+          .pipe(
+            Effect.catch((error) =>
+              error.status === 404
+                ? Effect.succeed({
+                    digest: registration.digest,
+                    failureCode: "REGISTRATION_NOT_FOUND",
+                    qid: null,
+                    status: "failed" as const,
+                    transactionHash: null,
+                  })
+                : Effect.fail(localError("network"))
+            )
+          );
         if (reconciled.digest !== registration.digest) {
           return yield* localError("verify");
         }
@@ -328,11 +376,7 @@ export const createLocalRegistration = ({
             status: "confirmed",
           };
         } else {
-          updated = {
-            ...registration,
-            failureCode: "DEADLINE_PASSED",
-            status: "failed",
-          };
+          updated = { ...registration, status: "submitted" };
         }
         yield* writeStoredRegistration(updated);
         return updated;

@@ -20,16 +20,6 @@ export interface ResolveSenderDependencies {
   readonly upsertContact: (contact: ContactInput) => Promise<void>;
 }
 
-interface ResolveSenderOptions {
-  readonly cacheTtlMs?: number;
-  readonly now?: () => number;
-}
-
-interface CachedLookup {
-  readonly expiresAt: number;
-  readonly result: Promise<RegistryAccount | null>;
-}
-
 const contactFromAccount = (account: RegistryAccount): ContactInput => ({
   createdAt: Number(account.registeredAt) * 1000,
   deviceKey: account.deviceKey,
@@ -39,41 +29,15 @@ const contactFromAccount = (account: RegistryAccount): ContactInput => ({
   qid: account.qid.toString(),
 });
 
-export const createResolveSender = (
-  dependencies: ResolveSenderDependencies,
-  options: ResolveSenderOptions = {}
-) => {
-  const cacheTtlMs = options.cacheTtlMs ?? 60_000;
-  const now = options.now ?? Date.now;
-  const accountCache = new Map<string, CachedLookup>();
-
-  const lookupAccount = async (handle: string) => {
-    const cached = accountCache.get(handle);
-    if (cached && cached.expiresAt > now()) {
-      return await cached.result;
-    }
-
-    const result = dependencies.lookupHandle(handle);
-    const entry = { expiresAt: now() + cacheTtlMs, result };
-    accountCache.set(handle, entry);
-    try {
-      return await result;
-    } catch (error) {
-      if (accountCache.get(handle) === entry) {
-        accountCache.delete(handle);
-      }
-      throw error;
-    }
-  };
-
-  return async function resolveSender(
+export const createResolveSender = (dependencies: ResolveSenderDependencies) =>
+  async function resolveSender(
     peerId: string,
     fromHandle: string,
     shouldWrite: () => boolean = () => true
   ): Promise<Contact | null> {
     const [known, account] = await Promise.all([
       dependencies.getContactByPeerId(peerId),
-      lookupAccount(fromHandle),
+      dependencies.lookupHandle(fromHandle),
     ]);
     if (!account || account.peerId !== peerId) {
       return null;
@@ -93,7 +57,6 @@ export const createResolveSender = (
       lastReadAt: known?.qid === fresh.qid ? known.lastReadAt : 0,
     };
   };
-};
 
 const readStream = async (stream: Pick<ReceiveStream, "read">) => {
   const chunks: Uint8Array[] = [];

@@ -137,6 +137,7 @@ contract QOPIdentityRegistryInvariantTest is StdInvariant, Test {
             assertTrue(stored.owner != address(0));
             assertTrue(stored.deviceKey != bytes32(0));
             assertEq(registry.qidByOwner(stored.owner), qid);
+            assertEq(registry.qidByDeviceKey(stored.deviceKey), qid);
             assertEq(registry.qidByHandleHash(keccak256(bytes(stored.handle))), qid);
             assertEq(stored.nonce, handler.expectedNonces(qid));
             assertEq(stored.ownerVersion, handler.expectedOwnerVersions(qid));

@@ -49,6 +49,35 @@ contract QOPIdentityRegistryTest is Test {
         assertEq(stored.handle, "alice");
     }
 
+    function test_deviceKeyOwnershipIsUniqueAndReleasedOnRotation() public {
+        uint256 alice = _register("alice", OWNER_KEY, keccak256("alice"));
+        bytes32 oldKey = registry.account(alice).deviceKey;
+        assertEq(registry.qidByDeviceKey(oldKey), alice);
+        QOPIdentityRegistry.RegisterIntent memory bobIntent =
+            _registerIntent("bob", vm.addr(SECOND_OWNER_KEY), keccak256("bob"));
+        bobIntent.deviceKey = oldKey;
+        (bytes memory bobSignature, bytes memory registrationSignature) =
+            _registrationSignatures(bobIntent, SECOND_OWNER_KEY);
+        vm.expectRevert(abi.encodeWithSelector(QOPIdentityRegistry.DeviceKeyAlreadyRegistered.selector, oldKey, alice));
+        registry.register(bobIntent, bobSignature, registrationSignature);
+
+        bytes32 newKey = keccak256("new-device");
+        QOPIdentityRegistry.RotateDeviceIntent memory rotate =
+            QOPIdentityRegistry.RotateDeviceIntent({qid: alice, newDeviceKey: newKey, nonce: 0, deadline: deadline});
+        registry.rotateDevice(rotate, _sign(OWNER_KEY, registry.hashRotateDeviceIntent(rotate)));
+        assertEq(registry.qidByDeviceKey(oldKey), 0);
+        assertEq(registry.qidByDeviceKey(newKey), alice);
+        uint256 bob = registry.register(bobIntent, bobSignature, registrationSignature);
+        assertEq(registry.qidByDeviceKey(oldKey), bob);
+
+        rotate = QOPIdentityRegistry.RotateDeviceIntent({qid: bob, newDeviceKey: newKey, nonce: 0, deadline: deadline});
+        bytes memory signature = _sign(SECOND_OWNER_KEY, registry.hashRotateDeviceIntent(rotate));
+        vm.expectRevert(abi.encodeWithSelector(QOPIdentityRegistry.DeviceKeyAlreadyRegistered.selector, newKey, alice));
+        registry.rotateDevice(rotate, signature);
+        assertEq(registry.account(bob).deviceKey, oldKey);
+        assertEq(registry.account(bob).nonce, 0);
+    }
+
     function test_assignsSequentialQidsAndPermanentHandles() public {
         uint256 firstQid = _register("alice", OWNER_KEY, keccak256("first"));
         uint256 secondQid = _register("bob", SECOND_OWNER_KEY, keccak256("second"));

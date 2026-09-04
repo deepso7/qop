@@ -12,7 +12,8 @@ Registry policies enforced by the contract:
 - `qid` values begin at 1 and increase sequentially.
 - Registration always requires the owner signature over a nonzero device key; while gated, it also requires the registration-signer signature over that exact intent.
 - Owner rotation requires signatures from both the current and new owners, proving control of the destination key.
-- Device rotation requires the current owner's signature and replaces the stored device key.
+- Device keys belong to one account at a time. Registration and rotation reject a key already assigned to another account.
+- Device rotation requires the current owner's signature, replaces the stored device key, and releases the previous key in `qidByDeviceKey`.
 - Owner rotation and device rotation share one account nonce.
 
 Cross-language formats pinned by the contract tests and `@qop/identity`:

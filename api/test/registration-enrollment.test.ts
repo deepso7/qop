@@ -31,7 +31,10 @@ import {
   RegistrationRelayerError,
 } from "../src/registration/relayer.ts";
 import { registrationSignerLayer } from "../src/registration/signer.ts";
-import { RegistrationStore } from "../src/registration/store.ts";
+import {
+  RegistrationStore,
+  RegistrationTransitionConflict,
+} from "../src/registration/store.ts";
 import { RegistryReader } from "../src/registry/reader.ts";
 import type {
   RegistryInvalidations,
@@ -311,6 +314,28 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
     )
   );
 
+  it.effect(
+    "returns a transition conflict for a failed registration replay",
+    () =>
+      Effect.gen(function* () {
+        const admissionCode = "FAIL01";
+        yield* createAdmission(admissionCode);
+        const enrollment = yield* RegistrationEnrollment;
+        const store = yield* RegistrationStore;
+        const input = yield* registerInput(
+          "failedreplay",
+          600n,
+          accountFor(91),
+          admissionCode
+        );
+        const submitted = yield* enrollment.register(input);
+        yield* store.markFailed(submitted.digest, "TEST_FAILURE");
+        const error = yield* enrollment.register(input).pipe(Effect.flip);
+        assert.instanceOf(error, RegistrationTransitionConflict);
+        assert.strictEqual(error.actual, "failed");
+      })
+  );
+
   it.effect("replays a digest without rechecking its admission code", () =>
     Effect.gen(function* () {
       const admissionCode = "REP-002";
@@ -363,7 +388,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const admissionCode = "DDL-004";
       yield* createAdmission(admissionCode);
       const enrollment = yield* RegistrationEnrollment;
-      for (const offset of [0n, 3601n]) {
+      for (const offset of [0n, 7200n]) {
         const error = yield* enrollment
           .register(
             yield* registerInput(

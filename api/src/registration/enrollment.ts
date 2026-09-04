@@ -48,6 +48,7 @@ import type { RegistrationRelayerError } from "./relayer.ts";
 import { RegistrationSigner } from "./signer.ts";
 import type { RegistrationSignerError } from "./signer.ts";
 import {
+  RegistrationDeadlineInvalid,
   RegistrationIntentNotFound,
   RegistrationStore,
   RegistrationStoreLive,
@@ -88,9 +89,7 @@ export const registrationReconciliationFailureCodes = {
   deadlineExpired: "REGISTRATION_DEADLINE_EXPIRED",
 } as const;
 
-export class RegistrationDeadlineInvalid extends Data.TaggedError(
-  "RegistrationDeadlineInvalid"
-)<{ readonly deadline: bigint }> {}
+export { RegistrationDeadlineInvalid } from "./store.ts";
 
 export class RegistrationHandleUnavailable extends Data.TaggedError(
   "RegistrationHandleUnavailable"
@@ -370,6 +369,13 @@ export class RegistrationEnrollment extends Context.Service<
         const digest = yield* hashRegisterIntentV1(domain, intent);
         const replay = yield* store.get(digest);
         if (Option.isSome(replay)) {
+          if (replay.value.status === "failed") {
+            return yield* new RegistrationTransitionConflict({
+              actual: "failed",
+              digest,
+              expected: ["ready", "submitted", "confirmed"],
+            });
+          }
           if (replay.value.status === "ready") {
             return yield* toRegisteredRegistration(
               yield* reconcileActive(replay.value)

@@ -57,6 +57,7 @@ contract QOPIdentityRegistry is EIP712 {
     mapping(uint256 qid => Account) private _accounts;
     mapping(bytes32 handleHash => uint256 qid) public qidByHandleHash;
     mapping(address owner => uint256 qid) public qidByOwner;
+    mapping(bytes32 deviceKey => uint256 qid) public qidByDeviceKey;
     mapping(bytes32 registrationNonce => bool used) public registrationNonceUsed;
 
     event AccountRegistered(
@@ -80,6 +81,7 @@ contract QOPIdentityRegistry is EIP712 {
     error AccountNotFound(uint256 qid);
     error DeviceKeyUnchanged(uint256 qid, bytes32 deviceKey);
     error EmptyDeviceKey();
+    error DeviceKeyAlreadyRegistered(bytes32 deviceKey, uint256 qid);
     error ExpiredIntent(uint64 deadline);
     error HandleAlreadyRegistered(bytes32 handleHash, uint256 qid);
     error InvalidHandleCharacter(uint256 index, bytes1 character);
@@ -148,6 +150,9 @@ contract QOPIdentityRegistry is EIP712 {
             revert HandleAlreadyRegistered(canonicalHandleHash, existingHandleQid);
         }
 
+        uint256 existingDeviceQid = qidByDeviceKey[intent.deviceKey];
+        if (existingDeviceQid != 0) revert DeviceKeyAlreadyRegistered(intent.deviceKey, existingDeviceQid);
+
         bytes32 digest = hashRegisterIntent(intent);
         address recoveredOwner = _recoverSigner(digest, ownerSignature);
         if (recoveredOwner != intent.owner) {
@@ -165,6 +170,7 @@ contract QOPIdentityRegistry is EIP712 {
         registrationNonceUsed[intent.nonce] = true;
         qidByHandleHash[canonicalHandleHash] = qid;
         qidByOwner[intent.owner] = qid;
+        qidByDeviceKey[intent.deviceKey] = qid;
         _accounts[qid] = Account({
             owner: intent.owner,
             deviceKey: intent.deviceKey,
@@ -231,6 +237,9 @@ contract QOPIdentityRegistry is EIP712 {
         if (intent.newDeviceKey == bytes32(0)) revert EmptyDeviceKey();
         if (intent.newDeviceKey == current.deviceKey) revert DeviceKeyUnchanged(intent.qid, intent.newDeviceKey);
 
+        uint256 existingDeviceQid = qidByDeviceKey[intent.newDeviceKey];
+        if (existingDeviceQid != 0) revert DeviceKeyAlreadyRegistered(intent.newDeviceKey, existingDeviceQid);
+
         bytes32 digest = hashRotateDeviceIntent(intent);
         address recoveredOwner = _recoverSigner(digest, ownerSignature);
         if (recoveredOwner != current.owner) {
@@ -238,6 +247,8 @@ contract QOPIdentityRegistry is EIP712 {
         }
 
         bytes32 previousDeviceKey = current.deviceKey;
+        delete qidByDeviceKey[previousDeviceKey];
+        qidByDeviceKey[intent.newDeviceKey] = intent.qid;
         current.deviceKey = intent.newDeviceKey;
         current.nonce = intent.nonce + 1;
         emit DeviceRotated(intent.qid, previousDeviceKey, intent.newDeviceKey, intent.nonce);

@@ -70,6 +70,38 @@ beforeEach(() => {
 });
 
 describe("identity store", () => {
+  it("rejects creation while reset is deleting data", async () => {
+    const stopped = deferred<null>();
+    stopP2p.mockReturnValueOnce(stopped.promise);
+    const store = loadStore();
+    const reset = store.getState().resetIdentity();
+    const create = await store.getState().createIdentity("alice");
+    expect(Result.isFailure(create)).toBe(true);
+    expect(vaultMock.createLocalIdentity).not.toHaveBeenCalled();
+    expect(store.getState().status).toBe("resetting");
+    stopped.resolve(null);
+    await reset;
+    expect(store.getState().status).toBe("absent");
+  });
+
+  it.each(["decode", "verify"])(
+    "offers reset for registration %s failures",
+    async (operation) => {
+      vaultMock.loadLocalIdentity.mockReturnValue(Effect.succeed(identity));
+      registrationMock.loadLocalRegistration.mockReturnValue(
+        Effect.fail({ operation })
+      );
+      const store = loadStore();
+      await store.getState().hydrate();
+      expect(store.getState()).toMatchObject({
+        error: { operation: "decode" },
+        status: "error",
+      });
+      await store.getState().resetIdentity();
+      expect(store.getState().status).toBe("absent");
+    }
+  );
+
   it("fences a stale hydrate after identity creation", async () => {
     const hydration = deferred<null>();
     vaultMock.loadLocalIdentity.mockReturnValue(

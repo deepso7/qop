@@ -12,6 +12,28 @@ import {
 const id = "c56a4180-65aa-42ec-a945-5fd21dec0538";
 
 describe("chat wire format", () => {
+  it.each([-1, 8_640_000_000_000_001, 1.5, Number.MAX_VALUE])(
+    "rejects invalid timestamp %s",
+    (sentAt) => {
+      const bytes = new TextEncoder().encode(
+        JSON.stringify({ fromHandle: "alice", id, sentAt, text: "hi", v: 1 })
+      );
+      expect(() => decodeFrame(bytes)).toThrow();
+    }
+  );
+
+  it("rejects malformed UTF-8 inside an otherwise valid frame", () => {
+    const bytes = encodeFrame({
+      fromHandle: "alice",
+      id,
+      sentAt: 1,
+      text: "~",
+      v: 1,
+    });
+    bytes[bytes.indexOf(126)] = 255;
+    expect(() => decodeFrame(bytes)).toThrow();
+  });
+
   it("round trips frames and acknowledgements", () => {
     const frame = {
       fromHandle: "alice",

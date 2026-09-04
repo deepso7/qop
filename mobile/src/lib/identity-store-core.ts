@@ -1,5 +1,4 @@
-import { Effect } from "effect";
-import type { Result } from "effect";
+import { Effect, Result } from "effect";
 import { create } from "zustand";
 
 import type {
@@ -133,6 +132,9 @@ export const createIdentityStore = ({
     ...initialState,
 
     createIdentity: (handle) => {
+      if (resetOperation || get().status === "resetting") {
+        return Promise.resolve(Result.fail(makeIdentityVaultError("delete")));
+      }
       if (createOperation) {
         return createOperation;
       }
@@ -148,6 +150,9 @@ export const createIdentityStore = ({
       const effect = createLocalIdentity(handle).pipe(
         Effect.tap((identity) =>
           Effect.sync(() => {
+            if (resetOperation) {
+              return;
+            }
             set({
               error: null,
               identity,
@@ -159,6 +164,9 @@ export const createIdentityStore = ({
         ),
         Effect.tapError((error) =>
           Effect.sync(() => {
+            if (resetOperation) {
+              return;
+            }
             set({
               error,
               identity: null,
@@ -178,6 +186,9 @@ export const createIdentityStore = ({
     },
 
     hydrate: () => {
+      if (resetOperation || get().status === "resetting") {
+        return Promise.resolve();
+      }
       const generation = loadGeneration + 1;
       loadGeneration = generation;
       if (get().status === "loading") {
@@ -209,11 +220,16 @@ export const createIdentityStore = ({
                   })
                 : loadLocalRegistration().pipe(
                     Effect.matchEffect({
-                      onFailure: () =>
+                      onFailure: (error) =>
                         Effect.sync(() => {
                           if (loadGeneration === generation) {
                             set({
-                              error: makeIdentityVaultError("read"),
+                              error: makeIdentityVaultError(
+                                error.operation === "decode" ||
+                                  error.operation === "verify"
+                                  ? "decode"
+                                  : "read"
+                              ),
                               identity,
                               isHydrating: false,
                               registration: null,
@@ -244,6 +260,8 @@ export const createIdentityStore = ({
       const effect = Effect.tryPromise({
         catch: () => makeIdentityVaultError("delete"),
         try: async () => {
+          await createOperation;
+          await backupStateOperation;
           await stopP2p();
           await deleteAllData();
         },
@@ -289,7 +307,7 @@ export const createIdentityStore = ({
       }
 
       const { identity } = get();
-      if (!identity) {
+      if (!identity || resetOperation || get().status === "resetting") {
         return Effect.runPromise(
           Effect.fail(makeIdentityVaultError("missing-identity")).pipe(
             Effect.result
@@ -300,6 +318,9 @@ export const createIdentityStore = ({
       const effect = updateLocalIdentityBackupState(backupState).pipe(
         Effect.tap((updatedIdentity) =>
           Effect.sync(() => {
+            if (resetOperation) {
+              return;
+            }
             set({
               error: null,
               identity: updatedIdentity,

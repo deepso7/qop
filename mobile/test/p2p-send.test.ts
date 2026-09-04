@@ -46,7 +46,11 @@ describe("performSend", () => {
     expect(endpoint.connect).toHaveBeenCalledWith("peer-bob", {
       timeoutMs: 15_000,
     });
-    expect(endpoint.openStream).toHaveBeenCalledWith("peer-bob", "/qop/chat/1");
+    expect(endpoint.openStream).toHaveBeenCalledWith(
+      "peer-bob",
+      "/qop/chat/1",
+      { timeoutMs: 50 }
+    );
     expect(stream.write).toHaveBeenCalledOnce();
     expect(stream.closeWrite).toHaveBeenCalledOnce();
     expect(stream.reset).not.toHaveBeenCalled();

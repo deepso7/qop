@@ -29,6 +29,29 @@ const staleContact: Contact = {
 };
 
 describe("resolveSender", () => {
+  it("rejects a previously accepted device immediately after rotation", async () => {
+    const lookupHandle = vi
+      .fn()
+      .mockResolvedValueOnce({
+        ...account,
+        deviceKey: oldDeviceKey,
+        peerId: "peer-old",
+      })
+      .mockResolvedValue(account);
+    const upsertContact = vi.fn().mockImplementation(() => Promise.resolve());
+    const resolveSender = createResolveSender({
+      getContactByPeerId: vi.fn().mockResolvedValue(staleContact),
+      lookupHandle,
+      upsertContact,
+    });
+    expect(await resolveSender("peer-old", "alice")).not.toBeNull();
+    await expect(resolveSender("peer-old", "alice")).resolves.toBeNull();
+    expect(upsertContact).toHaveBeenCalledOnce();
+    expect(await resolveSender("peer-new", "alice")).toMatchObject({
+      peerId: "peer-new",
+    });
+  });
+
   it("rejects a cached contact when the chain has a different peer id", async () => {
     const upsertContact = vi.fn().mockImplementation(() => Promise.resolve());
     const resolveSender = createResolveSender({

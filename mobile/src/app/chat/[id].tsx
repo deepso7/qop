@@ -17,34 +17,49 @@ import { useP2pStore } from "@/lib/p2p-store";
 const ChatRoute = () => {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [contact, setContact] = React.useState<Contact | null>();
-  const loadGeneration = React.useRef(0);
-  const revision = useP2pStore((state) => state.revision);
-
-  const loadContact = React.useCallback(
-    async (_revision?: number) => {
-      const currentLoad = loadGeneration.current + 1;
-      loadGeneration.current = currentLoad;
-      const loaded = await getContactByQid(id);
-      if (loadGeneration.current === currentLoad) {
-        setContact(loaded);
-      }
-    },
-    [id]
+  const [loadError, setLoadError] = React.useState(false);
+  const [retryCount, retryLoad] = React.useReducer(
+    (count: number) => count + 1,
+    0
   );
+  const revision = useP2pStore((state) => state.revision);
 
   useFocusEffect(
     React.useCallback(() => {
-      void loadContact();
-      return () => {
-        loadGeneration.current += 1;
+      let active = true;
+      const load = async (_revision: number, _retryCount: number) => {
+        try {
+          const loaded = await getContactByQid(id);
+          if (active) {
+            setContact(loaded);
+            setLoadError(false);
+          }
+        } catch {
+          if (active) {
+            setLoadError(true);
+          }
+        }
       };
-    }, [loadContact])
+      void load(revision, retryCount);
+      return () => {
+        active = false;
+      };
+    }, [id, revision, retryCount])
   );
 
-  React.useEffect(() => {
-    void loadContact(revision);
-  }, [loadContact, revision]);
-
+  if (loadError) {
+    return (
+      <View className="bg-background flex-1 items-center justify-center gap-4 p-6">
+        <Text>Could not load this conversation.</Text>
+        <Button onPress={retryLoad}>
+          <Text>Retry</Text>
+        </Button>
+        <Button onPress={() => router.back()} variant="outline">
+          <Text>Back</Text>
+        </Button>
+      </View>
+    );
+  }
   if (contact === undefined) {
     return (
       <View className="bg-background flex-1 items-center justify-center">
@@ -72,7 +87,7 @@ const ChatRoute = () => {
   return (
     <>
       <Stack.Screen options={{ title: `@${contact.handle}` }} />
-      <ConversationScreen contact={contact} />
+      <ConversationScreen contact={contact} key={contact.qid} />
     </>
   );
 };

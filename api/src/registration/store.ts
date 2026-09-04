@@ -65,6 +65,10 @@ const isExactCreateReplay = (
   stored.registrationNonce === input.registrationNonce &&
   stored.registrationSignature === input.registrationSignature;
 
+export class RegistrationDeadlineInvalid extends Data.TaggedError(
+  "RegistrationDeadlineInvalid"
+)<{ readonly deadline: bigint }> {}
+
 export class RegistrationActiveHandleConflict extends Data.TaggedError(
   "RegistrationActiveHandleConflict"
 )<{ readonly handle: string }> {}
@@ -98,6 +102,7 @@ export type RegistrationStorePersistenceError =
   | SqlError;
 
 export type RegistrationStoreError =
+  | RegistrationDeadlineInvalid
   | RegistrationActiveHandleConflict
   | RegistrationActiveOwnerConflict
   | RegistrationAdmissionUnauthorized
@@ -243,6 +248,12 @@ export class RegistrationStore extends Context.Service<
                   codeHash: canonical.admissionCodeHash,
                 });
               }
+            }
+
+            if (canonical.deadline <= epochSeconds(yield* DateTime.now)) {
+              return yield* new RegistrationDeadlineInvalid({
+                deadline: canonical.deadline,
+              });
             }
 
             const inserted = yield* tx

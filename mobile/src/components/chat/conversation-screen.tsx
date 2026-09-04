@@ -13,6 +13,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { Button } from "@/components/ui/button";
 import {
   ChatComposer,
   ChatComposerButton,
@@ -113,7 +114,11 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
   const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
   const [draft, setDraft] = React.useState("");
   const [messages, setMessages] = React.useState<StoredMessage[]>([]);
-  const focused = React.useRef(false);
+  const [loadError, setLoadError] = React.useState(false);
+  const [retryCount, retryLoad] = React.useReducer(
+    (count: number) => count + 1,
+    0
+  );
   const connectedPeerIds = useP2pStore((state) => state.connectedPeerIds);
   const connectTo = useP2pStore((state) => state.connectTo);
   const retryMessage = useP2pStore((state) => state.retryMessage);
@@ -121,35 +126,35 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
   const sendMessage = useP2pStore((state) => state.sendMessage);
   const status = useP2pStore((state) => state.status);
 
-  const refresh = React.useCallback(
-    async (_revision?: number) => {
-      if (focused.current) {
-        await markConversationRead(contact.qid);
-      }
-      setMessages(await listMessages(contact.qid));
-    },
-    [contact.qid]
-  );
-
   useFocusEffect(
     React.useCallback(() => {
-      focused.current = true;
-      void refresh();
-      return () => {
-        focused.current = false;
+      let active = true;
+      const refresh = async (_revision: number, _retryCount: number) => {
+        try {
+          await markConversationRead(contact.qid);
+          const rows = await listMessages(contact.qid);
+          if (active) {
+            setMessages(rows);
+            setLoadError(false);
+          }
+        } catch {
+          if (active) {
+            setLoadError(true);
+          }
+        }
       };
-    }, [refresh])
+      void refresh(revision, retryCount);
+      return () => {
+        active = false;
+      };
+    }, [contact.qid, revision, retryCount])
   );
 
   React.useEffect(() => {
-    if (focused.current) {
-      void refresh(revision);
+    if (status === "running") {
+      void connectTo(contact.peerId);
     }
-  }, [refresh, revision]);
-
-  React.useEffect(() => {
-    void connectTo(contact.peerId);
-  }, [connectTo, contact.peerId]);
+  }, [connectTo, contact.peerId, status]);
 
   const retry = React.useCallback(
     (id: string) => {
@@ -205,13 +210,21 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
           {statusLabel}
         </Text>
       </View>
+      {loadError ? (
+        <View className="gap-3 p-4">
+          <Text>Could not load messages.</Text>
+          <Button onPress={retryLoad} variant="outline">
+            <Text>Retry</Text>
+          </Button>
+        </View>
+      ) : null}
       <MessageScroller
         contentClassName="gap-0 px-4 py-3"
         data={messages}
         followOutput
         getMessageId={getMessageId}
         ItemSeparatorComponent={ConversationSeparator}
-        ListEmptyComponent={EmptyConversation}
+        ListEmptyComponent={loadError ? null : EmptyConversation}
         renderItem={renderItem}
       />
       <Animated.View

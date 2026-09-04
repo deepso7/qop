@@ -66,7 +66,7 @@ describe("registration client", () => {
     });
   });
 
-  it("rejects a registration signature that cannot be recovered", async () => {
+  it("rejects a noncanonical registration signature", async () => {
     fetchMock.mockResolvedValue(
       Response.json({
         digest,

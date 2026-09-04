@@ -7,8 +7,6 @@ import {
 } from "@qop/identity";
 import type { RegisterIntentV1Encoded } from "@qop/identity";
 import { Data, Effect, Schema } from "effect";
-import { recoverAddress } from "viem";
-import type { Hex } from "viem";
 
 const CanonicalHex32 = Hex32.pipe(Schema.decodeTo(Hex32.pipe(Schema.flip)));
 const CanonicalQid = Qid.pipe(Schema.decodeTo(Qid.pipe(Schema.flip)));
@@ -149,18 +147,6 @@ export const createRegistrationClient = ({
     const registered = yield* Schema.decodeUnknownEffect(
       RegisteredRegistrationResponse
     )(body).pipe(Effect.mapError(() => clientError("response", status)));
-    const recovered = yield* Effect.tryPromise({
-      catch: () => clientError("response", status),
-      // SAFETY: The response schemas validated both values as canonical hex.
-      try: () =>
-        recoverAddress({
-          hash: registered.digest as Hex,
-          signature: registered.registrationSignature as Hex,
-        }),
-    });
-    if (recovered.toLowerCase() === `0x${"00".repeat(20)}`) {
-      return yield* clientError("response", status);
-    }
     return registered;
   });
 

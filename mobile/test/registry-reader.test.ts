@@ -1,12 +1,17 @@
 import { Hex32, peerIdFromDeviceKey, PeerId } from "@qop/identity";
 import { Effect, Result, Schema } from "effect";
-import { keccak256, toBytes } from "viem";
+import {
+  decodeFunctionResult,
+  encodeAbiParameters,
+  keccak256,
+  toBytes,
+} from "viem";
 import { describe, expect, it, vi } from "vitest";
 
-import { createRegistryReader } from "@/lib/registry-core";
+import { createRegistryReader, registryAbi } from "@/lib/registry-core";
 
-const DEVICE_KEY = `0x${"22".repeat(32)}`;
-const OWNER = "0x7E5F4552091A69125D5DfCb7b8C2659029395BDF";
+const DEVICE_KEY = `0x${"22".repeat(32)}` as const;
+const OWNER = "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf";
 const ALICE_HASH = keccak256(toBytes("alice"));
 
 describe("registry reader", () => {
@@ -16,14 +21,30 @@ describe("registry reader", () => {
         return Promise.resolve(args[0] === ALICE_HASH ? 42n : 0n);
       }
       if (functionName === "account") {
-        return Promise.resolve([
-          OWNER,
-          DEVICE_KEY,
-          3,
-          1_700_000_000n,
-          0n,
-          "alice",
-        ] as const);
+        // Encode Solidity's dynamic struct return independently of the reader ABI.
+        const data = encodeAbiParameters(
+          [
+            {
+              components: [
+                { type: "address" },
+                { type: "bytes32" },
+                { type: "uint32" },
+                { type: "uint64" },
+                { type: "uint256" },
+                { type: "string" },
+              ],
+              type: "tuple",
+            },
+          ],
+          [[OWNER, DEVICE_KEY, 3, 1_700_000_000n, 0n, "alice"]]
+        );
+        return Promise.resolve(
+          decodeFunctionResult({
+            abi: registryAbi,
+            data,
+            functionName: "account",
+          })
+        );
       }
       return Promise.resolve(0n);
     });
@@ -54,14 +75,14 @@ describe("registry reader", () => {
       Promise.resolve(
         functionName === "qidByHandleHash"
           ? 42n
-          : ([
-              OWNER,
-              `0x${"00".repeat(32)}`,
-              3,
-              1_700_000_000n,
-              0n,
-              "alice",
-            ] as const)
+          : {
+              deviceKey: `0x${"00".repeat(32)}`,
+              handle: "alice",
+              nonce: 0n,
+              owner: OWNER,
+              ownerVersion: 3,
+              registeredAt: 1_700_000_000n,
+            }
       )
     );
     const { lookupHandle } = createRegistryReader({ client: { readContract } });

@@ -14,7 +14,11 @@ const Uuid = Schema.String.check(
 export const ChatFrameV1 = Schema.Struct({
   fromHandle: Handle,
   id: Uuid,
-  sentAt: Schema.Int,
+  sentAt: Schema.Int.check(
+    Schema.makeFilter((value) => value >= 0 && value <= 8_640_000_000_000_000, {
+      expected: "a valid nonnegative millisecond timestamp",
+    })
+  ),
   text: Schema.String.check(Schema.isLengthBetween(1, 4000)),
   v: Schema.Literal(1),
 });
@@ -28,7 +32,7 @@ export type ChatFrame = typeof ChatFrameV1.Type;
 export type ChatAck = typeof ChatAckV1.Type;
 
 const textEncoder = new TextEncoder();
-const textDecoder = new TextDecoder();
+const textDecoder = new TextDecoder("utf-8", { fatal: true });
 
 const encode = (value: ChatAck | ChatFrame): Uint8Array => {
   const encoded = textEncoder.encode(JSON.stringify(value));
