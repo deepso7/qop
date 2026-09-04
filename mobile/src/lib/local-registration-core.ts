@@ -184,6 +184,99 @@ export const createLocalRegistration = ({
     return registration;
   });
 
+  const reconcileRegistration = Effect.fn(
+    "LocalRegistration.reconcileRegistration"
+  )(function* (registration: LocalRegistration) {
+    if (
+      registration.status !== "submitted" &&
+      registration.status !== "pending"
+    ) {
+      yield* verifyOwner(registration);
+      return registration;
+    }
+    const identity = yield* verifyOwner(registration);
+    const ownerAccount = yield* registry
+      .lookupOwner(identity.ownerAddress)
+      .pipe(Effect.mapError(() => localError("network")));
+    if (ownerAccount?.handle === registration.handle) {
+      if (
+        ownerAccount.owner === identity.ownerAddress.toLowerCase() &&
+        ownerAccount.deviceKey === identity.deviceKey.toLowerCase()
+      ) {
+        const confirmed: LocalRegistration = {
+          ...registration,
+          qid: ownerAccount.qid.toString(),
+          status: "confirmed",
+        };
+        yield* writeStoredRegistration(confirmed);
+        return confirmed;
+      }
+      if (ownerAccount.deviceKey !== identity.deviceKey.toLowerCase()) {
+        const failed: LocalRegistration = {
+          ...registration,
+          failureCode: "DEVICE_KEY_MISMATCH",
+          status: "failed",
+        };
+        yield* writeStoredRegistration(failed);
+        return failed;
+      }
+    }
+    const handleAccount = yield* registry
+      .lookupHandle(registration.handle)
+      .pipe(Effect.mapError(() => localError("network")));
+    if (
+      handleAccount &&
+      handleAccount.owner !== identity.ownerAddress.toLowerCase()
+    ) {
+      const failed: LocalRegistration = {
+        ...registration,
+        failureCode: "HANDLE_TAKEN",
+        status: "failed",
+      };
+      yield* writeStoredRegistration(failed);
+      return failed;
+    }
+    if (now() < BigInt(registration.deadline)) {
+      return registration;
+    }
+    const reconciled = yield* registrationClient
+      .getRegistration(registration.digest)
+      .pipe(
+        Effect.catch((error) =>
+          error.status === 404
+            ? Effect.succeed({
+                digest: registration.digest,
+                failureCode: "REGISTRATION_NOT_FOUND",
+                qid: null,
+                status: "failed" as const,
+                transactionHash: null,
+              })
+            : Effect.fail(localError("network"))
+        )
+      );
+    if (reconciled.digest !== registration.digest) {
+      return yield* localError("verify");
+    }
+    let updated: LocalRegistration;
+    if (reconciled.status === "failed") {
+      updated = {
+        ...registration,
+        failureCode: reconciled.failureCode,
+        status: "failed",
+      };
+    } else if (reconciled.status === "confirmed") {
+      updated = {
+        ...registration,
+        qid: reconciled.qid,
+        status: "confirmed",
+      };
+    } else {
+      updated = { ...registration, status: "submitted" };
+    }
+    yield* writeStoredRegistration(updated);
+    return updated;
+  });
+
   const startLocalRegistration = Effect.fn(
     "LocalRegistration.startLocalRegistration"
   )((admissionCodeInput: string) =>
@@ -202,8 +295,8 @@ export const createLocalRegistration = ({
         const pending = existing?.status === "pending" ? existing : null;
         if (pending) {
           yield* verifyOwner(pending);
-          if (now() > BigInt(pending.deadline)) {
-            return pending;
+          if (now() >= BigInt(pending.deadline)) {
+            return yield* reconcileRegistration(pending);
           }
         }
         const identity = yield* loadIdentity();
@@ -292,94 +385,7 @@ export const createLocalRegistration = ({
         if (!registration) {
           return yield* localError("verify");
         }
-        if (
-          registration.status !== "submitted" &&
-          registration.status !== "pending"
-        ) {
-          yield* verifyOwner(registration);
-          return registration;
-        }
-        const identity = yield* verifyOwner(registration);
-        const ownerAccount = yield* registry
-          .lookupOwner(identity.ownerAddress)
-          .pipe(Effect.mapError(() => localError("network")));
-        if (ownerAccount?.handle === registration.handle) {
-          if (
-            ownerAccount.owner === identity.ownerAddress.toLowerCase() &&
-            ownerAccount.deviceKey === identity.deviceKey.toLowerCase()
-          ) {
-            const confirmed: LocalRegistration = {
-              ...registration,
-              qid: ownerAccount.qid.toString(),
-              status: "confirmed",
-            };
-            yield* writeStoredRegistration(confirmed);
-            return confirmed;
-          }
-          if (ownerAccount.deviceKey !== identity.deviceKey.toLowerCase()) {
-            const failed: LocalRegistration = {
-              ...registration,
-              failureCode: "DEVICE_KEY_MISMATCH",
-              status: "failed",
-            };
-            yield* writeStoredRegistration(failed);
-            return failed;
-          }
-        }
-        const handleAccount = yield* registry
-          .lookupHandle(registration.handle)
-          .pipe(Effect.mapError(() => localError("network")));
-        if (
-          handleAccount &&
-          handleAccount.owner !== identity.ownerAddress.toLowerCase()
-        ) {
-          const failed: LocalRegistration = {
-            ...registration,
-            failureCode: "HANDLE_TAKEN",
-            status: "failed",
-          };
-          yield* writeStoredRegistration(failed);
-          return failed;
-        }
-        if (now() <= BigInt(registration.deadline)) {
-          return registration;
-        }
-        const reconciled = yield* registrationClient
-          .getRegistration(registration.digest)
-          .pipe(
-            Effect.catch((error) =>
-              error.status === 404
-                ? Effect.succeed({
-                    digest: registration.digest,
-                    failureCode: "REGISTRATION_NOT_FOUND",
-                    qid: null,
-                    status: "failed" as const,
-                    transactionHash: null,
-                  })
-                : Effect.fail(localError("network"))
-            )
-          );
-        if (reconciled.digest !== registration.digest) {
-          return yield* localError("verify");
-        }
-        let updated: LocalRegistration;
-        if (reconciled.status === "failed") {
-          updated = {
-            ...registration,
-            failureCode: reconciled.failureCode,
-            status: "failed",
-          };
-        } else if (reconciled.status === "confirmed") {
-          updated = {
-            ...registration,
-            qid: reconciled.qid,
-            status: "confirmed",
-          };
-        } else {
-          updated = { ...registration, status: "submitted" };
-        }
-        yield* writeStoredRegistration(updated);
-        return updated;
+        return yield* reconcileRegistration(registration);
       })
     )
   );

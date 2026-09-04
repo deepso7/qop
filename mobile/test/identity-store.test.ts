@@ -76,7 +76,7 @@ describe("identity store", () => {
     const store = loadStore();
     const reset = store.getState().resetIdentity();
     const create = await store.getState().createIdentity("alice");
-    expect(Result.isFailure(create)).toBe(true);
+    expect(Result.isFailure(create) && create.failure.operation).toBe("create");
     expect(vaultMock.createLocalIdentity).not.toHaveBeenCalled();
     expect(store.getState().status).toBe("resetting");
     stopped.resolve(null);

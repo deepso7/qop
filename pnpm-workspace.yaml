@@ -1,3 +1,5 @@
+engineStrict: true
+
 saveExact: true
 
 catalog:

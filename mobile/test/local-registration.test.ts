@@ -206,6 +206,121 @@ describe("local registration", () => {
     });
   });
 
+  it.each([0n, 1n])(
+    "reconciles an expired pending retry at deadline + %s without resubmitting",
+    async (elapsed) => {
+      clientMock.register.mockReturnValueOnce(
+        Effect.fail(
+          new RegistrationClientError({
+            kind: null,
+            operation: "network",
+            status: null,
+            tag: null,
+          })
+        )
+      );
+      const pending = await Effect.runPromise(
+        loadRegistration().startLocalRegistration("ABC-123")
+      );
+      now = BigInt(pending.deadline) + elapsed;
+      clientMock.getRegistration.mockReturnValueOnce(
+        Effect.succeed({
+          digest: pending.digest,
+          failureCode: null,
+          qid: null,
+          status: "submitted" as const,
+          transactionHash: `0x${"77".repeat(32)}`,
+        })
+      );
+
+      const retry = await Effect.runPromise(
+        loadRegistration().startLocalRegistration("ABC-123")
+      );
+
+      expect(retry).toMatchObject({
+        digest: pending.digest,
+        nonce: pending.nonce,
+        status: "submitted",
+      });
+      expect(clientMock.getRegistration).toHaveBeenCalledExactlyOnceWith(
+        pending.digest
+      );
+      expect(clientMock.register).toHaveBeenCalledOnce();
+      expect(vaultMock.signRegisterIntent).toHaveBeenCalledOnce();
+    }
+  );
+
+  it("retains the pending request when expired retry reconciliation is unavailable", async () => {
+    const unavailable = new RegistrationClientError({
+      kind: null,
+      operation: "network",
+      status: null,
+      tag: null,
+    });
+    clientMock.register.mockReturnValueOnce(Effect.fail(unavailable));
+    const registration = loadRegistration();
+    const pending = await Effect.runPromise(
+      registration.startLocalRegistration("ABC-123")
+    );
+    now = BigInt(pending.deadline);
+    clientMock.getRegistration.mockReturnValueOnce(Effect.fail(unavailable));
+
+    const retry = await Effect.runPromise(
+      registration.startLocalRegistration("ABC-123").pipe(Effect.result)
+    );
+
+    expect(Result.isFailure(retry) && retry.failure.operation).toBe("network");
+    expect(
+      await Effect.runPromise(registration.loadLocalRegistration())
+    ).toEqual(pending);
+    expect(clientMock.register).toHaveBeenCalledOnce();
+  });
+
+  it("allows a fresh request after an expired pending retry reconciles as missing", async () => {
+    clientMock.register.mockReturnValueOnce(
+      Effect.fail(
+        new RegistrationClientError({
+          kind: null,
+          operation: "network",
+          status: null,
+          tag: null,
+        })
+      )
+    );
+    const registration = loadRegistration();
+    const pending = await Effect.runPromise(
+      registration.startLocalRegistration("ABC-123")
+    );
+    now = BigInt(pending.deadline);
+    clientMock.getRegistration.mockReturnValueOnce(
+      Effect.fail(
+        new RegistrationClientError({
+          kind: null,
+          operation: "response",
+          status: 404,
+          tag: "RegistrationIntentNotFound",
+        })
+      )
+    );
+
+    const failed = await Effect.runPromise(
+      registration.startLocalRegistration("ABC-123")
+    );
+    expect(failed).toMatchObject({
+      digest: pending.digest,
+      failureCode: "REGISTRATION_NOT_FOUND",
+      status: "failed",
+    });
+    expect(clientMock.register).toHaveBeenCalledOnce();
+
+    const retry = await Effect.runPromise(
+      registration.startLocalRegistration("ABC-123")
+    );
+    expect(retry.status).toBe("submitted");
+    expect(retry.nonce).not.toBe(pending.nonce);
+    expect(clientMock.register).toHaveBeenCalledTimes(2);
+  });
+
   it("stores submitted state with the locally computed digest", async () => {
     const { startLocalRegistration } = loadRegistration();
     const result = await Effect.runPromise(startLocalRegistration("abc123"));
@@ -321,7 +436,7 @@ describe("local registration", () => {
     expect(clientMock.getRegistration).not.toHaveBeenCalled();
   });
 
-  it("consults the API only after the deadline", async () => {
+  it("consults the API at the deadline, but not before", async () => {
     const { checkLocalRegistration, startLocalRegistration } =
       loadRegistration();
     const submitted = await Effect.runPromise(
@@ -337,10 +452,11 @@ describe("local registration", () => {
       })
     );
 
+    now = BigInt(submitted.deadline) - 1n;
     await Effect.runPromise(checkLocalRegistration());
     expect(clientMock.getRegistration).not.toHaveBeenCalled();
 
-    now = 1_700_001_801n;
+    now = BigInt(submitted.deadline);
     const result = await Effect.runPromise(checkLocalRegistration());
 
     expect(clientMock.getRegistration).toHaveBeenCalledOnce();

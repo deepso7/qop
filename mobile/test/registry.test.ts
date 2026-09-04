@@ -25,7 +25,7 @@ describe("configured registry", () => {
     expect(getChainId).toHaveBeenCalledTimes(2);
   });
 
-  it("rejects a chain ID mismatch before reading accounts", async () => {
+  it("caches a chain ID mismatch across handle and owner lookups", async () => {
     const getChainId = vi.fn().mockResolvedValue(1);
     const readContract = vi.fn().mockResolvedValue(0n);
     const createClient = vi.fn(() => ({ getChainId, readContract }));
@@ -51,8 +51,8 @@ describe("configured registry", () => {
     expect(Result.isFailure(second) && second.failure.operation).toBe(
       "configuration"
     );
-    expect(createClient).toHaveBeenCalledTimes(2);
-    expect(getChainId).toHaveBeenCalledTimes(2);
+    expect(createClient).toHaveBeenCalledOnce();
+    expect(getChainId).toHaveBeenCalledOnce();
     expect(readContract).not.toHaveBeenCalled();
   });
 });

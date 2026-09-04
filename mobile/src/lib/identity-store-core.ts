@@ -133,7 +133,7 @@ export const createIdentityStore = ({
 
     createIdentity: (handle) => {
       if (resetOperation || get().status === "resetting") {
-        return Promise.resolve(Result.fail(makeIdentityVaultError("delete")));
+        return Promise.resolve(Result.fail(makeIdentityVaultError("create")));
       }
       if (createOperation) {
         return createOperation;

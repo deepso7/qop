@@ -90,8 +90,7 @@ const openDatabase = async () => {
       received_at INTEGER NOT NULL,
       status TEXT NOT NULL CHECK (status IN ('sending','sent','failed','received'))
     );
-    CREATE INDEX IF NOT EXISTS messages_contact_sent_idx
-      ON messages(contact_qid, sent_at);
+    DROP INDEX IF EXISTS messages_contact_sent_idx;
     CREATE INDEX IF NOT EXISTS messages_contact_received_idx
       ON messages(contact_qid, received_at);
   `);
@@ -186,7 +185,7 @@ export const listConversations = async (): Promise<Conversation[]> => {
       contacts.created_at AS createdAt,
       contacts.last_read_at AS lastReadAt,
       latest.text AS latestMessageText,
-      latest.sent_at AS latestMessageTime,
+      latest.received_at AS latestMessageTime,
       COALESCE(SUM(
         CASE
           WHEN messages.direction = 'in'
@@ -199,11 +198,11 @@ export const listConversations = async (): Promise<Conversation[]> => {
     LEFT JOIN messages AS latest ON latest.id = (
       SELECT id FROM messages
       WHERE contact_qid = contacts.qid
-      ORDER BY sent_at DESC, rowid DESC
+      ORDER BY received_at DESC, rowid DESC
       LIMIT 1
     )
     GROUP BY contacts.qid
-    ORDER BY COALESCE(latest.sent_at, contacts.created_at) DESC
+    ORDER BY COALESCE(latest.received_at, contacts.created_at) DESC
   `);
   return rows.map((row) => ({
     ...contactFromRow(row),
@@ -232,16 +231,21 @@ export const insertMessage = async (
 ): Promise<boolean> => {
   const database = await getDatabase();
   const receivedAt = Date.now();
+  // Use local arrival order for display and unread tracking, even if the clock
+  // moves backward or several messages arrive in the same millisecond.
   const result = await database.runAsync(
     `INSERT OR IGNORE INTO messages(
       id, contact_qid, direction, text, sent_at, received_at, status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, MAX(?, COALESCE(
+      (SELECT MAX(received_at) + 1 FROM messages WHERE contact_qid = ?), 0
+    )), ?)`,
     message.id,
     message.contactQid,
     message.direction,
     message.text,
     message.sentAt,
     receivedAt,
+    message.contactQid,
     message.status
   );
   return result.changes > 0;
@@ -283,7 +287,7 @@ export const listMessages = async (
 ): Promise<StoredMessage[]> => {
   const database = await getDatabase();
   return database.getAllAsync<MessageRow>(
-    `${messageSelect} WHERE contact_qid = ? ORDER BY sent_at, rowid`,
+    `${messageSelect} WHERE contact_qid = ? ORDER BY received_at, rowid`,
     contactQid
   );
 };

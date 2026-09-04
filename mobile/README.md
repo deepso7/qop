@@ -6,6 +6,8 @@ Set `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_RPC_URL`, `EXPO_PUBLIC_REGISTRY_ADDRESS`
 
 Chat authorization is checked against the registry on first use of each transport connection, in both directions. Further messages on that verified connection need no RPC or API call. Disconnecting clears verification; reconnecting requires a fresh registry check before sending or accepting chat messages. Device-key rotation therefore takes effect on the next connection, while an existing verified connection can continue through an RPC outage. New connections fail verification if the registry cannot be read. Offline delivery is deferred.
 
+Use Node.js 22.13 or later in the 22.x line, or Node.js 24 or newer. The SQLite tests use Node’s built-in SQLite module, and pnpm enforces the supported Node versions.
+
 ## Get started
 
 1. Install dependencies

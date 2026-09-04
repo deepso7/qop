@@ -35,7 +35,9 @@ interface P2pState {
 }
 
 interface P2pActions {
-  readonly connectTo: (contact: Contact) => Promise<void>;
+  readonly connectTo: (
+    contact: Pick<Contact, "handle" | "qid">
+  ) => Promise<void>;
   readonly retryMessage: (id: string) => Promise<void>;
   readonly sendMessage: (contact: Contact, text: string) => string;
   readonly start: () => Promise<void>;

@@ -91,6 +91,9 @@
     "typescript": "catalog:",
     "vitest": "4.1.11"
   },
+  "engines": {
+    "node": "^22.13.0 || >=24.0.0"
+  },
   "expo": {
     "install": {
       "exclude": [
