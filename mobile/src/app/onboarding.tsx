@@ -27,8 +27,7 @@ import { Text } from "@/components/ui/text";
 import { useIdentityStore } from "@/lib/identity-store";
 import type { IdentityVaultError, LocalIdentity } from "@/lib/identity-vault";
 import {
-  loadLocalRegistration,
-  reconcileLocalRegistration,
+  checkLocalRegistration,
   startLocalRegistration,
 } from "@/lib/local-registration";
 import type { LocalRegistration } from "@/lib/local-registration";
@@ -350,75 +349,52 @@ const useRecoverySetup = (
 
 const canStartRegistration = (
   registration: LocalRegistration | null | undefined
-) =>
-  registration === null ||
-  registration?.status === "draft" ||
-  registration?.status === "failed" ||
-  registration?.status === "expired";
+) => registration === null || registration?.status === "failed";
 
 const useOnboardingRegistration = (
   identity: LocalIdentity | null,
+  initialRegistration: LocalRegistration | null,
   hydrate: () => Promise<void>
 ) => {
-  const [loadedRegistration, setLoadedRegistration] = React.useState<{
+  const [registrationOverride, setRegistrationOverride] = React.useState<{
     ownerAddress: string;
-    value: LocalRegistration | null;
+    value: LocalRegistration;
   }>();
+  const registration =
+    registrationOverride &&
+    registrationOverride.ownerAddress === identity?.ownerAddress
+      ? registrationOverride.value
+      : initialRegistration;
   const [admissionCode, setAdmissionCode] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState<string>();
-  const registration =
-    loadedRegistration?.ownerAddress === identity?.ownerAddress
-      ? loadedRegistration?.value
-      : undefined;
-  const isRegistered = registration?.status === "confirmed";
+  const checking = React.useRef(false);
   const isValidAdmissionCode = React.useMemo(
     () => Result.isSuccess(decodeAdmissionCode(admissionCode)),
     [admissionCode]
   );
-
-  React.useEffect(() => {
-    if (!identity) {
-      return;
-    }
-    const { ownerAddress } = identity;
-    let cancelled = false;
-    const load = async () => {
-      const result = await Effect.runPromise(
-        loadLocalRegistration().pipe(Effect.result)
-      );
-      if (cancelled) {
-        return;
-      }
-      if (Result.isSuccess(result)) {
-        setLoadedRegistration({ ownerAddress, value: result.success });
-      } else {
-        setLoadedRegistration({ ownerAddress, value: null });
-        setMessage("Could not restore registration progress. Try again.");
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [identity]);
 
   const acceptRegistration = React.useCallback(
     (nextRegistration: LocalRegistration) => {
       if (!identity) {
         return;
       }
-      setLoadedRegistration({
+      setRegistrationOverride({
         ownerAddress: identity.ownerAddress,
         value: nextRegistration,
       });
+      if (nextRegistration.status === "failed") {
+        setMessage(
+          `Registration failed: ${nextRegistration.failureCode ?? "UNKNOWN"}`
+        );
+        return;
+      }
+      setMessage(undefined);
       if (nextRegistration.status !== "confirmed") {
         return;
       }
       playSuccessHaptic();
-      if (identity.backupState !== "pending") {
-        void hydrate();
-      }
+      void hydrate();
     },
     [hydrate, identity]
   );
@@ -444,40 +420,50 @@ const useOnboardingRegistration = (
     setBusy(false);
   }, [acceptRegistration, admissionCode, busy, isValidAdmissionCode]);
 
-  const check = React.useCallback(async () => {
-    if (busy) {
+  React.useEffect(() => {
+    if (registration?.status !== "submitted") {
       return;
     }
-    setBusy(true);
-    setMessage(undefined);
-    const result = await Effect.runPromise(
-      reconcileLocalRegistration().pipe(Effect.result)
-    );
-    if (Result.isSuccess(result)) {
-      acceptRegistration(result.success);
-    } else {
-      setMessage("Could not check registration. Try again.");
-    }
-    setBusy(false);
-  }, [acceptRegistration, busy]);
+    let mounted = true;
+    const check = async () => {
+      if (checking.current) {
+        return;
+      }
+      checking.current = true;
+      const result = await Effect.runPromise(
+        checkLocalRegistration().pipe(Effect.result)
+      );
+      checking.current = false;
+      if (!mounted) {
+        return;
+      }
+      if (Result.isSuccess(result)) {
+        acceptRegistration(result.success);
+      } else {
+        setMessage("Could not check registration. Retrying…");
+      }
+    };
+    const interval = setInterval(() => {
+      void check();
+    }, 4000);
+    return () => {
+      mounted = false;
+      clearInterval(interval);
+    };
+  }, [acceptRegistration, registration?.status]);
 
   const submit = React.useCallback(() => {
     void register();
   }, [register]);
-  const submitCheck = React.useCallback(() => {
-    void check();
-  }, [check]);
 
   return {
     admissionCode,
     busy,
-    isRegistered,
     isValidAdmissionCode,
     message,
     registration,
     setAdmissionCode,
     submit,
-    submitCheck,
   };
 };
 
@@ -495,9 +481,7 @@ const RegistrationStep = React.memo(
     registration,
     setAdmissionCode,
     submit,
-    submitCheck,
   }: RegistrationStepProps) => {
-    const isLoading = registration === undefined;
     const canStart = canStartRegistration(registration);
 
     const registrationStatus = canStart ? (
@@ -529,20 +513,16 @@ const RegistrationStep = React.memo(
       </View>
     ) : (
       <View className="border-border bg-background-element gap-2 rounded-xl border p-4">
-        {isLoading ? (
-          <ActivityIndicator colorClassName="accent-foreground-secondary" />
-        ) : null}
+        <ActivityIndicator colorClassName="accent-foreground-secondary" />
         <Text className="text-center" variant="label">
-          {isLoading ? "Checking registration…" : "Registration submitted"}
+          Registering @{handle} on Sepolia…
         </Text>
-        {isLoading ? null : (
-          <Text
-            className="text-foreground-secondary text-center"
-            variant="caption"
-          >
-            Sepolia confirmation can take a few seconds.
-          </Text>
-        )}
+        <Text
+          className="text-foreground-secondary text-center"
+          variant="caption"
+        >
+          Sepolia confirmation can take a few seconds.
+        </Text>
       </View>
     );
 
@@ -561,21 +541,6 @@ const RegistrationStep = React.memo(
           <Text>{busy ? "Registering…" : "Register identity"}</Text>
         </Button>
       );
-    } else if (!isLoading) {
-      action = (
-        <Button
-          className="h-14 rounded-xl"
-          disabled={busy}
-          onPress={submitCheck}
-          size="lg"
-          variant="outline"
-        >
-          {busy ? (
-            <ActivityIndicator colorClassName="accent-foreground-secondary" />
-          ) : null}
-          <Text>{busy ? "Checking…" : "Check status"}</Text>
-        </Button>
-      );
     }
 
     return (
@@ -586,7 +551,7 @@ const RegistrationStep = React.memo(
       >
         <View className="gap-8">
           <View className="items-end">
-            <StepIndicator step={2} />
+            <StepIndicator step={3} />
           </View>
           <View className="gap-3">
             <Text
@@ -646,7 +611,7 @@ const RecoveryStep = React.memo(
     >
       <View className="gap-8">
         <View className="items-end">
-          <StepIndicator step={3} />
+          <StepIndicator step={2} />
         </View>
         <View className="gap-3">
           <Text
@@ -844,10 +809,15 @@ const OnboardingRoute = React.memo(() => {
   );
   const setBackupState = useIdentityStore((state) => state.setBackupState);
   const hydrate = useIdentityStore((state) => state.hydrate);
+  const registration = useIdentityStore((state) => state.registration);
   const status = useIdentityStore((state) => state.status);
   const [stage, setStage] = React.useState<CreateStage>("intro");
   const [handle, setHandle] = React.useState("");
-  const registrationState = useOnboardingRegistration(identity, hydrate);
+  const registrationState = useOnboardingRegistration(
+    identity,
+    registration,
+    hydrate
+  );
 
   const isValidHandle = React.useMemo(
     () => Result.isSuccess(decodeHandle(handle)),
@@ -856,7 +826,7 @@ const OnboardingRoute = React.memo(() => {
   const isCreating = status === "creating";
   const isBackup = status === "backup";
   const recoverySetup = useRecoverySetup(
-    isBackup && registrationState.isRegistered,
+    isBackup,
     revealRecoveryKey,
     setBackupState
   );
@@ -891,20 +861,20 @@ const OnboardingRoute = React.memo(() => {
   let content: React.ReactNode;
   if (status === "error") {
     content = <VaultErrorScreen error={error} key="vault-error" />;
-  } else if (identity && !registrationState.isRegistered) {
-    content = (
-      <RegistrationStep
-        {...registrationState}
-        handle={identity.handle}
-        key="registration"
-      />
-    );
   } else if (isBackup) {
     content = (
       <RecoveryStep
         {...recoverySetup}
         handle={identity?.handle ?? ""}
         key="backup"
+      />
+    );
+  } else if (identity && status === "unregistered") {
+    content = (
+      <RegistrationStep
+        {...registrationState}
+        handle={identity.handle}
+        key="registration"
       />
     );
   } else if (stage === "handle") {

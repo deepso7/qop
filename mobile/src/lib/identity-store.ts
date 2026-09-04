@@ -13,7 +13,10 @@ import {
 } from "./local-registration";
 
 export { createIdentityStore } from "./identity-store-core";
-export type { IdentityStoreDependencies } from "./identity-store-core";
+export type {
+  IdentityStatus,
+  IdentityStoreDependencies,
+} from "./identity-store-core";
 
 export const useIdentityStore = createIdentityStore({
   identityVault: {

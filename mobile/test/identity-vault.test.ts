@@ -3,7 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createIdentityVault } from "@/lib/identity-vault-core";
 
-const IDENTITY_STORAGE_KEY = "qop.identity.v1";
+const IDENTITY_STORAGE_KEY = "qop.identity.v2";
+const LEGACY_IDENTITY_STORAGE_KEY = "qop.identity.v1";
 const INSTALL_MARKER_FILENAME = ".qop-install-v1";
 const INSTALL_STORAGE_KEY = "qop.install.v1";
 
@@ -97,6 +98,7 @@ describe("identity vault", () => {
   it("creates and reloads a verified identity", async () => {
     const {
       createLocalIdentity,
+      loadDeviceSecretKey,
       loadLocalIdentity,
       revealLocalIdentityRecoveryKey,
     } = await loadVault();
@@ -105,7 +107,7 @@ describe("identity vault", () => {
     );
     expect(Result.isSuccess(created)).toBe(true);
     if (Result.isSuccess(created)) {
-      expect(created.success.encryptionPublicKey).toHaveLength(43);
+      expect(created.success.deviceKey).toMatch(/^0x[0-9a-f]{64}$/u);
       expect(created.success).not.toHaveProperty("deviceSecretKey");
       expect(created.success).not.toHaveProperty("encryptionSecretKey");
       expect(created.success).not.toHaveProperty("recoveryKey");
@@ -119,6 +121,9 @@ describe("identity vault", () => {
       revealLocalIdentityRecoveryKey()
     );
     expect(recoveryKey).toMatch(/^qop1_/u);
+    await expect(
+      Effect.runPromise(loadDeviceSecretKey())
+    ).resolves.toHaveLength(32);
   });
 
   it("updates backup metadata without replacing private key material", async () => {
@@ -137,7 +142,6 @@ describe("identity vault", () => {
     );
     expect(updated).toMatchObject({ backupState: "skipped", handle: "alice" });
     expect(updated).not.toHaveProperty("deviceSecretKey");
-    expect(updated).not.toHaveProperty("encryptionSecretKey");
     expect(updated).not.toHaveProperty("recoveryKey");
 
     const afterUpdate = JSON.parse(
@@ -145,7 +149,6 @@ describe("identity vault", () => {
     );
     expect(afterUpdate).toMatchObject({
       deviceSecretKey: before.deviceSecretKey,
-      encryptionSecretKey: before.encryptionSecretKey,
       recoveryKey: before.recoveryKey,
     });
 
@@ -158,18 +161,17 @@ describe("identity vault", () => {
   });
 
   it("signs registration intents without exposing the recovery key", async () => {
-    const { createLocalIdentity, signLocalRegistrationIntent } =
-      await loadVault();
+    const { createLocalIdentity, signRegisterIntent } = await loadVault();
     const identity = await Effect.runPromise(createLocalIdentity("alice"));
     const signature = await Effect.runPromise(
-      signLocalRegistrationIntent(
+      signRegisterIntent(
         {
           chainId: "31337",
           verifyingContract: "0x1111111111111111111111111111111111111111",
         },
         {
           deadline: "1700003600",
-          deviceCommitment: `0x${"02".repeat(32)}`,
+          deviceKey: identity.deviceKey,
           handle: identity.handle,
           nonce: `0x${"01".repeat(32)}`,
           owner: identity.ownerAddress,
@@ -181,18 +183,17 @@ describe("identity vault", () => {
   });
 
   it("refuses to sign a registration for another owner", async () => {
-    const { createLocalIdentity, signLocalRegistrationIntent } =
-      await loadVault();
+    const { createLocalIdentity, signRegisterIntent } = await loadVault();
     await Effect.runPromise(createLocalIdentity("alice"));
     const result = await Effect.runPromise(
-      signLocalRegistrationIntent(
+      signRegisterIntent(
         {
           chainId: "31337",
           verifyingContract: "0x1111111111111111111111111111111111111111",
         },
         {
           deadline: "1700003600",
-          deviceCommitment: `0x${"02".repeat(32)}`,
+          deviceKey: `0x${"02".repeat(32)}`,
           handle: "alice",
           nonce: `0x${"01".repeat(32)}`,
           owner: "0x0000000000000000000000000000000000000001",
@@ -201,6 +202,17 @@ describe("identity vault", () => {
     );
 
     expect(Result.isFailure(result) && result.failure.operation).toBe("sign");
+  });
+
+  it("treats a v1 identity as a decode failure", async () => {
+    secureStoreMock.items.set(LEGACY_IDENTITY_STORAGE_KEY, "{}");
+    const { loadLocalIdentity } = await loadVault();
+
+    const result = await Effect.runPromise(
+      loadLocalIdentity().pipe(Effect.result)
+    );
+
+    expect(Result.isFailure(result) && result.failure.operation).toBe("decode");
   });
 
   it("rejects malformed, excess, and inconsistent stored data", async () => {

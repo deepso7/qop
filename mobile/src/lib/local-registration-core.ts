@@ -1,87 +1,67 @@
 import {
-  Base64Url32,
   decodeIdentityEip712DomainV1,
   decodeRegisterIntentV1,
   EthereumAddress,
+  Handle,
   hashRegisterIntentV1,
-  hashRegistrationDeviceCommitmentV1,
-  hashRegistrationObserveTokenV1,
   Hex32,
-  IdentityEip712DomainV1,
-  PeerId,
   Qid,
   RegisterIntentV1,
   RegistrationAdmissionCode,
+  RegistrationNonce,
+  UnixSeconds,
 } from "@qop/identity";
+import type { IdentityEip712DomainV1Encoded } from "@qop/identity";
 import { Data, Effect, Schema, Semaphore } from "effect";
 
 import type { createIdentityVault } from "./identity-vault-core";
 import type { createRegistrationClient } from "./registration-client-core";
+import type { createRegistryReader } from "./registry-core";
 
-const REGISTRATION_STORAGE_KEY = "qop.registration.v1";
+const REGISTRATION_STORAGE_KEY = "qop.registration.v2";
+const REGISTRATION_DEADLINE_SECONDS = 1800n;
 const strictParseOptions = {
   errors: "all",
   onExcessProperty: "error",
 } as const;
 
-const CanonicalBase64Url32 = Base64Url32.pipe(
-  Schema.decodeTo(Base64Url32.pipe(Schema.flip))
-);
 const CanonicalAdmissionCode = RegistrationAdmissionCode.pipe(
   Schema.decodeTo(RegistrationAdmissionCode.pipe(Schema.flip))
 );
 const CanonicalHex32 = Hex32.pipe(Schema.decodeTo(Hex32.pipe(Schema.flip)));
-const CanonicalPeerId = PeerId.pipe(Schema.decodeTo(PeerId.pipe(Schema.flip)));
+const CanonicalNonce = RegistrationNonce.pipe(
+  Schema.decodeTo(RegistrationNonce.pipe(Schema.flip))
+);
 const CanonicalQid = Qid.pipe(Schema.decodeTo(Qid.pipe(Schema.flip)));
-const CanonicalDomain = IdentityEip712DomainV1.pipe(
-  Schema.decodeTo(IdentityEip712DomainV1.pipe(Schema.flip))
-);
-const CanonicalIntent = RegisterIntentV1.pipe(
-  Schema.decodeTo(RegisterIntentV1.pipe(Schema.flip))
+const CanonicalDeadline = UnixSeconds.pipe(
+  Schema.decodeTo(UnixSeconds.pipe(Schema.flip))
 );
 
-const RegistrationStatus = Schema.Literals([
-  "draft",
-  "pending_owner_signature",
-  "ready",
-  "submitted",
-  "confirmed",
-  "failed",
-  "expired",
-]);
-
-const StoredLocalRegistrationV1 = Schema.Struct({
-  admissionCode: Schema.NullOr(CanonicalAdmissionCode),
-  digest: Schema.NullOr(CanonicalHex32),
-  domain: Schema.NullOr(CanonicalDomain),
-  idempotencyKey: CanonicalBase64Url32,
-  intent: Schema.NullOr(CanonicalIntent),
-  observeToken: CanonicalBase64Url32,
+const StoredLocalRegistrationV2 = Schema.Struct({
+  deadline: CanonicalDeadline,
+  digest: CanonicalHex32,
+  failureCode: Schema.NullOr(Schema.String),
+  handle: Handle,
+  nonce: CanonicalNonce,
   ownerAddress: EthereumAddress,
-  peerId: CanonicalPeerId,
   qid: Schema.NullOr(CanonicalQid),
-  status: RegistrationStatus,
-  version: Schema.Literal(1),
+  status: Schema.Literals(["submitted", "confirmed", "failed"]),
+  version: Schema.Literal(2),
 }).annotate({
   messageUnexpectedKey: "Unexpected local registration field",
   parseOptions: strictParseOptions,
 });
 
 const StoredLocalRegistrationJson = Schema.fromJsonString(
-  StoredLocalRegistrationV1
+  StoredLocalRegistrationV2
 );
-type StoredLocalRegistration = typeof StoredLocalRegistrationV1.Type;
-
-export type LocalRegistration = Pick<
-  StoredLocalRegistration,
-  "digest" | "qid" | "status" | "version"
->;
+export type LocalRegistration = typeof StoredLocalRegistrationV2.Type;
 
 export class LocalRegistrationError extends Data.TaggedError(
   "LocalRegistrationError"
 )<{
   readonly operation:
-    | "conflict"
+    | "configuration"
     | "create"
     | "decode"
     | "delete"
@@ -96,21 +76,15 @@ export class LocalRegistrationError extends Data.TaggedError(
 const localError = (operation: LocalRegistrationError["operation"]) =>
   new LocalRegistrationError({ operation });
 
-const publicRegistration = ({
-  digest,
-  qid,
-  status,
-  version,
-}: StoredLocalRegistration): LocalRegistration => ({
-  digest,
-  qid,
-  status,
-  version,
-});
-
 export interface LocalRegistrationDependencies {
+  readonly domain: IdentityEip712DomainV1Encoded;
+  readonly now: () => bigint;
   readonly randomBytes: () => Promise<Uint8Array>;
-  readonly registrationClient: ReturnType<typeof createRegistrationClient>;
+  readonly registrationClient: Pick<
+    ReturnType<typeof createRegistrationClient>,
+    "getRegistration" | "register"
+  >;
+  readonly registry: ReturnType<typeof createRegistryReader>;
   readonly secureStore: {
     readonly delete: (key: string) => Promise<void>;
     readonly get: (key: string) => Promise<string | null>;
@@ -118,13 +92,16 @@ export interface LocalRegistrationDependencies {
   };
   readonly vault: Pick<
     ReturnType<typeof createIdentityVault>,
-    "loadLocalIdentity" | "signLocalRegistrationIntent"
+    "loadLocalIdentity" | "signRegisterIntent"
   >;
 }
 
 export const createLocalRegistration = ({
+  domain: domainInput,
+  now,
   randomBytes,
   registrationClient,
+  registry,
   secureStore,
   vault,
 }: LocalRegistrationDependencies) => {
@@ -147,7 +124,7 @@ export const createLocalRegistration = ({
 
   const writeStoredRegistration = Effect.fn(
     "LocalRegistration.writeStoredRegistration"
-  )(function* (registration: StoredLocalRegistration) {
+  )(function* (registration: LocalRegistration) {
     const encoded = yield* Schema.encodeEffect(StoredLocalRegistrationJson)(
       registration
     ).pipe(Effect.mapError(() => localError("write")));
@@ -156,18 +133,6 @@ export const createLocalRegistration = ({
       try: () => secureStore.set(REGISTRATION_STORAGE_KEY, encoded),
     });
   });
-
-  const randomBase64Url32 = Effect.fn("LocalRegistration.randomBase64Url32")(
-    function* () {
-      const bytes = yield* Effect.tryPromise({
-        catch: () => localError("create"),
-        try: randomBytes,
-      });
-      return yield* Schema.encodeEffect(Base64Url32)(bytes).pipe(
-        Effect.mapError(() => localError("create"))
-      );
-    }
-  );
 
   const loadIdentity = Effect.fn("LocalRegistration.loadIdentity")(
     function* () {
@@ -181,214 +146,179 @@ export const createLocalRegistration = ({
     }
   );
 
-  const verifyStoredOwner = Effect.fn("LocalRegistration.verifyStoredOwner")(
-    function* (registration: StoredLocalRegistration) {
-      const identity = yield* loadIdentity();
-      if (
-        registration.ownerAddress !== identity.ownerAddress ||
-        registration.peerId !== identity.peerId
-      ) {
-        return yield* localError("conflict");
-      }
-      return identity;
+  const verifyOwner = Effect.fn("LocalRegistration.verifyOwner")(function* (
+    registration: LocalRegistration
+  ) {
+    const identity = yield* loadIdentity();
+    if (
+      registration.ownerAddress !== identity.ownerAddress ||
+      registration.handle !== identity.handle
+    ) {
+      return yield* localError("verify");
     }
-  );
+    return identity;
+  });
+
+  const makeNonce = Effect.fn("LocalRegistration.makeNonce")(function* () {
+    for (let attempt = 0; attempt < 128; attempt += 1) {
+      const bytes = yield* Effect.tryPromise({
+        catch: () => localError("create"),
+        try: randomBytes,
+      });
+      if (bytes.length === 32 && bytes.some((byte) => byte !== 0)) {
+        return yield* Schema.encodeEffect(Hex32)(bytes).pipe(
+          Effect.mapError(() => localError("create"))
+        );
+      }
+    }
+    return yield* localError("create");
+  });
 
   const loadLocalRegistration = Effect.fn(
     "LocalRegistration.loadLocalRegistration"
   )(function* () {
     const registration = yield* readStoredRegistration();
-    if (!registration) {
-      return null;
+    if (registration) {
+      yield* verifyOwner(registration);
     }
-    yield* verifyStoredOwner(registration);
-    return publicRegistration(registration);
+    return registration;
   });
-
-  const createDraft = Effect.fn("LocalRegistration.createDraft")(function* (
-    admissionCode: string
-  ) {
-    const identity = yield* loadIdentity();
-    const code = yield* Schema.decodeUnknownEffect(CanonicalAdmissionCode)(
-      admissionCode
-    ).pipe(Effect.mapError(() => localError("create")));
-    const [idempotencyKey, observeToken] = yield* Effect.all(
-      [randomBase64Url32(), randomBase64Url32()] as const,
-      { concurrency: "unbounded" }
-    );
-    const draft: StoredLocalRegistration = {
-      admissionCode: code,
-      digest: null,
-      domain: null,
-      idempotencyKey,
-      intent: null,
-      observeToken,
-      ownerAddress: identity.ownerAddress,
-      peerId: identity.peerId,
-      qid: null,
-      status: "draft",
-      version: 1,
-    };
-    yield* writeStoredRegistration(draft);
-    return draft;
-  });
-
-  const prepareDraft = Effect.fn("LocalRegistration.prepareDraft")(function* (
-    draft: StoredLocalRegistration
-  ) {
-    const identity = yield* verifyStoredOwner(draft);
-    if (!draft.admissionCode) {
-      return yield* localError("conflict");
-    }
-    const [peerId, observeToken] = yield* Effect.all(
-      [
-        Schema.decodeUnknownEffect(PeerId)(draft.peerId),
-        Schema.decodeUnknownEffect(Base64Url32)(draft.observeToken),
-      ] as const,
-      { concurrency: "unbounded" }
-    ).pipe(Effect.mapError(() => localError("decode")));
-    const deviceCommitment = yield* hashRegistrationDeviceCommitmentV1(
-      peerId,
-      observeToken
-    );
-    const prepared = yield* registrationClient
-      .prepareRegistration({
-        admissionCode: draft.admissionCode,
-        deviceCommitment,
-        handle: identity.handle,
-        idempotencyKey: draft.idempotencyKey,
-        observeTokenHash: yield* hashRegistrationObserveTokenV1(observeToken),
-        owner: identity.ownerAddress,
-        peerId: identity.peerId,
-      })
-      .pipe(Effect.mapError(() => localError("network")));
-    const [domain, intent] = yield* Effect.all(
-      [
-        decodeIdentityEip712DomainV1(prepared.domain),
-        decodeRegisterIntentV1(prepared.intent),
-      ] as const,
-      { concurrency: "unbounded" }
-    ).pipe(Effect.mapError(() => localError("verify")));
-    const digest = yield* hashRegisterIntentV1(domain, intent).pipe(
-      Effect.mapError(() => localError("verify"))
-    );
-    if (
-      digest !== prepared.digest ||
-      prepared.intent.deviceCommitment !== deviceCommitment ||
-      prepared.intent.handle !== identity.handle ||
-      prepared.intent.owner !== identity.ownerAddress
-    ) {
-      return yield* localError("verify");
-    }
-    const pending: StoredLocalRegistration = {
-      ...draft,
-      digest: prepared.digest,
-      domain: prepared.domain,
-      intent: prepared.intent,
-      status: "pending_owner_signature",
-    };
-    yield* writeStoredRegistration(pending);
-    return pending;
-  });
-
-  const authorizePrepared = Effect.fn("LocalRegistration.authorizePrepared")(
-    function* (registration: StoredLocalRegistration) {
-      if (
-        !registration.digest ||
-        !registration.domain ||
-        !registration.intent
-      ) {
-        return yield* localError("conflict");
-      }
-      const signature = yield* vault
-        .signLocalRegistrationIntent(registration.domain, registration.intent)
-        .pipe(Effect.mapError(() => localError("sign")));
-      const authorized = yield* registrationClient
-        .authorizeRegistration(registration.digest, signature)
-        .pipe(Effect.mapError(() => localError("network")));
-      if (
-        authorized.digest !== registration.digest ||
-        authorized.intent.deadline !== registration.intent.deadline ||
-        authorized.intent.deviceCommitment !==
-          registration.intent.deviceCommitment ||
-        authorized.intent.handle !== registration.intent.handle ||
-        authorized.intent.nonce !== registration.intent.nonce ||
-        authorized.intent.owner !== registration.intent.owner ||
-        authorized.ownerSignature !== signature
-      ) {
-        return yield* localError("verify");
-      }
-      const updated: StoredLocalRegistration = {
-        ...registration,
-        admissionCode: null,
-        status: authorized.status,
-      };
-      yield* writeStoredRegistration(updated);
-      return updated;
-    }
-  );
 
   const startLocalRegistration = Effect.fn(
     "LocalRegistration.startLocalRegistration"
-  )((admissionCode: string) =>
+  )((admissionCodeInput: string) =>
     registrationSemaphore.withPermit(
       Effect.gen(function* () {
-        const code = yield* Schema.decodeUnknownEffect(CanonicalAdmissionCode)(
-          admissionCode
+        const existing = yield* readStoredRegistration();
+        if (existing?.status === "submitted") {
+          yield* verifyOwner(existing);
+          return existing;
+        }
+        if (existing?.status === "confirmed") {
+          yield* verifyOwner(existing);
+          return existing;
+        }
+
+        const identity = yield* loadIdentity();
+        const admissionCode = yield* Schema.decodeUnknownEffect(
+          CanonicalAdmissionCode
+        )(admissionCodeInput).pipe(Effect.mapError(() => localError("create")));
+        const domain = yield* decodeIdentityEip712DomainV1(domainInput).pipe(
+          Effect.mapError(() => localError("configuration"))
+        );
+        const nonce = yield* makeNonce();
+        const deadline = (now() + REGISTRATION_DEADLINE_SECONDS).toString();
+        const intentInput = {
+          deadline,
+          deviceKey: identity.deviceKey,
+          handle: identity.handle,
+          nonce,
+          owner: identity.ownerAddress,
+        };
+        const intent = yield* decodeRegisterIntentV1(intentInput).pipe(
+          Effect.mapError(() => localError("create"))
+        );
+        const canonicalIntent = yield* Schema.encodeEffect(RegisterIntentV1)(
+          intent
         ).pipe(Effect.mapError(() => localError("create")));
-        let registration = yield* readStoredRegistration();
-        if (
-          registration?.status === "failed" ||
-          registration?.status === "expired"
-        ) {
-          registration = yield* createDraft(code);
-        } else if (registration) {
-          yield* verifyStoredOwner(registration);
-          if (
-            registration.status === "draft" &&
-            registration.admissionCode !== code
-          ) {
-            registration = yield* createDraft(code);
-          } else if (
-            registration.admissionCode !== null &&
-            registration.admissionCode !== code
-          ) {
-            return yield* localError("conflict");
-          }
-        } else {
-          registration = yield* createDraft(code);
+        const digest = yield* hashRegisterIntentV1(domain, intent).pipe(
+          Effect.mapError(() => localError("create"))
+        );
+        const ownerSignature = yield* vault
+          .signRegisterIntent(domainInput, canonicalIntent)
+          .pipe(Effect.mapError(() => localError("sign")));
+        const registered = yield* registrationClient
+          .register({ admissionCode, intent: canonicalIntent, ownerSignature })
+          .pipe(Effect.mapError(() => localError("network")));
+        if (registered.digest !== digest) {
+          return yield* localError("verify");
         }
-        if (registration.status === "draft") {
-          registration = yield* prepareDraft(registration);
-        }
-        if (registration.status === "pending_owner_signature") {
-          registration = yield* authorizePrepared(registration);
-        }
-        return publicRegistration(registration);
+        const submitted: LocalRegistration = {
+          deadline,
+          digest,
+          failureCode: null,
+          handle: identity.handle,
+          nonce,
+          ownerAddress: identity.ownerAddress,
+          qid: null,
+          status: "submitted",
+          version: 2,
+        };
+        yield* writeStoredRegistration(submitted);
+        return submitted;
       })
     )
   );
 
-  const reconcileLocalRegistration = Effect.fn(
-    "LocalRegistration.reconcileLocalRegistration"
+  const checkLocalRegistration = Effect.fn(
+    "LocalRegistration.checkLocalRegistration"
   )(() =>
     registrationSemaphore.withPermit(
       Effect.gen(function* () {
         const registration = yield* readStoredRegistration();
-        if (!registration?.digest) {
-          return yield* localError("conflict");
+        if (!registration) {
+          return yield* localError("verify");
         }
-        yield* verifyStoredOwner(registration);
-        const reconciled = yield* registrationClient
-          .reconcileRegistration(registration.digest)
+        if (registration.status !== "submitted") {
+          yield* verifyOwner(registration);
+          return registration;
+        }
+        const identity = yield* verifyOwner(registration);
+        const ownerAccount = yield* registry
+          .lookupOwner(identity.ownerAddress)
           .pipe(Effect.mapError(() => localError("network")));
-        const updated: StoredLocalRegistration = {
-          ...registration,
-          qid: reconciled.qid,
-          status: reconciled.status,
-        };
+        if (ownerAccount?.handle === registration.handle) {
+          const confirmed: LocalRegistration = {
+            ...registration,
+            qid: ownerAccount.qid.toString(),
+            status: "confirmed",
+          };
+          yield* writeStoredRegistration(confirmed);
+          return confirmed;
+        }
+        const handleAccount = yield* registry
+          .lookupHandle(registration.handle)
+          .pipe(Effect.mapError(() => localError("network")));
+        if (
+          handleAccount &&
+          handleAccount.owner !== identity.ownerAddress.toLowerCase()
+        ) {
+          const failed: LocalRegistration = {
+            ...registration,
+            failureCode: "HANDLE_TAKEN",
+            status: "failed",
+          };
+          yield* writeStoredRegistration(failed);
+          return failed;
+        }
+        if (now() <= BigInt(registration.deadline)) {
+          return registration;
+        }
+        const reconciled = yield* registrationClient
+          .getRegistration(registration.digest)
+          .pipe(Effect.mapError(() => localError("network")));
+        let updated: LocalRegistration;
+        if (reconciled.status === "failed") {
+          updated = {
+            ...registration,
+            failureCode: reconciled.failureCode,
+            status: "failed",
+          };
+        } else if (reconciled.status === "confirmed") {
+          updated = {
+            ...registration,
+            qid: reconciled.qid,
+            status: "confirmed",
+          };
+        } else {
+          updated = {
+            ...registration,
+            failureCode: "DEADLINE_PASSED",
+            status: "failed",
+          };
+        }
         yield* writeStoredRegistration(updated);
-        return publicRegistration(updated);
+        return updated;
       })
     )
   );
@@ -403,9 +333,9 @@ export const createLocalRegistration = ({
   );
 
   return {
+    checkLocalRegistration,
     deleteLocalRegistration,
     loadLocalRegistration,
-    reconcileLocalRegistration,
     startLocalRegistration,
   };
 };

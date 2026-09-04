@@ -1,0 +1,168 @@
+import {
+  EthereumAddress,
+  Handle,
+  Hex32,
+  PeerId,
+  peerIdFromDeviceKey,
+} from "@qop/identity";
+import { Data, Effect, Schema } from "effect";
+import { keccak256, toBytes } from "viem";
+
+export const registryAbi = [
+  {
+    inputs: [{ name: "qid", type: "uint256" }],
+    name: "account",
+    outputs: [
+      { name: "owner", type: "address" },
+      { name: "deviceKey", type: "bytes32" },
+      { name: "ownerVersion", type: "uint32" },
+      { name: "registeredAt", type: "uint64" },
+      { name: "nonce", type: "uint256" },
+      { name: "handle", type: "string" },
+    ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "handleHash", type: "bytes32" }],
+    name: "qidByHandleHash",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "owner", type: "address" }],
+    name: "qidByOwner",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
+] as const;
+
+const CanonicalHex32 = Hex32.pipe(Schema.decodeTo(Hex32.pipe(Schema.flip)));
+const EthereumAddressInput = Schema.String.check(
+  Schema.isPattern(/^0x[0-9a-f]{40}$/iu)
+);
+const Hex32Input = Schema.String.check(Schema.isPattern(/^0x[0-9a-f]{64}$/iu));
+const ContractAccountResult = Schema.Tuple([
+  EthereumAddressInput,
+  Hex32Input,
+  Schema.Int,
+  Schema.BigInt,
+  Schema.BigInt,
+  Handle,
+]);
+
+type RegistryContractResult =
+  | bigint
+  | readonly [string, string, number, bigint, bigint, string];
+
+export interface RegistryAccount {
+  readonly deviceKey: typeof Hex32.Encoded;
+  readonly handle: string;
+  readonly owner: string;
+  readonly ownerVersion: number;
+  readonly peerId: string;
+  readonly qid: bigint;
+  readonly registeredAt: bigint;
+}
+
+export class RegistryReaderError extends Data.TaggedError(
+  "RegistryReaderError"
+)<{
+  readonly operation: "configuration" | "decode" | "invalid-handle" | "rpc";
+}> {}
+
+const readerError = (operation: RegistryReaderError["operation"]) =>
+  new RegistryReaderError({ operation });
+
+export interface RegistryReadClient {
+  readonly readContract: (parameters: {
+    readonly abi: typeof registryAbi;
+    readonly args: readonly unknown[];
+    readonly functionName: "account" | "qidByHandleHash" | "qidByOwner";
+  }) => Promise<RegistryContractResult>;
+}
+
+const readQid = (value: RegistryContractResult) =>
+  Schema.decodeUnknownEffect(Schema.BigInt)(value).pipe(
+    Effect.mapError(() => readerError("decode"))
+  );
+
+export const createRegistryReader = ({
+  client,
+}: {
+  readonly client: RegistryReadClient;
+}) => {
+  const readContract = Effect.fn("RegistryReader.readContract")(
+    (parameters: Parameters<RegistryReadClient["readContract"]>[0]) =>
+      Effect.tryPromise({
+        catch: () => readerError("rpc"),
+        try: () => client.readContract(parameters),
+      })
+  );
+
+  const account = Effect.fn("RegistryReader.account")(function* (qid: bigint) {
+    const result = yield* readContract({
+      abi: registryAbi,
+      args: [qid],
+      functionName: "account",
+    });
+    const [ownerInput, deviceKeyInput, ownerVersion, registeredAt, , handle] =
+      yield* Schema.decodeUnknownEffect(ContractAccountResult)(result).pipe(
+        Effect.mapError(() => readerError("decode"))
+      );
+    const owner = yield* Schema.decodeUnknownEffect(EthereumAddress)(
+      ownerInput.toLowerCase()
+    ).pipe(Effect.mapError(() => readerError("decode")));
+    const deviceKey = yield* Schema.decodeUnknownEffect(CanonicalHex32)(
+      deviceKeyInput.toLowerCase()
+    ).pipe(Effect.mapError(() => readerError("decode")));
+    const deviceKeyBytes = yield* Schema.decodeUnknownEffect(Hex32)(
+      deviceKey
+    ).pipe(Effect.mapError(() => readerError("decode")));
+    const peerId = yield* peerIdFromDeviceKey(deviceKeyBytes).pipe(
+      Effect.flatMap(Schema.encodeEffect(PeerId)),
+      Effect.mapError(() => readerError("decode"))
+    );
+    return {
+      deviceKey,
+      handle,
+      owner,
+      ownerVersion,
+      peerId,
+      qid,
+      registeredAt,
+    } satisfies RegistryAccount;
+  });
+
+  const lookupHandle = Effect.fn("RegistryReader.lookupHandle")(function* (
+    input: string
+  ) {
+    const handle = yield* Schema.decodeUnknownEffect(Handle)(input).pipe(
+      Effect.mapError(() => readerError("invalid-handle"))
+    );
+    const qid = yield* readContract({
+      abi: registryAbi,
+      args: [keccak256(toBytes(handle))],
+      functionName: "qidByHandleHash",
+    }).pipe(Effect.flatMap(readQid));
+    return qid === 0n ? null : yield* account(qid);
+  });
+
+  const lookupOwner = Effect.fn("RegistryReader.lookupOwner")(function* (
+    input: string
+  ) {
+    const owner = yield* Schema.decodeUnknownEffect(EthereumAddress)(
+      input.toLowerCase()
+    ).pipe(Effect.mapError(() => readerError("decode")));
+    const qid = yield* readContract({
+      abi: registryAbi,
+      args: [owner],
+      functionName: "qidByOwner",
+    }).pipe(Effect.flatMap(readQid));
+    return qid === 0n ? null : yield* account(qid);
+  });
+
+  return { lookupHandle, lookupOwner };
+};

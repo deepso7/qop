@@ -48,6 +48,7 @@ const ProfileScreen = React.memo(
   // oxlint-disable-next-line eslint/prefer-arrow-callback -- The named function keeps the memoized screen identifiable in DevTools.
   function ProfileScreen() {
     const identity = useIdentityStore((state) => state.identity);
+    const registration = useIdentityStore((state) => state.registration);
     const revealRecoveryKey = useIdentityStore(
       (state) => state.revealRecoveryKey
     );
@@ -162,6 +163,14 @@ const ProfileScreen = React.memo(
               </Text>
               <Text className="text-foreground-secondary" variant="caption">
                 Permanent registered handle
+              </Text>
+              <Text
+                className="text-foreground-secondary font-mono"
+                selectable
+                variant="caption"
+              >
+                QID {registration?.qid ?? "—"} · Peer{" "}
+                {identity?.peerId.slice(0, 12)}…
               </Text>
             </View>
           </Surface>

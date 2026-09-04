@@ -18,11 +18,23 @@ const registrationMock = {
 
 const identity = {
   backupState: "pending",
-  encryptionPublicKey: "encryption-public",
+  deviceKey: `0x${"22".repeat(32)}`,
   handle: "alice",
   ownerAddress: "0x0000000000000000000000000000000000000001",
   peerId: "peer-id",
-  version: 1,
+  version: 2,
+};
+
+const confirmedRegistration = {
+  deadline: "1700001800",
+  digest: `0x${"11".repeat(32)}`,
+  failureCode: null,
+  handle: "alice",
+  nonce: `0x${"33".repeat(32)}`,
+  ownerAddress: identity.ownerAddress,
+  qid: "1",
+  status: "confirmed" as const,
+  version: 2 as const,
 };
 
 const deferred = <A>() => Promise.withResolvers<A>();
@@ -39,14 +51,9 @@ beforeEach(() => {
   registrationMock.deleteLocalRegistration
     .mockReset()
     .mockReturnValue(Effect.void);
-  registrationMock.loadLocalRegistration.mockReset().mockReturnValue(
-    Effect.succeed({
-      digest: "0x01",
-      qid: "1",
-      status: "confirmed",
-      version: 1,
-    })
-  );
+  registrationMock.loadLocalRegistration
+    .mockReset()
+    .mockReturnValue(Effect.succeed(confirmedRegistration));
   vaultMock.createLocalIdentity.mockReset();
   vaultMock.deleteLocalIdentity.mockReset().mockReturnValue(Effect.void);
   vaultMock.loadLocalIdentity.mockReset().mockReturnValue(Effect.succeed(null));
@@ -110,6 +117,9 @@ describe("identity store", () => {
     vaultMock.loadLocalIdentity.mockReturnValue(
       Effect.succeed(skippedIdentity)
     );
+    registrationMock.loadLocalRegistration.mockReturnValue(
+      Effect.succeed(null)
+    );
     vaultMock.updateLocalIdentityBackupState.mockReturnValue(
       Effect.succeed(backedUpIdentity)
     );
@@ -121,7 +131,7 @@ describe("identity store", () => {
     expect(Result.isSuccess(result)).toBe(true);
     expect(store.getState()).toMatchObject({
       identity: backedUpIdentity,
-      status: "ready",
+      status: "unregistered",
     });
     expect(store.getState().identity).not.toHaveProperty("recoveryKey");
   });
@@ -151,7 +161,7 @@ describe("identity store", () => {
     });
   });
 
-  it("keeps a backed-up identity in onboarding until registration is confirmed", async () => {
+  it("marks a backed-up identity unregistered until registration is confirmed", async () => {
     const backedUpIdentity = { ...identity, backupState: "copied" };
     vaultMock.loadLocalIdentity.mockReturnValue(
       Effect.succeed(backedUpIdentity)
@@ -164,7 +174,24 @@ describe("identity store", () => {
 
     expect(store.getState()).toMatchObject({
       identity: backedUpIdentity,
-      status: "backup",
+      registration: null,
+      status: "unregistered",
+    });
+  });
+
+  it("hydrates a confirmed registration into ready state", async () => {
+    const backedUpIdentity = { ...identity, backupState: "copied" as const };
+    vaultMock.loadLocalIdentity.mockReturnValue(
+      Effect.succeed(backedUpIdentity)
+    );
+    const store = await loadStore();
+
+    await store.getState().hydrate();
+
+    expect(store.getState()).toMatchObject({
+      identity: backedUpIdentity,
+      registration: confirmedRegistration,
+      status: "ready",
     });
   });
 

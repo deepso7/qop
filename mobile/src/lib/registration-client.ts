@@ -7,14 +7,12 @@ export {
   RegistrationClientError,
 } from "./registration-client-core";
 export type {
-  AuthorizedRegistration,
-  PrepareRegistrationInput,
-  PreparedRegistration,
-  ReconciledRegistration,
+  RegisterInput,
+  RegisteredRegistration,
+  Registration,
+  RegistrationClientDependencies,
 } from "./registration-client-core";
 
-export const {
-  authorizeRegistration,
-  prepareRegistration,
-  reconcileRegistration,
-} = createRegistrationClient({ fetch });
+export const { getRegistration, register } = createRegistrationClient({
+  fetch,
+});

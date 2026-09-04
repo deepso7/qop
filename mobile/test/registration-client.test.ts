@@ -1,124 +1,124 @@
 import { Effect, Result } from "effect";
+import type { Hex } from "viem";
+import { privateKeyToAccount } from "viem/accounts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { createRegistrationClient } from "@/lib/registration-client-core";
 
 const fetchMock =
   vi.fn<(input: URL, init?: RequestInit) => Promise<Response>>();
-
-const prepared = {
-  digest: `0x${"11".repeat(32)}`,
-  domain: {
-    chainId: "31337",
-    verifyingContract: "0x1111111111111111111111111111111111111111",
-  },
-  intent: {
-    deadline: "1700003600",
-    deviceCommitment: `0x${"22".repeat(32)}`,
-    handle: "alice",
-    nonce: `0x${"33".repeat(32)}`,
-    owner: "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
-  },
-  status: "pending_owner_signature",
+const digest = `0x${"11".repeat(32)}` as const;
+const intent = {
+  deadline: "1700001800",
+  deviceKey: `0x${"22".repeat(32)}`,
+  handle: "alice",
+  nonce: `0x${"33".repeat(32)}`,
+  owner: "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
 } as const;
+
+const signDigest = async (hash: Hex) => {
+  const signature = await privateKeyToAccount(`0x${"01".repeat(32)}`).sign({
+    hash,
+  });
+  const recovery = signature.slice(-2).toLowerCase();
+  let parity = recovery;
+  if (recovery === "1b") {
+    parity = "00";
+  } else if (recovery === "1c") {
+    parity = "01";
+  }
+  return `${signature.slice(0, -2)}${parity}`;
+};
 
 beforeEach(() => {
   process.env.EXPO_PUBLIC_API_URL = "https://api.qop.test";
-  process.env.EXPO_PUBLIC_REGISTRY_ADDRESS = prepared.domain.verifyingContract;
-  process.env.EXPO_PUBLIC_REGISTRY_CHAIN_ID = prepared.domain.chainId;
   fetchMock.mockReset();
 });
 
 describe("registration client", () => {
-  it("decodes the exact prepare response", async () => {
+  it("registers an owner-signed intent in one POST", async () => {
+    const registrationSignature = await signDigest(digest);
     fetchMock.mockResolvedValue(
-      Response.json(prepared, {
-        headers: { "Content-Type": "application/json" },
-        status: 200,
+      Response.json({
+        digest,
+        registrationSignature,
+        status: "submitted",
+        transactionHash: `0x${"44".repeat(32)}`,
       })
     );
-    const { createRegistrationClient } =
-      await import("@/lib/registration-client-core");
-    const { prepareRegistration } = createRegistrationClient({
-      fetch: fetchMock,
-    });
+    const ownerSignature = await signDigest(`0x${"55".repeat(32)}`);
+    const { register } = createRegistrationClient({ fetch: fetchMock });
+
     const result = await Effect.runPromise(
-      prepareRegistration({
-        admissionCode: "ABC-123",
-        deviceCommitment: prepared.intent.deviceCommitment,
-        handle: "alice",
-        idempotencyKey: "B".repeat(43),
-        observeTokenHash: `0x${"44".repeat(32)}`,
-        owner: prepared.intent.owner,
-        peerId: "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X",
-      })
+      register({ admissionCode: "abc123", intent, ownerSignature })
     );
 
-    expect(result).toEqual(prepared);
+    expect(result).toMatchObject({ digest, status: "submitted" });
     expect(fetchMock).toHaveBeenCalledWith(
       new URL("https://api.qop.test/v1/registrations"),
       expect.objectContaining({ method: "POST" })
     );
+    const request = fetchMock.mock.calls[0]?.[1];
+    expect(JSON.parse(String(request?.body))).toEqual({
+      admissionCode: "ABC-123",
+      intent,
+      ownerSignature,
+    });
   });
 
-  it("accepts a checksummed registry address from the environment", async () => {
-    process.env.EXPO_PUBLIC_REGISTRY_ADDRESS =
-      "0x111111111111111111111111111111111111111A";
+  it("rejects a registration signature that cannot be recovered", async () => {
     fetchMock.mockResolvedValue(
       Response.json({
-        ...prepared,
-        domain: {
-          ...prepared.domain,
-          verifyingContract: "0x111111111111111111111111111111111111111a",
-        },
+        digest,
+        registrationSignature: `0x${"00".repeat(65)}`,
+        status: "submitted",
+        transactionHash: `0x${"44".repeat(32)}`,
       })
     );
-    const { createRegistrationClient } =
-      await import("@/lib/registration-client-core");
-    const { prepareRegistration } = createRegistrationClient({
-      fetch: fetchMock,
-    });
-
+    const { register } = createRegistrationClient({ fetch: fetchMock });
     const result = await Effect.runPromise(
-      prepareRegistration({
+      register({
         admissionCode: "ABC-123",
-        deviceCommitment: prepared.intent.deviceCommitment,
-        handle: "alice",
-        idempotencyKey: "B".repeat(43),
-        observeTokenHash: `0x${"44".repeat(32)}`,
-        owner: prepared.intent.owner,
-        peerId: "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X",
-      })
+        intent,
+        ownerSignature: await signDigest(`0x${"55".repeat(32)}`),
+      }).pipe(Effect.result)
     );
 
-    expect(result.domain.verifyingContract).toBe(
-      "0x111111111111111111111111111111111111111a"
+    expect(Result.isFailure(result) && result.failure.operation).toBe(
+      "response"
     );
   });
 
-  it("preserves stable transport errors", async () => {
+  it("gets registration state with GET", async () => {
+    const registration = {
+      digest,
+      failureCode: null,
+      qid: "42",
+      status: "confirmed",
+      transactionHash: `0x${"44".repeat(32)}`,
+    } as const;
+    fetchMock.mockResolvedValue(Response.json(registration));
+    const { getRegistration } = createRegistrationClient({ fetch: fetchMock });
+
+    await expect(Effect.runPromise(getRegistration(digest))).resolves.toEqual(
+      registration
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL(`https://api.qop.test/v1/registrations/${digest}`),
+      undefined
+    );
+  });
+
+  it("preserves tagged API errors", async () => {
     fetchMock.mockResolvedValue(
       Response.json(
-        {
-          _tag: "RegistrationConflict",
-          kind: "handle-unavailable",
-        },
+        { _tag: "RegistrationConflict", kind: "handle-unavailable" },
         { status: 409 }
       )
     );
-    const { createRegistrationClient } =
-      await import("@/lib/registration-client-core");
-    const { prepareRegistration } = createRegistrationClient({
-      fetch: fetchMock,
-    });
+    const { getRegistration } = createRegistrationClient({ fetch: fetchMock });
     const result = await Effect.runPromise(
-      prepareRegistration({
-        admissionCode: "ABC-123",
-        deviceCommitment: prepared.intent.deviceCommitment,
-        handle: "alice",
-        idempotencyKey: "B".repeat(43),
-        observeTokenHash: `0x${"44".repeat(32)}`,
-        owner: prepared.intent.owner,
-        peerId: "peer",
-      }).pipe(Effect.result)
+      getRegistration(digest).pipe(Effect.result)
     );
 
     expect(Result.isFailure(result) && result.failure).toMatchObject({
@@ -127,37 +127,5 @@ describe("registration client", () => {
       status: 409,
       tag: "RegistrationConflict",
     });
-  });
-
-  it("rejects an API response for a different registry", async () => {
-    fetchMock.mockResolvedValue(
-      Response.json({
-        ...prepared,
-        domain: {
-          ...prepared.domain,
-          verifyingContract: "0x2222222222222222222222222222222222222222",
-        },
-      })
-    );
-    const { createRegistrationClient } =
-      await import("@/lib/registration-client-core");
-    const { prepareRegistration } = createRegistrationClient({
-      fetch: fetchMock,
-    });
-    const result = await Effect.runPromise(
-      prepareRegistration({
-        admissionCode: "ABC-123",
-        deviceCommitment: prepared.intent.deviceCommitment,
-        handle: "alice",
-        idempotencyKey: "B".repeat(43),
-        observeTokenHash: `0x${"44".repeat(32)}`,
-        owner: prepared.intent.owner,
-        peerId: "peer",
-      }).pipe(Effect.result)
-    );
-
-    expect(Result.isFailure(result) && result.failure.operation).toBe(
-      "response"
-    );
   });
 });

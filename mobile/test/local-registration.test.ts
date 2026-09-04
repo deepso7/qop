@@ -3,49 +3,59 @@ import {
   decodeRegisterIntentV1,
   hashRegisterIntentV1,
 } from "@qop/identity";
-import { Effect } from "effect";
+import { Effect, Result } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createLocalRegistration } from "@/lib/local-registration-core";
 
-const REGISTRATION_STORAGE_KEY = "qop.registration.v1";
+const REGISTRATION_STORAGE_KEY = "qop.registration.v2";
 const OWNER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf";
+const OTHER_OWNER = "0x0000000000000000000000000000000000000002";
+const DEVICE_KEY = `0x${"22".repeat(32)}`;
 const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
 const DOMAIN = {
   chainId: "31337",
   verifyingContract: "0x1111111111111111111111111111111111111111",
 } as const;
-let preparedIntent = {
-  deadline: "1700003600",
-  deviceCommitment: `0x${"22".repeat(32)}`,
-  handle: "alice",
-  nonce: `0x${"33".repeat(32)}`,
-  owner: OWNER,
-};
 
-const secureStoreMock = {
-  items: new Map<string, string>(),
-};
-const cryptoMock = { nextByte: 1 };
+const secureStoreMock = { items: new Map<string, string>() };
 const vaultMock = {
   loadLocalIdentity: vi.fn(),
-  signLocalRegistrationIntent: vi.fn(),
+  signRegisterIntent: vi.fn(),
 };
 const clientMock = {
-  authorizeRegistration: vi.fn(),
-  prepareRegistration: vi.fn(),
-  reconcileRegistration: vi.fn(),
+  getRegistration: vi.fn(),
+  register: vi.fn(),
 };
+const registryMock = {
+  lookupHandle: vi.fn(),
+  lookupOwner: vi.fn(),
+};
+let now = 1_700_000_000n;
+let nextNonce = 1;
+
+const account = (owner = OWNER, handle = "alice") => ({
+  deviceKey: DEVICE_KEY,
+  handle,
+  owner,
+  ownerVersion: 1,
+  peerId: PEER_ID,
+  qid: 42n,
+  registeredAt: 1_700_000_100n,
+});
 
 const loadRegistration = () =>
   createLocalRegistration({
+    domain: DOMAIN,
+    now: () => now,
     randomBytes: () => {
       const bytes = new Uint8Array(32);
-      bytes[31] = cryptoMock.nextByte;
-      cryptoMock.nextByte += 1;
+      bytes[31] = nextNonce;
+      nextNonce += 1;
       return Promise.resolve(bytes);
     },
     registrationClient: clientMock,
+    registry: registryMock,
     secureStore: {
       delete: (key) => {
         secureStoreMock.items.delete(key);
@@ -62,176 +72,159 @@ const loadRegistration = () =>
 
 beforeEach(() => {
   secureStoreMock.items.clear();
-  cryptoMock.nextByte = 1;
+  now = 1_700_000_000n;
+  nextNonce = 1;
   vaultMock.loadLocalIdentity.mockReset().mockReturnValue(
     Effect.succeed({
       backupState: "copied",
-      encryptionPublicKey: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      deviceKey: DEVICE_KEY,
       handle: "alice",
       ownerAddress: OWNER,
       peerId: PEER_ID,
-      version: 1,
+      version: 2,
     })
   );
-  vaultMock.signLocalRegistrationIntent
+  vaultMock.signRegisterIntent
     .mockReset()
     .mockReturnValue(Effect.succeed(`0x${"55".repeat(65)}`));
-  clientMock.prepareRegistration.mockReset().mockImplementation((input) =>
+  clientMock.register.mockReset().mockImplementation(({ intent }) =>
     Effect.gen(function* () {
       const domain = yield* decodeIdentityEip712DomainV1(DOMAIN);
-      preparedIntent = {
-        deadline: "1700003600",
-        deviceCommitment: input.deviceCommitment,
-        handle: input.handle,
-        nonce: `0x${"33".repeat(32)}`,
-        owner: input.owner,
-      };
-      const intent = yield* decodeRegisterIntentV1(preparedIntent);
+      const decodedIntent = yield* decodeRegisterIntentV1(intent);
       return {
-        digest: yield* hashRegisterIntentV1(domain, intent),
-        domain: DOMAIN,
-        intent: preparedIntent,
-        status: "pending_owner_signature" as const,
+        digest: yield* hashRegisterIntentV1(domain, decodedIntent),
+        registrationSignature: `0x${"66".repeat(65)}`,
+        status: "submitted" as const,
+        transactionHash: `0x${"77".repeat(32)}`,
       };
     })
   );
-  clientMock.authorizeRegistration.mockReset().mockImplementation((digest) =>
+  clientMock.getRegistration.mockReset().mockReturnValue(
     Effect.succeed({
-      digest,
-      intent: preparedIntent,
-      ownerSignature: `0x${"55".repeat(65)}`,
-      registrationSignature: `0x${"66".repeat(65)}`,
-      status: "submitted" as const,
-    })
-  );
-  clientMock.reconcileRegistration.mockReset().mockImplementation((digest) =>
-    Effect.succeed({
-      digest,
+      digest: `0x${"11".repeat(32)}`,
       failureCode: null,
-      qid: "42",
-      status: "confirmed" as const,
+      qid: null,
+      status: "submitted" as const,
+      transactionHash: `0x${"77".repeat(32)}`,
     })
   );
+  registryMock.lookupOwner.mockReset().mockReturnValue(Effect.succeed(null));
+  registryMock.lookupHandle.mockReset().mockReturnValue(Effect.succeed(null));
 });
 
 describe("local registration", () => {
-  it("persists retry material and submits an owner-authorized intent", async () => {
+  it("stores submitted state with the locally computed digest", async () => {
     const { startLocalRegistration } = loadRegistration();
-    const result = await Effect.runPromise(startLocalRegistration("ABC-123"));
+    const result = await Effect.runPromise(startLocalRegistration("abc123"));
+    const signedIntent = vaultMock.signRegisterIntent.mock.calls[0]?.[1];
+    const domain = await Effect.runPromise(
+      decodeIdentityEip712DomainV1(DOMAIN)
+    );
+    const decodedIntent = await Effect.runPromise(
+      decodeRegisterIntentV1(signedIntent)
+    );
+    const expectedDigest = await Effect.runPromise(
+      hashRegisterIntentV1(domain, decodedIntent)
+    );
 
-    expect(result).toMatchObject({ qid: null, status: "submitted" });
-    expect(result).not.toHaveProperty("admissionCode");
-    expect(result).not.toHaveProperty("observeToken");
-    expect(vaultMock.signLocalRegistrationIntent).toHaveBeenCalledWith(
-      DOMAIN,
-      expect.objectContaining({ handle: "alice", owner: OWNER })
-    );
-    const stored = JSON.parse(
-      secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
-    );
-    expect(stored).toMatchObject({
-      admissionCode: null,
+    expect(result).toMatchObject({
+      deadline: "1700001800",
+      digest: expectedDigest,
+      failureCode: null,
+      handle: "alice",
       ownerAddress: OWNER,
-      peerId: PEER_ID,
+      qid: null,
       status: "submitted",
+      version: 2,
     });
-    expect(stored.idempotencyKey).toHaveLength(43);
-    expect(stored.observeToken).toHaveLength(43);
+    expect(
+      JSON.parse(secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}")
+    ).toEqual(result);
   });
 
-  it("reconciles the submitted transaction to a qid", async () => {
-    const { reconcileLocalRegistration, startLocalRegistration } =
+  it("returns an existing submitted registration without another request", async () => {
+    const { startLocalRegistration } = loadRegistration();
+    const first = await Effect.runPromise(startLocalRegistration("ABC-123"));
+
+    const second = await Effect.runPromise(startLocalRegistration("XYZ-789"));
+
+    expect(second).toEqual(first);
+    expect(clientMock.register).toHaveBeenCalledOnce();
+  });
+
+  it("treats v1 registration state as absent", async () => {
+    secureStoreMock.items.set("qop.registration.v1", "{}");
+    const { loadLocalRegistration } = loadRegistration();
+
+    await expect(
+      Effect.runPromise(loadLocalRegistration())
+    ).resolves.toBeNull();
+  });
+
+  it("fails verification when the server returns another digest", async () => {
+    clientMock.register.mockReturnValueOnce(
+      Effect.succeed({
+        digest: `0x${"99".repeat(32)}`,
+        registrationSignature: `0x${"66".repeat(65)}`,
+        status: "submitted" as const,
+        transactionHash: `0x${"77".repeat(32)}`,
+      })
+    );
+    const { startLocalRegistration } = loadRegistration();
+
+    const result = await Effect.runPromise(
+      startLocalRegistration("ABC-123").pipe(Effect.result)
+    );
+
+    expect(Result.isFailure(result) && result.failure.operation).toBe("verify");
+    expect(secureStoreMock.items.has(REGISTRATION_STORAGE_KEY)).toBe(false);
+  });
+
+  it("confirms from the owner lookup on chain", async () => {
+    const { checkLocalRegistration, startLocalRegistration } =
       loadRegistration();
     await Effect.runPromise(startLocalRegistration("ABC-123"));
-    const result = await Effect.runPromise(reconcileLocalRegistration());
+    registryMock.lookupOwner.mockReturnValue(Effect.succeed(account()));
+
+    const result = await Effect.runPromise(checkLocalRegistration());
 
     expect(result).toMatchObject({ qid: "42", status: "confirmed" });
+    expect(registryMock.lookupHandle).not.toHaveBeenCalled();
+    expect(clientMock.getRegistration).not.toHaveBeenCalled();
   });
 
-  it("retries authorization without preparing a second intent", async () => {
-    clientMock.authorizeRegistration.mockReturnValueOnce(
-      Effect.fail(new Error("offline"))
-    );
-    const { startLocalRegistration } = loadRegistration();
-    const first = await Effect.runPromise(
-      startLocalRegistration("ABC-123").pipe(Effect.result)
-    );
-    const second = await Effect.runPromise(startLocalRegistration("abc123"));
-
-    expect(first._tag).toBe("Failure");
-    expect(second.status).toBe("submitted");
-    expect(clientMock.prepareRegistration).toHaveBeenCalledOnce();
-    expect(clientMock.authorizeRegistration).toHaveBeenCalledTimes(2);
-  });
-
-  it("retries a draft after preparation fails", async () => {
-    clientMock.prepareRegistration.mockReturnValueOnce(
-      Effect.fail(new Error("offline"))
-    );
-    const { startLocalRegistration } = loadRegistration();
-    const first = await Effect.runPromise(
-      startLocalRegistration("ABC-123").pipe(Effect.result)
-    );
-    const stored = JSON.parse(
-      secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
-    );
-    const second = await Effect.runPromise(startLocalRegistration("abc123"));
-
-    expect(first._tag).toBe("Failure");
-    expect(stored.status).toBe("draft");
-    expect(second.status).toBe("submitted");
-    expect(clientMock.prepareRegistration).toHaveBeenCalledTimes(2);
-  });
-
-  it("starts a fresh draft after a terminal registration", async () => {
-    const { startLocalRegistration } = loadRegistration();
+  it("fails when the handle belongs to another owner", async () => {
+    const { checkLocalRegistration, startLocalRegistration } =
+      loadRegistration();
     await Effect.runPromise(startLocalRegistration("ABC-123"));
-    const stored = JSON.parse(
-      secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
-    );
-    secureStoreMock.items.set(
-      REGISTRATION_STORAGE_KEY,
-      JSON.stringify({ ...stored, status: "failed" })
+    registryMock.lookupHandle.mockReturnValue(
+      Effect.succeed(account(OTHER_OWNER))
     );
 
-    const result = await Effect.runPromise(startLocalRegistration("XYZ-789"));
+    const result = await Effect.runPromise(checkLocalRegistration());
 
-    expect(result.status).toBe("submitted");
-    expect(clientMock.prepareRegistration).toHaveBeenCalledTimes(2);
-    const restarted = JSON.parse(
-      secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
-    );
-    expect(restarted.idempotencyKey).not.toBe(stored.idempotencyKey);
+    expect(result).toMatchObject({
+      failureCode: "HANDLE_TAKEN",
+      status: "failed",
+    });
+    expect(clientMock.getRegistration).not.toHaveBeenCalled();
   });
 
-  it("replaces a failed restart draft when given another invitation", async () => {
-    const { startLocalRegistration } = loadRegistration();
+  it("consults the API only after the deadline", async () => {
+    const { checkLocalRegistration, startLocalRegistration } =
+      loadRegistration();
     await Effect.runPromise(startLocalRegistration("ABC-123"));
-    const registered = JSON.parse(
-      secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
-    );
-    secureStoreMock.items.set(
-      REGISTRATION_STORAGE_KEY,
-      JSON.stringify({ ...registered, status: "failed" })
-    );
-    clientMock.prepareRegistration.mockReturnValueOnce(
-      Effect.fail(new Error("offline"))
-    );
 
-    await Effect.runPromise(
-      startLocalRegistration("XYZ-789").pipe(Effect.result)
-    );
-    const failedDraft = JSON.parse(
-      secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
-    );
-    const result = await Effect.runPromise(startLocalRegistration("QOP-456"));
-    const replacement = JSON.parse(
-      secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
-    );
+    await Effect.runPromise(checkLocalRegistration());
+    expect(clientMock.getRegistration).not.toHaveBeenCalled();
 
-    expect(failedDraft.status).toBe("draft");
-    expect(result.status).toBe("submitted");
-    expect(replacement.idempotencyKey).not.toBe(failedDraft.idempotencyKey);
-    expect(clientMock.prepareRegistration).toHaveBeenCalledTimes(3);
+    now = 1_700_001_801n;
+    const result = await Effect.runPromise(checkLocalRegistration());
+
+    expect(clientMock.getRegistration).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      failureCode: "DEADLINE_PASSED",
+      status: "failed",
+    });
   });
 });

@@ -1,51 +1,43 @@
 import {
   EcdsaSignature,
   Hex32,
-  IdentityEip712DomainV1,
   Qid,
   RegisterIntentV1,
+  RegistrationAdmissionCode,
 } from "@qop/identity";
+import type { RegisterIntentV1Encoded } from "@qop/identity";
 import { Data, Effect, Schema } from "effect";
+import { recoverAddress } from "viem";
+import type { Hex } from "viem";
 
 const CanonicalHex32 = Hex32.pipe(Schema.decodeTo(Hex32.pipe(Schema.flip)));
 const CanonicalQid = Qid.pipe(Schema.decodeTo(Qid.pipe(Schema.flip)));
-const CanonicalDomain = IdentityEip712DomainV1.pipe(
-  Schema.decodeTo(IdentityEip712DomainV1.pipe(Schema.flip))
+const CanonicalSignature = EcdsaSignature.pipe(
+  Schema.decodeTo(EcdsaSignature.pipe(Schema.flip))
+);
+const CanonicalAdmissionCode = RegistrationAdmissionCode.pipe(
+  Schema.decodeTo(RegistrationAdmissionCode.pipe(Schema.flip))
+);
+const WalletSignatureInput = Schema.String.check(
+  Schema.isPattern(/^0x[0-9a-f]{128}(?:00|01|1b|1c)$/iu)
 );
 const CanonicalRegisterIntent = RegisterIntentV1.pipe(
   Schema.decodeTo(RegisterIntentV1.pipe(Schema.flip))
 );
-const CanonicalSignature = EcdsaSignature.pipe(
-  Schema.decodeTo(EcdsaSignature.pipe(Schema.flip))
-);
 
-const PreparedRegistrationResponse = Schema.Struct({
+const RegisteredRegistrationResponse = Schema.Struct({
   digest: CanonicalHex32,
-  domain: CanonicalDomain,
-  intent: CanonicalRegisterIntent,
-  status: Schema.Literal("pending_owner_signature"),
-});
-
-const AuthorizedRegistrationResponse = Schema.Struct({
-  digest: CanonicalHex32,
-  intent: CanonicalRegisterIntent,
-  ownerSignature: CanonicalSignature,
   registrationSignature: CanonicalSignature,
-  status: Schema.Literals(["confirmed", "ready", "submitted"]),
+  status: Schema.Literals(["submitted", "confirmed"]),
+  transactionHash: CanonicalHex32,
 });
 
-const ReconciledRegistrationResponse = Schema.Struct({
+const RegistrationResponse = Schema.Struct({
   digest: CanonicalHex32,
   failureCode: Schema.NullOr(Schema.String),
   qid: Schema.NullOr(CanonicalQid),
-  status: Schema.Literals([
-    "pending_owner_signature",
-    "ready",
-    "submitted",
-    "confirmed",
-    "failed",
-    "expired",
-  ]),
+  status: Schema.Literals(["ready", "submitted", "confirmed", "failed"]),
+  transactionHash: Schema.NullOr(CanonicalHex32),
 });
 
 const ErrorResponse = Schema.Struct({
@@ -53,29 +45,16 @@ const ErrorResponse = Schema.Struct({
   kind: Schema.optionalKey(Schema.String),
 });
 
-export type PreparedRegistration = typeof PreparedRegistrationResponse.Type;
-export type AuthorizedRegistration = typeof AuthorizedRegistrationResponse.Type;
-export type ReconciledRegistration = typeof ReconciledRegistrationResponse.Type;
+export type RegisteredRegistration = typeof RegisteredRegistrationResponse.Type;
+export type Registration = typeof RegistrationResponse.Type;
 
-export interface PrepareRegistrationInput {
+export interface RegisterInput {
   readonly admissionCode: string;
-  readonly deviceCommitment: string;
-  readonly handle: string;
-  readonly idempotencyKey: string;
-  readonly observeTokenHash: string;
-  readonly owner: string;
-  readonly peerId: string;
-}
-
-interface AuthorizeRegistrationInput {
+  readonly intent: RegisterIntentV1Encoded;
   readonly ownerSignature: string;
 }
 
-type RegistrationPayload =
-  | PrepareRegistrationInput
-  | AuthorizeRegistrationInput;
-
-interface RegistrationClientDependencies {
+export interface RegistrationClientDependencies {
   readonly fetch: (input: URL, init?: RequestInit) => Promise<Response>;
 }
 
@@ -105,40 +84,21 @@ const apiUrl = Effect.fn("RegistrationClient.apiUrl")(function* () {
   ).pipe(Effect.mapError(() => clientError("configuration")));
 });
 
-const expectedDomain = Effect.fn("RegistrationClient.expectedDomain")(
-  function* () {
-    const chainId = process.env.EXPO_PUBLIC_REGISTRY_CHAIN_ID;
-    const verifyingContract = process.env.EXPO_PUBLIC_REGISTRY_ADDRESS;
-    if (!chainId || !verifyingContract) {
-      return yield* clientError("configuration");
-    }
-    return yield* Schema.decodeUnknownEffect(CanonicalDomain)({
-      chainId,
-      verifyingContract: verifyingContract.toLowerCase(),
-    }).pipe(Effect.mapError(() => clientError("configuration")));
-  }
-);
-
 export const createRegistrationClient = ({
   fetch,
 }: RegistrationClientDependencies) => {
-  const post = Effect.fn("RegistrationClient.post")(function* (
+  const request = Effect.fn("RegistrationClient.request")(function* (
     path: string,
-    payload?: RegistrationPayload
+    init?: RequestInit
   ) {
     const baseUrl = yield* apiUrl();
     const response = yield* Effect.tryPromise({
       catch: () => clientError("network"),
-      try: () =>
-        fetch(new URL(path, baseUrl), {
-          body: payload === undefined ? undefined : JSON.stringify(payload),
-          headers: { "Content-Type": "application/json" },
-          method: "POST",
-        }),
+      try: () => fetch(new URL(path, baseUrl), init),
     });
     const body = yield* Effect.tryPromise({
       catch: () => clientError("response", response.status),
-      // SAFETY: Fetch's JSON parser resolves an untyped JSON value, which is decoded below.
+      // SAFETY: The response JSON is decoded immediately below.
       try: () => response.json() as Promise<unknown>,
     });
     if (!response.ok) {
@@ -153,50 +113,53 @@ export const createRegistrationClient = ({
     return { body, status: response.status };
   });
 
-  const prepareRegistration = Effect.fn(
-    "RegistrationClient.prepareRegistration"
-  )(function* (input: PrepareRegistrationInput) {
-    const [{ body, status }, configuredDomain] = yield* Effect.all(
-      [post("/v1/registrations", input), expectedDomain()] as const,
-      { concurrency: "unbounded" }
-    );
-    const prepared = yield* Schema.decodeUnknownEffect(
-      PreparedRegistrationResponse
+  const register = Effect.fn("RegistrationClient.register")(function* (
+    input: RegisterInput
+  ) {
+    const payload = yield* Schema.decodeUnknownEffect(
+      Schema.Struct({
+        admissionCode: CanonicalAdmissionCode,
+        intent: CanonicalRegisterIntent,
+        ownerSignature: WalletSignatureInput,
+      })
+    )(input).pipe(Effect.mapError(() => clientError("response")));
+    const { body, status } = yield* request("/v1/registrations", {
+      body: JSON.stringify(payload),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+    });
+    const registered = yield* Schema.decodeUnknownEffect(
+      RegisteredRegistrationResponse
     )(body).pipe(Effect.mapError(() => clientError("response", status)));
-    if (
-      prepared.domain.chainId !== configuredDomain.chainId ||
-      prepared.domain.verifyingContract !== configuredDomain.verifyingContract
-    ) {
+    const recovered = yield* Effect.tryPromise({
+      catch: () => clientError("response", status),
+      // SAFETY: The response schemas validated both values as canonical hex.
+      try: () =>
+        recoverAddress({
+          hash: registered.digest as Hex,
+          signature: registered.registrationSignature as Hex,
+        }),
+    });
+    if (recovered.toLowerCase() === `0x${"00".repeat(20)}`) {
       return yield* clientError("response", status);
     }
-    return prepared;
+    return registered;
   });
 
-  const authorizeRegistration = Effect.fn(
-    "RegistrationClient.authorizeRegistration"
-  )((digest: string, ownerSignature: string) =>
-    post(`/v1/registrations/${encodeURIComponent(digest)}/authorize`, {
-      ownerSignature,
-    }).pipe(
-      Effect.flatMap(({ body, status }) =>
-        Schema.decodeUnknownEffect(AuthorizedRegistrationResponse)(body).pipe(
-          Effect.mapError(() => clientError("response", status))
+  const getRegistration = Effect.fn("RegistrationClient.getRegistration")(
+    (digest: string) =>
+      Schema.decodeUnknownEffect(CanonicalHex32)(digest).pipe(
+        Effect.mapError(() => clientError("response")),
+        Effect.flatMap((canonicalDigest) =>
+          request(`/v1/registrations/${encodeURIComponent(canonicalDigest)}`)
+        ),
+        Effect.flatMap(({ body, status }) =>
+          Schema.decodeUnknownEffect(RegistrationResponse)(body).pipe(
+            Effect.mapError(() => clientError("response", status))
+          )
         )
       )
-    )
   );
 
-  const reconcileRegistration = Effect.fn(
-    "RegistrationClient.reconcileRegistration"
-  )((digest: string) =>
-    post(`/v1/registrations/${encodeURIComponent(digest)}/reconcile`).pipe(
-      Effect.flatMap(({ body, status }) =>
-        Schema.decodeUnknownEffect(ReconciledRegistrationResponse)(body).pipe(
-          Effect.mapError(() => clientError("response", status))
-        )
-      )
-    )
-  );
-
-  return { authorizeRegistration, prepareRegistration, reconcileRegistration };
+  return { getRegistration, register };
 };
