@@ -100,8 +100,8 @@ describe("registration database schema", () => {
         return dialect.sqlToQuery(index.config.where).sql;
       }),
       [
-        `"registration_intents"."status" <> 'failed'`,
-        `"registration_intents"."status" <> 'failed'`,
+        `"registration_intents"."status" in ('ready', 'submitted')`,
+        `"registration_intents"."status" in ('ready', 'submitted')`,
       ]
     );
   });

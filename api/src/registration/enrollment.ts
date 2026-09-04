@@ -28,6 +28,7 @@ import { Env } from "../env.ts";
 import type { RegistryChainReadError } from "../registry/chain.ts";
 import type { RegistryInputError } from "../registry/inputs.ts";
 import { RegistryReader, RegistryReaderLive } from "../registry/reader.ts";
+import type { RegistryRegistrationProbe } from "../registry/types.ts";
 import { epochSeconds } from "../time.ts";
 import {
   decodeRegistrationAdmissionCode,
@@ -245,13 +246,9 @@ export class RegistrationEnrollment extends Context.Service<
         return submitted;
       });
 
-      const registeredRegistration = Effect.fn(
-        "RegistrationEnrollment.registeredRegistration"
-      )(function* (stored: StoredRegistrationIntent) {
-        const submitted = yield* resumeSubmission(
-          stored,
-          yield* decodeStoredIntent(stored)
-        );
+      const toRegisteredRegistration = Effect.fn(
+        "RegistrationEnrollment.toRegisteredRegistration"
+      )(function* (submitted: StoredRegistrationIntent) {
         if (
           (submitted.status !== "submitted" &&
             submitted.status !== "confirmed") ||
@@ -269,6 +266,82 @@ export class RegistrationEnrollment extends Context.Service<
           status: submitted.status,
           transactionHash: submitted.transactionHash,
         } satisfies RegisteredRegistration;
+      });
+
+      const registeredRegistration = Effect.fn(
+        "RegistrationEnrollment.registeredRegistration"
+      )(function* (stored: StoredRegistrationIntent) {
+        return yield* toRegisteredRegistration(
+          yield* resumeSubmission(stored, yield* decodeStoredIntent(stored))
+        );
+      });
+
+      const handleProbe = Effect.fn("RegistrationEnrollment.handleProbe")(
+        function* (
+          stored: StoredRegistrationIntent,
+          probe: RegistryRegistrationProbe
+        ) {
+          if (probe.registrationNonceUsed) {
+            if (
+              probe.handleQid === null ||
+              probe.ownerQid !== probe.handleQid
+            ) {
+              return yield* new RegistrationProtocolError({
+                cause:
+                  "Registration nonce is used but handle and owner do not resolve to the same qid",
+                operation: "reconcile-chain",
+              });
+            }
+            const confirmed = yield* store.markConfirmed(
+              stored.digest,
+              probe.handleQid
+            );
+            yield* Effect.all(
+              [
+                registry.invalidate.qidByHandle(stored.handle),
+                registry.invalidate.qidByOwner(stored.owner),
+              ],
+              { discard: true }
+            );
+            return confirmed;
+          }
+
+          let terminalFailure: string | undefined;
+          if (probe.handleQid !== null || probe.ownerQid !== null) {
+            terminalFailure =
+              registrationReconciliationFailureCodes.chainConflict;
+          } else if (probe.blockTimestamp > stored.deadline) {
+            terminalFailure =
+              registrationReconciliationFailureCodes.deadlineExpired;
+          }
+          if (terminalFailure) {
+            if (stored.status === "submitted") {
+              yield* resumeSubmission(
+                stored,
+                yield* decodeStoredIntent(stored)
+              );
+            }
+            return yield* store.markFailed(stored.digest, terminalFailure);
+          }
+
+          return yield* resumeSubmission(
+            stored,
+            yield* decodeStoredIntent(stored)
+          );
+        }
+      );
+
+      const reconcileActive = Effect.fn(
+        "RegistrationEnrollment.reconcileActive"
+      )(function* (stored: StoredRegistrationIntent) {
+        const probe = yield* reconciliationSemaphore.withPermits(1)(
+          registry.fresh.registrationProbe(
+            stored.handle,
+            stored.owner,
+            stored.registrationNonce
+          )
+        );
+        return yield* handleProbe(stored, probe.value);
       });
 
       const register = Effect.fn("RegistrationEnrollment.register")(function* (
@@ -297,6 +370,11 @@ export class RegistrationEnrollment extends Context.Service<
         const digest = yield* hashRegisterIntentV1(domain, intent);
         const replay = yield* store.get(digest);
         if (Option.isSome(replay)) {
+          if (replay.value.status === "ready") {
+            return yield* toRegisteredRegistration(
+              yield* reconcileActive(replay.value)
+            );
+          }
           return yield* registeredRegistration(replay.value);
         }
 
@@ -393,63 +471,9 @@ export class RegistrationEnrollment extends Context.Service<
           }
           const stored = storedOption.value;
           if (stored.status !== "ready" && stored.status !== "submitted") {
-            if (stored.status === "failed") {
-              yield* admissions.release(stored.admissionCodeHash, digest);
-            }
             return reconciledRegistration(stored);
           }
-
-          const probe = yield* reconciliationSemaphore.withPermits(1)(
-            registry.fresh.registrationProbe(
-              stored.handle,
-              stored.owner,
-              stored.registrationNonce
-            )
-          );
-          if (probe.value.registrationNonceUsed) {
-            if (probe.value.handleQid === null) {
-              return yield* new RegistrationProtocolError({
-                cause: "Registration nonce is used but the handle has no qid",
-                operation: "reconcile-chain",
-              });
-            }
-            const confirmed = yield* store.markConfirmed(
-              digest,
-              probe.value.handleQid
-            );
-            yield* Effect.all(
-              [
-                registry.invalidate.qidByHandle(stored.handle),
-                registry.invalidate.qidByOwner(stored.owner),
-              ],
-              { discard: true }
-            );
-            return reconciledRegistration(confirmed);
-          }
-
-          let terminalFailure: string | undefined;
-          if (probe.value.handleQid !== null || probe.value.ownerQid !== null) {
-            terminalFailure =
-              registrationReconciliationFailureCodes.chainConflict;
-          } else if (probe.value.blockTimestamp > stored.deadline) {
-            terminalFailure =
-              registrationReconciliationFailureCodes.deadlineExpired;
-          }
-          if (terminalFailure) {
-            if (stored.status === "submitted") {
-              yield* resumeSubmission(
-                stored,
-                yield* decodeStoredIntent(stored)
-              );
-            }
-            const failed = yield* store.markFailed(digest, terminalFailure);
-            yield* admissions.release(failed.admissionCodeHash, digest);
-            return reconciledRegistration(failed);
-          }
-
-          return reconciledRegistration(
-            yield* resumeSubmission(stored, yield* decodeStoredIntent(stored))
-          );
+          return reconciledRegistration(yield* reconcileActive(stored));
         }
       );
 

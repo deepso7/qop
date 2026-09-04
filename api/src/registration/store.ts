@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, ne, or, gt } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, gt } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, DateTime, Effect, Layer, Option } from "effect";
@@ -178,9 +178,6 @@ export class RegistrationStore extends Context.Service<
         input: CreateRegistrationIntent
       ) {
         const canonical = yield* normalizeCreateRegistrationIntent(input);
-        const now = yield* DateTime.now;
-        const nowSeconds = epochSeconds(now);
-        const nowDate = DateTime.toDateUtc(now);
 
         return yield* db.transaction((tx) =>
           Effect.gen(function* () {
@@ -206,6 +203,9 @@ export class RegistrationStore extends Context.Service<
               .limit(1)
               .for("update")
               .pipe(Effect.map((rows) => rows.at(0)));
+            const now = yield* DateTime.now;
+            const nowSeconds = epochSeconds(now);
+            const nowDate = DateTime.toDateUtc(now);
             if (
               !admission ||
               admission.consumedAt !== null ||
@@ -268,7 +268,7 @@ export class RegistrationStore extends Context.Service<
               .where(
                 and(
                   eq(registrationIntents.handle, canonical.handle),
-                  ne(registrationIntents.status, "failed")
+                  inArray(registrationIntents.status, activeStatuses)
                 )
               )
               .limit(1);
@@ -283,7 +283,7 @@ export class RegistrationStore extends Context.Service<
               .where(
                 and(
                   eq(registrationIntents.owner, canonical.owner),
-                  ne(registrationIntents.status, "failed")
+                  inArray(registrationIntents.status, activeStatuses)
                 )
               )
               .limit(1);
@@ -463,6 +463,22 @@ export class RegistrationStore extends Context.Service<
               .returning();
             const failed = updated.at(0);
             if (failed) {
+              yield* tx
+                .update(registrationAdmissionCodes)
+                .set({ claimedAt: null, claimedByDigest: null })
+                .where(
+                  and(
+                    eq(
+                      registrationAdmissionCodes.codeHash,
+                      failed.admissionCodeHash
+                    ),
+                    eq(
+                      registrationAdmissionCodes.claimedByDigest,
+                      canonicalDigest
+                    ),
+                    isNull(registrationAdmissionCodes.consumedAt)
+                  )
+                );
               return failed;
             }
             const current = yield* find(tx, canonicalDigest);

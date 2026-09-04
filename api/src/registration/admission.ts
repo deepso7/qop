@@ -40,10 +40,6 @@ export interface RegistrationAdmissionContract {
     codeHash: Hash,
     expiresAt?: bigint
   ) => Effect.Effect<boolean, EffectDrizzleQueryError | SqlError>;
-  readonly release: (
-    codeHash: Hash,
-    digest: Hash
-  ) => Effect.Effect<void, EffectDrizzleQueryError | SqlError>;
   readonly validate: (
     codeHash: Hash
   ) => Effect.Effect<void, RegistrationAdmissionError>;
@@ -82,22 +78,6 @@ export class RegistrationAdmission extends Context.Service<
         }
       });
 
-      const release = Effect.fn("RegistrationAdmission.release")(function* (
-        codeHash: Hash,
-        digest: Hash
-      ) {
-        yield* db
-          .update(registrationAdmissionCodes)
-          .set({ claimedAt: null, claimedByDigest: null })
-          .where(
-            and(
-              eq(registrationAdmissionCodes.codeHash, codeHash),
-              eq(registrationAdmissionCodes.claimedByDigest, digest),
-              isNull(registrationAdmissionCodes.consumedAt)
-            )
-          );
-      });
-
       const create = Effect.fn("RegistrationAdmission.create")(function* (
         codeHash: Hash,
         expiresAt?: bigint
@@ -112,7 +92,6 @@ export class RegistrationAdmission extends Context.Service<
 
       return RegistrationAdmission.of({
         create,
-        release,
         validate,
       });
     })

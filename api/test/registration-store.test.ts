@@ -1,8 +1,15 @@
 import { assert, layer } from "@effect/vitest";
-import { DateTime, Effect, Option } from "effect";
+import { eq } from "drizzle-orm";
+import { DateTime, Deferred, Effect, Fiber, Layer, Option } from "effect";
+import { TestClock } from "effect/testing";
 import type { Address } from "viem";
 
-import { RegistrationAdmission } from "../src/registration/admission.ts";
+import { Database } from "../src/db/database.ts";
+import { registrationAdmissionCodes } from "../src/db/schema.ts";
+import {
+  RegistrationAdmission,
+  RegistrationAdmissionUnauthorized,
+} from "../src/registration/admission.ts";
 import {
   RegistrationActiveHandleConflict,
   RegistrationStore,
@@ -14,7 +21,10 @@ import {
   testSignature,
   uppercaseHash,
 } from "./support/ethereum.ts";
-import { RegistrationStoreAndAdmissionTestLive } from "./support/registration-database.ts";
+import {
+  RegistrationStoreAndAdmissionTestLive,
+  TestDatabaseLive,
+} from "./support/registration-database.ts";
 
 const signature = testSignature("1B");
 const owner = (id: number): Address =>
@@ -43,6 +53,11 @@ const input = (
   registrationNonce: testHash(30_000 + id),
   registrationSignature: signature,
 });
+
+const RegistrationStoreLockTestLive = Layer.merge(
+  RegistrationAdmission.layer,
+  RegistrationStore.layer
+).pipe(Layer.provideMerge(TestDatabaseLive));
 
 layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
   (it) => {
@@ -95,9 +110,12 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
         const first = input(4, "retry", deadline);
         const created = yield* store.create(first);
         yield* store.markFailed(created.digest, "TEST_FAILURE");
-        yield* admissions.release(first.admissionCodeHash, first.digest);
+        yield* admissions.validate(first.admissionCodeHash);
 
-        const replacement = input(5, "retry", deadline, first.owner);
+        const replacement = {
+          ...input(5, "retry", deadline, first.owner),
+          admissionCodeHash: first.admissionCodeHash,
+        };
         assert.strictEqual((yield* store.create(replacement)).status, "ready");
       })
     );
@@ -140,3 +158,52 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
     );
   }
 );
+
+layer(RegistrationStoreLockTestLive, { timeout: "30 seconds" })((it) => {
+  it.effect("checks admission expiry after acquiring its row lock", () =>
+    Effect.gen(function* () {
+      const admissions = yield* RegistrationAdmission;
+      const store = yield* RegistrationStore;
+      const { client: db } = yield* Database;
+      const registration = input(7, "lockwait", yield* deadlineAfter(60));
+      const now = yield* DateTime.now;
+      yield* admissions.create(
+        registration.admissionCodeHash,
+        BigInt(Math.floor(DateTime.toEpochMillis(now) / 1000)) + 1n
+      );
+
+      const locked = yield* Deferred.make<boolean>();
+      const releaseLock = yield* Deferred.make<boolean>();
+      const lockFiber = yield* Effect.forkChild(
+        db.transaction((tx) =>
+          Effect.gen(function* () {
+            yield* tx
+              .select()
+              .from(registrationAdmissionCodes)
+              .where(
+                eq(
+                  registrationAdmissionCodes.codeHash,
+                  registration.admissionCodeHash
+                )
+              )
+              .for("update");
+            yield* Deferred.succeed(locked, true);
+            yield* Deferred.await(releaseLock);
+          })
+        )
+      );
+      yield* Deferred.await(locked);
+
+      const createFiber = yield* Effect.forkChild(store.create(registration));
+      yield* Effect.yieldNow;
+      yield* TestClock.adjust("1 second");
+      yield* Deferred.succeed(releaseLock, true);
+      yield* Fiber.join(lockFiber);
+
+      assert.instanceOf(
+        yield* Fiber.join(createFiber).pipe(Effect.flip),
+        RegistrationAdmissionUnauthorized
+      );
+    })
+  );
+});

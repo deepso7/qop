@@ -74,10 +74,10 @@ export const registrationIntents = pgTable(
     ),
     uniqueIndex("registration_intents_active_handle_unique")
       .on(table.handle)
-      .where(sql`${table.status} <> 'failed'`),
+      .where(sql`${table.status} in ('ready', 'submitted')`),
     uniqueIndex("registration_intents_active_owner_unique")
       .on(table.owner)
-      .where(sql`${table.status} <> 'failed'`),
+      .where(sql`${table.status} in ('ready', 'submitted')`),
     index("registration_intents_status_deadline_idx").on(
       table.status,
       table.deadline

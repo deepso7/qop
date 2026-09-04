@@ -7,10 +7,13 @@ import {
   makeRegisterIntentTypedDataV1,
 } from "@qop/identity";
 import type { RegisterIntentV1Encoded } from "@qop/identity";
+import { eq } from "drizzle-orm";
 import { DateTime, Effect, Layer, Option } from "effect";
 import type { Address } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
+import { Database } from "../src/db/database.ts";
+import { registrationAdmissionCodes } from "../src/db/schema.ts";
 import { Env } from "../src/env.ts";
 import {
   decodeRegistrationAdmissionCode,
@@ -19,6 +22,7 @@ import {
 import {
   RegistrationDeadlineInvalid,
   RegistrationEnrollment,
+  RegistrationProtocolError,
   registrationReconciliationFailureCodes,
   RegistrationSignatureMismatch,
 } from "../src/registration/enrollment.ts";
@@ -69,10 +73,21 @@ const read = <Value>(value: Value): RegistryRead<Value> => ({
 
 const confirmedHandles = new Set<string>();
 const conflictingHandles = new Set<string>();
+const mismatchedConfirmationHandles = new Set<string>();
 
 const handleQid = (handle: string): bigint | null => {
   if (handle === "takenhandle" || conflictingHandles.has(handle)) {
     return 7n;
+  }
+  if (mismatchedConfirmationHandles.has(handle)) {
+    return 7n;
+  }
+  return confirmedHandles.has(handle) ? 42n : null;
+};
+
+const ownerQid = (handle: string): bigint | null => {
+  if (handle === "takenowner" || mismatchedConfirmationHandles.has(handle)) {
+    return 8n;
   }
   return confirmedHandles.has(handle) ? 42n : null;
 };
@@ -114,9 +129,11 @@ const RegistryReaderTestLive = Layer.succeed(
           value: {
             blockTimestamp: handle === "expiredchain" ? 10_000_000_000n : 0n,
             handleQid: handleQid(handle),
-            ownerQid: handle === "takenowner" ? 8n : null,
+            ownerQid: ownerQid(handle),
             registrationNonceUsed:
-              handle === "usednonce" || confirmedHandles.has(handle),
+              handle === "usednonce" ||
+              confirmedHandles.has(handle) ||
+              mismatchedConfirmationHandles.has(handle),
           },
         }),
     },
@@ -185,6 +202,24 @@ const RegistrationEnrollmentTestLive = enrollmentLayer(
   RegistrationRelayerTestLive
 );
 const RetryEnrollmentTestLive = enrollmentLayer(RetryRelayerTestLive);
+
+let readyReplayPrepareAttempts = 0;
+const ReadyReplayRelayerTestLive = Layer.sync(RegistrationRelayer, () => {
+  readyReplayPrepareAttempts = 0;
+  return RegistrationRelayer.of({
+    broadcast: (prepared) => Effect.succeed(prepared.transactionHash),
+    pendingNonce: Effect.succeed(0n),
+    prepare: () => {
+      readyReplayPrepareAttempts += 1;
+      return Effect.fail(
+        new RegistrationRelayerError({ operation: "prepare" })
+      );
+    },
+  });
+});
+const ReadyReplayEnrollmentTestLive = enrollmentLayer(
+  ReadyReplayRelayerTestLive
+);
 
 const makeIntent = Effect.fn("test.makeIntent")(function* (
   handle: string,
@@ -411,6 +446,46 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         )
       )
   );
+
+  it.effect("does not confirm a used nonce owned by a different qid", () =>
+    Effect.gen(function* () {
+      const admissionCode = "QID-010";
+      yield* createAdmission(admissionCode);
+      const enrollment = yield* RegistrationEnrollment;
+      const store = yield* RegistrationStore;
+      const submitted = yield* enrollment.register(
+        yield* registerInput("qidmismatch", 600n, accountFor(16), admissionCode)
+      );
+      mismatchedConfirmationHandles.add("qidmismatch");
+
+      const error = yield* enrollment
+        .reconcile(submitted.digest)
+        .pipe(Effect.flip);
+      assert.instanceOf(error, RegistrationProtocolError);
+      assert.strictEqual(error.operation, "reconcile-chain");
+      assert.strictEqual(
+        Option.getOrThrow(yield* store.get(submitted.digest)).status,
+        "submitted"
+      );
+
+      const { codeHash } =
+        yield* decodeRegistrationAdmissionCode(admissionCode);
+      const { client: db } = yield* Database;
+      const [admission] = yield* db
+        .select({
+          claimedByDigest: registrationAdmissionCodes.claimedByDigest,
+          consumedAt: registrationAdmissionCodes.consumedAt,
+        })
+        .from(registrationAdmissionCodes)
+        .where(eq(registrationAdmissionCodes.codeHash, codeHash));
+      assert.strictEqual(admission?.claimedByDigest, submitted.digest);
+      assert.isNull(admission?.consumedAt);
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => mismatchedConfirmationHandles.delete("qidmismatch"))
+      )
+    )
+  );
 });
 
 layer(RetryEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
@@ -450,5 +525,43 @@ layer(RetryEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       assert.strictEqual(result.status, "submitted");
       assert.strictEqual(retryBroadcastAttempts, 3);
     })
+  );
+});
+
+layer(ReadyReplayEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
+  it.effect(
+    "fails an expired ready replay before calling the relayer again",
+    () =>
+      Effect.gen(function* () {
+        const admissionCode = "RDY-011";
+        yield* createAdmission(admissionCode);
+        const enrollment = yield* RegistrationEnrollment;
+        const store = yield* RegistrationStore;
+        const input = yield* registerInput(
+          "expiredchain",
+          600n,
+          accountFor(17),
+          admissionCode
+        );
+
+        assert.instanceOf(
+          yield* enrollment.register(input).pipe(Effect.flip),
+          RegistrationRelayerError
+        );
+        assert.strictEqual(readyReplayPrepareAttempts, 1);
+        yield* enrollment.register(input).pipe(Effect.flip);
+        assert.strictEqual(readyReplayPrepareAttempts, 1);
+
+        const digest = yield* hashRegisterIntentV1(
+          domain,
+          yield* decodeRegisterIntentV1(input.intent)
+        );
+        const failed = Option.getOrThrow(yield* store.get(digest));
+        assert.strictEqual(failed.status, "failed");
+        assert.strictEqual(
+          failed.failureCode,
+          registrationReconciliationFailureCodes.deadlineExpired
+        );
+      })
   );
 });
