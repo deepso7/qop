@@ -1,3 +1,5 @@
+import { Effect } from "effect";
+
 import {
   CHAT_PROTOCOL,
   assertAckMatches,
@@ -7,8 +9,9 @@ import {
 } from "./chat-wire";
 import type { ChatFrame } from "./chat-wire";
 import type { Contact } from "./db";
+import type { createPeerSessions, PeerConnection } from "./p2p-sessions";
 
-interface SendStream {
+interface SendStream extends PeerConnection {
   readonly closeWrite: () => void;
   readonly read: () => Promise<Uint8Array | undefined>;
   readonly reset: () => void;
@@ -16,6 +19,7 @@ interface SendStream {
 }
 
 interface SendEndpoint {
+  readonly connectedPeers: () => readonly string[];
   readonly connect: (
     peerId: string,
     options?: { readonly timeoutMs?: number }
@@ -28,7 +32,8 @@ interface SendEndpoint {
 }
 
 export interface PerformSendInput {
-  readonly contact: Pick<Contact, "peerId">;
+  readonly contact: Pick<Contact, "handle" | "qid">;
+  readonly sessions: ReturnType<typeof createPeerSessions>;
   readonly endpoint: SendEndpoint;
   readonly frame: ChatFrame;
   readonly timeoutMs: number;
@@ -87,13 +92,21 @@ export const performSend = async ({
   contact,
   endpoint,
   frame,
+  sessions,
   timeoutMs,
 }: PerformSendInput): Promise<void> => {
-  await endpoint.connect(contact.peerId, { timeoutMs: 15_000 });
-  const stream = await endpoint.openStream(contact.peerId, CHAT_PROTOCOL, {
+  const peerId = await Effect.runPromise(sessions.recipientPeerId(contact));
+  if (!endpoint.connectedPeers().includes(peerId)) {
+    await endpoint.connect(peerId, { timeoutMs: 15_000 });
+  }
+  const stream = await endpoint.openStream(peerId, CHAT_PROTOCOL, {
     timeoutMs,
   });
   try {
+    await Effect.runPromise(sessions.verify(stream, contact.handle));
+    if (!sessions.isVerified(stream, contact.qid)) {
+      throw new Error("Chat connection is no longer authorized");
+    }
     stream.write(encodeFrame(frame));
     stream.closeWrite();
     const ack = await withTimeout(readAck(stream), timeoutMs);

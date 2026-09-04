@@ -7,7 +7,6 @@ import { create } from "zustand";
 import { CHAT_PROTOCOL, encodeAck } from "./chat-wire";
 import type { ChatFrame } from "./chat-wire";
 import {
-  getContactByPeerId,
   getContactByQid,
   getMessageById,
   insertMessage,
@@ -17,8 +16,9 @@ import {
 import type { Contact, StoredMessage } from "./db";
 import { useIdentityStore } from "./identity-store";
 import { loadDeviceSecretKey } from "./identity-vault";
-import { createResolveSender, readVerifiedChat } from "./p2p-receive";
+import { readVerifiedChat } from "./p2p-receive";
 import { performSend, withTimeout } from "./p2p-send";
+import { createPeerSessions } from "./p2p-sessions";
 import { lookupHandle } from "./registry";
 
 // oxlint-disable eslint/no-use-before-define -- Store helpers run only after the store is initialized.
@@ -35,7 +35,7 @@ interface P2pState {
 }
 
 interface P2pActions {
-  readonly connectTo: (peerId: string) => Promise<void>;
+  readonly connectTo: (contact: Contact) => Promise<void>;
   readonly retryMessage: (id: string) => Promise<void>;
   readonly sendMessage: (contact: Contact, text: string) => string;
   readonly start: () => Promise<void>;
@@ -59,9 +59,9 @@ const inFlightJobs = new Set<Promise<void>>();
 const errorMessage = (error: Error | string) =>
   error instanceof Error ? error.message : String(error);
 
-const resolveSender = createResolveSender({
-  getContactByPeerId,
-  lookupHandle: (handle) => Effect.runPromise(lookupHandle(handle)),
+const sessions = createPeerSessions({
+  getContactByQid,
+  lookupHandle,
   upsertContact,
 });
 
@@ -79,6 +79,7 @@ const trackJob = (job: Promise<void>) => {
 };
 
 const cleanupEndpoint = (activeEndpoint: Minip2p | undefined) => {
+  sessions.clear();
   const listeners = unsubscribe;
   unsubscribe = [];
   for (const removeListener of listeners) {
@@ -110,13 +111,17 @@ const receiveChatStream = async (
   try {
     const received = await readVerifiedChat(
       stream,
-      (peerId, fromHandle) =>
-        resolveSender(peerId, fromHandle, () =>
-          isCurrentGeneration(jobGeneration)
-        ),
+      (connection, fromHandle) =>
+        isCurrentGeneration(jobGeneration)
+          ? Effect.runPromise(sessions.verify(connection, fromHandle))
+          : Promise.resolve(null),
       10_000
     );
-    if (!received || !isCurrentGeneration(jobGeneration)) {
+    if (
+      !received ||
+      !isCurrentGeneration(jobGeneration) ||
+      !sessions.isVerified(stream, received.contact.qid)
+    ) {
       stream.reset();
       return;
     }
@@ -173,6 +178,7 @@ const sendStoredMessage = async (
       contact,
       endpoint: activeEndpoint,
       frame,
+      sessions,
       timeoutMs: 10_000,
     });
     if (!isCurrentGeneration(jobGeneration)) {
@@ -198,9 +204,20 @@ const sendStoredMessage = async (
 export const useP2pStore = create<P2pStore>((set, get) => ({
   ...initialState,
 
-  connectTo: async (peerId) => {
+  connectTo: async (contact) => {
+    const activeEndpoint = endpoint;
+    const jobGeneration = generation;
+    if (!activeEndpoint) {
+      return;
+    }
     try {
-      await endpoint?.connect(peerId, { timeoutMs: 15_000 });
+      const peerId = await Effect.runPromise(sessions.recipientPeerId(contact));
+      if (!isCurrentGeneration(jobGeneration)) {
+        return;
+      }
+      if (!activeEndpoint.connectedPeers().includes(peerId)) {
+        await activeEndpoint.connect(peerId, { timeoutMs: 15_000 });
+      }
     } catch {
       // The screen reports reachability from authoritative connection events.
     }
@@ -317,6 +334,17 @@ export const useP2pStore = create<P2pStore>((set, get) => ({
           set({ connectedPeerIds: created.connectedPeers() });
         }
       };
+      const invalidateConnections = () => {
+        if (generation !== startGeneration) {
+          return;
+        }
+        // Lost lifecycle events make connection authorization unreliable.
+        sessions.clear();
+        for (const peerId of created.connectedPeers()) {
+          created.disconnect(peerId);
+        }
+        refreshPeers();
+      };
       unsubscribe = [
         bindAppState(created),
         created.onClose((reason) => {
@@ -346,14 +374,25 @@ export const useP2pStore = create<P2pStore>((set, get) => ({
             set({ relayReserved: created.activeReservation() !== undefined });
           }
         }),
+        created.on("connectionEstablished", (connection) => {
+          if (generation === startGeneration) {
+            sessions.opened(connection);
+          }
+        }),
         created.on("peerReady", refreshPeers),
-        created.on("connectionClosed", refreshPeers),
+        created.on("connectionClosed", (connection) => {
+          if (generation === startGeneration) {
+            sessions.closed(connection);
+          }
+          refreshPeers();
+        }),
         created.on("driverFailed", ({ detail }) => {
           if (generation === startGeneration) {
             set({ error: detail, status: "failed" });
           }
         }),
-        created.on("queueOverflow", refreshPeers),
+        created.on("queueOverflow", invalidateConnections),
+        created.on("eventsDropped", invalidateConnections),
         created.on("stream", (stream) => {
           if (
             generation === startGeneration &&

@@ -152,9 +152,9 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
 
   React.useEffect(() => {
     if (status === "running") {
-      void connectTo(contact.peerId);
+      void connectTo(contact);
     }
-  }, [connectTo, contact.peerId, status]);
+  }, [connectTo, contact, status]);
 
   const retry = React.useCallback(
     (id: string) => {

@@ -4,59 +4,14 @@ import {
   MAX_CHAT_PAYLOAD_BYTES,
 } from "./chat-wire";
 import type { ChatFrame } from "./chat-wire";
-import type { Contact, ContactInput } from "./db";
+import type { Contact } from "./db";
 import { withTimeout } from "./p2p-send";
-import type { RegistryAccount } from "./registry";
+import type { PeerConnection } from "./p2p-sessions";
 
-interface ReceiveStream {
-  readonly peerId: string;
+interface ReceiveStream extends PeerConnection {
   readonly protocolId: string;
   readonly read: () => Promise<Uint8Array | undefined>;
 }
-
-export interface ResolveSenderDependencies {
-  readonly getContactByPeerId: (peerId: string) => Promise<Contact | null>;
-  readonly lookupHandle: (handle: string) => Promise<RegistryAccount | null>;
-  readonly upsertContact: (contact: ContactInput) => Promise<void>;
-}
-
-const contactFromAccount = (account: RegistryAccount): ContactInput => ({
-  createdAt: Number(account.registeredAt) * 1000,
-  deviceKey: account.deviceKey,
-  handle: account.handle,
-  owner: account.owner,
-  peerId: account.peerId,
-  qid: account.qid.toString(),
-});
-
-export const createResolveSender = (dependencies: ResolveSenderDependencies) =>
-  async function resolveSender(
-    peerId: string,
-    fromHandle: string,
-    shouldWrite: () => boolean = () => true
-  ): Promise<Contact | null> {
-    const [known, account] = await Promise.all([
-      dependencies.getContactByPeerId(peerId),
-      dependencies.lookupHandle(fromHandle),
-    ]);
-    if (!account || account.peerId !== peerId) {
-      return null;
-    }
-
-    const fresh = contactFromAccount(account);
-    if (!shouldWrite()) {
-      return null;
-    }
-    await dependencies.upsertContact(fresh);
-    return {
-      ...fresh,
-      keyChanged:
-        known?.qid === fresh.qid
-          ? known.keyChanged || known.deviceKey !== fresh.deviceKey
-          : false,
-      lastReadAt: known?.qid === fresh.qid ? known.lastReadAt : 0,
-    };
-  };
 
 const readStream = async (stream: Pick<ReceiveStream, "read">) => {
   const chunks: Uint8Array[] = [];
@@ -86,7 +41,7 @@ const readStream = async (stream: Pick<ReceiveStream, "read">) => {
 export const readVerifiedChat = (
   stream: ReceiveStream,
   resolveSender: (
-    peerId: string,
+    connection: PeerConnection,
     fromHandle: string
   ) => Promise<Contact | null>,
   timeoutMs: number
@@ -97,7 +52,7 @@ export const readVerifiedChat = (
         return null;
       }
       const frame = decodeFrame(await readStream(stream));
-      const contact = await resolveSender(stream.peerId, frame.fromHandle);
+      const contact = await resolveSender(stream, frame.fromHandle);
       return contact ? { contact, frame } : null;
     })(),
     timeoutMs,
