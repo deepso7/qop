@@ -1,0 +1,202 @@
+diff --git a/lib/module/adapter.js b/lib/module/adapter.js
+index 670b0e524892bf5126b6ffdd3787d8e2f87f4504..8ad9030d91a0dc1771fe34affa1132bcac755883 100644
+--- a/lib/module/adapter.js
++++ b/lib/module/adapter.js
+@@ -8,6 +8,19 @@ import { FfiError_Tags, P2pEndpoint, circuitAddress as nativeCircuitAddress, gen
+ import nativeModule from "./NativeMinip2p.js";
+ class ReactNativeBackend {
+   #endpoint;
++  // Native transport namespaces use the high u64 bits. Keep opaque IDs lossless
++  // and stable for this endpoint, including delayed events after a close.
++  #connectionIds = new Map();
++
++  #connectionId(value) {
++    let id = this.#connectionIds.get(value);
++    if (id === undefined) {
++      id = this.#connectionIds.size + 1;
++      this.#connectionIds.set(value, id);
++    }
++    return id;
++  }
++
+   #mdnsEnabled;
+   #doorbell;
+   #events;
+@@ -26,7 +39,7 @@ class ReactNativeBackend {
+     }
+   }
+   start(listener) {
+-    this.#events = new EventDrain(limit => this.#endpoint.drainEvents(limit), event => listener(normalizeEvent(event)));
++    this.#events = new EventDrain(limit => this.#endpoint.drainEvents(limit), event => listener(normalizeEvent(event, (value) => this.#connectionId(value))));
+     this.#doorbell = {
+       onEventsReady: () => {
+         this.#events?.ring();
+@@ -116,7 +129,7 @@ class ReactNativeBackend {
+   openStream(peerId, protocolId) {
+     const result = translateErrors(() => this.#endpoint.openStream(peerId, protocolId));
+     return {
+-      connId: u64ToNumber(result.connId, "connId"),
++      connId: this.#connectionId(result.connId),
+       streamId: u64ToNumber(result.streamId, "streamId")
+     };
+   }
+@@ -150,13 +163,13 @@ class ReactNativeBackend {
+     return u64ToNumber(translateErrors(() => this.#endpoint.connectAddr(address)), "connectId");
+   }
+   dial(address) {
+-    return translateErrors(() => this.#endpoint.dial(address)).map(id => u64ToNumber(id, "connectionId"));
++    return translateErrors(() => this.#endpoint.dial(address)).map(id => this.#connectionId(id));
+   }
+   dialIp4(address) {
+-    return u64ToNumber(translateErrors(() => this.#endpoint.dialIp4(address)), "connectionId");
++    return this.#connectionId(translateErrors(() => this.#endpoint.dialIp4(address)));
+   }
+   dialIp6(address) {
+-    return u64ToNumber(translateErrors(() => this.#endpoint.dialIp6(address)), "connectionId");
++    return this.#connectionId(translateErrors(() => this.#endpoint.dialIp6(address)));
+   }
+   cancelConnect(id) {
+     translateErrors(() => {
+@@ -254,11 +267,11 @@ function toNativeTransport(transport) {
+ function resolveMdnsAutoDial(mdns, discovery) {
+   return mdns.autoDial ?? discovery?.autoDial ?? true;
+ }
+-function normalizeEvent(event) {
++function normalizeEvent(event, connectionId) {
+   return normalizeBigInts({
+     inner: event.inner,
+     tag: event.tag
+-  });
++  }, connectionId);
+ }
+ function normalizeKnownPeer(peer) {
+   return normalizeBigInts(peer);
+@@ -269,18 +282,18 @@ function normalizeIdentifyInfo(info) {
+ function normalizeReservation(reservation) {
+   return normalizeBigInts(reservation);
+ }
+-function normalizeBigInts(value) {
++function normalizeBigInts(value, connectionId, key) {
+   if (typeof value === "bigint") {
+-    return u64ToNumber(value, "native u64");
++    return key === "connId" && connectionId ? connectionId(value) : u64ToNumber(value, "native u64");
+   }
+   if (value instanceof ArrayBuffer) {
+     return value;
+   }
+   if (Array.isArray(value)) {
+-    return value.map(item => normalizeBigInts(item));
++    return value.map(item => normalizeBigInts(item, connectionId));
+   }
+   if (value !== null && typeof value === "object") {
+-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeBigInts(item)]));
++    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeBigInts(item, connectionId, key)]));
+   }
+   return value;
+ }
+diff --git a/src/adapter.ts b/src/adapter.ts
+index ba57a25bfbd0c8b9d00f74c9148de7422dfe2d50..822528d3e974fb4e401d8c63293e11f10eba7f98 100644
+--- a/src/adapter.ts
++++ b/src/adapter.ts
+@@ -50,6 +50,19 @@ import nativeModule from "./NativeMinip2p";
+ 
+ class ReactNativeBackend implements Minip2pBackend {
+   readonly #endpoint: P2pEndpoint;
++  // Native transport namespaces use the high u64 bits. Keep opaque IDs lossless
++  // and stable for this endpoint, including delayed events after a close.
++  readonly #connectionIds = new Map<bigint, number>();
++
++  #connectionId(value: bigint): number {
++    let id = this.#connectionIds.get(value);
++    if (id === undefined) {
++      id = this.#connectionIds.size + 1;
++      this.#connectionIds.set(value, id);
++    }
++    return id;
++  }
++
+   readonly #mdnsEnabled: boolean;
+   #doorbell: P2pEventDoorbell | undefined;
+   #events: EventDrain<NativeP2pEvent> | undefined;
+@@ -78,7 +91,7 @@ class ReactNativeBackend implements Minip2pBackend {
+   start(listener: (event: P2pEvent) => void): void {
+     this.#events = new EventDrain(
+       (limit) => this.#endpoint.drainEvents(limit),
+-      (event) => listener(normalizeEvent(event))
++      (event) => listener(normalizeEvent(event, (value) => this.#connectionId(value)))
+     );
+     this.#doorbell = {
+       onEventsReady: () => {
+@@ -199,7 +212,7 @@ class ReactNativeBackend implements Minip2pBackend {
+       this.#endpoint.openStream(peerId, protocolId)
+     );
+     return {
+-      connId: u64ToNumber(result.connId, "connId"),
++      connId: this.#connectionId(result.connId),
+       streamId: u64ToNumber(result.streamId, "streamId"),
+     };
+   }
+@@ -260,22 +273,16 @@ class ReactNativeBackend implements Minip2pBackend {
+ 
+   dial(address: string): number[] {
+     return translateErrors(() => this.#endpoint.dial(address)).map((id) =>
+-      u64ToNumber(id, "connectionId")
++      this.#connectionId(id)
+     );
+   }
+ 
+   dialIp4(address: string): number {
+-    return u64ToNumber(
+-      translateErrors(() => this.#endpoint.dialIp4(address)),
+-      "connectionId"
+-    );
++    return this.#connectionId(translateErrors(() => this.#endpoint.dialIp4(address)));
+   }
+ 
+   dialIp6(address: string): number {
+-    return u64ToNumber(
+-      translateErrors(() => this.#endpoint.dialIp6(address)),
+-      "connectionId"
+-    );
++    return this.#connectionId(translateErrors(() => this.#endpoint.dialIp6(address)));
+   }
+ 
+   cancelConnect(id: number): void {
+@@ -417,11 +424,11 @@ function resolveMdnsAutoDial(
+   return mdns.autoDial ?? discovery?.autoDial ?? true;
+ }
+ 
+-function normalizeEvent(event: NativeP2pEvent): P2pEvent {
++function normalizeEvent(event: NativeP2pEvent, connectionId: (value: bigint) => number): P2pEvent {
+   return normalizeBigInts({
+     inner: event.inner,
+     tag: event.tag,
+-  }) as P2pEvent;
++  }, connectionId) as P2pEvent;
+ }
+ 
+ function normalizeKnownPeer(peer: NativeKnownPeerInfo): KnownPeerInfo {
+@@ -438,19 +445,19 @@ function normalizeReservation(
+   return normalizeBigInts(reservation) as RelayReservationInfo;
+ }
+ 
+-function normalizeBigInts(value: unknown): unknown {
++function normalizeBigInts(value: unknown, connectionId?: (value: bigint) => number, key?: string): unknown {
+   if (typeof value === "bigint") {
+-    return u64ToNumber(value, "native u64");
++    return key === "connId" && connectionId ? connectionId(value) : u64ToNumber(value, "native u64");
+   }
+   if (value instanceof ArrayBuffer) {
+     return value;
+   }
+   if (Array.isArray(value)) {
+-    return value.map((item) => normalizeBigInts(item));
++    return value.map((item) => normalizeBigInts(item, connectionId));
+   }
+   if (value !== null && typeof value === "object") {
+     return Object.fromEntries(
+-      Object.entries(value).map(([key, item]) => [key, normalizeBigInts(item)])
++      Object.entries(value).map(([key, item]) => [key, normalizeBigInts(item, connectionId, key)])
+     );
+   }
+   return value;

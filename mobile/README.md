@@ -13,16 +13,19 @@ Use Node.js 22.13 or later in the 22.x line, or Node.js 24 or newer. The SQLite 
 1. Install dependencies
 
    ```bash
-   npm install
+   pnpm install
    ```
 
 2. Start the app
 
    ```bash
-   npx expo start
+   pnpm --filter mobile ios
+   pnpm --filter mobile android
    ```
 
-In the output, you'll find options to open the app in a
+Run these from the repository root. Both commands build the native development client and connect it to Metro. After native dependency changes, regenerate the native projects and reinstall iOS pods before reusing an existing Xcode workspace. Expo Go cannot load minip2p's native module.
+
+Expo also documents the available development environments:
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)
 - [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
@@ -73,3 +76,9 @@ These checks require two development builds connected to the configured registry
 - Trigger dropped native events or queue overflow in a debug build. Check that invalidated connections cannot deliver chat messages and that relay reservation and messaging recover after restarting the endpoint.
 
 EAS profiles pin Node.js 24.13.0 to match the local validation runtime.
+
+### minip2p 0.5.0 patches
+
+The pnpm patches fix two failures found while exchanging messages between iOS and Android. The React Native adapter maps opaque native 64-bit connection IDs to distinct endpoint-local safe integers, preserving identity across connection events and streams. The core SDK preserves unread bytes and EOF when a remote FIN and full stream close arrive in the same native event batch. Abrupt closes and endpoint shutdown still reject reads.
+
+`test/minip2p-adapter.test.ts` exercises the installed patched SDK with a substitute native FFI boundary. Keep these patches until an upstream release includes both fixes.
