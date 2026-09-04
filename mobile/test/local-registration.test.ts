@@ -12,6 +12,7 @@ const REGISTRATION_STORAGE_KEY = "qop.registration.v2";
 const OWNER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf";
 const OTHER_OWNER = "0x0000000000000000000000000000000000000002";
 const DEVICE_KEY = `0x${"22".repeat(32)}`;
+const OTHER_DEVICE_KEY = `0x${"23".repeat(32)}`;
 const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
 const DOMAIN = {
   chainId: "31337",
@@ -193,6 +194,24 @@ describe("local registration", () => {
     expect(clientMock.getRegistration).not.toHaveBeenCalled();
   });
 
+  it("fails when the owner's account has another device key", async () => {
+    const { checkLocalRegistration, startLocalRegistration } =
+      loadRegistration();
+    await Effect.runPromise(startLocalRegistration("ABC-123"));
+    registryMock.lookupOwner.mockReturnValue(
+      Effect.succeed({ ...account(), deviceKey: OTHER_DEVICE_KEY })
+    );
+
+    const result = await Effect.runPromise(checkLocalRegistration());
+
+    expect(result).toMatchObject({
+      failureCode: "DEVICE_KEY_MISMATCH",
+      status: "failed",
+    });
+    expect(registryMock.lookupHandle).not.toHaveBeenCalled();
+    expect(clientMock.getRegistration).not.toHaveBeenCalled();
+  });
+
   it("fails when the handle belongs to another owner", async () => {
     const { checkLocalRegistration, startLocalRegistration } =
       loadRegistration();
@@ -213,7 +232,18 @@ describe("local registration", () => {
   it("consults the API only after the deadline", async () => {
     const { checkLocalRegistration, startLocalRegistration } =
       loadRegistration();
-    await Effect.runPromise(startLocalRegistration("ABC-123"));
+    const submitted = await Effect.runPromise(
+      startLocalRegistration("ABC-123")
+    );
+    clientMock.getRegistration.mockReturnValue(
+      Effect.succeed({
+        digest: submitted.digest,
+        failureCode: null,
+        qid: null,
+        status: "submitted" as const,
+        transactionHash: `0x${"77".repeat(32)}`,
+      })
+    );
 
     await Effect.runPromise(checkLocalRegistration());
     expect(clientMock.getRegistration).not.toHaveBeenCalled();
@@ -226,5 +256,32 @@ describe("local registration", () => {
       failureCode: "DEADLINE_PASSED",
       status: "failed",
     });
+  });
+
+  it("rejects a post-deadline response for another digest", async () => {
+    const { checkLocalRegistration, startLocalRegistration } =
+      loadRegistration();
+    const submitted = await Effect.runPromise(
+      startLocalRegistration("ABC-123")
+    );
+    now = 1_700_001_801n;
+    clientMock.getRegistration.mockReturnValueOnce(
+      Effect.succeed({
+        digest: `0x${"99".repeat(32)}`,
+        failureCode: null,
+        qid: null,
+        status: "submitted" as const,
+        transactionHash: null,
+      })
+    );
+
+    const result = await Effect.runPromise(
+      checkLocalRegistration().pipe(Effect.result)
+    );
+
+    expect(Result.isFailure(result) && result.failure.operation).toBe("verify");
+    expect(
+      JSON.parse(secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}")
+    ).toEqual(submitted);
   });
 });

@@ -1,4 +1,5 @@
 import {
+  DeviceKey,
   EthereumAddress,
   Handle,
   Hex32,
@@ -39,16 +40,33 @@ export const registryAbi = [
   },
 ] as const;
 
-const CanonicalHex32 = Hex32.pipe(Schema.decodeTo(Hex32.pipe(Schema.flip)));
+const CanonicalDeviceKey = DeviceKey.pipe(
+  Schema.decodeTo(DeviceKey.pipe(Schema.flip))
+);
 const EthereumAddressInput = Schema.String.check(
   Schema.isPattern(/^0x[0-9a-f]{40}$/iu)
 );
 const Hex32Input = Schema.String.check(Schema.isPattern(/^0x[0-9a-f]{64}$/iu));
+const OwnerVersion = Schema.Int.check(
+  Schema.makeFilter((value) => value >= 0 && value <= 2 ** 32 - 1, {
+    expected: "a uint32 owner version",
+  })
+);
+const RegisteredAt = Schema.BigInt.check(
+  Schema.makeFilter((value) => value >= 0n && value <= 2n ** 64n - 1n, {
+    expected: "a uint64 registration timestamp",
+  })
+);
+const ChainQid = Schema.BigInt.check(
+  Schema.makeFilter((value) => value >= 0n && value <= 2n ** 256n - 1n, {
+    expected: "a uint256 qid",
+  })
+);
 const ContractAccountResult = Schema.Tuple([
   EthereumAddressInput,
   Hex32Input,
-  Schema.Int,
-  Schema.BigInt,
+  OwnerVersion,
+  RegisteredAt,
   Schema.BigInt,
   Handle,
 ]);
@@ -85,7 +103,7 @@ export interface RegistryReadClient {
 }
 
 const readQid = (value: RegistryContractResult) =>
-  Schema.decodeUnknownEffect(Schema.BigInt)(value).pipe(
+  Schema.decodeUnknownEffect(ChainQid)(value).pipe(
     Effect.mapError(() => readerError("decode"))
   );
 
@@ -115,7 +133,7 @@ export const createRegistryReader = ({
     const owner = yield* Schema.decodeUnknownEffect(EthereumAddress)(
       ownerInput.toLowerCase()
     ).pipe(Effect.mapError(() => readerError("decode")));
-    const deviceKey = yield* Schema.decodeUnknownEffect(CanonicalHex32)(
+    const deviceKey = yield* Schema.decodeUnknownEffect(CanonicalDeviceKey)(
       deviceKeyInput.toLowerCase()
     ).pipe(Effect.mapError(() => readerError("decode")));
     const deviceKeyBytes = yield* Schema.decodeUnknownEffect(Hex32)(

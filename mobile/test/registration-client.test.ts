@@ -109,6 +109,26 @@ describe("registration client", () => {
     );
   });
 
+  it.each([
+    { failureCode: null, qid: null, status: "confirmed" },
+    { failureCode: null, qid: null, status: "failed" },
+    { failureCode: null, qid: "42", status: "ready" },
+    { failureCode: null, qid: "42", status: "submitted" },
+  ])("rejects an invalid $status registration response", async (response) => {
+    fetchMock.mockResolvedValue(
+      Response.json({ digest, transactionHash: null, ...response })
+    );
+    const { getRegistration } = createRegistrationClient({ fetch: fetchMock });
+
+    const result = await Effect.runPromise(
+      getRegistration(digest).pipe(Effect.result)
+    );
+
+    expect(Result.isFailure(result) && result.failure.operation).toBe(
+      "response"
+    );
+  });
+
   it("preserves tagged API errors", async () => {
     fetchMock.mockResolvedValue(
       Response.json(

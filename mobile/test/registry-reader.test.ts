@@ -1,5 +1,5 @@
 import { Hex32, peerIdFromDeviceKey, PeerId } from "@qop/identity";
-import { Effect, Schema } from "effect";
+import { Effect, Result, Schema } from "effect";
 import { keccak256, toBytes } from "viem";
 import { describe, expect, it, vi } from "vitest";
 
@@ -47,5 +47,29 @@ describe("registry reader", () => {
       qid: 42n,
       registeredAt: 1_700_000_000n,
     });
+  });
+
+  it("rejects an account with an all-zero device key", async () => {
+    const readContract = vi.fn(({ functionName }) =>
+      Promise.resolve(
+        functionName === "qidByHandleHash"
+          ? 42n
+          : ([
+              OWNER,
+              `0x${"00".repeat(32)}`,
+              3,
+              1_700_000_000n,
+              0n,
+              "alice",
+            ] as const)
+      )
+    );
+    const { lookupHandle } = createRegistryReader({ client: { readContract } });
+
+    const result = await Effect.runPromise(
+      lookupHandle("alice").pipe(Effect.result)
+    );
+
+    expect(Result.isFailure(result) && result.failure.operation).toBe("decode");
   });
 });

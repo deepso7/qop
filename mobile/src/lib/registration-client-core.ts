@@ -32,13 +32,31 @@ const RegisteredRegistrationResponse = Schema.Struct({
   transactionHash: CanonicalHex32,
 });
 
-const RegistrationResponse = Schema.Struct({
+const RegistrationResponseBase = {
   digest: CanonicalHex32,
-  failureCode: Schema.NullOr(Schema.String),
-  qid: Schema.NullOr(CanonicalQid),
-  status: Schema.Literals(["ready", "submitted", "confirmed", "failed"]),
   transactionHash: Schema.NullOr(CanonicalHex32),
-});
+} as const;
+
+const RegistrationResponse = Schema.Union([
+  Schema.Struct({
+    ...RegistrationResponseBase,
+    failureCode: Schema.Null,
+    qid: Schema.Null,
+    status: Schema.Literals(["ready", "submitted"]),
+  }),
+  Schema.Struct({
+    ...RegistrationResponseBase,
+    failureCode: Schema.Null,
+    qid: CanonicalQid,
+    status: Schema.Literal("confirmed"),
+  }),
+  Schema.Struct({
+    ...RegistrationResponseBase,
+    failureCode: Schema.String,
+    qid: Schema.Null,
+    status: Schema.Literal("failed"),
+  }),
+]);
 
 const ErrorResponse = Schema.Struct({
   _tag: Schema.String,

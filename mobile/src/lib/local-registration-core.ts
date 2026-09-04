@@ -268,13 +268,27 @@ export const createLocalRegistration = ({
           .lookupOwner(identity.ownerAddress)
           .pipe(Effect.mapError(() => localError("network")));
         if (ownerAccount?.handle === registration.handle) {
-          const confirmed: LocalRegistration = {
-            ...registration,
-            qid: ownerAccount.qid.toString(),
-            status: "confirmed",
-          };
-          yield* writeStoredRegistration(confirmed);
-          return confirmed;
+          if (
+            ownerAccount.owner === identity.ownerAddress.toLowerCase() &&
+            ownerAccount.deviceKey === identity.deviceKey.toLowerCase()
+          ) {
+            const confirmed: LocalRegistration = {
+              ...registration,
+              qid: ownerAccount.qid.toString(),
+              status: "confirmed",
+            };
+            yield* writeStoredRegistration(confirmed);
+            return confirmed;
+          }
+          if (ownerAccount.deviceKey !== identity.deviceKey.toLowerCase()) {
+            const failed: LocalRegistration = {
+              ...registration,
+              failureCode: "DEVICE_KEY_MISMATCH",
+              status: "failed",
+            };
+            yield* writeStoredRegistration(failed);
+            return failed;
+          }
         }
         const handleAccount = yield* registry
           .lookupHandle(registration.handle)
@@ -297,6 +311,9 @@ export const createLocalRegistration = ({
         const reconciled = yield* registrationClient
           .getRegistration(registration.digest)
           .pipe(Effect.mapError(() => localError("network")));
+        if (reconciled.digest !== registration.digest) {
+          return yield* localError("verify");
+        }
         let updated: LocalRegistration;
         if (reconciled.status === "failed") {
           updated = {

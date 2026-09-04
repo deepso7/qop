@@ -206,17 +206,26 @@ export const createIdentityStore = ({
                     }
                   })
                 : loadLocalRegistration().pipe(
-                    Effect.match({
-                      onFailure: () => null,
-                      onSuccess: (loadedRegistration) => loadedRegistration,
-                    }),
-                    Effect.tap((loadedRegistration) =>
-                      Effect.sync(() => {
-                        if (loadGeneration === generation) {
-                          set(stateForIdentity(identity, loadedRegistration));
-                        }
-                      })
-                    )
+                    Effect.matchEffect({
+                      onFailure: () =>
+                        Effect.sync(() => {
+                          if (loadGeneration === generation) {
+                            set({
+                              error: makeIdentityVaultError("read"),
+                              identity,
+                              isHydrating: false,
+                              registration: null,
+                              status: "error",
+                            });
+                          }
+                        }),
+                      onSuccess: (loadedRegistration) =>
+                        Effect.sync(() => {
+                          if (loadGeneration === generation) {
+                            set(stateForIdentity(identity, loadedRegistration));
+                          }
+                        }),
+                    })
                   ),
           })
         )

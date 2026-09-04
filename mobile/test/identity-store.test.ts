@@ -199,6 +199,27 @@ describe("identity store", () => {
     });
   });
 
+  it("maps a registration read failure to a vault read error", async () => {
+    const backedUpIdentity = { ...identity, backupState: "copied" as const };
+    vaultMock.loadLocalIdentity.mockReturnValue(
+      Effect.succeed(backedUpIdentity)
+    );
+    registrationMock.loadLocalRegistration.mockReturnValue(
+      Effect.fail({ operation: "read" })
+    );
+    const store = await loadStore();
+
+    await store.getState().hydrate();
+
+    expect(store.getState()).toMatchObject({
+      error: { _tag: "IdentityVaultError", operation: "read" },
+      identity: backedUpIdentity,
+      isHydrating: false,
+      registration: null,
+      status: "error",
+    });
+  });
+
   it("keeps the error tree mounted while retrying hydration", async () => {
     const retry = deferred<null>();
     const store = await loadStore();
