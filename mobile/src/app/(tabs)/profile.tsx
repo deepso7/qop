@@ -225,9 +225,9 @@ const ProfileScreen = React.memo(
           <Button
             className="h-12 rounded-xl"
             onPress={openLogoutAlert}
-            variant="destructive"
+            variant="outline"
           >
-            <Text>Log out</Text>
+            <Text className="text-destructive">Log out</Text>
           </Button>
           <NativeAlert
             confirmLabel="Log out"

@@ -65,7 +65,7 @@ const ChatSearch = React.forwardRef<TextInput, ChatSearchProps>(
           clearButtonMode="never"
           onChangeText={handleChangeText}
           placeholder={placeholder}
-          placeholderTextColorClassName="accent-muted-foreground/70"
+          placeholderTextColorClassName="accent-muted-foreground"
           returnKeyType="search"
           selectionColorClassName="accent-primary"
           value={currentValue}
@@ -76,7 +76,7 @@ const ChatSearch = React.forwardRef<TextInput, ChatSearchProps>(
             accessibilityLabel="Clear search"
             accessibilityRole="button"
             className="bg-background-selected size-7 items-center justify-center rounded-full active:opacity-70"
-            hitSlop={6}
+            hitSlop={8}
             onPress={handleClear}
           >
             <Icon as={X} className="text-foreground-secondary size-3.5" />

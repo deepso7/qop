@@ -2,6 +2,7 @@ import { PortalHost } from "@rn-primitives/portal";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "expo-router";
 import { Stack } from "expo-router/stack";
 import * as SplashScreen from "expo-splash-screen";
+import { StatusBar } from "expo-status-bar";
 import * as React from "react";
 import { View, useColorScheme } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
@@ -95,6 +96,7 @@ const RootLayout = () => {
 
   return (
     <KeyboardProvider>
+      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
       <ThemeProvider value={navigationTheme}>
         <AppStack />
       </ThemeProvider>

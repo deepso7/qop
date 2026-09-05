@@ -36,6 +36,7 @@ import { MessageScroller } from "@/components/ui/message-scroller";
 import { Text } from "@/components/ui/text";
 import { listMessages, markConversationRead } from "@/lib/db";
 import type { Contact, StoredMessage } from "@/lib/db";
+import { selectionHaptic } from "@/lib/haptics";
 import { useP2pStore } from "@/lib/p2p-store";
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
@@ -158,6 +159,7 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
 
   const retry = React.useCallback(
     (id: string) => {
+      void selectionHaptic();
       void retryMessage(id);
     },
     [retryMessage]
@@ -171,6 +173,7 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
     if (!text || status !== "running") {
       return;
     }
+    void selectionHaptic();
     setDraft("");
     void sendMessage(contact, text);
   }, [contact, draft, sendMessage, status]);
@@ -232,7 +235,6 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
         style={composerStyle}
       >
         <ChatComposer className="border-0 p-0">
-          <ChatComposerButton disabled kind="add" />
           <ChatComposerInput
             accessibilityLabel="Message"
             editable={status === "running"}

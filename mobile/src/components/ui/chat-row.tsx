@@ -54,7 +54,7 @@ const ChatRowIdentity = ({
     {online ? (
       <View
         accessibilityLabel="Online"
-        className="border-background bg-primary absolute right-0 bottom-0 size-3.5 rounded-full border-2"
+        className="border-background absolute right-0 bottom-0 size-3.5 rounded-full border-2 bg-green-500"
       />
     ) : null}
   </View>

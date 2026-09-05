@@ -9,8 +9,8 @@ type IconProps = LucideProps & {
   as: LucideIcon;
 } & React.RefAttributes<LucideIcon>;
 
-const IconImpl = ({ as: IconComponent, ...props }: IconProps) => (
-  <IconComponent {...props} />
+const IconImpl = ({ as: IconComponent, fill, ...props }: IconProps) => (
+  <IconComponent {...props} fill={fill ?? "none"} />
 );
 
 const StyledIcon = withUniwind(IconImpl, {

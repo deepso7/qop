@@ -3,12 +3,14 @@ import { Effect, Result, Schema } from "effect";
 import { router, Stack } from "expo-router";
 import * as React from "react";
 import { ActivityIndicator, Keyboard, ScrollView, View } from "react-native";
+import Animated, { FadeIn, useReducedMotion } from "react-native-reanimated";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Surface } from "@/components/ui/surface";
 import { Text } from "@/components/ui/text";
 import { upsertContact } from "@/lib/db";
+import { selectionHaptic } from "@/lib/haptics";
 import { useIdentityStore } from "@/lib/identity-store";
 import { lookupHandle } from "@/lib/registry";
 import type { RegistryAccount, RegistryReaderError } from "@/lib/registry";
@@ -39,6 +41,8 @@ const registryErrorMessage = (error: RegistryReaderError) => {
 };
 
 const NewChatRoute = () => {
+  const reduceMotion = useReducedMotion();
+  const [opening, setOpening] = React.useState(false);
   const ownHandle = useIdentityStore((state) => state.identity?.handle);
   const [handle, setHandle] = React.useState("");
   const [lookingUp, setLookingUp] = React.useState(false);
@@ -74,10 +78,11 @@ const NewChatRoute = () => {
   }, [handle, isValid, lookingUp, ownHandle]);
 
   const startChat = React.useCallback(async () => {
-    if (!result) {
+    if (!result || opening) {
       return;
     }
     setMessage(undefined);
+    setOpening(true);
     try {
       await upsertContact({
         createdAt: Number(result.registeredAt) * 1000,
@@ -87,14 +92,16 @@ const NewChatRoute = () => {
         peerId: result.peerId,
         qid: result.qid.toString(),
       });
+      void selectionHaptic();
       router.replace({
         params: { id: result.qid.toString() },
         pathname: "/chat/[id]",
       });
     } catch {
+      setOpening(false);
       setMessage("Could not save this contact. Tap Start chat to retry.");
     }
-  }, [result]);
+  }, [opening, result]);
 
   return (
     <>
@@ -110,15 +117,16 @@ const NewChatRoute = () => {
           <Input
             accessibilityHint="Lowercase letters, numbers, and underscores"
             accessibilityLabel="qop handle"
+            autoFocus
             autoCapitalize="none"
             autoComplete="off"
             autoCorrect={false}
             className="border-border bg-background-element dark:bg-background-element h-14 rounded-xl px-4 text-[18px]"
             editable={!lookingUp}
             enterKeyHint="search"
-            maxLength={32}
+            maxLength={33}
             onChangeText={(value) => {
-              setHandle(value);
+              setHandle(value.trim().replace(/^@/u, "").toLowerCase());
               setMessage(undefined);
               setResult(undefined);
             }}
@@ -154,33 +162,38 @@ const NewChatRoute = () => {
         ) : null}
 
         {result ? (
-          <Surface
-            className="border-background-selected gap-4 rounded-xl border p-4"
-            tone="element"
-          >
-            <View className="gap-1">
-              <Text selectable variant="large">
-                @{result.handle}
-              </Text>
-              <Text
-                className="text-foreground-secondary"
-                selectable
-                variant="caption"
-              >
-                QID {result.qid.toString()}
-              </Text>
-              <Text
-                className="text-foreground-secondary font-mono"
-                selectable
-                variant="caption"
-              >
-                Peer {result.peerId.slice(0, 12)}…
-              </Text>
-            </View>
-            <Button onPress={startChat}>
-              <Text>Start chat</Text>
-            </Button>
-          </Surface>
+          <Animated.View entering={FadeIn.duration(reduceMotion ? 0 : 160)}>
+            <Surface
+              className="border-background-selected gap-4 rounded-xl border p-4"
+              tone="element"
+            >
+              <View className="gap-1">
+                <Text selectable variant="large">
+                  @{result.handle}
+                </Text>
+                <Text
+                  className="text-foreground-secondary"
+                  selectable
+                  variant="caption"
+                >
+                  QID {result.qid.toString()}
+                </Text>
+                <Text
+                  className="text-foreground-secondary font-mono"
+                  selectable
+                  variant="caption"
+                >
+                  Peer {result.peerId.slice(0, 12)}…
+                </Text>
+              </View>
+              <Button disabled={opening} onPress={startChat}>
+                {opening ? (
+                  <ActivityIndicator colorClassName="accent-primary-foreground" />
+                ) : null}
+                <Text>{opening ? "Opening…" : "Start chat"}</Text>
+              </Button>
+            </Surface>
+          </Animated.View>
         ) : null}
       </ScrollView>
     </>

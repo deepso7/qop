@@ -1,7 +1,7 @@
 import { FlashList } from "@shopify/flash-list";
 import type { ListRenderItem } from "@shopify/flash-list";
 import { router, useFocusEffect } from "expo-router";
-import { Plus } from "lucide-react-native";
+import { SquarePen } from "lucide-react-native";
 import * as React from "react";
 import { View } from "react-native";
 import { KeyboardController } from "react-native-keyboard-controller";
@@ -127,20 +127,18 @@ const ChatsScreen = () => {
   const listHeader = React.useMemo(
     () => (
       <View className="gap-4 px-5 pt-10 pb-4">
-        <View className="flex-row items-start justify-between gap-4">
-          <View className="min-w-0 flex-1 gap-1">
-            <Text variant="title">Chats</Text>
-            <Text className="text-foreground-secondary" variant="caption">
-              Direct conversations with your peers.
-            </Text>
-          </View>
+        <View className="flex-row items-center justify-between gap-4">
+          <Text className="min-w-0 flex-1" variant="title">
+            Chats
+          </Text>
           <Button
             onPress={() => router.push("../new-chat")}
-            size="sm"
-            variant="ghost"
+            accessibilityLabel="New chat"
+            size="icon"
+            variant="secondary"
+            className="rounded-full"
           >
-            <Icon as={Plus} className="size-4" />
-            <Text>New chat</Text>
+            <Icon as={SquarePen} className="size-5" />
           </Button>
         </View>
         <ChatSearch onChangeText={setQuery} value={query} />
