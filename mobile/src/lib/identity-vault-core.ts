@@ -3,11 +3,12 @@ import {
   decodeRecoveryKeyV1,
   decodeIdentityEip712DomainV1,
   decodeRegisterIntentV1,
+  deviceKeyFromEd25519SecretKey,
   encodeRecoveryKeyV1,
   EcdsaSignature,
-  encryptionPublicKeyFromSecretKey,
   EthereumAddress,
   Handle,
+  Hex32,
   ownerAddressFromRecoveryKeyV1,
   PeerId,
   peerIdFromEd25519SecretKey,
@@ -21,7 +22,8 @@ import { Data, Effect, Result, Schema, Semaphore } from "effect";
 
 const INSTALL_STORAGE_KEY = "qop.install.v1";
 const INSTALL_STORAGE_VALUE = "1";
-const IDENTITY_STORAGE_KEY = "qop.identity.v1";
+const LEGACY_IDENTITY_STORAGE_KEY = "qop.identity.v1";
+const IDENTITY_STORAGE_KEY = "qop.identity.v2";
 const strictParseOptions = {
   errors: "all",
   onExcessProperty: "error",
@@ -38,29 +40,28 @@ const RecoveryKeyV1String = Schema.String.check(
   })
 );
 
-const StoredLocalIdentityV1 = Schema.Struct({
+const StoredLocalIdentityV2 = Schema.Struct({
   backupState: Schema.Literals(["copied", "pending", "skipped"]),
   deviceSecretKey: CanonicalBase64Url32,
-  encryptionSecretKey: CanonicalBase64Url32,
   handle: Handle,
   ownerAddress: EthereumAddress,
   peerId: CanonicalPeerId,
   recoveryKey: RecoveryKeyV1String,
-  version: Schema.Literal(1),
+  version: Schema.Literal(2),
 }).annotate({
   messageUnexpectedKey: "Unexpected local identity field",
   parseOptions: strictParseOptions,
 });
 
-const StoredLocalIdentityJson = Schema.fromJsonString(StoredLocalIdentityV1);
+const StoredLocalIdentityJson = Schema.fromJsonString(StoredLocalIdentityV2);
 
-type StoredLocalIdentity = typeof StoredLocalIdentityV1.Type;
+type StoredLocalIdentity = typeof StoredLocalIdentityV2.Type;
 
 export type LocalIdentity = Pick<
   StoredLocalIdentity,
   "backupState" | "handle" | "ownerAddress" | "peerId" | "version"
 > & {
-  readonly encryptionPublicKey: typeof Base64Url32.Encoded;
+  readonly deviceKey: typeof Hex32.Encoded;
 };
 export type IdentityBackupState = StoredLocalIdentity["backupState"];
 
@@ -85,24 +86,22 @@ const vaultError = (operation: IdentityVaultError["operation"]) =>
 
 const publicIdentity = Effect.fn("IdentityVault.publicIdentity")(function* ({
   backupState,
-  encryptionSecretKey,
+  deviceSecretKey,
   handle,
   ownerAddress,
   peerId,
   version,
 }: StoredLocalIdentity) {
   const secretKey = yield* Schema.decodeUnknownEffect(Base64Url32)(
-    encryptionSecretKey
+    deviceSecretKey
   ).pipe(Effect.mapError(() => vaultError("decode")));
-  const encryptionPublicKey = yield* encryptionPublicKeyFromSecretKey(
-    secretKey
-  ).pipe(
-    Effect.flatMap(Schema.encodeEffect(Base64Url32)),
+  const deviceKey = yield* deviceKeyFromEd25519SecretKey(secretKey).pipe(
+    Effect.flatMap(Schema.encodeEffect(Hex32)),
     Effect.mapError(() => vaultError("decode"))
   );
   return {
     backupState,
-    encryptionPublicKey,
+    deviceKey,
     handle,
     ownerAddress,
     peerId,
@@ -251,17 +250,24 @@ export const createIdentityVault = ({
     "IdentityVault.loadStoredLocalIdentity"
   )(function* () {
     yield* ensureSecureStore();
-    const [encoded, installState] = yield* Effect.all(
+    const [encoded, legacyEncoded, installState] = yield* Effect.all(
       [
         Effect.tryPromise({
           catch: () => vaultError("read"),
           try: () => secureStore.get(IDENTITY_STORAGE_KEY),
+        }),
+        Effect.tryPromise({
+          catch: () => vaultError("read"),
+          try: () => secureStore.get(LEGACY_IDENTITY_STORAGE_KEY),
         }),
         readInstallState(),
       ] as const,
       { concurrency: "unbounded" }
     );
     if (encoded === null) {
+      if (legacyEncoded !== null) {
+        return yield* vaultError("decode");
+      }
       if (installState === "reinstalled") {
         yield* writeSandboxInstallMarker();
       }
@@ -290,11 +296,10 @@ export const createIdentityVault = ({
       return yield* vaultError("already-exists");
     }
 
-    const [recoveryKey, deviceSecretKey, encryptionSecretKey] =
-      yield* Effect.all(
-        [makeRecoveryKey(), randomBytes32(), randomBytes32()] as const,
-        { concurrency: "unbounded" }
-      );
+    const [recoveryKey, deviceSecretKey] = yield* Effect.all(
+      [makeRecoveryKey(), randomBytes32()] as const,
+      { concurrency: "unbounded" }
+    );
     const ownerAddress = yield* ownerAddressFromRecoveryKeyV1(recoveryKey).pipe(
       Effect.mapError(() => vaultError("create"))
     );
@@ -302,23 +307,17 @@ export const createIdentityVault = ({
       Effect.flatMap(Schema.encodeEffect(PeerId)),
       Effect.mapError(() => vaultError("create"))
     );
-    const [encodedDeviceSecretKey, encodedEncryptionSecretKey] =
-      yield* Effect.all(
-        [
-          Schema.encodeEffect(Base64Url32)(deviceSecretKey),
-          Schema.encodeEffect(Base64Url32)(encryptionSecretKey),
-        ] as const,
-        { concurrency: "unbounded" }
-      ).pipe(Effect.mapError(() => vaultError("create")));
+    const encodedDeviceSecretKey = yield* Schema.encodeEffect(Base64Url32)(
+      deviceSecretKey
+    ).pipe(Effect.mapError(() => vaultError("create")));
     const identity: StoredLocalIdentity = {
       backupState: "pending",
       deviceSecretKey: encodedDeviceSecretKey,
-      encryptionSecretKey: encodedEncryptionSecretKey,
       handle,
       ownerAddress,
       peerId,
       recoveryKey,
-      version: 1,
+      version: 2,
     };
     yield* writeLocalIdentity(identity);
     return yield* publicIdentity(identity);
@@ -338,6 +337,10 @@ export const createIdentityVault = ({
             catch: () => vaultError("delete"),
             try: () => secureStore.delete(IDENTITY_STORAGE_KEY),
           });
+          yield* Effect.tryPromise({
+            catch: () => vaultError("delete"),
+            try: () => secureStore.delete(LEGACY_IDENTITY_STORAGE_KEY),
+          });
           yield* writeSandboxInstallMarker();
         })
       )
@@ -353,35 +356,36 @@ export const createIdentityVault = ({
     return identity.recoveryKey;
   });
 
-  const signLocalRegistrationIntent = Effect.fn(
-    "IdentityVault.signLocalRegistrationIntent"
-  )(function* (
-    domainInput: IdentityEip712DomainV1Encoded,
-    intentInput: RegisterIntentV1Encoded
-  ) {
-    const identity = yield* loadStoredLocalIdentity();
-    if (!identity) {
-      return yield* vaultError("missing-identity");
-    }
-    const [domain, intent, privateKey] = yield* Effect.all(
-      [
-        decodeIdentityEip712DomainV1(domainInput),
-        decodeRegisterIntentV1(intentInput),
-        decodeRecoveryKeyV1(identity.recoveryKey),
-      ] as const,
-      { concurrency: "unbounded" }
-    ).pipe(Effect.mapError(() => vaultError("sign")));
-    if (
-      intent.handle !== identity.handle ||
-      intent.owner !== identity.ownerAddress
+  const signRegisterIntent = Effect.fn("IdentityVault.signRegisterIntent")(
+    function* (
+      domainInput: IdentityEip712DomainV1Encoded,
+      intentInput: RegisterIntentV1Encoded
     ) {
-      return yield* vaultError("sign");
+      const identity = yield* loadStoredLocalIdentity();
+      if (!identity) {
+        return yield* vaultError("missing-identity");
+      }
+      const [domain, intent, privateKey] = yield* Effect.all(
+        [
+          decodeIdentityEip712DomainV1(domainInput),
+          decodeRegisterIntentV1(intentInput),
+          decodeRecoveryKeyV1(identity.recoveryKey),
+        ] as const,
+        { concurrency: "unbounded" }
+      ).pipe(Effect.mapError(() => vaultError("sign")));
+      if (
+        intent.handle !== identity.handle ||
+        intent.owner !== identity.ownerAddress ||
+        intentInput.deviceKey !== (yield* publicIdentity(identity)).deviceKey
+      ) {
+        return yield* vaultError("sign");
+      }
+      return yield* signRegisterIntentV1(domain, intent, privateKey).pipe(
+        Effect.flatMap(Schema.encodeEffect(EcdsaSignature)),
+        Effect.mapError(() => vaultError("sign"))
+      );
     }
-    return yield* signRegisterIntentV1(domain, intent, privateKey).pipe(
-      Effect.flatMap(Schema.encodeEffect(EcdsaSignature)),
-      Effect.mapError(() => vaultError("sign"))
-    );
-  });
+  );
 
   const updateLocalIdentityBackupState = Effect.fn(
     "IdentityVault.updateLocalIdentityBackupState"
@@ -399,12 +403,27 @@ export const createIdentityVault = ({
     )
   );
 
+  // These bytes must never be logged or persisted anywhere else.
+  const loadDeviceSecretKey = Effect.fn("IdentityVault.loadDeviceSecretKey")(
+    function* () {
+      const identity = yield* loadStoredLocalIdentity();
+      if (!identity) {
+        return yield* vaultError("missing-identity");
+      }
+      const secretKey = yield* Schema.decodeUnknownEffect(Base64Url32)(
+        identity.deviceSecretKey
+      ).pipe(Effect.mapError(() => vaultError("decode")));
+      return Uint8Array.from(secretKey);
+    }
+  );
+
   return {
     createLocalIdentity,
     deleteLocalIdentity,
+    loadDeviceSecretKey,
     loadLocalIdentity,
     revealLocalIdentityRecoveryKey,
-    signLocalRegistrationIntent,
+    signRegisterIntent,
     updateLocalIdentityBackupState,
   };
 };

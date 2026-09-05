@@ -22,7 +22,7 @@ import { privateKeyToAccount } from "viem/accounts";
 import { Env } from "../env.ts";
 
 const registryWriteAbi = parseAbi([
-  "function register((string handle,address owner,bytes32 deviceCommitment,bytes32 nonce,uint64 deadline) intent, bytes ownerSignature, bytes registrationSignature) returns (uint256 qid)",
+  "function register((string handle,address owner,bytes32 deviceKey,bytes32 nonce,uint64 deadline) intent, bytes ownerSignature, bytes registrationSignature) returns (uint256 qid)",
 ]);
 
 const PrivateKey = Schema.String.check(
@@ -132,7 +132,7 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
             args: [
               {
                 deadline: intent.deadline,
-                deviceCommitment: toHex(intent.deviceCommitment),
+                deviceKey: toHex(intent.deviceKey),
                 handle: intent.handle,
                 nonce: toHex(intent.nonce),
                 owner,

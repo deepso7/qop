@@ -1,5 +1,4 @@
-import { Effect } from "effect";
-import type { Result } from "effect";
+import { Effect, Result } from "effect";
 import { create } from "zustand";
 
 import type {
@@ -8,15 +7,20 @@ import type {
   IdentityVaultError,
   LocalIdentity,
 } from "@/lib/identity-vault-core";
-import type { createLocalRegistration } from "@/lib/local-registration-core";
+import type {
+  createLocalRegistration,
+  LocalRegistration,
+} from "@/lib/local-registration-core";
 
-type IdentityStatus =
+export type IdentityStatus =
   | "absent"
   | "backup"
   | "creating"
   | "error"
   | "loading"
-  | "ready";
+  | "ready"
+  | "resetting"
+  | "unregistered";
 
 type IdentityResult<A> = Result.Result<A, IdentityVaultError>;
 
@@ -24,6 +28,7 @@ interface IdentityState {
   error: IdentityVaultError | null;
   identity: LocalIdentity | null;
   isHydrating: boolean;
+  registration: LocalRegistration | null;
   status: IdentityStatus;
 }
 
@@ -44,23 +49,33 @@ const initialState: IdentityState = {
   error: null,
   identity: null,
   isHydrating: true,
+  registration: null,
   status: "loading",
 };
 
 const stateForIdentity = (
   identity: LocalIdentity | null,
-  isRegistered = false
+  registration: LocalRegistration | null = null
 ): IdentityState => {
   let status: IdentityStatus = "ready";
   if (identity === null) {
     status = "absent";
-  } else if (identity.backupState === "pending" || !isRegistered) {
+  } else if (identity.backupState === "pending") {
     status = "backup";
+  } else if (registration?.status !== "confirmed") {
+    status = "unregistered";
   }
-  return { error: null, identity, isHydrating: false, status };
+  return {
+    error: null,
+    identity,
+    isHydrating: false,
+    registration,
+    status,
+  };
 };
 
 export interface IdentityStoreDependencies {
+  readonly deleteAllData: () => Promise<void>;
   readonly identityVault: Pick<
     ReturnType<typeof createIdentityVault>,
     | "createLocalIdentity"
@@ -76,6 +91,7 @@ export interface IdentityStoreDependencies {
     ReturnType<typeof createLocalRegistration>,
     "deleteLocalRegistration" | "loadLocalRegistration"
   >;
+  readonly stopP2p: () => Promise<void>;
 }
 
 const runOperation = <A>(
@@ -93,9 +109,11 @@ const runOperation = <A>(
 };
 
 export const createIdentityStore = ({
+  deleteAllData,
   identityVault,
   makeIdentityVaultError,
   registration,
+  stopP2p,
 }: IdentityStoreDependencies) => {
   const {
     createLocalIdentity,
@@ -114,6 +132,9 @@ export const createIdentityStore = ({
     ...initialState,
 
     createIdentity: (handle) => {
+      if (resetOperation || get().status === "resetting") {
+        return Promise.resolve(Result.fail(makeIdentityVaultError("create")));
+      }
       if (createOperation) {
         return createOperation;
       }
@@ -123,22 +144,36 @@ export const createIdentityStore = ({
         error: null,
         identity: null,
         isHydrating: false,
+        registration: null,
         status: "creating",
       });
       const effect = createLocalIdentity(handle).pipe(
         Effect.tap((identity) =>
           Effect.sync(() => {
+            if (resetOperation) {
+              return;
+            }
             set({
               error: null,
               identity,
               isHydrating: false,
+              registration: null,
               status: "backup",
             });
           })
         ),
         Effect.tapError((error) =>
           Effect.sync(() => {
-            set({ error, identity: null, isHydrating: false, status: "error" });
+            if (resetOperation) {
+              return;
+            }
+            set({
+              error,
+              identity: null,
+              isHydrating: false,
+              registration: null,
+              status: "error",
+            });
           })
         ),
         Effect.result
@@ -151,6 +186,9 @@ export const createIdentityStore = ({
     },
 
     hydrate: () => {
+      if (resetOperation || get().status === "resetting") {
+        return Promise.resolve();
+      }
       const generation = loadGeneration + 1;
       loadGeneration = generation;
       if (get().status === "loading") {
@@ -168,6 +206,7 @@ export const createIdentityStore = ({
                     error,
                     identity: null,
                     isHydrating: false,
+                    registration: null,
                     status: "error",
                   });
                 }
@@ -180,18 +219,31 @@ export const createIdentityStore = ({
                     }
                   })
                 : loadLocalRegistration().pipe(
-                    Effect.match({
-                      onFailure: () => false,
+                    Effect.matchEffect({
+                      onFailure: (error) =>
+                        Effect.sync(() => {
+                          if (loadGeneration === generation) {
+                            set({
+                              error: makeIdentityVaultError(
+                                error.operation === "decode" ||
+                                  error.operation === "verify"
+                                  ? "decode"
+                                  : "read"
+                              ),
+                              identity,
+                              isHydrating: false,
+                              registration: null,
+                              status: "error",
+                            });
+                          }
+                        }),
                       onSuccess: (loadedRegistration) =>
-                        loadedRegistration?.status === "confirmed",
-                    }),
-                    Effect.tap((isRegistered) =>
-                      Effect.sync(() => {
-                        if (loadGeneration === generation) {
-                          set(stateForIdentity(identity, isRegistered));
-                        }
-                      })
-                    )
+                        Effect.sync(() => {
+                          if (loadGeneration === generation) {
+                            set(stateForIdentity(identity, loadedRegistration));
+                          }
+                        }),
+                    })
                   ),
           })
         )
@@ -204,7 +256,17 @@ export const createIdentityStore = ({
       }
 
       loadGeneration += 1;
-      const effect = deleteLocalRegistration().pipe(
+      set({ error: null, isHydrating: false, status: "resetting" });
+      const effect = Effect.tryPromise({
+        catch: () => makeIdentityVaultError("delete"),
+        try: async () => {
+          await createOperation;
+          await backupStateOperation;
+          await stopP2p();
+          await deleteAllData();
+        },
+      }).pipe(
+        Effect.andThen(deleteLocalRegistration()),
         Effect.mapError(() => makeIdentityVaultError("delete")),
         Effect.andThen(deleteLocalIdentity()),
         Effect.tap(() =>
@@ -214,7 +276,13 @@ export const createIdentityStore = ({
         ),
         Effect.tapError((error) =>
           Effect.sync(() => {
-            set({ error, identity: null, isHydrating: false, status: "error" });
+            set({
+              error,
+              identity: null,
+              isHydrating: false,
+              registration: null,
+              status: "error",
+            });
           })
         ),
         Effect.result
@@ -239,7 +307,7 @@ export const createIdentityStore = ({
       }
 
       const { identity } = get();
-      if (!identity) {
+      if (!identity || resetOperation || get().status === "resetting") {
         return Effect.runPromise(
           Effect.fail(makeIdentityVaultError("missing-identity")).pipe(
             Effect.result
@@ -250,7 +318,17 @@ export const createIdentityStore = ({
       const effect = updateLocalIdentityBackupState(backupState).pipe(
         Effect.tap((updatedIdentity) =>
           Effect.sync(() => {
-            set({ error: null, identity: updatedIdentity, status: "ready" });
+            if (resetOperation) {
+              return;
+            }
+            set({
+              error: null,
+              identity: updatedIdentity,
+              status:
+                get().registration?.status === "confirmed"
+                  ? "ready"
+                  : "unregistered",
+            });
           })
         )
       );

@@ -2,23 +2,30 @@
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
 
-Set `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_REGISTRY_ADDRESS`, and `EXPO_PUBLIC_REGISTRY_CHAIN_ID` before running the app. The registry values pin the EIP-712 domain the local owner key may authorize. Native devices and emulators must use an API address that can reach the development machine; `127.0.0.1` only works when the API is available inside that device's network namespace.
+Set `EXPO_PUBLIC_API_URL`, `EXPO_PUBLIC_RPC_URL`, `EXPO_PUBLIC_REGISTRY_ADDRESS`, `EXPO_PUBLIC_REGISTRY_CHAIN_ID`, and `EXPO_PUBLIC_RELAY_ADDRS` before running the app. `EXPO_PUBLIC_RELAY_ADDRS` is a comma-separated list of minip2p relay multiaddresses. The registry values pin the EIP-712 domain the local owner key may authorize, and the RPC URL lets the app read registrations directly from the chain. The API is used only during registration. Native devices and emulators must use API and RPC addresses that can reach the development machine; `127.0.0.1` only works when those services are available inside that device's network namespace.
+
+Chat authorization is checked against the registry on first use of each transport connection, in both directions. Further messages on that verified connection need no RPC or API call. Disconnecting clears verification; reconnecting requires a fresh registry check before sending or accepting chat messages. Device-key rotation therefore takes effect on the next connection, while an existing verified connection can continue through an RPC outage. New connections fail verification if the registry cannot be read. Offline delivery is deferred.
+
+Use Node.js 22.19 or later in the 22.x line, or Node.js 24 or newer. The SQLite tests use Node’s built-in SQLite module, and pnpm enforces the supported Node versions.
 
 ## Get started
 
 1. Install dependencies
 
    ```bash
-   npm install
+   pnpm install
    ```
 
 2. Start the app
 
    ```bash
-   npx expo start
+   pnpm --filter mobile ios
+   pnpm --filter mobile android
    ```
 
-In the output, you'll find options to open the app in a
+Run these from the repository root. Both commands build the native development client and connect it to Metro. After native dependency changes, regenerate the native projects and reinstall iOS pods before reusing an existing Xcode workspace. Expo Go cannot load minip2p's native module.
+
+Expo also documents the available development environments:
 
 - [development build](https://docs.expo.dev/develop/development-builds/introduction/)
 - [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
@@ -56,3 +63,20 @@ Join our community of developers creating universal apps.
 
 - [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
 - [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+
+## Native verification before merging
+
+These checks require two development builds connected to the configured registry and relay. Automated tests cover the SQL, wire validation, session authorization, and store lifecycle; they do not exercise the native transport.
+
+- Register two distinct accounts and exchange messages in both directions. Confirm acknowledgements, persistence after restart, and matching arrival order and bubble times.
+- Interrupt a send by closing the app, then reopen it. The message should be retryable with its original ID; retry should not duplicate it on the recipient.
+- Disconnect and reconnect a peer, then exchange messages again. A new connection must verify against the registry.
+- After establishing a verified connection, make RPC unavailable. Messages on that connection should continue; a new connection should fail verification.
+- Rotate a device key. The old live connection may continue, but the old key must fail verification after reconnecting. The replacement device must connect successfully.
+- Trigger dropped native events or queue overflow in a debug build. Check that invalidated connections cannot deliver chat messages and that relay reservation and messaging recover after restarting the endpoint.
+
+EAS profiles pin Node.js 24.13.0 to match the local validation runtime.
+
+### minip2p regression coverage
+
+minip2p 0.5.3 includes the native connection ID and buffered stream closure fixes previously carried as local patches. `test/minip2p-adapter.test.ts` exercises these behaviors against the installed SDK through a substitute native FFI boundary.

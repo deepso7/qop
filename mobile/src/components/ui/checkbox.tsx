@@ -1,7 +1,10 @@
 import * as CheckboxPrimitiveModule from "@rn-primitives/checkbox";
-import { Platform, Text } from "react-native";
+import { Check } from "lucide-react-native";
+import { Platform } from "react-native";
 import Animated, { Keyframe, ReduceMotion } from "react-native-reanimated";
 
+import { Icon } from "@/components/ui/icon";
+import { selectionHaptic } from "@/lib/haptics";
 import { cn } from "@/lib/utils";
 
 const CheckboxPrimitive = { ...CheckboxPrimitiveModule };
@@ -25,6 +28,7 @@ const Checkbox = ({
   checkedClassName,
   indicatorClassName,
   iconClassName,
+  onCheckedChange,
   ...props
 }: React.ComponentProps<typeof CheckboxPrimitive.Root> & {
   checkedClassName?: string;
@@ -38,30 +42,31 @@ const Checkbox = ({
         native: "overflow-hidden",
         web: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive peer cursor-default outline-none transition-shadow focus-visible:ring-[3px] disabled:cursor-not-allowed",
       }),
-      props.checked && cn("border-foreground", checkedClassName),
+      props.checked && cn("border-primary", checkedClassName),
       props.disabled && "opacity-50",
       className
     )}
+    onCheckedChange={(checked) => {
+      void selectionHaptic();
+      onCheckedChange?.(checked);
+    }}
     hitSlop={DEFAULT_HIT_SLOP}
     {...props}
   >
     <CheckboxPrimitive.Indicator asChild>
       <Animated.View
         className={cn(
-          "bg-foreground h-full w-full items-center justify-center",
+          "bg-primary h-full w-full items-center justify-center",
           indicatorClassName
         )}
         entering={indicatorEnter}
         exiting={indicatorExit}
       >
-        <Text
-          className={cn(
-            "text-background w-full text-center text-[10px] leading-3 font-bold",
-            iconClassName
-          )}
-        >
-          ✓
-        </Text>
+        <Icon
+          as={Check}
+          className={cn("text-primary-foreground size-3", iconClassName)}
+          strokeWidth={3}
+        />
       </Animated.View>
     </CheckboxPrimitive.Indicator>
   </CheckboxPrimitive.Root>

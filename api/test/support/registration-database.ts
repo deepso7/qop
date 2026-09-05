@@ -8,8 +8,6 @@ import { Effect, Layer } from "effect";
 import { Database } from "../../src/db/database.ts";
 import type { DatabaseClient } from "../../src/db/database.ts";
 import * as databaseSchema from "../../src/db/schema.ts";
-import { DeviceSessionStore } from "../../src/device-session/store.ts";
-import { DeviceCertificateStore } from "../../src/device/store.ts";
 import { RegistrationAdmission } from "../../src/registration/admission.ts";
 import { RegistrationStore } from "../../src/registration/store.ts";
 import { lowercaseHash } from "./ethereum.ts";
@@ -65,9 +63,3 @@ export const RegistrationStoreAndAdmissionTestLive = Layer.merge(
   RegistrationStoreTestLive,
   RegistrationAdmissionTestLive
 );
-
-export const DeviceAndRegistrationStoresTestLive = Layer.mergeAll(
-  DeviceCertificateStore.layer,
-  RegistrationStoreTestLive,
-  DeviceSessionStore.layer
-).pipe(Layer.provide(TestDatabaseLive));

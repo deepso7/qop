@@ -27,9 +27,10 @@ const Input = ({
       className
     )}
     placeholderTextColorClassName={cn(
-      "accent-muted-foreground/50",
+      "accent-muted-foreground",
       placeholderTextColorClassName
     )}
+    selectionColorClassName="accent-primary"
     {...props}
   />
 );

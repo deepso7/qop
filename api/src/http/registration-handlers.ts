@@ -1,20 +1,12 @@
 import { Effect, Layer } from "effect";
 import { HttpApiBuilder } from "effect/unstable/httpapi";
-import type { Hash } from "viem";
 
 import type { RegistrationEnrollmentError } from "../registration/enrollment.ts";
 import { RegistrationEnrollment } from "../registration/enrollment.ts";
-import {
-  normalizeDeviceCommitment,
-  normalizeRegistrationDigest,
-  normalizeRegistrationObserveTokenHash,
-  normalizeRegistrationOwner,
-  normalizeRegistrationOwnerSignature,
-} from "../registration/inputs.ts";
+import { normalizeRegistrationDigest } from "../registration/inputs.ts";
 import { QopHttpApi } from "./api.ts";
 import {
   RegistrationConflict,
-  RegistrationExpired,
   RegistrationInvalid,
   RegistrationNotFound,
   RegistrationServiceUnavailable,
@@ -23,7 +15,6 @@ import {
 
 export type RegistrationHttpError =
   | RegistrationConflict
-  | RegistrationExpired
   | RegistrationInvalid
   | RegistrationNotFound
   | RegistrationServiceUnavailable
@@ -33,55 +24,47 @@ export const mapRegistrationHttpError = (
   error: RegistrationEnrollmentError
 ): RegistrationHttpError => {
   switch (error._tag) {
-    case "RegistrationAdmissionUnauthorized": {
+    case "RegistrationAdmissionUnauthorized":
+    case "RegistrationSignatureMismatch": {
       return new RegistrationUnauthorized();
     }
     case "RegistrationHandleUnavailable": {
-      return new RegistrationConflict({
-        kind: "handle-unavailable",
-        qid: error.qid.toString(),
-      });
-    }
-    case "RegistrationOwnerUnavailable": {
-      return new RegistrationConflict({
-        kind: "owner-unavailable",
-        qid: error.qid.toString(),
-      });
-    }
-    case "HandleLeaseConflict": {
-      return new RegistrationConflict({ kind: "lease-conflict" });
-    }
-    case "RegistrationDraftLimitReached": {
-      return new RegistrationConflict({ kind: "draft-limit" });
-    }
-    case "RegistrationAdmissionDraftLimitReached": {
-      return new RegistrationConflict({ kind: "admission-draft-limit" });
-    }
-    case "RegistrationIntentConflict": {
-      return new RegistrationConflict({ kind: "intent-conflict" });
-    }
-    case "RegistrationTransitionConflict": {
-      // SAFETY: Registration transitions originate from a stored intent whose digest column is a Hash.
-      return error.actual === "expired"
-        ? new RegistrationExpired({ digest: error.digest as Hash })
+      return error.qid === undefined
+        ? new RegistrationConflict({ kind: "handle-unavailable" })
         : new RegistrationConflict({
-            actual: error.actual,
-            kind: "transition-conflict",
+            kind: "handle-unavailable",
+            qid: error.qid.toString(),
           });
     }
-    case "RegistrationIntentExpired": {
-      // SAFETY: A registration intent stores its digest in a Hash-typed database column.
-      return new RegistrationExpired({ digest: error.digest as Hash });
+    case "RegistrationActiveHandleConflict": {
+      return new RegistrationConflict({ kind: "handle-unavailable" });
+    }
+    case "RegistrationOwnerUnavailable": {
+      return error.qid === undefined
+        ? new RegistrationConflict({ kind: "owner-unavailable" })
+        : new RegistrationConflict({
+            kind: "owner-unavailable",
+            qid: error.qid.toString(),
+          });
+    }
+    case "RegistrationActiveOwnerConflict": {
+      return new RegistrationConflict({ kind: "owner-unavailable" });
+    }
+    case "RegistrationNonceUsed":
+    case "RegistrationNonceConflict": {
+      return new RegistrationConflict({ kind: "nonce-used" });
+    }
+    case "RegistrationTransitionConflict": {
+      return new RegistrationConflict({
+        actual: error.actual,
+        kind: "transition-conflict",
+      });
     }
     case "RegistrationIntentNotFound": {
-      // SAFETY: Lookup errors carry the caller's digest after RegistrationEnrollment normalizes it.
-      return new RegistrationNotFound({ digest: error.digest as Hash });
+      return new RegistrationNotFound({ digest: error.digest });
     }
-    case "RegistrationSignatureMismatch": {
-      return error.kind === "owner"
-        ? new RegistrationUnauthorized()
-        : new RegistrationServiceUnavailable();
-    }
+    case "IdentityCryptoError":
+    case "RegistrationDeadlineInvalid":
     case "RegistrationInputError":
     case "RegistryInputError": {
       return new RegistrationInvalid();
@@ -101,32 +84,10 @@ export const RegistrationApiHandlers = HttpApiBuilder.group(
     const enrollment = yield* RegistrationEnrollment;
 
     return handlers
-      .handle("prepare", ({ payload }) =>
-        Effect.all({
-          deviceCommitment: normalizeDeviceCommitment(payload.deviceCommitment),
-          observeTokenHash: normalizeRegistrationObserveTokenHash(
-            payload.observeTokenHash
-          ),
-          owner: normalizeRegistrationOwner(payload.owner),
-        }).pipe(
-          Effect.flatMap((normalized) =>
-            enrollment.prepare({ ...payload, ...normalized })
-          ),
-          transportErrors
-        )
+      .handle("register", ({ payload }) =>
+        enrollment.register(payload).pipe(transportErrors)
       )
-      .handle("authorize", ({ params, payload }) =>
-        Effect.all({
-          digest: normalizeRegistrationDigest(params.digest),
-          ownerSignature: normalizeRegistrationOwnerSignature(
-            payload.ownerSignature
-          ),
-        }).pipe(
-          Effect.flatMap((normalized) => enrollment.authorize(normalized)),
-          transportErrors
-        )
-      )
-      .handle("reconcile", ({ params }) =>
+      .handle("get", ({ params }) =>
         normalizeRegistrationDigest(params.digest).pipe(
           Effect.flatMap(enrollment.reconcile),
           transportErrors,

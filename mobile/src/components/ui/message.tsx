@@ -127,7 +127,7 @@ const messageBubbleVariants = cva("px-4 py-2.5", {
       failed: "border-destructive bg-primary rounded-[22px] border-2",
       incoming: "bg-background-element rounded-[22px]",
       outgoing: "bg-primary rounded-[22px]",
-      pending: "bg-primary/55 rounded-[22px]",
+      pending: "bg-primary rounded-[22px]",
     },
   },
 });
@@ -148,7 +148,7 @@ const MessageBubble = ({
   const align = React.use(MessageContext);
   const resolvedPosition = position ?? "single";
   const textClassName =
-    tone === "outgoing" || tone === "failed"
+    tone === "outgoing" || tone === "failed" || tone === "pending"
       ? "text-primary-foreground"
       : undefined;
 

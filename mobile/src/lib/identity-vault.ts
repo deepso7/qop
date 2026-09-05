@@ -18,9 +18,10 @@ const secureStoreOptions: SecureStore.SecureStoreOptions = {
 export const {
   createLocalIdentity,
   deleteLocalIdentity,
+  loadDeviceSecretKey,
   loadLocalIdentity,
   revealLocalIdentityRecoveryKey,
-  signLocalRegistrationIntent,
+  signRegisterIntent,
   updateLocalIdentityBackupState,
 } = createIdentityVault({
   makeInstallMarker: () => new File(Paths.document, ".qop-install-v1"),

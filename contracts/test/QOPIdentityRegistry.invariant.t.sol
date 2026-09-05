@@ -11,7 +11,7 @@ contract IdentityRegistryHandler is Test {
     uint256 public immutable registrationSignerKey;
 
     uint256 public successfulRegistrations;
-    uint256 public successfulRevocations;
+    uint256 public successfulDeviceRotations;
     uint256 public successfulRotations;
 
     uint256[] private _qids;
@@ -34,7 +34,7 @@ contract IdentityRegistryHandler is Test {
         QOPIdentityRegistry.RegisterIntent memory intent = QOPIdentityRegistry.RegisterIntent({
             handle: handle,
             owner: owner,
-            deviceCommitment: keccak256(abi.encode("device", registrationNonce)),
+            deviceKey: keccak256(abi.encode("device", registrationNonce)),
             nonce: registrationNonce,
             deadline: type(uint64).max
         });
@@ -66,18 +66,19 @@ contract IdentityRegistryHandler is Test {
         successfulRotations += 1;
     }
 
-    function revoke(uint256 qidSeed, bytes32 digestSeed) external {
+    function rotateDevice(uint256 qidSeed, bytes32 deviceKeySeed) external {
         if (_qids.length == 0) return;
         uint256 qid = _qids[qidSeed % _qids.length];
-        bytes32 certificateDigest = keccak256(abi.encode(qid, digestSeed, successfulRevocations));
+        bytes32 newDeviceKey = keccak256(abi.encode(qid, deviceKeySeed, successfulDeviceRotations));
+        if (newDeviceKey == bytes32(0) || newDeviceKey == registry.account(qid).deviceKey) return;
 
-        QOPIdentityRegistry.RevokeDeviceIntent memory intent = QOPIdentityRegistry.RevokeDeviceIntent({
-            qid: qid, certificateDigest: certificateDigest, nonce: expectedNonces[qid], deadline: type(uint64).max
+        QOPIdentityRegistry.RotateDeviceIntent memory intent = QOPIdentityRegistry.RotateDeviceIntent({
+            qid: qid, newDeviceKey: newDeviceKey, nonce: expectedNonces[qid], deadline: type(uint64).max
         });
-        registry.revokeDevice(intent, _sign(_ownerKeys[qid], registry.hashRevokeDeviceIntent(intent)));
+        registry.rotateDevice(intent, _sign(_ownerKeys[qid], registry.hashRotateDeviceIntent(intent)));
 
         expectedNonces[qid] += 1;
-        successfulRevocations += 1;
+        successfulDeviceRotations += 1;
     }
 
     function qidAt(uint256 index) external view returns (uint256) {
@@ -117,7 +118,7 @@ contract QOPIdentityRegistryInvariantTest is StdInvariant, Test {
         bytes4[] memory selectors = new bytes4[](3);
         selectors[0] = IdentityRegistryHandler.register.selector;
         selectors[1] = IdentityRegistryHandler.rotate.selector;
-        selectors[2] = IdentityRegistryHandler.revoke.selector;
+        selectors[2] = IdentityRegistryHandler.rotateDevice.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
         targetContract(address(handler));
     }
@@ -134,13 +135,15 @@ contract QOPIdentityRegistryInvariantTest is StdInvariant, Test {
 
             assertEq(qid, index + 1);
             assertTrue(stored.owner != address(0));
+            assertTrue(stored.deviceKey != bytes32(0));
             assertEq(registry.qidByOwner(stored.owner), qid);
+            assertEq(registry.qidByDeviceKey(stored.deviceKey), qid);
             assertEq(registry.qidByHandleHash(keccak256(bytes(stored.handle))), qid);
             assertEq(stored.nonce, handler.expectedNonces(qid));
             assertEq(stored.ownerVersion, handler.expectedOwnerVersions(qid));
             totalAccountActions += stored.nonce;
         }
 
-        assertEq(totalAccountActions, handler.successfulRotations() + handler.successfulRevocations());
+        assertEq(totalAccountActions, handler.successfulRotations() + handler.successfulDeviceRotations());
     }
 }

@@ -10,7 +10,6 @@ describe("api environment", () => {
         {
           CHAIN_ID: "31337",
           DATABASE_URL: "postgresql://user:password@localhost:5432/qop",
-          GATEWAY_ID: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
           PORT: "3000",
           REGISTRATION_PRIVATE_KEY: `0x${"11".repeat(32)}`,
           REGISTRY_ADDRESS: "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf",

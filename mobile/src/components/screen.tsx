@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 
 const contentVariants = {
   catalog: "w-full max-w-3xl self-center gap-7 px-6 pt-12",
-  content: "w-full max-w-2xl self-center gap-8 px-6 pt-12",
+  content: "w-full max-w-2xl self-center gap-8 px-5 pt-10",
   hero: "w-full max-w-2xl self-center gap-6 px-6 pt-16",
 } as const;
 

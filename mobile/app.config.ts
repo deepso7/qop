@@ -87,6 +87,7 @@ const createExpoConfig = ({ config }: ConfigContext): ExpoConfig => {
       }),
       "expo-font",
       "expo-secure-store",
+      "expo-sqlite",
       [
         "expo-splash-screen",
         {

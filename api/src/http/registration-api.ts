@@ -1,11 +1,6 @@
 import {
-  Base64Url32,
-  DeviceCommitment,
   EcdsaSignature,
-  Handle,
   Hex32,
-  IdentityEip712DomainV1,
-  PeerId,
   Qid,
   RegisterIntentV1,
   RegistrationAdmissionCode,
@@ -19,33 +14,14 @@ import {
 
 import { registrationIntentStatuses } from "../registration/types.ts";
 
-const Digest = Hex32.pipe(Schema.decodeTo(Hex32.pipe(Schema.flip)));
-const PeerIdString = PeerId.pipe(Schema.decodeTo(PeerId.pipe(Schema.flip)));
-const CanonicalSignature = EcdsaSignature.pipe(
-  Schema.decodeTo(EcdsaSignature.pipe(Schema.flip))
-);
-const CanonicalQid = Qid.pipe(Schema.decodeTo(Qid.pipe(Schema.flip)));
-const CanonicalBase64Url32 = Base64Url32.pipe(
-  Schema.decodeTo(Base64Url32.pipe(Schema.flip))
-);
-const CanonicalAdmissionCode = RegistrationAdmissionCode.pipe(
-  Schema.decodeTo(RegistrationAdmissionCode.pipe(Schema.flip))
-);
-const CanonicalDeviceCommitment = DeviceCommitment.pipe(
-  Schema.decodeTo(DeviceCommitment.pipe(Schema.flip))
-);
-const CanonicalRegisterIntent = RegisterIntentV1.pipe(
-  Schema.decodeTo(RegisterIntentV1.pipe(Schema.flip))
-);
-const CanonicalIdentityDomain = IdentityEip712DomainV1.pipe(
-  Schema.decodeTo(IdentityEip712DomainV1.pipe(Schema.flip))
-);
+const canonical = <S extends Schema.Top>(schema: S) =>
+  schema.pipe(Schema.decodeTo(schema.pipe(Schema.flip)));
 
-const AddressInput = Schema.String.check(
-  Schema.isPattern(/^0x[0-9a-f]{40}$/iu, {
-    expected: "a 20-byte 0x-prefixed Ethereum address",
-  })
-);
+const Digest = canonical(Hex32);
+const CanonicalSignature = canonical(EcdsaSignature);
+const CanonicalQid = canonical(Qid);
+const CanonicalAdmissionCode = canonical(RegistrationAdmissionCode);
+const CanonicalRegisterIntent = canonical(RegisterIntentV1);
 
 const WalletSignatureInput = Schema.String.check(
   Schema.isPattern(/^0x[0-9a-f]{128}(?:00|01|1b|1c)$/iu, {
@@ -59,33 +35,17 @@ const DigestInput = Schema.String.check(
   })
 );
 
-export const PrepareRegistrationPayload = Schema.Struct({
+export const RegisterRegistrationPayload = Schema.Struct({
   admissionCode: CanonicalAdmissionCode,
-  deviceCommitment: CanonicalDeviceCommitment,
-  handle: Handle,
-  idempotencyKey: CanonicalBase64Url32,
-  observeTokenHash: DigestInput,
-  owner: AddressInput,
-  peerId: PeerIdString,
-});
-
-export const AuthorizeRegistrationPayload = Schema.Struct({
+  intent: CanonicalRegisterIntent,
   ownerSignature: WalletSignatureInput,
 });
 
-export const PreparedRegistrationResponse = Schema.Struct({
+export const RegisteredRegistrationResponse = Schema.Struct({
   digest: Digest,
-  domain: CanonicalIdentityDomain,
-  intent: CanonicalRegisterIntent,
-  status: Schema.Literal("pending_owner_signature"),
-});
-
-export const AuthorizedRegistrationResponse = Schema.Struct({
-  digest: Digest,
-  intent: CanonicalRegisterIntent,
-  ownerSignature: CanonicalSignature,
   registrationSignature: CanonicalSignature,
-  status: Schema.Literals(["confirmed", "ready", "submitted"]),
+  status: Schema.Literals(["submitted", "confirmed"]),
+  transactionHash: Digest,
 });
 
 export const ReconciledRegistrationResponse = Schema.Struct({
@@ -93,6 +53,7 @@ export const ReconciledRegistrationResponse = Schema.Struct({
   failureCode: Schema.NullOr(Schema.String),
   qid: Schema.NullOr(CanonicalQid),
   status: Schema.Literals(registrationIntentStatuses),
+  transactionHash: Schema.NullOr(Digest),
 });
 
 export class RegistrationConflict extends Schema.TaggedErrorClass<RegistrationConflict>()(
@@ -101,22 +62,13 @@ export class RegistrationConflict extends Schema.TaggedErrorClass<RegistrationCo
     actual: Schema.optionalKey(Schema.Literals(registrationIntentStatuses)),
     kind: Schema.Literals([
       "handle-unavailable",
-      "admission-draft-limit",
-      "draft-limit",
-      "intent-conflict",
-      "lease-conflict",
+      "nonce-used",
       "owner-unavailable",
       "transition-conflict",
     ]),
     qid: Schema.optionalKey(CanonicalQid),
   },
   { httpApiStatus: 409 }
-) {}
-
-export class RegistrationExpired extends Schema.TaggedErrorClass<RegistrationExpired>()(
-  "RegistrationExpired",
-  { digest: Digest },
-  { httpApiStatus: 410 }
 ) {}
 
 export class RegistrationNotFound extends Schema.TaggedErrorClass<RegistrationNotFound>()(
@@ -145,7 +97,6 @@ export class RegistrationServiceUnavailable extends Schema.TaggedErrorClass<Regi
 
 const RegistrationErrors = [
   RegistrationConflict,
-  RegistrationExpired,
   RegistrationInvalid,
   RegistrationNotFound,
   RegistrationServiceUnavailable,
@@ -154,18 +105,12 @@ const RegistrationErrors = [
 
 export class RegistrationApiGroup extends HttpApiGroup.make("registrations")
   .add(
-    HttpApiEndpoint.post("prepare", "/", {
+    HttpApiEndpoint.post("register", "/", {
       error: RegistrationErrors,
-      payload: PrepareRegistrationPayload,
-      success: PreparedRegistrationResponse,
+      payload: RegisterRegistrationPayload,
+      success: RegisteredRegistrationResponse,
     }),
-    HttpApiEndpoint.post("authorize", "/:digest/authorize", {
-      error: RegistrationErrors,
-      params: { digest: DigestInput },
-      payload: AuthorizeRegistrationPayload,
-      success: AuthorizedRegistrationResponse,
-    }),
-    HttpApiEndpoint.post("reconcile", "/:digest/reconcile", {
+    HttpApiEndpoint.get("get", "/:digest", {
       error: RegistrationErrors,
       params: { digest: DigestInput },
       success: ReconciledRegistrationResponse,
@@ -174,7 +119,7 @@ export class RegistrationApiGroup extends HttpApiGroup.make("registrations")
   .prefix("/v1/registrations")
   .annotateMerge(
     OpenApi.annotations({
-      description: "Prepare, authorize, and reconcile identity registrations.",
+      description: "Submit and reconcile invitation-gated registrations.",
       title: "Registrations",
     })
   ) {}

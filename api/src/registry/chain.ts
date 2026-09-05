@@ -11,7 +11,6 @@ import type { Address, Hash } from "viem";
 import { Env } from "../env.ts";
 import { registryReadAbi } from "./abi.ts";
 import {
-  normalizeCertificateDigest,
   normalizeRegistryHandle,
   normalizeRegistryOwner,
   normalizeRegistryRegistrationNonce,
@@ -27,7 +26,6 @@ type RegistryChainOperation =
   | "account"
   | "chain-id"
   | "confirmed-block"
-  | "device-revocation"
   | "qid-by-handle"
   | "qid-by-owner"
   | "registration-probe";
@@ -55,10 +53,6 @@ export interface RegistryChainContract {
   readonly account: (
     qid: bigint
   ) => Effect.Effect<RegistrySnapshot<RegistryAccount>, RegistryChainError>;
-  readonly deviceRevocation: (
-    qid: bigint,
-    certificateDigest: Hash
-  ) => Effect.Effect<RegistrySnapshot<boolean>, RegistryChainReadError>;
   readonly qidByHandle: (
     handle: string
   ) => Effect.Effect<RegistrySnapshot<bigint | null>, RegistryChainReadError>;
@@ -119,7 +113,7 @@ export class RegistryChain extends Context.Service<
         qid: bigint
       ) {
         const blockNumber = yield* confirmedBlock;
-        const [owner, ownerVersion, registeredAt, nonce, handle] =
+        const { owner, deviceKey, ownerVersion, registeredAt, nonce, handle } =
           yield* Effect.tryPromise({
             catch: (cause) =>
               new RegistryChainError({ cause, operation: "account" }),
@@ -136,6 +130,7 @@ export class RegistryChain extends Context.Service<
         return {
           blockNumber,
           value: {
+            deviceKey,
             handle,
             nonce,
             // SAFETY: viem decodes the contract's address return as an Address.
@@ -146,30 +141,6 @@ export class RegistryChain extends Context.Service<
           },
         } satisfies RegistrySnapshot<RegistryAccount>;
       });
-
-      const deviceRevocation = Effect.fn("RegistryChain.deviceRevocation")(
-        function* (qid: bigint, certificateDigest: Hash) {
-          const canonicalDigest =
-            yield* normalizeCertificateDigest(certificateDigest);
-          const blockNumber = yield* confirmedBlock;
-          const value = yield* Effect.tryPromise({
-            catch: (cause) =>
-              new RegistryChainError({
-                cause,
-                operation: "device-revocation",
-              }),
-            try: () =>
-              client.readContract({
-                abi: registryReadAbi,
-                address: registryAddress,
-                args: [qid, canonicalDigest],
-                blockNumber,
-                functionName: "isDeviceRevoked",
-              }),
-          });
-          return { blockNumber, value } satisfies RegistrySnapshot<boolean>;
-        }
-      );
 
       const qidByHandle = Effect.fn("RegistryChain.qidByHandle")(function* (
         handle: string
@@ -273,7 +244,6 @@ export class RegistryChain extends Context.Service<
 
       return RegistryChain.of({
         account,
-        deviceRevocation,
         qidByHandle,
         qidByOwner,
         registrationProbe,

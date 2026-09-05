@@ -1,7 +1,9 @@
 import { ArrowUp, Plus, Square } from "lucide-react-native";
 import * as React from "react";
-import { Pressable, TextInput, View } from "react-native";
+import type { Pressable } from "react-native";
+import { TextInput, View } from "react-native";
 
+import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
@@ -39,13 +41,15 @@ const ChatComposerButton = ({
 }: ChatComposerButtonProps) => {
   const { icon, label } = composerButtonContent[kind];
   return (
-    <Pressable
+    <Button
+      size="icon"
+      variant={kind === "add" ? "secondary" : "default"}
       accessibilityLabel={label}
       accessibilityRole="button"
       className={cn(
         "size-11 shrink-0 items-center justify-center rounded-full",
         kind === "add" ? "bg-background-element" : "bg-primary",
-        disabled && "opacity-35",
+        disabled && "bg-background-element opacity-100",
         className
       )}
       disabled={disabled}
@@ -57,10 +61,11 @@ const ChatComposerButton = ({
         className={cn(
           "size-5",
           kind !== "add" && "text-primary-foreground",
+          disabled && "text-foreground-secondary",
           kind === "stop" && "fill-primary-foreground size-3"
         )}
       />
-    </Pressable>
+    </Button>
   );
 };
 
@@ -70,12 +75,13 @@ const ChatComposerInput = ({
 }: React.ComponentProps<typeof TextInput>) => (
   <TextInput
     className={cn(
-      "bg-background-element text-foreground min-h-11 flex-1 rounded-[20px] px-4 py-2.5 text-base leading-5",
+      "bg-background-element text-foreground max-h-40 min-h-11 flex-1 rounded-[20px] px-4 py-2.5 text-base leading-5",
       className
     )}
     multiline
     placeholder="Message"
-    placeholderTextColorClassName="accent-muted-foreground/60"
+    placeholderTextColorClassName="accent-muted-foreground"
+    selectionColorClassName="accent-primary"
     textAlignVertical="center"
     {...props}
   />

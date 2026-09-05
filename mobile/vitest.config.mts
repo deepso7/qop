@@ -9,7 +9,13 @@ export default defineConfig({
     },
   },
   test: {
+    alias: {
+      "expo-sqlite": fileURLToPath(
+        new URL("test/support/sqlite.ts", import.meta.url)
+      ),
+    },
     environment: "node",
     include: ["test/**/*.test.ts"],
+    server: { deps: { inline: ["@minip2p/react-native"] } },
   },
 });

@@ -1,13 +1,6 @@
 import type { ListRenderItem } from "@shopify/flash-list";
+import { useFocusEffect } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
-import {
-  Copy,
-  Forward,
-  MoreHorizontal,
-  Reply,
-  Star,
-  Trash2,
-} from "lucide-react-native";
 import * as React from "react";
 import { View } from "react-native";
 import {
@@ -20,239 +13,225 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { Button } from "@/components/ui/button";
 import {
   ChatComposer,
   ChatComposerButton,
   ChatComposerInput,
 } from "@/components/ui/chat-composer";
 import {
+  Empty,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyTitle,
+} from "@/components/ui/empty";
+import {
   Message,
   MessageBubble,
   MessageContent,
-  MessageDate,
-  MessageLongPressMenu,
   MessageMeta,
-  MessageReply,
-  MessageReaction,
-  MessageReactions,
-  MessageSystem,
-  MessageTyping,
+  MessageStatus,
 } from "@/components/ui/message";
-import type { MessageAction } from "@/components/ui/message";
 import { MessageScroller } from "@/components/ui/message-scroller";
 import { Text } from "@/components/ui/text";
-import { useMinip2pChat } from "@/hooks/use-minip2p-chat";
-import type { ReceivedChatMessage } from "@/hooks/use-minip2p-chat";
-
-type DeliveryStatus = "read" | "sending" | "sent";
-
-interface ChatMessage {
-  id: string;
-  kind: "message";
-  outgoing: boolean;
-  reactions?: string[];
-  reply?: { author: string; preview: string };
-  status?: DeliveryStatus;
-  text: string;
-  time: string;
-}
-
-interface ChatDate {
-  id: string;
-  kind: "date";
-  text: string;
-}
-
-interface ChatSystemMessage {
-  id: string;
-  kind: "system";
-  text: string;
-}
-
-interface ChatTyping {
-  id: string;
-  kind: "typing";
-}
-
-type ConversationItem = ChatDate | ChatMessage | ChatSystemMessage | ChatTyping;
-
-const initialMessages: ConversationItem[] = [
-  { id: "date-today", kind: "date", text: "Today" },
-  {
-    id: "poc-notice",
-    kind: "system",
-    text: "Relay-backed minip2p POC · messages are not persisted",
-  },
-];
-
-const messageActions: MessageAction[] = [
-  { icon: Reply, id: "reply", label: "Reply" },
-  { icon: Forward, id: "forward", label: "Forward" },
-  { icon: Copy, id: "copy", label: "Copy" },
-  { icon: Star, id: "star", label: "Star" },
-  { destructive: true, icon: Trash2, id: "delete", label: "Delete" },
-  {
-    icon: MoreHorizontal,
-    id: "more",
-    label: "More…",
-    separatorBefore: true,
-  },
-];
+import { listMessages, markConversationRead } from "@/lib/db";
+import type { Contact, StoredMessage } from "@/lib/db";
+import { selectionHaptic } from "@/lib/haptics";
+import { useP2pStore } from "@/lib/p2p-store";
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
   minute: "2-digit",
 });
 
-const getMessageId = ({ id }: ConversationItem) => id;
-const getItemType = ({ kind }: ConversationItem) => kind;
+const getMessageId = ({ id }: StoredMessage) => id;
 const ConversationSeparator = () => <View className="h-2.5" />;
 
-interface ConversationMessageProps {
-  item: ChatMessage;
-  onReaction: (messageId: string, emoji: string) => void;
-}
-
-const ConversationMessage = ({
-  item,
-  onReaction,
-}: ConversationMessageProps) => {
-  const align = item.outgoing ? "end" : "start";
-  const handleReaction = React.useCallback(
-    (emoji: string) => onReaction(item.id, emoji),
-    [item.id, onReaction]
-  );
-
-  return (
-    <Message align={align}>
-      <MessageContent>
-        <MessageLongPressMenu
-          accessibilityLabel={`Open actions for ${item.text}`}
-          actions={messageActions}
-          align={align}
-          onReaction={handleReaction}
-        >
-          <MessageBubble tone={item.outgoing ? "outgoing" : "incoming"}>
-            {item.reply ? (
-              <MessageReply
-                author={item.reply.author}
-                preview={item.reply.preview}
-              />
-            ) : null}
-            <Text selectable>{item.text}</Text>
-            <MessageMeta status={item.status} time={item.time} />
-          </MessageBubble>
-        </MessageLongPressMenu>
-        {item.reactions?.length ? (
-          <MessageReactions>
-            {item.reactions.map((emoji) => (
-              <MessageReaction emoji={emoji} key={emoji} />
-            ))}
-          </MessageReactions>
-        ) : null}
-      </MessageContent>
-    </Message>
-  );
+const getMessagePresentation = (item: StoredMessage) => {
+  const outgoing = item.direction === "out";
+  if (item.status === "failed") {
+    return { metaStatus: undefined, outgoing, tone: "failed" as const };
+  }
+  if (item.status === "sending") {
+    return {
+      metaStatus: "sending" as const,
+      outgoing,
+      tone: "pending" as const,
+    };
+  }
+  return {
+    metaStatus: item.status === "sent" ? ("sent" as const) : undefined,
+    outgoing,
+    tone: outgoing ? ("outgoing" as const) : ("incoming" as const),
+  };
 };
 
-interface ConversationScreenProps {
-  conversationId: string;
-  peerName: string;
-}
+const ConversationMessage = React.memo(
+  // oxlint-disable-next-line eslint/prefer-arrow-callback -- A name keeps the memoized row identifiable in DevTools.
+  function ConversationMessage({
+    item,
+    retry,
+  }: {
+    item: StoredMessage;
+    retry: (id: string) => void;
+  }) {
+    const { metaStatus, outgoing, tone } = getMessagePresentation(item);
+    return (
+      <Message align={outgoing ? "end" : "start"}>
+        <MessageContent>
+          <MessageBubble tone={tone}>
+            <Text selectable>{item.text}</Text>
+            <MessageMeta
+              status={metaStatus}
+              time={timeFormatter.format(new Date(item.receivedAt))}
+            />
+          </MessageBubble>
+          {item.status === "failed" ? (
+            <MessageStatus
+              label="Not sent · Tap to retry"
+              onPress={() => retry(item.id)}
+              tone="failed"
+            />
+          ) : null}
+        </MessageContent>
+      </Message>
+    );
+  }
+);
+ConversationMessage.displayName = "ConversationMessage";
 
-const ConversationScreen = ({
-  conversationId,
-  peerName,
-}: ConversationScreenProps) => {
+const EmptyConversation = () => (
+  <Empty className="min-h-64">
+    <EmptyHeader>
+      <EmptyTitle>No messages yet</EmptyTitle>
+      <EmptyDescription>Send the first message.</EmptyDescription>
+    </EmptyHeader>
+  </Empty>
+);
+
+const ConversationScreen = ({ contact }: { contact: Contact }) => {
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
   const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
   const [draft, setDraft] = React.useState("");
-  const [messages, setMessages] = React.useState(initialMessages);
+  const [messages, setMessages] = React.useState<StoredMessage[]>([]);
+  const [loadError, setLoadError] = React.useState(false);
+  const [retryCount, retryLoad] = React.useReducer(
+    (count: number) => count + 1,
+    0
+  );
+  // A dial may resolve a newer peerId than the persisted contact after device-key rotation.
+  const [dialTarget, setDialTarget] = React.useState(() => ({
+    contactPeerId: contact.peerId,
+    peerId: contact.peerId,
+  }));
+  const connectedPeerIds = useP2pStore((state) => state.connectedPeerIds);
+  const connectTo = useP2pStore((state) => state.connectTo);
+  const retryMessage = useP2pStore((state) => state.retryMessage);
+  const revision = useP2pStore((state) => state.revision);
+  const sendMessage = useP2pStore((state) => state.sendMessage);
+  const status = useP2pStore((state) => state.status);
+  const dialPeerId =
+    dialTarget.contactPeerId === contact.peerId
+      ? dialTarget.peerId
+      : contact.peerId;
 
-  const receiveMessage = React.useCallback((message: ReceivedChatMessage) => {
-    const id = `${message.fromPeerId}:${message.id}`;
-    setMessages((current) => {
-      if (current.some((item) => item.id === id)) {
-        return current;
-      }
-      return [
-        ...current,
-        {
-          id,
-          kind: "message",
-          outgoing: false,
-          text: message.text,
-          time: timeFormatter.format(new Date(message.sentAt)),
-        },
-      ];
-    });
-  }, []);
-  const p2p = useMinip2pChat(conversationId, receiveMessage);
-  const { canPublish, diagnostics, label, peerId, publish, status } = p2p;
-
-  const addReaction = React.useCallback((messageId: string, emoji: string) => {
-    setMessages((current) =>
-      current.map((item) => {
-        if (item.kind !== "message" || item.id !== messageId) {
-          return item;
+  // revision is process-global (any chat send/receive). Reloading here keeps the
+  // focused thread live. Advance the read cursor only through messages that the
+  // refresh loaded, so a concurrent arrival remains unread until the next refresh.
+  useFocusEffect(
+    React.useCallback(() => {
+      let active = true;
+      const refresh = async (_revision: number, _retryCount: number) => {
+        try {
+          const rows = await listMessages(contact.qid);
+          if (active) {
+            setMessages(rows);
+            setLoadError(false);
+            const latestReceivedAt = rows.at(-1)?.receivedAt;
+            if (latestReceivedAt !== undefined) {
+              try {
+                await markConversationRead(contact.qid, latestReceivedAt);
+              } catch {
+                // Message loading still succeeds if the read cursor write fails.
+              }
+            }
+          }
+        } catch {
+          if (active) {
+            setLoadError(true);
+          }
         }
-        const reactions = item.reactions ?? [];
-        return reactions.includes(emoji)
-          ? item
-          : { ...item, reactions: [...reactions, emoji] };
-      })
-    );
-  }, []);
-
-  const renderItem = React.useCallback<ListRenderItem<ConversationItem>>(
-    ({ item }) => {
-      if (item.kind === "date") {
-        return <MessageDate>{item.text}</MessageDate>;
-      }
-      if (item.kind === "system") {
-        return <MessageSystem>{item.text}</MessageSystem>;
-      }
-      if (item.kind === "typing") {
-        return <MessageTyping label={`${peerName} is typing`} />;
-      }
-      return <ConversationMessage item={item} onReaction={addReaction} />;
-    },
-    [addReaction, peerName]
+      };
+      void refresh(revision, retryCount);
+      return () => {
+        active = false;
+      };
+    }, [contact.qid, revision, retryCount])
   );
 
-  const sendMessage = () => {
-    const text = draft.trim();
-    if (!text) {
-      return;
-    }
-    let published;
-    try {
-      published = publish(text);
-    } catch {
-      return;
-    }
-    setMessages((current) => [
-      ...current,
-      {
-        id: published.id,
-        kind: "message",
-        outgoing: true,
-        status: "sent",
-        text: published.text,
-        time: timeFormatter.format(new Date(published.sentAt)),
-      },
-    ]);
-    setDraft("");
-  };
+  const reachable = connectedPeerIds.includes(dialPeerId);
+  // Redial when focus is active, P2P is up, and this peer is not connected.
+  useFocusEffect(
+    React.useCallback(() => {
+      if (status !== "running" || reachable) {
+        return;
+      }
+      let cancelled = false;
+      void (async () => {
+        const peerId = await connectTo({
+          handle: contact.handle,
+          qid: contact.qid,
+        });
+        if (!cancelled && peerId) {
+          setDialTarget({ contactPeerId: contact.peerId, peerId });
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [
+      connectTo,
+      contact.handle,
+      contact.peerId,
+      contact.qid,
+      reachable,
+      status,
+    ])
+  );
 
-  const canSend = draft.trim().length > 0 && canPublish;
-  let statusIndicatorClassName = "size-2 rounded-full bg-amber-500";
-  if (status === "ready") {
-    statusIndicatorClassName = "size-2 rounded-full bg-green-500";
-  } else if (status === "failed" || status === "closed") {
-    statusIndicatorClassName = "bg-destructive size-2 rounded-full";
+  const retry = React.useCallback(
+    (id: string) => {
+      void selectionHaptic();
+      void retryMessage(id);
+    },
+    [retryMessage]
+  );
+  const renderItem = React.useCallback<ListRenderItem<StoredMessage>>(
+    ({ item }) => <ConversationMessage item={item} retry={retry} />,
+    [retry]
+  );
+  const submit = React.useCallback(() => {
+    const text = draft.trim();
+    if (!text || status !== "running") {
+      return;
+    }
+    void selectionHaptic();
+    setDraft("");
+    void sendMessage(contact, text);
+  }, [contact, draft, sendMessage, status]);
+
+  const unavailable = status === "failed" || status === "stopped";
+  let statusLabel = "Not connected";
+  let statusClassName = "bg-amber-500";
+  if (unavailable) {
+    statusLabel = "P2P unavailable";
+    statusClassName = "bg-destructive";
+  } else if (reachable) {
+    statusLabel = "Reachable";
+    statusClassName = "bg-green-500";
   }
+  const canSend = status === "running" && draft.trim().length > 0;
   const composerStyle = useAnimatedStyle(
     () => ({
       paddingBottom: interpolate(
@@ -270,42 +249,27 @@ const ConversationScreen = ({
       className="bg-background flex-1"
       keyboardVerticalOffset={headerHeight}
     >
-      <View className="border-border gap-1 border-b px-4 py-2">
-        <View className="flex-row items-center gap-2">
-          <View className={statusIndicatorClassName} />
-          <Text
-            className="text-foreground-secondary min-w-0 flex-1 text-xs"
-            numberOfLines={1}
-            selectable
-          >
-            {label}
-          </Text>
-          {peerId ? (
-            <Text
-              className="text-foreground-secondary text-xs opacity-60"
-              selectable
-            >
-              {peerId.slice(0, 8)}
-            </Text>
-          ) : null}
-        </View>
-        {diagnostics ? (
-          <Text
-            className="text-foreground-secondary font-mono text-[10px] opacity-70"
-            numberOfLines={3}
-            selectable
-          >
-            {diagnostics}
-          </Text>
-        ) : null}
+      <View className="border-border flex-row items-center gap-2 border-b px-4 py-2">
+        <View className={`size-2 rounded-full ${statusClassName}`} />
+        <Text className="text-foreground-secondary text-xs" selectable>
+          {statusLabel}
+        </Text>
       </View>
+      {loadError ? (
+        <View className="gap-3 p-4">
+          <Text>Could not load messages.</Text>
+          <Button onPress={retryLoad} variant="outline">
+            <Text>Retry</Text>
+          </Button>
+        </View>
+      ) : null}
       <MessageScroller
         contentClassName="gap-0 px-4 py-3"
         data={messages}
         followOutput
-        getItemType={getItemType}
         getMessageId={getMessageId}
         ItemSeparatorComponent={ConversationSeparator}
+        ListEmptyComponent={loadError ? null : EmptyConversation}
         renderItem={renderItem}
       />
       <Animated.View
@@ -313,14 +277,15 @@ const ConversationScreen = ({
         style={composerStyle}
       >
         <ChatComposer className="border-0 p-0">
-          <ChatComposerButton kind="add" />
           <ChatComposerInput
             accessibilityLabel="Message"
+            editable={status === "running"}
+            maxLength={4000}
             onChangeText={setDraft}
-            onSubmitEditing={sendMessage}
+            onSubmitEditing={submit}
             value={draft}
           />
-          <ChatComposerButton disabled={!canSend} onPress={sendMessage} />
+          <ChatComposerButton disabled={!canSend} onPress={submit} />
         </ChatComposer>
       </Animated.View>
     </KeyboardAvoidingView>

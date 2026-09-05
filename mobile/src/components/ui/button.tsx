@@ -115,7 +115,6 @@ const buttonTextVariants = cva(
 );
 
 type ButtonProps = React.ComponentProps<typeof Pressable> &
-  React.RefAttributes<typeof Pressable> &
   VariantProps<typeof buttonVariants>;
 
 const getDefaultHitSlop = (size: ButtonProps["size"]) =>
@@ -129,6 +128,7 @@ const Button = ({
   style,
   variant,
   size,
+  accessibilityState,
   ...props
 }: ButtonProps) => {
   const defaultHitSlop = getDefaultHitSlop(size);
@@ -165,6 +165,10 @@ const Button = ({
           className
         )}
         accessibilityRole="button"
+        accessibilityState={{
+          ...accessibilityState,
+          disabled: Boolean(props.disabled),
+        }}
         hitSlop={hitSlop ?? defaultHitSlop}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}

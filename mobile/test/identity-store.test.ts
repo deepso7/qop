@@ -15,38 +15,51 @@ const registrationMock = {
   deleteLocalRegistration: vi.fn(),
   loadLocalRegistration: vi.fn(),
 };
+const deleteAllData = vi.fn();
+const stopP2p = vi.fn();
 
 const identity = {
   backupState: "pending",
-  encryptionPublicKey: "encryption-public",
+  deviceKey: `0x${"22".repeat(32)}`,
   handle: "alice",
   ownerAddress: "0x0000000000000000000000000000000000000001",
   peerId: "peer-id",
-  version: 1,
+  version: 2,
+};
+
+const confirmedRegistration = {
+  deadline: "1700001800",
+  digest: `0x${"11".repeat(32)}`,
+  failureCode: null,
+  handle: "alice",
+  nonce: `0x${"33".repeat(32)}`,
+  ownerAddress: identity.ownerAddress,
+  qid: "1",
+  status: "confirmed" as const,
+  version: 2 as const,
 };
 
 const deferred = <A>() => Promise.withResolvers<A>();
 
 const loadStore = () =>
   createIdentityStore({
+    deleteAllData,
     identityVault: vaultMock,
     makeIdentityVaultError: (operation) =>
       new IdentityVaultError({ operation }),
     registration: registrationMock,
+    stopP2p,
   });
 
 beforeEach(() => {
+  deleteAllData.mockReset().mockImplementation(() => Promise.resolve());
+  stopP2p.mockReset().mockImplementation(() => Promise.resolve());
   registrationMock.deleteLocalRegistration
     .mockReset()
     .mockReturnValue(Effect.void);
-  registrationMock.loadLocalRegistration.mockReset().mockReturnValue(
-    Effect.succeed({
-      digest: "0x01",
-      qid: "1",
-      status: "confirmed",
-      version: 1,
-    })
-  );
+  registrationMock.loadLocalRegistration
+    .mockReset()
+    .mockReturnValue(Effect.succeed(confirmedRegistration));
   vaultMock.createLocalIdentity.mockReset();
   vaultMock.deleteLocalIdentity.mockReset().mockReturnValue(Effect.void);
   vaultMock.loadLocalIdentity.mockReset().mockReturnValue(Effect.succeed(null));
@@ -57,6 +70,38 @@ beforeEach(() => {
 });
 
 describe("identity store", () => {
+  it("rejects creation while reset is deleting data", async () => {
+    const stopped = deferred<null>();
+    stopP2p.mockReturnValueOnce(stopped.promise);
+    const store = loadStore();
+    const reset = store.getState().resetIdentity();
+    const create = await store.getState().createIdentity("alice");
+    expect(Result.isFailure(create) && create.failure.operation).toBe("create");
+    expect(vaultMock.createLocalIdentity).not.toHaveBeenCalled();
+    expect(store.getState().status).toBe("resetting");
+    stopped.resolve(null);
+    await reset;
+    expect(store.getState().status).toBe("absent");
+  });
+
+  it.each(["decode", "verify"])(
+    "offers reset for registration %s failures",
+    async (operation) => {
+      vaultMock.loadLocalIdentity.mockReturnValue(Effect.succeed(identity));
+      registrationMock.loadLocalRegistration.mockReturnValue(
+        Effect.fail({ operation })
+      );
+      const store = loadStore();
+      await store.getState().hydrate();
+      expect(store.getState()).toMatchObject({
+        error: { operation: "decode" },
+        status: "error",
+      });
+      await store.getState().resetIdentity();
+      expect(store.getState().status).toBe("absent");
+    }
+  );
+
   it("fences a stale hydrate after identity creation", async () => {
     const hydration = deferred<null>();
     vaultMock.loadLocalIdentity.mockReturnValue(
@@ -110,6 +155,9 @@ describe("identity store", () => {
     vaultMock.loadLocalIdentity.mockReturnValue(
       Effect.succeed(skippedIdentity)
     );
+    registrationMock.loadLocalRegistration.mockReturnValue(
+      Effect.succeed(null)
+    );
     vaultMock.updateLocalIdentityBackupState.mockReturnValue(
       Effect.succeed(backedUpIdentity)
     );
@@ -121,7 +169,7 @@ describe("identity store", () => {
     expect(Result.isSuccess(result)).toBe(true);
     expect(store.getState()).toMatchObject({
       identity: backedUpIdentity,
-      status: "ready",
+      status: "unregistered",
     });
     expect(store.getState().identity).not.toHaveProperty("recoveryKey");
   });
@@ -137,13 +185,20 @@ describe("identity store", () => {
 
   it("deletes registration retry material with the identity", async () => {
     vaultMock.loadLocalIdentity.mockReturnValue(Effect.succeed(identity));
+    const stopped = deferred<null>();
+    stopP2p.mockReturnValueOnce(stopped.promise);
     const store = await loadStore();
     await store.getState().hydrate();
 
-    const result = await store.getState().resetIdentity();
+    const reset = store.getState().resetIdentity();
+    await vi.waitFor(() => expect(stopP2p).toHaveBeenCalledOnce());
+    expect(deleteAllData).not.toHaveBeenCalled();
+    stopped.resolve(null);
+    const result = await reset;
 
     expect(Result.isSuccess(result)).toBe(true);
     expect(registrationMock.deleteLocalRegistration).toHaveBeenCalledOnce();
+    expect(deleteAllData).toHaveBeenCalledOnce();
     expect(vaultMock.deleteLocalIdentity).toHaveBeenCalledOnce();
     expect(store.getState()).toMatchObject({
       identity: null,
@@ -151,7 +206,7 @@ describe("identity store", () => {
     });
   });
 
-  it("keeps a backed-up identity in onboarding until registration is confirmed", async () => {
+  it("marks a backed-up identity unregistered until registration is confirmed", async () => {
     const backedUpIdentity = { ...identity, backupState: "copied" };
     vaultMock.loadLocalIdentity.mockReturnValue(
       Effect.succeed(backedUpIdentity)
@@ -164,7 +219,45 @@ describe("identity store", () => {
 
     expect(store.getState()).toMatchObject({
       identity: backedUpIdentity,
-      status: "backup",
+      registration: null,
+      status: "unregistered",
+    });
+  });
+
+  it("hydrates a confirmed registration into ready state", async () => {
+    const backedUpIdentity = { ...identity, backupState: "copied" as const };
+    vaultMock.loadLocalIdentity.mockReturnValue(
+      Effect.succeed(backedUpIdentity)
+    );
+    const store = await loadStore();
+
+    await store.getState().hydrate();
+
+    expect(store.getState()).toMatchObject({
+      identity: backedUpIdentity,
+      registration: confirmedRegistration,
+      status: "ready",
+    });
+  });
+
+  it("maps a registration read failure to a vault read error", async () => {
+    const backedUpIdentity = { ...identity, backupState: "copied" as const };
+    vaultMock.loadLocalIdentity.mockReturnValue(
+      Effect.succeed(backedUpIdentity)
+    );
+    registrationMock.loadLocalRegistration.mockReturnValue(
+      Effect.fail({ operation: "read" })
+    );
+    const store = await loadStore();
+
+    await store.getState().hydrate();
+
+    expect(store.getState()).toMatchObject({
+      error: { _tag: "IdentityVaultError", operation: "read" },
+      identity: backedUpIdentity,
+      isHydrating: false,
+      registration: null,
+      status: "error",
     });
   });
 

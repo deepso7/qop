@@ -5,11 +5,12 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 /// @notice Immutable identity trust root for QOP accounts.
-/// @dev Device certificates stay offchain. The registry stores only account
-/// ownership, handles, owner versions, action nonces, and revocation digests.
+/// @dev The registry stores account ownership, device keys, handles, owner
+/// versions, and action nonces.
 contract QOPIdentityRegistry is EIP712 {
     struct Account {
         address owner;
+        bytes32 deviceKey;
         uint32 ownerVersion;
         uint64 registeredAt;
         uint256 nonce;
@@ -19,7 +20,7 @@ contract QOPIdentityRegistry is EIP712 {
     struct RegisterIntent {
         string handle;
         address owner;
-        bytes32 deviceCommitment;
+        bytes32 deviceKey;
         bytes32 nonce;
         uint64 deadline;
     }
@@ -31,9 +32,9 @@ contract QOPIdentityRegistry is EIP712 {
         uint64 deadline;
     }
 
-    struct RevokeDeviceIntent {
+    struct RotateDeviceIntent {
         uint256 qid;
-        bytes32 certificateDigest;
+        bytes32 newDeviceKey;
         uint256 nonce;
         uint64 deadline;
     }
@@ -42,11 +43,11 @@ contract QOPIdentityRegistry is EIP712 {
     uint256 public constant MAX_HANDLE_LENGTH = 32;
 
     bytes32 public constant REGISTER_TYPEHASH =
-        keccak256("RegisterV1(string handle,address owner,bytes32 deviceCommitment,bytes32 nonce,uint64 deadline)");
+        keccak256("RegisterV1(string handle,address owner,bytes32 deviceKey,bytes32 nonce,uint64 deadline)");
     bytes32 public constant ROTATE_OWNER_TYPEHASH =
         keccak256("RotateOwnerV1(uint256 qid,address newOwner,uint256 nonce,uint64 deadline)");
-    bytes32 public constant REVOKE_DEVICE_TYPEHASH =
-        keccak256("RevokeDeviceV1(uint256 qid,bytes32 certificateDigest,uint256 nonce,uint64 deadline)");
+    bytes32 public constant ROTATE_DEVICE_TYPEHASH =
+        keccak256("RotateDeviceV1(uint256 qid,bytes32 newDeviceKey,uint256 nonce,uint64 deadline)");
 
     address public immutable registrationAdmin;
     address public registrationSigner;
@@ -56,29 +57,31 @@ contract QOPIdentityRegistry is EIP712 {
     mapping(uint256 qid => Account) private _accounts;
     mapping(bytes32 handleHash => uint256 qid) public qidByHandleHash;
     mapping(address owner => uint256 qid) public qidByOwner;
+    mapping(bytes32 deviceKey => uint256 qid) public qidByDeviceKey;
     mapping(bytes32 registrationNonce => bool used) public registrationNonceUsed;
-    mapping(uint256 qid => mapping(bytes32 certificateDigest => bool revoked)) private _revokedCertificates;
 
     event AccountRegistered(
         uint256 indexed qid,
         bytes32 indexed handleHash,
         address indexed owner,
         string handle,
-        bytes32 deviceCommitment,
+        bytes32 deviceKey,
         bytes32 registrationNonce,
         uint64 registeredAt
     );
     event OwnerRotated(
         uint256 indexed qid, address indexed previousOwner, address indexed newOwner, uint32 ownerVersion, uint256 nonce
     );
-    event DeviceRevoked(uint256 indexed qid, bytes32 indexed certificateDigest, uint256 nonce);
+    event DeviceRotated(
+        uint256 indexed qid, bytes32 indexed previousDeviceKey, bytes32 indexed newDeviceKey, uint256 nonce
+    );
     event RegistrationOpened(address indexed previousSigner);
     event RegistrationSignerUpdated(address indexed previousSigner, address indexed newSigner);
 
     error AccountNotFound(uint256 qid);
-    error CertificateAlreadyRevoked(uint256 qid, bytes32 certificateDigest);
-    error EmptyCertificateDigest();
-    error EmptyDeviceCommitment();
+    error DeviceKeyUnchanged(uint256 qid, bytes32 deviceKey);
+    error EmptyDeviceKey();
+    error DeviceKeyAlreadyRegistered(bytes32 deviceKey, uint256 qid);
     error ExpiredIntent(uint64 deadline);
     error HandleAlreadyRegistered(bytes32 handleHash, uint256 qid);
     error InvalidHandleCharacter(uint256 index, bytes1 character);
@@ -130,7 +133,7 @@ contract QOPIdentityRegistry is EIP712 {
         _validateHandle(intent.handle);
         _validateDeadline(intent.deadline);
         if (intent.owner == address(0)) revert ZeroAddress();
-        if (intent.deviceCommitment == bytes32(0)) revert EmptyDeviceCommitment();
+        if (intent.deviceKey == bytes32(0)) revert EmptyDeviceKey();
         if (intent.nonce == bytes32(0)) revert ZeroRegistrationNonce();
         if (registrationNonceUsed[intent.nonce]) {
             revert RegistrationNonceAlreadyUsed(intent.nonce);
@@ -146,6 +149,9 @@ contract QOPIdentityRegistry is EIP712 {
         if (existingHandleQid != 0) {
             revert HandleAlreadyRegistered(canonicalHandleHash, existingHandleQid);
         }
+
+        uint256 existingDeviceQid = qidByDeviceKey[intent.deviceKey];
+        if (existingDeviceQid != 0) revert DeviceKeyAlreadyRegistered(intent.deviceKey, existingDeviceQid);
 
         bytes32 digest = hashRegisterIntent(intent);
         address recoveredOwner = _recoverSigner(digest, ownerSignature);
@@ -164,8 +170,14 @@ contract QOPIdentityRegistry is EIP712 {
         registrationNonceUsed[intent.nonce] = true;
         qidByHandleHash[canonicalHandleHash] = qid;
         qidByOwner[intent.owner] = qid;
+        qidByDeviceKey[intent.deviceKey] = qid;
         _accounts[qid] = Account({
-            owner: intent.owner, ownerVersion: 0, registeredAt: uint64(block.timestamp), nonce: 0, handle: intent.handle
+            owner: intent.owner,
+            deviceKey: intent.deviceKey,
+            ownerVersion: 0,
+            registeredAt: uint64(block.timestamp),
+            nonce: 0,
+            handle: intent.handle
         });
 
         emit AccountRegistered(
@@ -173,7 +185,7 @@ contract QOPIdentityRegistry is EIP712 {
             canonicalHandleHash,
             intent.owner,
             intent.handle,
-            intent.deviceCommitment,
+            intent.deviceKey,
             intent.nonce,
             uint64(block.timestamp)
         );
@@ -218,36 +230,33 @@ contract QOPIdentityRegistry is EIP712 {
         emit OwnerRotated(intent.qid, previousOwner, intent.newOwner, nextOwnerVersion, intent.nonce);
     }
 
-    function revokeDevice(RevokeDeviceIntent calldata intent, bytes calldata ownerSignature) external {
+    function rotateDevice(RotateDeviceIntent calldata intent, bytes calldata ownerSignature) external {
         Account storage current = _account(intent.qid);
         _validateDeadline(intent.deadline);
         _validateNonce(current.nonce, intent.nonce);
-        if (intent.certificateDigest == bytes32(0)) {
-            revert EmptyCertificateDigest();
-        }
-        if (_revokedCertificates[intent.qid][intent.certificateDigest]) {
-            revert CertificateAlreadyRevoked(intent.qid, intent.certificateDigest);
-        }
+        if (intent.newDeviceKey == bytes32(0)) revert EmptyDeviceKey();
+        if (intent.newDeviceKey == current.deviceKey) revert DeviceKeyUnchanged(intent.qid, intent.newDeviceKey);
 
-        bytes32 digest = hashRevokeDeviceIntent(intent);
+        uint256 existingDeviceQid = qidByDeviceKey[intent.newDeviceKey];
+        if (existingDeviceQid != 0) revert DeviceKeyAlreadyRegistered(intent.newDeviceKey, existingDeviceQid);
+
+        bytes32 digest = hashRotateDeviceIntent(intent);
         address recoveredOwner = _recoverSigner(digest, ownerSignature);
         if (recoveredOwner != current.owner) {
             revert InvalidOwnerSignature(recoveredOwner, current.owner);
         }
 
+        bytes32 previousDeviceKey = current.deviceKey;
+        delete qidByDeviceKey[previousDeviceKey];
+        qidByDeviceKey[intent.newDeviceKey] = intent.qid;
+        current.deviceKey = intent.newDeviceKey;
         current.nonce = intent.nonce + 1;
-        _revokedCertificates[intent.qid][intent.certificateDigest] = true;
-        emit DeviceRevoked(intent.qid, intent.certificateDigest, intent.nonce);
+        emit DeviceRotated(intent.qid, previousDeviceKey, intent.newDeviceKey, intent.nonce);
     }
 
     function account(uint256 qid) external view returns (Account memory) {
         Account storage current = _account(qid);
         return current;
-    }
-
-    function isDeviceRevoked(uint256 qid, bytes32 certificateDigest) external view returns (bool) {
-        if (_accounts[qid].owner == address(0)) revert AccountNotFound(qid);
-        return _revokedCertificates[qid][certificateDigest];
     }
 
     function handleHash(string calldata handle) external pure returns (bytes32) {
@@ -260,7 +269,7 @@ contract QOPIdentityRegistry is EIP712 {
                 REGISTER_TYPEHASH,
                 keccak256(bytes(intent.handle)),
                 intent.owner,
-                intent.deviceCommitment,
+                intent.deviceKey,
                 intent.nonce,
                 intent.deadline
             )
@@ -274,9 +283,9 @@ contract QOPIdentityRegistry is EIP712 {
         return _hashTypedDataV4(structHash);
     }
 
-    function hashRevokeDeviceIntent(RevokeDeviceIntent calldata intent) public view returns (bytes32) {
+    function hashRotateDeviceIntent(RotateDeviceIntent calldata intent) public view returns (bytes32) {
         bytes32 structHash = keccak256(
-            abi.encode(REVOKE_DEVICE_TYPEHASH, intent.qid, intent.certificateDigest, intent.nonce, intent.deadline)
+            abi.encode(ROTATE_DEVICE_TYPEHASH, intent.qid, intent.newDeviceKey, intent.nonce, intent.deadline)
         );
         return _hashTypedDataV4(structHash);
     }
