@@ -44,6 +44,13 @@ export const registryAbi = [
     stateMutability: "view",
     type: "function",
   },
+  {
+    inputs: [{ name: "deviceKey", type: "bytes32" }],
+    name: "qidByDeviceKey",
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+    type: "function",
+  },
 ] as const;
 
 const CanonicalDeviceKey = DeviceKey.pipe(
@@ -102,7 +109,11 @@ export interface RegistryReadClient {
   readonly readContract: (parameters: {
     readonly abi: typeof registryAbi;
     readonly args: readonly unknown[];
-    readonly functionName: "account" | "qidByHandleHash" | "qidByOwner";
+    readonly functionName:
+      | "account"
+      | "qidByDeviceKey"
+      | "qidByHandleHash"
+      | "qidByOwner";
   }) => Promise<RegistryContractResult>;
 }
 
@@ -191,5 +202,20 @@ export const createRegistryReader = ({
     return qid === 0n ? null : yield* account(qid);
   });
 
-  return { lookupHandle, lookupOwner };
+  // Transport peerId ↔ deviceKey; resolve identity from the live key, not a claimed handle.
+  const lookupDeviceKey = Effect.fn("RegistryReader.lookupDeviceKey")(
+    function* (input: string) {
+      const deviceKey = yield* Schema.decodeUnknownEffect(CanonicalDeviceKey)(
+        input.toLowerCase()
+      ).pipe(Effect.mapError(() => readerError("decode")));
+      const qid = yield* readContract({
+        abi: registryAbi,
+        args: [deviceKey],
+        functionName: "qidByDeviceKey",
+      }).pipe(Effect.flatMap(readQid));
+      return qid === 0n ? null : yield* account(qid);
+    }
+  );
+
+  return { lookupDeviceKey, lookupHandle, lookupOwner };
 };

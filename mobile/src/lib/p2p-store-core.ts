@@ -18,7 +18,7 @@ import { readVerifiedChat } from "./p2p-receive";
 import { withTimeout } from "./p2p-send";
 import type { performSend } from "./p2p-send";
 import { createPeerSessions } from "./p2p-sessions";
-import type { lookupHandle } from "./registry";
+import type { lookupDeviceKey, lookupHandle } from "./registry";
 
 // oxlint-disable eslint/no-use-before-define -- Store helpers run only after the store is initialized.
 
@@ -36,7 +36,7 @@ interface P2pState {
 interface P2pActions {
   readonly connectTo: (
     contact: Pick<Contact, "handle" | "qid">
-  ) => Promise<void>;
+  ) => Promise<string | undefined>;
   readonly retryMessage: (id: string) => Promise<void>;
   readonly sendMessage: (contact: Contact, text: string) => string;
   readonly start: () => Promise<void>;
@@ -71,6 +71,7 @@ interface P2pDependencies {
   };
   readonly getIdentityHandle: () => string | undefined;
   readonly loadDeviceSecretKey: typeof loadDeviceSecretKey;
+  readonly lookupDeviceKey: typeof lookupDeviceKey;
   readonly lookupHandle: typeof lookupHandle;
   readonly performSend: typeof performSend;
   readonly randomUUID: () => string;
@@ -83,6 +84,7 @@ export const createP2pStore = ({
   createEndpoint,
   getIdentityHandle,
   loadDeviceSecretKey,
+  lookupDeviceKey,
   lookupHandle,
   performSend,
   randomUUID,
@@ -95,6 +97,7 @@ export const createP2pStore = ({
 
   const sessions = createPeerSessions({
     getContactByQid,
+    lookupDeviceKey,
     lookupHandle,
     upsertContact,
   });
@@ -261,63 +264,88 @@ export const createP2pStore = ({
       const activeEndpoint = endpoint;
       const jobGeneration = generation;
       if (!activeEndpoint) {
-        return;
+        return undefined;
       }
       try {
-        const peerId = await Effect.runPromise(
-          sessions.recipientPeerId(contact)
+        // Bound registry lookup so a hung RPC cannot stack forever across navigations.
+        const peerId = await withTimeout(
+          Effect.runPromise(sessions.recipientPeerId(contact)),
+          10_000,
+          "Timed out looking up peer"
         );
         if (!isCurrentGeneration(jobGeneration)) {
-          return;
+          return undefined;
         }
         if (!activeEndpoint.connectedPeers().includes(peerId)) {
           await activeEndpoint.connect(peerId, { timeoutMs: 15_000 });
         }
+        return peerId;
       } catch {
         // The screen reports reachability from authoritative connection events.
+        return undefined;
       }
     },
 
     retryMessage: (id) => {
-      if (get().status !== "running") {
-        return Promise.resolve();
-      }
-      const jobGeneration = generation;
-      const retry = async () => {
-        try {
-          const message = await getMessageById(id);
-          if (
-            !message ||
-            message.direction !== "out" ||
-            message.status !== "failed"
-          ) {
-            return;
-          }
-          const contact = await getContactByQid(message.contactQid);
-          if (!contact || !isCurrentGeneration(jobGeneration)) {
-            return;
-          }
-          await updateMessageStatus(id, "sending");
-          if (!isCurrentGeneration(jobGeneration)) {
-            return;
-          }
-          set((state) => ({ revision: state.revision + 1 }));
-          await sendStoredMessage(
-            { ...message, status: "sending" },
-            contact,
-            jobGeneration
-          );
-        } catch (error) {
-          if (isCurrentGeneration(jobGeneration)) {
-            set({
-              error: errorMessage(
-                error instanceof Error ? error : String(error)
-              ),
-            });
-          }
+      const ensureRunning = async () => {
+        if (get().status === "failed" || get().status === "stopped") {
+          // Must not run inside trackJob — start() waits for in-flight jobs.
+          await get().start();
         }
+        const startedAt = Date.now();
+        while (get().status === "starting" && Date.now() - startedAt < 15_000) {
+          // Concurrent layout restart may already be in flight.
+          // oxlint-disable-next-line eslint/no-await-in-loop -- Poll until start settles.
+          await new Promise<void>((resolve) => {
+            setTimeout(resolve, 50);
+          });
+        }
+        return get().status === "running";
       };
-      return trackJob(retry());
+
+      const retry = async () => {
+        if (!(await ensureRunning())) {
+          return;
+        }
+        // Capture generation after start so a restart does not void this retry.
+        const jobGeneration = generation;
+        const send = async () => {
+          try {
+            const message = await getMessageById(id);
+            if (
+              !message ||
+              message.direction !== "out" ||
+              message.status !== "failed"
+            ) {
+              return;
+            }
+            const contact = await getContactByQid(message.contactQid);
+            if (!contact || !isCurrentGeneration(jobGeneration)) {
+              return;
+            }
+            await updateMessageStatus(id, "sending");
+            if (!isCurrentGeneration(jobGeneration)) {
+              return;
+            }
+            set((state) => ({ revision: state.revision + 1 }));
+            await sendStoredMessage(
+              { ...message, status: "sending" },
+              contact,
+              jobGeneration
+            );
+          } catch (error) {
+            if (isCurrentGeneration(jobGeneration)) {
+              set({
+                error: errorMessage(
+                  error instanceof Error ? error : String(error)
+                ),
+              });
+            }
+          }
+        };
+        return trackJob(send());
+      };
+      return retry();
     },
 
     sendMessage: (contact, text) => {
@@ -422,25 +450,31 @@ export const createP2pStore = ({
           }
           refreshPeers();
         };
+        // Shared path for onClose and driverFailed so teardown cannot leave a
+        // half-failed endpoint (status failed without cleanup/recovery).
+        const failEndpoint = (error: string) => {
+          if (generation !== startGeneration || endpoint !== created) {
+            return;
+          }
+          generation += 1;
+          cleanupEndpoint(created);
+          set({
+            connectedPeerIds: [],
+            error,
+            peerId: undefined,
+            relayReserved: false,
+            status: "failed",
+          });
+          void recoverInterruptedSends();
+        };
         unsubscribe = [
           binding.bindAppState(),
           created.onClose((reason) => {
-            if (generation !== startGeneration || endpoint !== created) {
-              return;
-            }
-            generation += 1;
-            cleanupEndpoint(created);
-            set({
-              connectedPeerIds: [],
-              error:
-                reason.reason === "driverFailed"
-                  ? errorMessage(reason.error)
-                  : "P2P endpoint closed",
-              peerId: undefined,
-              relayReserved: false,
-              status: "failed",
-            });
-            void recoverInterruptedSends();
+            failEndpoint(
+              reason.reason === "driverFailed"
+                ? errorMessage(reason.error)
+                : "P2P endpoint closed"
+            );
           }),
           created.on("relayReserved", () => {
             if (generation === startGeneration) {
@@ -465,9 +499,7 @@ export const createP2pStore = ({
             refreshPeers();
           }),
           created.on("driverFailed", ({ detail }) => {
-            if (generation === startGeneration) {
-              set({ error: detail, status: "failed" });
-            }
+            failEndpoint(detail);
           }),
           created.on("queueOverflow", invalidateConnections),
           created.on("eventsDropped", invalidateConnections),

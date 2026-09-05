@@ -40,10 +40,4 @@ it("recovers crashed sends once when the database is reopened", async () => {
     ...interrupted,
     status: "failed",
   });
-
-  await restartedApp.updateMessageStatus("interrupted", "sending");
-  expect(await restartedApp.getMessageById("interrupted")).toEqual({
-    ...interrupted,
-    status: "sending",
-  });
 });

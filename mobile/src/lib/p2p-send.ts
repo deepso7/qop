@@ -95,24 +95,34 @@ export const performSend = async ({
   sessions,
   timeoutMs,
 }: PerformSendInput): Promise<void> => {
-  const peerId = await Effect.runPromise(sessions.recipientPeerId(contact));
-  if (!endpoint.connectedPeers().includes(peerId)) {
-    await endpoint.connect(peerId, { timeoutMs: 15_000 });
-  }
-  const stream = await endpoint.openStream(peerId, CHAT_PROTOCOL, {
-    timeoutMs,
-  });
+  // Lookup/verify can hang on RPC; keep the whole send inside timeoutMs so
+  // in-flight job tracking cannot stall forever.
+  let stream: SendStream | undefined;
   try {
-    await Effect.runPromise(sessions.verify(stream, contact.handle));
-    if (!sessions.isVerified(stream, contact.qid)) {
-      throw new Error("Chat connection is no longer authorized");
-    }
-    stream.write(encodeFrame(frame));
-    stream.closeWrite();
-    const ack = await withTimeout(readAck(stream), timeoutMs);
-    assertAckMatches(ack, frame.id);
+    await withTimeout(
+      (async () => {
+        const peerId = await Effect.runPromise(
+          sessions.recipientPeerId(contact)
+        );
+        if (!endpoint.connectedPeers().includes(peerId)) {
+          await endpoint.connect(peerId, { timeoutMs });
+        }
+        stream = await endpoint.openStream(peerId, CHAT_PROTOCOL, {
+          timeoutMs,
+        });
+        await Effect.runPromise(sessions.verify(stream, contact.handle));
+        if (!sessions.isVerified(stream, contact.qid)) {
+          throw new Error("Chat connection is no longer authorized");
+        }
+        stream.write(encodeFrame(frame));
+        stream.closeWrite();
+        const ack = await readAck(stream);
+        assertAckMatches(ack, frame.id);
+      })(),
+      timeoutMs
+    );
   } catch (error) {
-    stream.reset();
+    stream?.reset();
     throw error;
   }
 };

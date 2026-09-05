@@ -1,11 +1,13 @@
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import { encodeAck } from "@/lib/chat-wire";
+import { encodeAck, MAX_CHAT_PAYLOAD_BYTES } from "@/lib/chat-wire";
 import { performSend, withTimeout } from "@/lib/p2p-send";
 import { createPeerSessions } from "@/lib/p2p-sessions";
 import { RegistryReaderError } from "@/lib/registry-core";
 import type { RegistryAccount } from "@/lib/registry-core";
+
+const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
 
 const id = "c56a4180-65aa-42ec-a945-5fd21dec0538";
 const frame = {
@@ -21,18 +23,23 @@ const account: RegistryAccount = {
   handle: "bob",
   owner: "0x0000000000000000000000000000000000000001",
   ownerVersion: 0,
-  peerId: "peer-bob",
+  peerId: PEER_BOB,
   qid: 1n,
   registeredAt: 1n,
 };
 
 const makeEndpoint = (read: () => Promise<Uint8Array | undefined>) => {
+  const lookupDeviceKey = vi.fn(
+    (): Effect.Effect<RegistryAccount | null, RegistryReaderError> =>
+      Effect.succeed(account)
+  );
   const lookupHandle = vi.fn(
     (): Effect.Effect<RegistryAccount | null, RegistryReaderError> =>
       Effect.succeed(account)
   );
   const sessions = createPeerSessions({
     getContactByQid: () => Promise.resolve(null),
+    lookupDeviceKey,
     lookupHandle,
     upsertContact: () => Promise.resolve(),
   });
@@ -50,7 +57,7 @@ const makeEndpoint = (read: () => Promise<Uint8Array | undefined>) => {
     connectedPeers: vi.fn((): string[] => []),
     openStream: vi.fn().mockResolvedValue(stream),
   };
-  return { endpoint, lookupHandle, sessions, stream };
+  return { endpoint, lookupDeviceKey, lookupHandle, sessions, stream };
 };
 
 const ackReader = (ackId: string) => {
@@ -69,38 +76,40 @@ describe("performSend", () => {
       performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 })
     ).resolves.toBeUndefined();
 
-    expect(endpoint.connect).toHaveBeenCalledWith("peer-bob", {
-      timeoutMs: 15_000,
+    expect(endpoint.connect).toHaveBeenCalledWith(PEER_BOB, {
+      timeoutMs: 50,
     });
-    expect(endpoint.openStream).toHaveBeenCalledWith(
-      "peer-bob",
-      "/qop/chat/1",
-      { timeoutMs: 50 }
-    );
+    expect(endpoint.openStream).toHaveBeenCalledWith(PEER_BOB, "/qop/chat/1", {
+      timeoutMs: 50,
+    });
     expect(stream.write).toHaveBeenCalledOnce();
     expect(stream.closeWrite).toHaveBeenCalledOnce();
     expect(stream.reset).not.toHaveBeenCalled();
   });
 
   it("keeps sending on a verified connection during an RPC outage", async () => {
-    const { endpoint, stream, sessions, lookupHandle } = makeEndpoint(
-      ackReader(id)
-    );
+    const { endpoint, stream, sessions, lookupDeviceKey, lookupHandle } =
+      makeEndpoint(ackReader(id));
     await performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 });
-    const calls = lookupHandle.mock.calls.length;
+    const handleCalls = lookupHandle.mock.calls.length;
+    const deviceCalls = lookupDeviceKey.mock.calls.length;
+    lookupDeviceKey.mockReturnValue(
+      Effect.fail(new RegistryReaderError({ operation: "rpc" }))
+    );
     lookupHandle.mockReturnValue(
       Effect.fail(new RegistryReaderError({ operation: "rpc" }))
     );
     endpoint.connectedPeers.mockReturnValue([account.peerId]);
     stream.read.mockImplementation(ackReader(id));
     await performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 });
-    expect(lookupHandle).toHaveBeenCalledTimes(calls);
+    expect(lookupHandle).toHaveBeenCalledTimes(handleCalls);
+    expect(lookupDeviceKey).toHaveBeenCalledTimes(deviceCalls);
     expect(endpoint.connect).toHaveBeenCalledOnce();
     expect(stream.write).toHaveBeenCalledTimes(2);
   });
 
   it("rechecks a replacement connection before writing", async () => {
-    const { endpoint, stream, sessions, lookupHandle } = makeEndpoint(
+    const { endpoint, stream, sessions, lookupDeviceKey } = makeEndpoint(
       ackReader(id)
     );
     await Effect.runPromise(sessions.verify(stream, contact.handle));
@@ -108,7 +117,7 @@ describe("performSend", () => {
       sessions.closed(stream);
       stream.connId = 2;
       sessions.opened(stream);
-      lookupHandle.mockReturnValue(
+      lookupDeviceKey.mockReturnValue(
         Effect.fail(new RegistryReaderError({ operation: "rpc" }))
       );
       return Promise.resolve(stream);
@@ -122,7 +131,7 @@ describe("performSend", () => {
 
   it("rejects a stream authenticated as the wrong peer before writing", async () => {
     const { endpoint, stream, sessions } = makeEndpoint(ackReader(id));
-    stream.peerId = "peer-impostor";
+    stream.peerId = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
     sessions.opened(stream);
     await expect(
       performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 })
@@ -149,6 +158,44 @@ describe("performSend", () => {
     await expect(
       performSend({ contact, endpoint, frame, sessions, timeoutMs: 5 })
     ).rejects.toThrow("Timed out");
+    expect(stream.reset).toHaveBeenCalledOnce();
+  });
+
+  it("times out when registry lookup never resolves", async () => {
+    const { endpoint, sessions, stream } = makeEndpoint(ackReader(id));
+    const hung = Promise.withResolvers<never>();
+    vi.spyOn(sessions, "recipientPeerId").mockReturnValue(
+      Effect.promise(() => hung.promise)
+    );
+
+    await expect(
+      performSend({ contact, endpoint, frame, sessions, timeoutMs: 5 })
+    ).rejects.toThrow("Timed out");
+    expect(stream.write).not.toHaveBeenCalled();
+    expect(stream.reset).not.toHaveBeenCalled();
+  });
+
+  it("rejects an empty EOF close without an ack", async () => {
+    const { endpoint, stream, sessions } = makeEndpoint(() =>
+      Promise.resolve(undefined)
+    );
+
+    await expect(
+      performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 })
+    ).rejects.toThrow("Chat peer closed without an ack");
+    expect(stream.reset).toHaveBeenCalledOnce();
+  });
+
+  it("rejects a streaming ack that exceeds the payload limit", async () => {
+    const oversized = new Uint8Array(MAX_CHAT_PAYLOAD_BYTES + 1);
+    const chunks: (Uint8Array | undefined)[] = [oversized, undefined];
+    const { endpoint, stream, sessions } = makeEndpoint(() =>
+      Promise.resolve(chunks.shift())
+    );
+
+    await expect(
+      performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 })
+    ).rejects.toThrow("Chat ack exceeds 16 KB");
     expect(stream.reset).toHaveBeenCalledOnce();
   });
 });

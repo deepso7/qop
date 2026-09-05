@@ -1,4 +1,5 @@
-import { Data, Effect, Semaphore } from "effect";
+import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
+import { Data, Effect, Schema, Semaphore } from "effect";
 
 import type { Contact, ContactInput } from "./db";
 import type { RegistryAccount, RegistryReaderError } from "./registry-core";
@@ -21,6 +22,9 @@ interface PeerSession extends PeerConnection {
 
 interface PeerSessionDependencies {
   readonly getContactByQid: (qid: string) => Promise<Contact | null>;
+  readonly lookupDeviceKey: (
+    deviceKey: string
+  ) => Effect.Effect<RegistryAccount | null, RegistryReaderError>;
   readonly lookupHandle: (
     handle: string
   ) => Effect.Effect<RegistryAccount | null, RegistryReaderError>;
@@ -30,6 +34,7 @@ interface PeerSessionDependencies {
 // Authorization belongs to one live transport connection, never to a persisted contact.
 export const createPeerSessions = ({
   getContactByQid,
+  lookupDeviceKey,
   lookupHandle,
   upsertContact,
 }: PeerSessionDependencies) => {
@@ -73,7 +78,27 @@ export const createPeerSessions = ({
               return session.contact;
             }
 
-            const account = yield* lookupHandle(handle);
+            // Ground identity in the transport peerId, then assert the claimed handle.
+            const peerId = yield* Schema.decodeUnknownEffect(PeerId)(
+              connection.peerId
+            ).pipe(
+              Effect.mapError(
+                () => new PeerVerificationError({ operation: "identity" })
+              )
+            );
+            const deviceKey = yield* deviceKeyFromPeerId(peerId).pipe(
+              Effect.mapError(
+                () => new PeerVerificationError({ operation: "identity" })
+              )
+            );
+            const deviceKeyHex = yield* Schema.encodeEffect(Hex32)(
+              deviceKey
+            ).pipe(
+              Effect.mapError(
+                () => new PeerVerificationError({ operation: "identity" })
+              )
+            );
+            const account = yield* lookupDeviceKey(deviceKeyHex);
             if (
               !account ||
               account.handle !== handle ||

@@ -343,6 +343,31 @@ export class RegistrationEnrollment extends Context.Service<
         return yield* handleProbe(stored, probe.value);
       });
 
+      // Expire/confirm a blocking ready|submitted row so unique slots can free.
+      const reconcileBlocker = Effect.fn(
+        "RegistrationEnrollment.reconcileBlocker"
+      )(function* (digest: Hash) {
+        const blockerOption = yield* store.get(digest);
+        if (Option.isNone(blockerOption)) {
+          return { freed: true as const, qid: undefined };
+        }
+        const blocker = blockerOption.value;
+        if (blocker.status !== "ready" && blocker.status !== "submitted") {
+          return {
+            freed: true as const,
+            qid: blocker.qid ?? undefined,
+          };
+        }
+        const reconciled = yield* reconcileActive(blocker);
+        if (reconciled.status === "failed") {
+          return { freed: true as const, qid: undefined };
+        }
+        return {
+          freed: false as const,
+          qid: reconciled.qid ?? undefined,
+        };
+      });
+
       const register = Effect.fn("RegistrationEnrollment.register")(function* (
         input: RegisterRegistration
       ) {
@@ -353,22 +378,23 @@ export class RegistrationEnrollment extends Context.Service<
           input.ownerSignature
         );
         const expectedOwner = yield* normalizeRegistrationOwner(intent.owner);
-        const recoveredOwner = yield* recoverRegisterIntentSignerV1(
-          domain,
-          intent,
-          yield* decodeSignature(ownerSignature)
-        );
-        if (recoveredOwner !== expectedOwner) {
-          return yield* new RegistrationSignatureMismatch({
-            expected: expectedOwner,
-            kind: "owner",
-            recovered: yield* normalizeRegistrationOwner(recoveredOwner),
-          });
-        }
 
+        // Hash before admission/ECDSA so digest replays skip the invite check.
         const digest = yield* hashRegisterIntentV1(domain, intent);
         const replay = yield* store.get(digest);
         if (Option.isSome(replay)) {
+          const recoveredOwner = yield* recoverRegisterIntentSignerV1(
+            domain,
+            intent,
+            yield* decodeSignature(ownerSignature)
+          );
+          if (recoveredOwner !== expectedOwner) {
+            return yield* new RegistrationSignatureMismatch({
+              expected: expectedOwner,
+              kind: "owner",
+              recovered: yield* normalizeRegistrationOwner(recoveredOwner),
+            });
+          }
           if (replay.value.status === "failed") {
             return yield* new RegistrationTransitionConflict({
               actual: "failed",
@@ -394,11 +420,25 @@ export class RegistrationEnrollment extends Context.Service<
           });
         }
 
+        // Admission before ECDSA recovery so uninvited clients cannot burn CPU.
         const { codeHash: admissionCodeHash } =
           yield* decodeRegistrationAdmissionCode(input.admissionCode).pipe(
             Effect.mapError(registrationAdmissionCodeInputError)
           );
         yield* admissions.validate(admissionCodeHash);
+
+        const recoveredOwner = yield* recoverRegisterIntentSignerV1(
+          domain,
+          intent,
+          yield* decodeSignature(ownerSignature)
+        );
+        if (recoveredOwner !== expectedOwner) {
+          return yield* new RegistrationSignatureMismatch({
+            expected: expectedOwner,
+            kind: "owner",
+            recovered: yield* normalizeRegistrationOwner(recoveredOwner),
+          });
+        }
 
         const deviceKey = yield* normalizeRegistrationDigest(
           toHex(intent.deviceKey)
@@ -428,43 +468,94 @@ export class RegistrationEnrollment extends Context.Service<
         }
 
         const registrationSignature = yield* signer.sign(domain, intent);
-        const stored = yield* store
-          .create({
-            admissionCodeHash,
-            deadline: intent.deadline,
-            deviceKey,
-            digest,
-            handle: intent.handle,
-            owner: expectedOwner,
-            ownerSignature,
-            registrationNonce,
-            registrationSignature,
+        const createFields = {
+          admissionCodeHash,
+          deadline: intent.deadline,
+          deviceKey,
+          digest,
+          handle: intent.handle,
+          owner: expectedOwner,
+          ownerSignature,
+          registrationNonce,
+          registrationSignature,
+        };
+        const createIntent = store.create(createFields).pipe(
+          Effect.catchTags({
+            RegistrationIntentConflict: (error) =>
+              store.get(digest).pipe(
+                Effect.flatMap(
+                  Option.match({
+                    onNone: () => Effect.fail(error),
+                    onSome: Effect.succeed,
+                  })
+                )
+              ),
+            RegistrationNonceConflict: () =>
+              Effect.fail(
+                new RegistrationNonceUsed({ nonce: registrationNonce })
+              ),
           })
-          .pipe(
-            Effect.catchTags({
-              RegistrationActiveHandleConflict: (error) =>
-                Effect.fail(
-                  new RegistrationHandleUnavailable({ handle: error.handle })
-                ),
-              RegistrationActiveOwnerConflict: () =>
-                Effect.fail(
-                  new RegistrationOwnerUnavailable({ owner: expectedOwner })
-                ),
-              RegistrationIntentConflict: (error) =>
-                store.get(digest).pipe(
-                  Effect.flatMap(
-                    Option.match({
-                      onNone: () => Effect.fail(error),
-                      onSome: Effect.succeed,
-                    })
-                  )
-                ),
-              RegistrationNonceConflict: () =>
-                Effect.fail(
-                  new RegistrationNonceUsed({ nonce: registrationNonce })
-                ),
-            })
-          );
+        );
+        const stored = yield* createIntent.pipe(
+          Effect.catchTags({
+            RegistrationActiveHandleConflict: (error) =>
+              Effect.gen(function* () {
+                const result = yield* reconcileBlocker(error.digest);
+                if (!result.freed) {
+                  return yield* new RegistrationHandleUnavailable({
+                    handle: error.handle,
+                    ...(result.qid === undefined
+                      ? {}
+                      : { qid: result.qid }),
+                  });
+                }
+                return yield* createIntent.pipe(
+                  Effect.catchTags({
+                    RegistrationActiveHandleConflict: (retryError) =>
+                      Effect.fail(
+                        new RegistrationHandleUnavailable({
+                          handle: retryError.handle,
+                        })
+                      ),
+                    RegistrationActiveOwnerConflict: () =>
+                      Effect.fail(
+                        new RegistrationOwnerUnavailable({
+                          owner: expectedOwner,
+                        })
+                      ),
+                  })
+                );
+              }),
+            RegistrationActiveOwnerConflict: (error) =>
+              Effect.gen(function* () {
+                const result = yield* reconcileBlocker(error.digest);
+                if (!result.freed) {
+                  return yield* new RegistrationOwnerUnavailable({
+                    owner: expectedOwner,
+                    ...(result.qid === undefined
+                      ? {}
+                      : { qid: result.qid }),
+                  });
+                }
+                return yield* createIntent.pipe(
+                  Effect.catchTags({
+                    RegistrationActiveHandleConflict: (retryError) =>
+                      Effect.fail(
+                        new RegistrationHandleUnavailable({
+                          handle: retryError.handle,
+                        })
+                      ),
+                    RegistrationActiveOwnerConflict: () =>
+                      Effect.fail(
+                        new RegistrationOwnerUnavailable({
+                          owner: expectedOwner,
+                        })
+                      ),
+                  })
+                );
+              }),
+          })
+        );
         return yield* registeredRegistration(stored);
       });
 

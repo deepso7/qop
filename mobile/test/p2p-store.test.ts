@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { CHAT_PROTOCOL, encodeAck, encodeFrame } from "@/lib/chat-wire";
 import {
   deleteAll,
   getContactByQid,
@@ -10,9 +11,44 @@ import {
 } from "@/lib/db";
 import { createP2pStore } from "@/lib/p2p-store-core";
 import type { P2pEndpoint } from "@/lib/p2p-store-core";
+import type { RegistryAccount } from "@/lib/registry-core";
+
+const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
+
+const bobAccount: RegistryAccount = {
+  deviceKey: `0x${"22".repeat(32)}`,
+  handle: "bob",
+  owner: "0x0000000000000000000000000000000000000001",
+  ownerVersion: 0,
+  peerId: PEER_BOB,
+  qid: 1n,
+  registeredAt: 1n,
+};
+
+type Connection = { readonly connId: number; readonly peerId: string };
+type InboundStream = Connection & {
+  readonly closeWrite: ReturnType<typeof vi.fn>;
+  readonly protocolId: string;
+  read: () => Promise<Uint8Array | undefined>;
+  readonly reset: ReturnType<typeof vi.fn>;
+  readonly write: ReturnType<typeof vi.fn>;
+};
 
 let closed: Parameters<P2pEndpoint["onClose"]>[0] | undefined;
+let driverFailed: ((event: { detail: string }) => void) | undefined;
+let connectionEstablished: ((connection: Connection) => void) | undefined;
+let onStream: ((stream: InboundStream) => void) | undefined;
+let queueOverflow: (() => void) | undefined;
+const disconnect = vi.fn();
+const connectedPeers = vi.fn((): string[] => [PEER_BOB]);
 const send = vi.fn<() => Promise<void>>();
+const lookupDeviceKey = vi.fn(
+  (): Effect.Effect<RegistryAccount | null> => Effect.succeed(bobAccount)
+);
+const lookupHandle = vi.fn(
+  (): Effect.Effect<RegistryAccount | null> => Effect.succeed(bobAccount)
+);
+
 const useP2pStore = createP2pStore({
   createEndpoint: () => ({
     bindAppState: () => () => {},
@@ -20,9 +56,35 @@ const useP2pStore = createP2pStore({
       activeReservation: () => {},
       close: () => {},
       connect: () => Promise.reject(new Error("No dial in lifecycle fixture")),
-      connectedPeers: () => [],
-      disconnect: () => {},
-      on: () => () => {},
+      connectedPeers,
+      disconnect,
+      on: ((event: string, callback: (...args: never[]) => void) => {
+        if (event === "driverFailed") {
+          driverFailed = callback as (event: { detail: string }) => void;
+          return () => {
+            driverFailed = undefined;
+          };
+        }
+        if (event === "connectionEstablished") {
+          connectionEstablished = callback as (connection: Connection) => void;
+          return () => {
+            connectionEstablished = undefined;
+          };
+        }
+        if (event === "stream") {
+          onStream = callback as (stream: InboundStream) => void;
+          return () => {
+            onStream = undefined;
+          };
+        }
+        if (event === "queueOverflow") {
+          queueOverflow = callback as () => void;
+          return () => {
+            queueOverflow = undefined;
+          };
+        }
+        return () => {};
+      }) as unknown as P2pEndpoint["on"],
       onClose: (callback) => {
         closed = callback;
         return () => {
@@ -36,7 +98,8 @@ const useP2pStore = createP2pStore({
   }),
   getIdentityHandle: () => "alice",
   loadDeviceSecretKey: () => Effect.succeed(new Uint8Array(32)),
-  lookupHandle: () => Effect.succeed(null),
+  lookupDeviceKey,
+  lookupHandle,
   performSend: send,
   randomUUID: () => crypto.randomUUID(),
 });
@@ -44,13 +107,22 @@ const useP2pStore = createP2pStore({
 beforeEach(async () => {
   vi.stubEnv("EXPO_PUBLIC_RELAY_ADDRS", "/test-relay");
   send.mockReset().mockResolvedValue();
+  lookupDeviceKey.mockReset().mockReturnValue(Effect.succeed(bobAccount));
+  lookupHandle.mockReset().mockReturnValue(Effect.succeed(bobAccount));
+  disconnect.mockReset();
+  connectedPeers.mockReset().mockReturnValue([PEER_BOB]);
+  closed = undefined;
+  driverFailed = undefined;
+  connectionEstablished = undefined;
+  onStream = undefined;
+  queueOverflow = undefined;
   await deleteAll();
   await upsertContact({
     createdAt: 1,
-    deviceKey: "device-bob",
+    deviceKey: bobAccount.deviceKey,
     handle: "bob",
-    owner: "owner-bob",
-    peerId: "peer-bob",
+    owner: bobAccount.owner,
+    peerId: PEER_BOB,
     qid: "1",
   });
 });
@@ -70,6 +142,31 @@ const beginSend = async () => {
   const id = useP2pStore.getState().sendMessage(contact, "hello");
   await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
   return { id, pending };
+};
+
+const inboundFrame = (id: string) =>
+  encodeFrame({
+    fromHandle: "bob",
+    id,
+    sentAt: 1,
+    text: "hello inbound",
+    v: 1,
+  });
+
+const makeInboundStream = (
+  bytes: Uint8Array,
+  peerId = PEER_BOB
+): InboundStream => {
+  const chunks: (Uint8Array | undefined)[] = [bytes, undefined];
+  return {
+    closeWrite: vi.fn(),
+    connId: 7,
+    peerId,
+    protocolId: CHAT_PROTOCOL,
+    read: () => Promise.resolve(chunks.shift()),
+    reset: vi.fn(),
+    write: vi.fn(),
+  };
 };
 
 describe("interrupted sends", () => {
@@ -115,5 +212,102 @@ describe("interrupted sends", () => {
     pending.reject(new Error("connection closed"));
     await stopped;
     expect(await getMessageById(id)).toMatchObject({ status: "failed" });
+  });
+
+  it("tears down and recovers interrupted sends on driverFailed", async () => {
+    const { id, pending } = await beginSend();
+    expect(useP2pStore.getState().status).toBe("running");
+    expect(useP2pStore.getState().peerId).toBe("peer-alice");
+    driverFailed?.({ detail: "native panic" });
+    pending.reject(new Error("driver failed"));
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({ status: "failed" })
+    );
+    expect(useP2pStore.getState()).toMatchObject({
+      connectedPeerIds: [],
+      error: "native panic",
+      peerId: undefined,
+      status: "failed",
+    });
+  });
+
+  it("restarts from failed before retrying a message", async () => {
+    const { id, pending } = await beginSend();
+    closed?.({ reason: "close" });
+    pending.reject(new Error("connection closed"));
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({ status: "failed" })
+    );
+    expect(useP2pStore.getState().status).toBe("failed");
+    // retryMessage should call start itself — no prior start() from the test.
+    await useP2pStore.getState().retryMessage(id);
+    expect(await getMessageById(id)).toMatchObject({
+      id,
+      status: "sent",
+      text: "hello",
+    });
+    expect(useP2pStore.getState().status).toBe("running");
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("inbound chat streams", () => {
+  const messageId = "c56a4180-65aa-42ec-a945-5fd21dec0538";
+
+  it("acks a verified inbound frame and stores it", async () => {
+    await useP2pStore.getState().start();
+    connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
+    const stream = makeInboundStream(inboundFrame(messageId));
+    onStream?.(stream);
+    await vi.waitFor(async () =>
+      expect(await getMessageById(messageId)).toMatchObject({
+        contactQid: "1",
+        direction: "in",
+        status: "received",
+        text: "hello inbound",
+      })
+    );
+    expect(stream.write).toHaveBeenCalledWith(
+      encodeAck({ ack: messageId, v: 1 })
+    );
+    expect(stream.closeWrite).toHaveBeenCalledOnce();
+    expect(stream.reset).not.toHaveBeenCalled();
+  });
+
+  it("resets when the sender cannot be verified", async () => {
+    lookupDeviceKey.mockReturnValue(Effect.succeed(null));
+    await useP2pStore.getState().start();
+    connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
+    const stream = makeInboundStream(inboundFrame(messageId));
+    onStream?.(stream);
+    await vi.waitFor(() => expect(stream.reset).toHaveBeenCalledOnce());
+    expect(await getMessageById(messageId)).toBeNull();
+    expect(stream.write).not.toHaveBeenCalled();
+  });
+
+  it("drops an in-flight receive across stop generations", async () => {
+    const hung = Promise.withResolvers<Uint8Array | undefined>();
+    await useP2pStore.getState().start();
+    connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
+    const stream = makeInboundStream(inboundFrame(messageId));
+    let reads = 0;
+    stream.read = () => {
+      reads += 1;
+      return reads === 1 ? hung.promise : Promise.resolve(undefined);
+    };
+    onStream?.(stream);
+    const stopped = useP2pStore.getState().stop();
+    hung.resolve(inboundFrame(messageId));
+    await stopped;
+    expect(stream.reset).toHaveBeenCalledOnce();
+    expect(await getMessageById(messageId)).toBeNull();
+    expect(stream.write).not.toHaveBeenCalled();
+  });
+
+  it("invalidates verified connections on queue overflow", async () => {
+    await useP2pStore.getState().start();
+    connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
+    queueOverflow?.();
+    expect(disconnect).toHaveBeenCalledWith(PEER_BOB);
   });
 });

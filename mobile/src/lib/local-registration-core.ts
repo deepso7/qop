@@ -84,7 +84,10 @@ export interface LocalRegistrationDependencies {
     ReturnType<typeof createRegistrationClient>,
     "getRegistration" | "register"
   >;
-  readonly registry: ReturnType<typeof createRegistryReader>;
+  readonly registry: Pick<
+    ReturnType<typeof createRegistryReader>,
+    "lookupHandle" | "lookupOwner"
+  >;
   readonly secureStore: {
     readonly delete: (key: string) => Promise<void>;
     readonly get: (key: string) => Promise<string | null>;

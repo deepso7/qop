@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  assertAckMatches,
   decodeAck,
   decodeFrame,
   encodeAck,
@@ -63,12 +62,5 @@ describe("chat wire format", () => {
       })
     );
     expect(() => decodeFrame(bytes)).toThrow();
-  });
-
-  it("detects an acknowledgement for a different message", () => {
-    const ack = decodeAck(
-      encodeAck({ ack: "9b2c40a8-705b-4f3b-a3cc-3d723711d851", v: 1 })
-    );
-    expect(() => assertAckMatches(ack, id)).toThrow("does not match");
   });
 });

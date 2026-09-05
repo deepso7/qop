@@ -18,6 +18,7 @@ import { Env } from "../src/env.ts";
 import {
   decodeRegistrationAdmissionCode,
   RegistrationAdmission,
+  RegistrationAdmissionUnauthorized,
 } from "../src/registration/admission.ts";
 import {
   RegistrationDeadlineInvalid,
@@ -77,6 +78,7 @@ const read = <Value>(value: Value): RegistryRead<Value> => ({
 const confirmedHandles = new Set<string>();
 const conflictingHandles = new Set<string>();
 const mismatchedConfirmationHandles = new Set<string>();
+const expiredDeadlineHandles = new Set(["expiredchain", "abandonedhandle"]);
 
 const handleQid = (handle: string): bigint | null => {
   if (handle === "takenhandle" || conflictingHandles.has(handle)) {
@@ -130,7 +132,9 @@ const RegistryReaderTestLive = Layer.succeed(
         Effect.succeed({
           blockNumber: 100n,
           value: {
-            blockTimestamp: handle === "expiredchain" ? 10_000_000_000n : 0n,
+            blockTimestamp: expiredDeadlineHandles.has(handle)
+              ? 10_000_000_000n
+              : 0n,
             handleQid: handleQid(handle),
             ownerQid: ownerQid(handle),
             registrationNonceUsed:
@@ -227,7 +231,8 @@ const ReadyReplayEnrollmentTestLive = enrollmentLayer(
 const makeIntent = Effect.fn("test.makeIntent")(function* (
   handle: string,
   deadlineOffset = 600n,
-  inputOwner: Address = owner
+  inputOwner: Address = owner,
+  nonceKey = handle
 ) {
   const now = yield* DateTime.now;
   return yield* encodeRegisterIntentV1(
@@ -235,9 +240,9 @@ const makeIntent = Effect.fn("test.makeIntent")(function* (
       deadline: (
         BigInt(Math.floor(DateTime.toEpochMillis(now) / 1000)) + deadlineOffset
       ).toString(),
-      deviceKey: testHash(`device-${handle}`),
+      deviceKey: testHash(`device-${nonceKey}`),
       handle,
-      nonce: testHash(`nonce-${handle}`),
+      nonce: testHash(`nonce-${nonceKey}`),
       owner: inputOwner,
     })
   );
@@ -259,10 +264,16 @@ const registerInput = Effect.fn("test.registerInput")(function* (
   handle: string,
   deadlineOffset = 600n,
   account: typeof ownerAccount = ownerAccount,
-  admissionCode = "ABC-123"
+  admissionCode = "ABC-123",
+  nonceKey = handle
 ) {
   const inputOwner = testAddress(account.address.toLowerCase());
-  const intent = yield* makeIntent(handle, deadlineOffset, inputOwner);
+  const intent = yield* makeIntent(
+    handle,
+    deadlineOffset,
+    inputOwner,
+    nonceKey
+  );
   return {
     admissionCode,
     intent,
@@ -381,6 +392,30 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         Option.isNone(yield* (yield* RegistrationStore).get(digest))
       );
     })
+  );
+
+  it.effect(
+    "rejects an invalid admission code before checking the owner signature",
+    () =>
+      Effect.gen(function* () {
+        const enrollment = yield* RegistrationEnrollment;
+        const intent = yield* makeIntent("noinvite");
+        const decoded = yield* decodeRegisterIntentV1(intent);
+        const ownerSignature = yield* Effect.promise(() =>
+          wrongAccount.signTypedData(
+            makeRegisterIntentTypedDataV1(domain, decoded)
+          )
+        );
+        const error = yield* enrollment
+          .register({
+            admissionCode: "BAD-000",
+            intent,
+            ownerSignature,
+          })
+          .pipe(Effect.flip);
+
+        assert.instanceOf(error, RegistrationAdmissionUnauthorized);
+      })
   );
 
   it.effect("rejects deadlines outside the one-hour window", () =>
@@ -586,6 +621,64 @@ layer(ReadyReplayEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         assert.strictEqual(
           failed.failureCode,
           registrationReconciliationFailureCodes.deadlineExpired
+        );
+      })
+  );
+
+  it.effect(
+    "reconciles an abandoned ready handle so a new registrant can claim it",
+    () =>
+      Effect.gen(function* () {
+        const firstCode = "ABD-012";
+        const secondCode = "ABD-013";
+        yield* createAdmission(firstCode);
+        yield* createAdmission(secondCode);
+        const enrollment = yield* RegistrationEnrollment;
+        const store = yield* RegistrationStore;
+
+        const abandoned = yield* registerInput(
+          "abandonedhandle",
+          600n,
+          accountFor(18),
+          firstCode,
+          "abandoned-first"
+        );
+        assert.instanceOf(
+          yield* enrollment.register(abandoned).pipe(Effect.flip),
+          RegistrationRelayerError
+        );
+        const abandonedDigest = yield* hashRegisterIntentV1(
+          domain,
+          yield* decodeRegisterIntentV1(abandoned.intent)
+        );
+        assert.strictEqual(
+          Option.getOrThrow(yield* store.get(abandonedDigest)).status,
+          "ready"
+        );
+
+        const replacement = yield* registerInput(
+          "abandonedhandle",
+          600n,
+          accountFor(19),
+          secondCode,
+          "abandoned-second"
+        );
+        assert.instanceOf(
+          yield* enrollment.register(replacement).pipe(Effect.flip),
+          RegistrationRelayerError
+        );
+
+        assert.strictEqual(
+          Option.getOrThrow(yield* store.get(abandonedDigest)).status,
+          "failed"
+        );
+        const replacementDigest = yield* hashRegisterIntentV1(
+          domain,
+          yield* decodeRegisterIntentV1(replacement.intent)
+        );
+        assert.strictEqual(
+          Option.getOrThrow(yield* store.get(replacementDigest)).status,
+          "ready"
         );
       })
   );

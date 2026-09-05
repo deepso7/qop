@@ -93,8 +93,14 @@ export const createConfiguredRegistry = ({
       Effect.flatMap((reader) => reader.lookupOwner(owner))
     )
   );
+  const lookupDeviceKey = Effect.fn("Registry.lookupDeviceKey")(
+    (deviceKey: string) =>
+      cachedConfiguredReader.pipe(
+        Effect.flatMap((reader) => reader.lookupDeviceKey(deviceKey))
+      )
+  );
 
-  return { lookupHandle, lookupOwner };
+  return { lookupDeviceKey, lookupHandle, lookupOwner };
 };
 
 const configuredRegistry = createConfiguredRegistry({
@@ -120,4 +126,5 @@ const configuredRegistry = createConfiguredRegistry({
   rpcUrl: process.env.EXPO_PUBLIC_RPC_URL,
 });
 
-export const { lookupHandle, lookupOwner } = configuredRegistry;
+export const { lookupDeviceKey, lookupHandle, lookupOwner } =
+  configuredRegistry;

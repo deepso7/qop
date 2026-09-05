@@ -22,8 +22,6 @@ import { listConversations } from "@/lib/db";
 import type { Conversation } from "@/lib/db";
 import { useP2pStore } from "@/lib/p2p-store";
 
-// oxlint-disable react/todo -- The opening guard must reset after navigation completes or rejects.
-
 const conversationKey = ({ qid }: Conversation) => qid;
 
 const formatConversationTime = (timestamp: number | null) => {
@@ -60,6 +58,7 @@ const ChatsScreen = () => {
 
   useFocusEffect(
     React.useCallback(() => {
+      isOpeningConversation.current = false;
       let active = true;
       const load = async (_revision: number, _retryCount: number) => {
         try {
@@ -103,7 +102,8 @@ const ChatsScreen = () => {
     try {
       await KeyboardController.dismiss();
       router.push({ params: { id: item.qid }, pathname: "/chat/[id]" });
-    } finally {
+    } catch {
+      // Hold the guard until this screen refocuses after a successful push.
       isOpeningConversation.current = false;
     }
   }, []);

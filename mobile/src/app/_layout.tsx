@@ -23,6 +23,7 @@ const AppStack = () => {
   const status = useIdentityStore((state) => state.status);
   const startP2p = useP2pStore((state) => state.start);
   const stopP2p = useP2pStore((state) => state.stop);
+  const p2pStatus = useP2pStore((state) => state.status);
   const isReady = status === "ready";
 
   React.useEffect(() => {
@@ -35,6 +36,7 @@ const AppStack = () => {
     }
   }, [status]);
 
+  // Start once identity is ready; stop when it leaves ready.
   React.useEffect(() => {
     if (status === "ready") {
       void startP2p();
@@ -44,6 +46,23 @@ const AppStack = () => {
     }
     void stopP2p();
   }, [startP2p, status, stopP2p]);
+
+  // After a hard failure, restart while identity stays ready (backoff avoids a tight loop).
+  React.useEffect(() => {
+    if (status !== "ready" || p2pStatus !== "failed") {
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      if (!cancelled) {
+        void startP2p();
+      }
+    }, 2_000);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [p2pStatus, startP2p, status]);
 
   if (status === "loading") {
     return null;

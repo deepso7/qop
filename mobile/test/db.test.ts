@@ -187,3 +187,22 @@ describe("interrupted sends", () => {
     expect(await listMessages("1")).toEqual(after);
   });
 });
+
+describe("message id dedupe", () => {
+  it("ignores a second insert with the same message id", async () => {
+    const input: MessageInput = {
+      contactQid: "1",
+      direction: "in",
+      id: "same-id",
+      sentAt: 100,
+      status: "received",
+      text: "first",
+    };
+    expect(await insertMessage(input)).toBe(true);
+    expect(
+      await insertMessage({ ...input, text: "duplicate", status: "received" })
+    ).toBe(false);
+    expect(await listMessages("1")).toHaveLength(1);
+    expect(await getMessageById("same-id")).toMatchObject({ text: "first" });
+  });
+});

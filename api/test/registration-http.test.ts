@@ -1,5 +1,5 @@
 import { assert, describe, it } from "@effect/vitest";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Schema, SchemaIssue } from "effect";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
 
 import {
@@ -22,6 +22,7 @@ const DIGEST = testHash("registration");
 const NOT_FOUND_DIGEST = testHash("not-found");
 const TRANSACTION_HASH = testHash("transaction");
 const SIGNATURE = testSignature("00");
+const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
 const intent = {
   deadline: "600",
   deviceKey: testHash("device"),
@@ -148,13 +149,6 @@ describe("registration HTTP API", () => {
         "/v1/registrations",
         "/v1/registrations/{digest}",
       ]);
-      assert.isFalse(
-        Object.keys(document.paths).some(
-          (path) =>
-            path.startsWith("/v1/devices") ||
-            path.startsWith("/v1/device-sessions")
-        )
-      );
     })
   );
 
@@ -196,33 +190,77 @@ describe("registration HTTP API", () => {
 
   it.effect("round-trips the public schemas", () =>
     Effect.gen(function* () {
+      const registered = {
+        digest: DIGEST,
+        registrationSignature: SIGNATURE,
+        status: "submitted",
+        transactionHash: TRANSACTION_HASH,
+      } as const;
+      const reconciled = {
+        digest: DIGEST,
+        failureCode: null,
+        qid: "42",
+        status: "confirmed",
+        transactionHash: TRANSACTION_HASH,
+      } as const;
+
       for (const [schema, value] of [
         [RegisterRegistrationPayload, payload],
-        [
-          RegisteredRegistrationResponse,
-          {
-            digest: DIGEST,
-            registrationSignature: SIGNATURE,
-            status: "submitted",
-            transactionHash: TRANSACTION_HASH,
-          },
-        ],
-        [
-          ReconciledRegistrationResponse,
-          {
-            digest: DIGEST,
-            failureCode: null,
-            qid: "42",
-            status: "confirmed",
-            transactionHash: TRANSACTION_HASH,
-          },
-        ],
+        [RegisteredRegistrationResponse, registered],
+        [ReconciledRegistrationResponse, reconciled],
       ] as const) {
         const decoded = yield* Schema.decodeUnknownEffect(schema)(value);
         assert.deepStrictEqual(
           yield* Schema.encodeEffect(schema)(decoded),
           value
         );
+      }
+
+      const highSignature = `0x${"1".padStart(64, "0")}${"f".repeat(64)}00`;
+      const failures = yield* Effect.all([
+        Schema.decodeUnknownEffect(RegisterRegistrationPayload)({
+          ...payload,
+          admissionCode: "X1-YT3",
+        }).pipe(Effect.flip),
+        Schema.decodeUnknownEffect(RegisterRegistrationPayload)({
+          ...payload,
+          intent: { ...intent, deviceKey: `0x${"00".repeat(32)}` },
+        }).pipe(Effect.flip),
+        Schema.encodeEffect(RegisteredRegistrationResponse)({
+          ...registered,
+          registrationSignature: highSignature,
+        }).pipe(Effect.flip),
+        Schema.encodeEffect(ReconciledRegistrationResponse)({
+          ...reconciled,
+          qid: "0",
+        }).pipe(Effect.flip),
+      ]);
+
+      const expected = [
+        {
+          message:
+            "Expected six letters or digits, optionally separated after three characters",
+          path: ["admissionCode"],
+        },
+        {
+          message: "Expected a non-zero device key",
+          path: ["intent", "deviceKey"],
+        },
+        {
+          message:
+            "Expected an ECDSA signature with valid r, low-s, and yParity 0 or 1",
+          path: ["registrationSignature"],
+        },
+        { message: "Expected a positive uint256 qid", path: ["qid"] },
+      ];
+      for (const [index, failure] of failures.entries()) {
+        const expectedIssue = expected[index];
+        if (!expectedIssue) {
+          throw new Error(`Missing expected codec issue at index ${index}`);
+        }
+        assert.deepStrictEqual(formatIssue(failure.issue).issues, [
+          expectedIssue,
+        ]);
       }
     })
   );

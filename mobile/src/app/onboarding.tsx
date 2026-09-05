@@ -455,6 +455,7 @@ const useOnboardingRegistration = (
         setMessage("Could not check registration. Retrying…");
       }
     };
+    void check();
     const interval = setInterval(() => {
       void check();
     }, 4000);

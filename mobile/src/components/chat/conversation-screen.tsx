@@ -120,6 +120,8 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
     (count: number) => count + 1,
     0
   );
+  // Dial may resolve a newer peerId than the persisted contact after device-key rotation.
+  const [dialPeerId, setDialPeerId] = React.useState(contact.peerId);
   const connectedPeerIds = useP2pStore((state) => state.connectedPeerIds);
   const connectTo = useP2pStore((state) => state.connectTo);
   const retryMessage = useP2pStore((state) => state.retryMessage);
@@ -127,12 +129,26 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
   const sendMessage = useP2pStore((state) => state.sendMessage);
   const status = useP2pStore((state) => state.status);
 
+  React.useEffect(() => {
+    setDialPeerId(contact.peerId);
+  }, [contact.peerId]);
+
+  // Mark read once per focus — not on every global revision bump.
+  useFocusEffect(
+    React.useCallback(() => {
+      void markConversationRead(contact.qid).catch(() => {
+        // Reachability/message load still proceed if the read cursor write fails.
+      });
+    }, [contact.qid])
+  );
+
+  // revision is process-global (any chat send/receive). Reloading here keeps the
+  // focused thread live; scoped invalidation would need store support.
   useFocusEffect(
     React.useCallback(() => {
       let active = true;
-      const refresh = async (_revision: number, _retryCount: number) => {
+      const refresh = async () => {
         try {
-          await markConversationRead(contact.qid);
           const rows = await listMessages(contact.qid);
           if (active) {
             setMessages(rows);
@@ -144,18 +160,41 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
           }
         }
       };
-      void refresh(revision, retryCount);
+      void refresh();
       return () => {
         active = false;
       };
     }, [contact.qid, revision, retryCount])
   );
 
-  React.useEffect(() => {
-    if (status === "running") {
-      void connectTo({ handle: contact.handle, qid: contact.qid });
-    }
-  }, [connectTo, contact.handle, contact.qid, status]);
+  const reachable = connectedPeerIds.includes(dialPeerId);
+  // Redial when focus is active, P2P is up, and this peer is not connected.
+  useFocusEffect(
+    React.useCallback(() => {
+      if (status !== "running" || reachable) {
+        return;
+      }
+      let cancelled = false;
+      void (async () => {
+        const peerId = await connectTo({
+          handle: contact.handle,
+          qid: contact.qid,
+        });
+        if (!cancelled && peerId) {
+          setDialPeerId(peerId);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [
+      connectTo,
+      contact.handle,
+      contact.qid,
+      reachable,
+      status,
+    ])
+  );
 
   const retry = React.useCallback(
     (id: string) => {
@@ -178,7 +217,6 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
     void sendMessage(contact, text);
   }, [contact, draft, sendMessage, status]);
 
-  const reachable = connectedPeerIds.includes(contact.peerId);
   const unavailable = status === "failed" || status === "stopped";
   let statusLabel = "Not connected";
   let statusClassName = "bg-amber-500";

@@ -20,6 +20,9 @@ describe("registry reader", () => {
       if (functionName === "qidByHandleHash") {
         return Promise.resolve(args[0] === ALICE_HASH ? 42n : 0n);
       }
+      if (functionName === "qidByDeviceKey") {
+        return Promise.resolve(args[0] === DEVICE_KEY ? 42n : 0n);
+      }
       if (functionName === "account") {
         // Encode Solidity's dynamic struct return independently of the reader ABI.
         const data = encodeAbiParameters(
@@ -48,7 +51,9 @@ describe("registry reader", () => {
       }
       return Promise.resolve(0n);
     });
-    const { lookupHandle } = createRegistryReader({ client: { readContract } });
+    const { lookupDeviceKey, lookupHandle } = createRegistryReader({
+      client: { readContract },
+    });
     const deviceKey = await Effect.runPromise(
       Schema.decodeUnknownEffect(Hex32)(DEVICE_KEY)
     );
@@ -60,6 +65,17 @@ describe("registry reader", () => {
 
     await expect(Effect.runPromise(lookupHandle("bob"))).resolves.toBeNull();
     await expect(Effect.runPromise(lookupHandle("alice"))).resolves.toEqual({
+      deviceKey: DEVICE_KEY,
+      handle: "alice",
+      owner: OWNER.toLowerCase(),
+      ownerVersion: 3,
+      peerId: expectedPeerId,
+      qid: 42n,
+      registeredAt: 1_700_000_000n,
+    });
+    await expect(
+      Effect.runPromise(lookupDeviceKey(DEVICE_KEY))
+    ).resolves.toEqual({
       deviceKey: DEVICE_KEY,
       handle: "alice",
       owner: OWNER.toLowerCase(),

@@ -194,22 +194,20 @@ export const listConversations = async (): Promise<Conversation[]> => {
       contacts.last_read_at AS lastReadAt,
       latest.text AS latestMessageText,
       latest.received_at AS latestMessageTime,
-      COALESCE(SUM(
-        CASE
-          WHEN messages.direction = 'in'
-            AND messages.received_at > contacts.last_read_at THEN 1
-          ELSE 0
-        END
-      ), 0) AS unreadCount
+      (
+        SELECT COUNT(*)
+        FROM messages
+        WHERE messages.contact_qid = contacts.qid
+          AND messages.direction = 'in'
+          AND messages.received_at > contacts.last_read_at
+      ) AS unreadCount
     FROM contacts
-    LEFT JOIN messages ON messages.contact_qid = contacts.qid
     LEFT JOIN messages AS latest ON latest.id = (
       SELECT id FROM messages
       WHERE contact_qid = contacts.qid
       ORDER BY received_at DESC, rowid DESC
       LIMIT 1
     )
-    GROUP BY contacts.qid
     ORDER BY COALESCE(latest.received_at, contacts.created_at) DESC
   `);
   return rows.map((row) => ({

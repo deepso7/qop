@@ -71,11 +71,11 @@ export class RegistrationDeadlineInvalid extends Data.TaggedError(
 
 export class RegistrationActiveHandleConflict extends Data.TaggedError(
   "RegistrationActiveHandleConflict"
-)<{ readonly handle: string }> {}
+)<{ readonly digest: Hash; readonly handle: string }> {}
 
 export class RegistrationActiveOwnerConflict extends Data.TaggedError(
   "RegistrationActiveOwnerConflict"
-)<{ readonly owner: string }> {}
+)<{ readonly digest: Hash; readonly owner: string }> {}
 
 export class RegistrationNonceConflict extends Data.TaggedError(
   "RegistrationNonceConflict"
@@ -285,6 +285,7 @@ export class RegistrationStore extends Context.Service<
               .limit(1);
             if (handleConflict) {
               return yield* new RegistrationActiveHandleConflict({
+                digest: handleConflict.digest,
                 handle: canonical.handle,
               });
             }
@@ -300,6 +301,7 @@ export class RegistrationStore extends Context.Service<
               .limit(1);
             if (ownerConflict) {
               return yield* new RegistrationActiveOwnerConflict({
+                digest: ownerConflict.digest,
                 owner: canonical.owner,
               });
             }
