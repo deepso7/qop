@@ -12,8 +12,8 @@ packages:
   - packages/*
 
 minimumReleaseAgeExclude:
-  - "@minip2p/core@0.5.0"
-  - "@minip2p/react-native@0.5.0"
+  - "@minip2p/core@0.5.3"
+  - "@minip2p/react-native@0.5.3"
   - "@types/node@26.4.0"
   - "@types/pg@8.23.1"
   - viem@2.56.0
@@ -31,7 +31,3 @@ overrides:
 allowBuilds:
   esbuild: true
   msgpackr-extract: false
-
-patchedDependencies:
-  "@minip2p/core@0.5.0": patches/@minip2p__core@0.5.0.patch
-  "@minip2p/react-native@0.5.0": patches/@minip2p__react-native@0.5.0.patch

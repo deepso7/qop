@@ -77,8 +77,6 @@ These checks require two development builds connected to the configured registry
 
 EAS profiles pin Node.js 24.13.0 to match the local validation runtime.
 
-### minip2p 0.5.0 patches
+### minip2p regression coverage
 
-The pnpm patches fix two failures found while exchanging messages between iOS and Android. The React Native adapter maps opaque native 64-bit connection IDs to distinct endpoint-local safe integers, preserving identity across connection events and streams. The core SDK preserves unread bytes and EOF when a remote FIN and full stream close arrive in the same native event batch. Abrupt closes and endpoint shutdown still reject reads.
-
-`test/minip2p-adapter.test.ts` exercises the installed patched SDK with a substitute native FFI boundary. Keep these patches until an upstream release includes both fixes.
+minip2p 0.5.3 includes the native connection ID and buffered stream closure fixes previously carried as local patches. `test/minip2p-adapter.test.ts` exercises these behaviors against the installed SDK through a substitute native FFI boundary.
