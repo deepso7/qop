@@ -229,6 +229,33 @@ describe("performSend", () => {
     expect(stream.write).not.toHaveBeenCalled();
   });
 
+  it("resets a stream that opens after an external cancellation", async () => {
+    const { endpoint, sessions, stream } = makeEndpoint(ackReader(id));
+    const pending = Promise.withResolvers<typeof stream>();
+    const controller = new AbortController();
+    endpoint.openStream.mockReturnValue(pending.promise);
+
+    const sending = performSend({
+      contact,
+      endpoint,
+      frame,
+      sessions,
+      signal: controller.signal,
+      timeoutMs: 10_000,
+    });
+    const rejected = sending.then(
+      () => false,
+      () => true
+    );
+    await vi.waitFor(() => expect(endpoint.openStream).toHaveBeenCalledOnce());
+    controller.abort(new Error("endpoint stopped"));
+    expect(await rejected).toBe(true);
+
+    pending.resolve(stream);
+    await vi.waitFor(() => expect(stream.reset).toHaveBeenCalledOnce());
+    expect(stream.write).not.toHaveBeenCalled();
+  });
+
   it("cancels verification after opening a stream", async () => {
     const { endpoint, lookupDeviceKey, sessions, stream } = makeEndpoint(
       ackReader(id)

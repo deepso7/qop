@@ -94,7 +94,10 @@ export const createP2pStore = ({
   let generation = 0;
   let recoveryOperation: Promise<void> = Promise.resolve();
   const inFlightJobs = new Set<Promise<void>>();
-  const retryJobs = new Map<string, Promise<void>>();
+  const retryJobs = new Map<
+    string,
+    { readonly controller: AbortController; readonly job: Promise<void> }
+  >();
 
   const sessions = createPeerSessions({
     getContactByQid,
@@ -117,6 +120,10 @@ export const createP2pStore = ({
   };
 
   const cleanupEndpoint = (activeEndpoint: P2pEndpoint | undefined) => {
+    for (const { controller } of retryJobs.values()) {
+      controller.abort();
+    }
+    retryJobs.clear();
     sessions.clear();
     const listeners = unsubscribe;
     unsubscribe = [];
@@ -208,10 +215,11 @@ export const createP2pStore = ({
   const sendStoredMessage = async (
     message: MessageInput,
     contact: Contact,
-    jobGeneration: number
+    jobGeneration: number,
+    signal?: AbortSignal
   ): Promise<void> => {
     try {
-      if (!isCurrentGeneration(jobGeneration)) {
+      if (signal?.aborted || !isCurrentGeneration(jobGeneration)) {
         return;
       }
       const activeEndpoint = endpoint;
@@ -236,6 +244,7 @@ export const createP2pStore = ({
         endpoint: activeEndpoint,
         frame,
         sessions,
+        signal,
         timeoutMs: 10_000,
       });
       if (!isCurrentGeneration(jobGeneration)) {
@@ -291,8 +300,9 @@ export const createP2pStore = ({
     retryMessage: (id) => {
       const existing = retryJobs.get(id);
       if (existing) {
-        return existing;
+        return existing.job;
       }
+      const controller = new AbortController();
       const ensureRunning = async () => {
         if (get().status === "failed" || get().status === "stopped") {
           // Must not run inside trackJob — start() waits for in-flight jobs.
@@ -308,7 +318,13 @@ export const createP2pStore = ({
       };
 
       const retry = async () => {
+        if (controller.signal.aborted) {
+          return;
+        }
         if (!(await ensureRunning())) {
+          return;
+        }
+        if (controller.signal.aborted) {
           return;
         }
         // Capture generation after start so a restart does not void this retry.
@@ -335,7 +351,8 @@ export const createP2pStore = ({
             await sendStoredMessage(
               { ...message, status: "sending" },
               contact,
-              jobGeneration
+              jobGeneration,
+              controller.signal
             );
           } catch (error) {
             if (isCurrentGeneration(jobGeneration)) {
@@ -350,10 +367,10 @@ export const createP2pStore = ({
         return trackJob(send());
       };
       const job = retry();
-      retryJobs.set(id, job);
+      retryJobs.set(id, { controller, job });
       const removeWhenDone = async () => {
         await Promise.allSettled([job]);
-        if (retryJobs.get(id) === job) {
+        if (retryJobs.get(id)?.job === job) {
           retryJobs.delete(id);
         }
       };

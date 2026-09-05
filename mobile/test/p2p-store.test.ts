@@ -9,6 +9,7 @@ import {
   insertMessage,
   upsertContact,
 } from "@/lib/db";
+import type { performSend } from "@/lib/p2p-send";
 import { createP2pStore } from "@/lib/p2p-store-core";
 import type { P2pEndpoint } from "@/lib/p2p-store-core";
 import type { RegistryAccount } from "@/lib/registry-core";
@@ -44,7 +45,7 @@ let onStream: ((stream: InboundStream) => void) | undefined;
 let queueOverflow: (() => void) | undefined;
 const disconnect = vi.fn();
 const connectedPeers = vi.fn((): string[] => [PEER_BOB]);
-const send = vi.fn<() => Promise<void>>();
+const send = vi.fn<typeof performSend>();
 const lookupDeviceKey = vi.fn((): Effect.Effect<RegistryAccount | null> =>
   Effect.succeed(bobAccount)
 );
@@ -289,6 +290,51 @@ describe("interrupted sends", () => {
     await Promise.all([first, second]);
 
     expect(await getMessageById(id)).toMatchObject({ status: "sent" });
+  });
+
+  it("retries after a capped stop cancels an abandoned retry", async () => {
+    const { id, pending } = await beginSend();
+    closed?.({ reason: "close" });
+    pending.reject(new Error("connection closed"));
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({ status: "failed" })
+    );
+    await useP2pStore.getState().start();
+
+    const abandoned = Promise.withResolvers<undefined>();
+    let cancelled = false;
+    send.mockImplementationOnce(({ signal }) => {
+      signal?.addEventListener("abort", () => {
+        cancelled = true;
+      });
+      return abandoned.promise;
+    });
+    const oldRetry = useP2pStore.getState().retryMessage(id);
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+
+    vi.useFakeTimers();
+    try {
+      const stopped = useP2pStore.getState().stop();
+      // oxlint-disable-next-line unicorn/numeric-separators-style -- This is the store's five-second stop cap.
+      await vi.advanceTimersByTimeAsync(5_000);
+      await stopped;
+      expect(cancelled).toBe(true);
+      expect(await getMessageById(id)).toMatchObject({ status: "failed" });
+
+      const freshRetry = useP2pStore.getState().retryMessage(id);
+      // oxlint-disable-next-line unicorn/numeric-separators-style -- This is the store's five-second stop cap.
+      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(3));
+      await freshRetry;
+      expect(await getMessageById(id)).toMatchObject({ status: "sent" });
+
+      // oxlint-disable-next-line unicorn/no-useless-undefined -- The abandoned send resolves to undefined.
+      abandoned.resolve(undefined);
+      await oldRetry;
+      expect(await getMessageById(id)).toMatchObject({ status: "sent" });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

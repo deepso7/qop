@@ -36,6 +36,7 @@ export interface PerformSendInput {
   readonly sessions: ReturnType<typeof createPeerSessions>;
   readonly endpoint: SendEndpoint;
   readonly frame: ChatFrame;
+  readonly signal?: AbortSignal;
   readonly timeoutMs: number;
 }
 
@@ -92,6 +93,7 @@ export const performSend = async ({
   contact,
   endpoint,
   frame,
+  signal,
   sessions,
   timeoutMs,
 }: PerformSendInput): Promise<void> => {
@@ -110,7 +112,7 @@ export const performSend = async ({
         const opened = yield* Effect.tryPromise({
           catch: (error) =>
             error instanceof Error ? error : new Error(String(error)),
-          try: async (signal) => {
+          try: async (abortSignal) => {
             const lateStream = await endpoint.openStream(
               peerId,
               CHAT_PROTOCOL,
@@ -118,9 +120,9 @@ export const performSend = async ({
                 timeoutMs,
               }
             );
-            if (signal.aborted) {
+            if (abortSignal.aborted) {
               lateStream.reset();
-              throw signal.reason;
+              throw abortSignal.reason;
             }
             return lateStream;
           },
@@ -146,7 +148,8 @@ export const performSend = async ({
           orElse: () =>
             Effect.fail(new Error("Timed out waiting for chat ack")),
         })
-      )
+      ),
+      { signal }
     );
   } catch (error) {
     stream?.reset();
