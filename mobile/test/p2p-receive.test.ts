@@ -5,8 +5,8 @@ import {
   encodeFrame,
   MAX_CHAT_PAYLOAD_BYTES,
 } from "@/lib/chat-wire";
-import { readVerifiedChat } from "@/lib/p2p-receive";
 import type { Contact } from "@/lib/db";
+import { readVerifiedChat } from "@/lib/p2p-receive";
 
 const id = "c56a4180-65aa-42ec-a945-5fd21dec0538";
 const frame = {
@@ -57,6 +57,7 @@ it("returns the verified frame and contact", async () => {
 });
 
 it("rejects a non-chat protocol without reading", async () => {
+  // oxlint-disable-next-line unicorn/no-useless-undefined -- EOF requires Promise<undefined>, not Promise<void>.
   const read = vi.fn(() => Promise.resolve(undefined));
   expect(
     await readVerifiedChat(
@@ -71,6 +72,7 @@ it("rejects a non-chat protocol without reading", async () => {
 it("rejects an empty EOF frame payload", async () => {
   await expect(
     readVerifiedChat(
+      // oxlint-disable-next-line unicorn/no-useless-undefined -- EOF requires Promise<undefined>, not Promise<void>.
       makeStream(() => Promise.resolve(undefined)),
       () => Promise.resolve(null),
       100

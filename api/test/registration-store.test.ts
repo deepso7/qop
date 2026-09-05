@@ -100,7 +100,7 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
           .pipe(Effect.flip);
         assert.instanceOf(conflict, RegistrationActiveHandleConflict);
         assert.strictEqual(conflict.handle, "shared");
-        assert.match(conflict.digest, /^0x[0-9a-f]{64}$/);
+        assert.match(conflict.digest, /^0x[0-9a-f]{64}$/u);
       })
     );
 

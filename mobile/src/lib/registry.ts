@@ -16,7 +16,9 @@ const configurationError = () =>
   new RegistryReaderError({ operation: "configuration" });
 
 interface ConfiguredRegistryClient extends RegistryReadClient {
-  readonly getChainId: () => Promise<number>;
+  readonly getChainId: (options?: {
+    readonly signal?: AbortSignal;
+  }) => Promise<number>;
 }
 
 interface ConfiguredRegistryDependencies {
@@ -54,7 +56,7 @@ export const createConfiguredRegistry = ({
     const client = createClient(rpcUrl, registryAddress);
     const actualChainId = yield* Effect.tryPromise({
       catch: () => new RegistryReaderError({ operation: "rpc" }),
-      try: client.getChainId,
+      try: (signal) => client.getChainId({ signal }),
     });
     if (BigInt(actualChainId) !== expectedChainId) {
       return yield* configurationError();
@@ -107,12 +109,19 @@ const configuredRegistry = createConfiguredRegistry({
   createClient: (rpcUrl, registryAddress) => {
     const publicClient = createPublicClient({ transport: http(rpcUrl) });
     return {
-      getChainId: () => publicClient.getChainId(),
-      readContract: async (parameters) => {
+      getChainId: async ({ signal } = {}) => {
+        const chainId = await publicClient.request(
+          { method: "eth_chainId" },
+          { dedupe: true, signal }
+        );
+        return Number(chainId);
+      },
+      readContract: async (parameters, { signal } = {}) => {
         // SAFETY: The bound address and ABI were validated before this call.
         const result = await publicClient.readContract({
           ...parameters,
           address: registryAddress,
+          requestOptions: { signal },
         } as Parameters<typeof publicClient.readContract>[0]);
         // SAFETY: The fixed ABI limits viem's result to the registry result union.
         return result as Awaited<

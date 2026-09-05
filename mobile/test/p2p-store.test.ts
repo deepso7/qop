@@ -25,7 +25,10 @@ const bobAccount: RegistryAccount = {
   registeredAt: 1n,
 };
 
-type Connection = { readonly connId: number; readonly peerId: string };
+interface Connection {
+  readonly connId: number;
+  readonly peerId: string;
+}
 type InboundStream = Connection & {
   readonly closeWrite: ReturnType<typeof vi.fn>;
   readonly protocolId: string;
@@ -42,12 +45,55 @@ let queueOverflow: (() => void) | undefined;
 const disconnect = vi.fn();
 const connectedPeers = vi.fn((): string[] => [PEER_BOB]);
 const send = vi.fn<() => Promise<void>>();
-const lookupDeviceKey = vi.fn(
-  (): Effect.Effect<RegistryAccount | null> => Effect.succeed(bobAccount)
+const lookupDeviceKey = vi.fn((): Effect.Effect<RegistryAccount | null> =>
+  Effect.succeed(bobAccount)
 );
-const lookupHandle = vi.fn(
-  (): Effect.Effect<RegistryAccount | null> => Effect.succeed(bobAccount)
+const lookupHandle = vi.fn((): Effect.Effect<RegistryAccount | null> =>
+  Effect.succeed(bobAccount)
 );
+
+type EventListener = (event: never) => void;
+
+const captureEndpointEvent: P2pEndpoint["on"] = (
+  typeOrHandler: string | EventListener,
+  maybeHandler?: EventListener
+) => {
+  if (!maybeHandler) {
+    return () => {};
+  }
+  if (typeOrHandler === "driverFailed") {
+    // SAFETY: This branch only runs for the driverFailed registration.
+    driverFailed = maybeHandler as (event: { detail: string }) => void;
+    return () => {
+      driverFailed = undefined;
+    };
+  }
+  if (typeOrHandler === "connectionEstablished") {
+    // SAFETY: This branch only runs for the connectionEstablished registration.
+    connectionEstablished = maybeHandler as (connection: Connection) => void;
+    return () => {
+      connectionEstablished = undefined;
+    };
+  }
+  if (typeOrHandler === "stream") {
+    // SAFETY: This branch only runs for the stream registration.
+    onStream = maybeHandler as (event: InboundStream) => void;
+    return () => {
+      onStream = undefined;
+    };
+  }
+  if (typeOrHandler === "queueOverflow") {
+    // SAFETY: The store's queue-overflow handler discards the payload.
+    queueOverflow = () =>
+      (maybeHandler as (event: { readonly dropped: number }) => void)({
+        dropped: 1,
+      });
+    return () => {
+      queueOverflow = undefined;
+    };
+  }
+  return () => {};
+};
 
 const useP2pStore = createP2pStore({
   createEndpoint: () => ({
@@ -58,33 +104,7 @@ const useP2pStore = createP2pStore({
       connect: () => Promise.reject(new Error("No dial in lifecycle fixture")),
       connectedPeers,
       disconnect,
-      on: ((event: string, callback: (...args: never[]) => void) => {
-        if (event === "driverFailed") {
-          driverFailed = callback as (event: { detail: string }) => void;
-          return () => {
-            driverFailed = undefined;
-          };
-        }
-        if (event === "connectionEstablished") {
-          connectionEstablished = callback as (connection: Connection) => void;
-          return () => {
-            connectionEstablished = undefined;
-          };
-        }
-        if (event === "stream") {
-          onStream = callback as (stream: InboundStream) => void;
-          return () => {
-            onStream = undefined;
-          };
-        }
-        if (event === "queueOverflow") {
-          queueOverflow = callback as () => void;
-          return () => {
-            queueOverflow = undefined;
-          };
-        }
-        return () => {};
-      }) as unknown as P2pEndpoint["on"],
+      on: captureEndpointEvent,
       onClose: (callback) => {
         closed = callback;
         return () => {
@@ -249,6 +269,27 @@ describe("interrupted sends", () => {
     expect(useP2pStore.getState().status).toBe("running");
     expect(send).toHaveBeenCalledTimes(2);
   });
+
+  it("coalesces concurrent retries for the same message", async () => {
+    const { id, pending } = await beginSend();
+    closed?.({ reason: "close" });
+    pending.reject(new Error("connection closed"));
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({ status: "failed" })
+    );
+    await useP2pStore.getState().start();
+    const retryPending = Promise.withResolvers<undefined>();
+    send.mockReturnValueOnce(retryPending.promise);
+
+    const first = useP2pStore.getState().retryMessage(id);
+    const second = useP2pStore.getState().retryMessage(id);
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    // oxlint-disable-next-line unicorn/no-useless-undefined -- performSend resolves to undefined.
+    retryPending.resolve(undefined);
+    await Promise.all([first, second]);
+
+    expect(await getMessageById(id)).toMatchObject({ status: "sent" });
+  });
 });
 
 describe("inbound chat streams", () => {
@@ -293,6 +334,7 @@ describe("inbound chat streams", () => {
     let reads = 0;
     stream.read = () => {
       reads += 1;
+      // oxlint-disable-next-line unicorn/no-useless-undefined -- EOF is represented by undefined.
       return reads === 1 ? hung.promise : Promise.resolve(undefined);
     };
     onStream?.(stream);

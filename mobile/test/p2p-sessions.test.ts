@@ -257,7 +257,7 @@ describe("connection authorization", () => {
     expect(sessions.isVerified(connection, "1")).toBe(false);
     expect(lookupDeviceKey).toHaveBeenCalledTimes(2);
 
-    upsertContact.mockResolvedValue(undefined);
+    upsertContact.mockResolvedValue();
     expect(
       await Effect.runPromise(sessions.verify(connection, "alice"))
     ).toEqual(contact);

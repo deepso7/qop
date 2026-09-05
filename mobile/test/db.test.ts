@@ -94,6 +94,32 @@ describe("message chronology", () => {
     }
   );
 
+  it("does not mark messages received after a loaded read boundary", async () => {
+    vi.setSystemTime(100);
+    await insertMessage({
+      contactQid: "1",
+      direction: "in",
+      id: "loaded",
+      sentAt: 1,
+      status: "received",
+      text: "loaded message",
+    });
+    const loaded = await listMessages("1");
+    vi.setSystemTime(200);
+    await insertMessage({
+      contactQid: "1",
+      direction: "in",
+      id: "arrived-after-load",
+      sentAt: 2,
+      status: "received",
+      text: "new message",
+    });
+
+    await markConversationRead("1", loaded.at(-1)?.receivedAt);
+
+    expect(await listConversations()).toMatchObject([{ unreadCount: 1 }]);
+  });
+
   it("sorts conversations by local activity despite sender clock skew", async () => {
     await upsertContact({
       createdAt: 2,
@@ -200,7 +226,7 @@ describe("message id dedupe", () => {
     };
     expect(await insertMessage(input)).toBe(true);
     expect(
-      await insertMessage({ ...input, text: "duplicate", status: "received" })
+      await insertMessage({ ...input, status: "received", text: "duplicate" })
     ).toBe(false);
     expect(await listMessages("1")).toHaveLength(1);
     expect(await getMessageById("same-id")).toMatchObject({ text: "first" });

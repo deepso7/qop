@@ -175,8 +175,94 @@ describe("performSend", () => {
     expect(stream.reset).not.toHaveBeenCalled();
   });
 
+  it("cancels a late lookup before it can connect", async () => {
+    const { endpoint, sessions } = makeEndpoint(ackReader(id));
+    const pending = Promise.withResolvers<string>();
+    let aborted = false;
+    vi.spyOn(sessions, "recipientPeerId").mockReturnValue(
+      Effect.tryPromise({
+        catch: () => new RegistryReaderError({ operation: "rpc" }),
+        try: (signal) => {
+          signal.addEventListener("abort", () => {
+            aborted = true;
+          });
+          return pending.promise;
+        },
+      })
+    );
+
+    await expect(
+      performSend({ contact, endpoint, frame, sessions, timeoutMs: 5 })
+    ).rejects.toThrow("Timed out");
+    expect(aborted).toBe(true);
+    pending.resolve(PEER_BOB);
+    await Promise.resolve();
+    expect(endpoint.connect).not.toHaveBeenCalled();
+    expect(endpoint.openStream).not.toHaveBeenCalled();
+  });
+
+  it("does not open a stream after a late connection", async () => {
+    const { endpoint, sessions, stream } = makeEndpoint(ackReader(id));
+    const pending = Promise.withResolvers<undefined>();
+    endpoint.connect.mockReturnValue(pending.promise);
+
+    await expect(
+      performSend({ contact, endpoint, frame, sessions, timeoutMs: 5 })
+    ).rejects.toThrow("Timed out");
+    // oxlint-disable-next-line unicorn/no-useless-undefined -- The endpoint promise resolves to undefined.
+    pending.resolve(undefined);
+    await Promise.resolve();
+    expect(endpoint.openStream).not.toHaveBeenCalled();
+    expect(stream.write).not.toHaveBeenCalled();
+  });
+
+  it("resets a stream that opens after the send deadline", async () => {
+    const { endpoint, sessions, stream } = makeEndpoint(ackReader(id));
+    const pending = Promise.withResolvers<typeof stream>();
+    endpoint.openStream.mockReturnValue(pending.promise);
+
+    await expect(
+      performSend({ contact, endpoint, frame, sessions, timeoutMs: 5 })
+    ).rejects.toThrow("Timed out");
+    pending.resolve(stream);
+    await vi.waitFor(() => expect(stream.reset).toHaveBeenCalledOnce());
+    expect(stream.write).not.toHaveBeenCalled();
+  });
+
+  it("cancels verification after opening a stream", async () => {
+    const { endpoint, lookupDeviceKey, sessions, stream } = makeEndpoint(
+      ackReader(id)
+    );
+    const pending = Promise.withResolvers<RegistryAccount>();
+    let aborted = false;
+    lookupDeviceKey.mockReturnValueOnce(
+      Effect.tryPromise({
+        catch: () => new RegistryReaderError({ operation: "rpc" }),
+        try: (signal) => {
+          signal.addEventListener("abort", () => {
+            aborted = true;
+          });
+          return pending.promise;
+        },
+      })
+    );
+
+    await expect(
+      performSend({ contact, endpoint, frame, sessions, timeoutMs: 5 })
+    ).rejects.toThrow("Timed out");
+    expect(aborted).toBe(true);
+    expect(stream.reset).toHaveBeenCalledOnce();
+    expect(stream.write).not.toHaveBeenCalled();
+
+    pending.resolve(account);
+    await expect(
+      Effect.runPromise(sessions.verify(stream, contact.handle))
+    ).resolves.toMatchObject({ qid: contact.qid });
+  });
+
   it("rejects an empty EOF close without an ack", async () => {
     const { endpoint, stream, sessions } = makeEndpoint(() =>
+      // oxlint-disable-next-line unicorn/no-useless-undefined -- EOF is represented by undefined.
       Promise.resolve(undefined)
     );
 

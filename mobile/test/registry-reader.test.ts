@@ -109,4 +109,25 @@ describe("registry reader", () => {
 
     expect(Result.isFailure(result) && result.failure.operation).toBe("decode");
   });
+
+  it("aborts the RPC when its lookup fiber is interrupted", async () => {
+    const pending = Promise.withResolvers<bigint>();
+    let aborted = false;
+    const { lookupHandle } = createRegistryReader({
+      client: {
+        readContract: (_parameters, { signal } = {}) => {
+          signal?.addEventListener("abort", () => {
+            aborted = true;
+          });
+          return pending.promise;
+        },
+      },
+    });
+
+    const result = await Effect.runPromise(
+      lookupHandle("alice").pipe(Effect.timeoutOption(0))
+    );
+    expect(result._tag).toBe("None");
+    expect(aborted).toBe(true);
+  });
 });

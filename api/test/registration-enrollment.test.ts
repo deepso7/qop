@@ -78,7 +78,11 @@ const read = <Value>(value: Value): RegistryRead<Value> => ({
 const confirmedHandles = new Set<string>();
 const conflictingHandles = new Set<string>();
 const mismatchedConfirmationHandles = new Set<string>();
-const expiredDeadlineHandles = new Set(["expiredchain", "abandonedhandle"]);
+const expiredDeadlineHandles = new Set([
+  "expiredchain",
+  "abandonedhandle",
+  "abandonedowner",
+]);
 
 const handleQid = (handle: string): bigint | null => {
   if (handle === "takenhandle" || conflictingHandles.has(handle)) {
@@ -210,24 +214,19 @@ const RegistrationEnrollmentTestLive = enrollmentLayer(
 );
 const RetryEnrollmentTestLive = enrollmentLayer(RetryRelayerTestLive);
 
-let readyReplayPrepareAttempts = 0;
-const ReadyReplayRelayerTestLive = Layer.sync(RegistrationRelayer, () => {
-  readyReplayPrepareAttempts = 0;
-  return RegistrationRelayer.of({
-    broadcast: (prepared) => Effect.succeed(prepared.transactionHash),
-    pendingNonce: Effect.succeed(0n),
-    prepare: () => {
-      readyReplayPrepareAttempts += 1;
-      return Effect.fail(
-        new RegistrationRelayerError({ operation: "prepare" })
-      );
-    },
-  });
-});
-const ReadyReplayEnrollmentTestLive = enrollmentLayer(
-  ReadyReplayRelayerTestLive
-);
-
+const readyReplayRelayerLayer = (onPrepare: () => void) =>
+  Layer.sync(RegistrationRelayer, () =>
+    RegistrationRelayer.of({
+      broadcast: (prepared) => Effect.succeed(prepared.transactionHash),
+      pendingNonce: Effect.succeed(0n),
+      prepare: () => {
+        onPrepare();
+        return Effect.fail(
+          new RegistrationRelayerError({ operation: "prepare" })
+        );
+      },
+    })
+  );
 const makeIntent = Effect.fn("test.makeIntent")(function* (
   handle: string,
   deadlineOffset = 600n,
@@ -588,7 +587,15 @@ layer(RetryEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
   );
 });
 
-layer(ReadyReplayEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
+let expiredReadyReplayPrepareAttempts = 0;
+layer(
+  enrollmentLayer(
+    readyReplayRelayerLayer(() => {
+      expiredReadyReplayPrepareAttempts += 1;
+    })
+  ),
+  { timeout: "30 seconds" }
+)((it) => {
   it.effect(
     "fails an expired ready replay before calling the relayer again",
     () =>
@@ -608,9 +615,9 @@ layer(ReadyReplayEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           yield* enrollment.register(input).pipe(Effect.flip),
           RegistrationRelayerError
         );
-        assert.strictEqual(readyReplayPrepareAttempts, 1);
+        assert.strictEqual(expiredReadyReplayPrepareAttempts, 1);
         yield* enrollment.register(input).pipe(Effect.flip);
-        assert.strictEqual(readyReplayPrepareAttempts, 1);
+        assert.strictEqual(expiredReadyReplayPrepareAttempts, 1);
 
         const digest = yield* hashRegisterIntentV1(
           domain,
@@ -624,15 +631,27 @@ layer(ReadyReplayEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         );
       })
   );
+});
 
+let abandonedReplayPrepareAttempts = 0;
+layer(
+  enrollmentLayer(
+    readyReplayRelayerLayer(() => {
+      abandonedReplayPrepareAttempts += 1;
+    })
+  ),
+  { timeout: "30 seconds" }
+)((it) => {
   it.effect(
-    "reconciles an abandoned ready handle so a new registrant can claim it",
+    "reconciles expired handle and owner blockers before retrying registration",
     () =>
       Effect.gen(function* () {
-        const firstCode = "ABD-012";
-        const secondCode = "ABD-013";
-        yield* createAdmission(firstCode);
-        yield* createAdmission(secondCode);
+        const handleCode = "ABD-012";
+        const ownerCode = "ABD-013";
+        const replacementCode = "ABD-014";
+        yield* createAdmission(handleCode);
+        yield* createAdmission(ownerCode);
+        yield* createAdmission(replacementCode);
         const enrollment = yield* RegistrationEnrollment;
         const store = yield* RegistrationStore;
 
@@ -640,7 +659,7 @@ layer(ReadyReplayEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           "abandonedhandle",
           600n,
           accountFor(18),
-          firstCode,
+          handleCode,
           "abandoned-first"
         );
         assert.instanceOf(
@@ -656,11 +675,27 @@ layer(ReadyReplayEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           "ready"
         );
 
+        const ownerBlocker = yield* registerInput(
+          "abandonedowner",
+          600n,
+          accountFor(19),
+          ownerCode,
+          "abandoned-owner"
+        );
+        assert.instanceOf(
+          yield* enrollment.register(ownerBlocker).pipe(Effect.flip),
+          RegistrationRelayerError
+        );
+        const ownerBlockerDigest = yield* hashRegisterIntentV1(
+          domain,
+          yield* decodeRegisterIntentV1(ownerBlocker.intent)
+        );
+
         const replacement = yield* registerInput(
           "abandonedhandle",
           600n,
           accountFor(19),
-          secondCode,
+          replacementCode,
           "abandoned-second"
         );
         assert.instanceOf(
@@ -672,6 +707,10 @@ layer(ReadyReplayEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           Option.getOrThrow(yield* store.get(abandonedDigest)).status,
           "failed"
         );
+        assert.strictEqual(
+          Option.getOrThrow(yield* store.get(ownerBlockerDigest)).status,
+          "failed"
+        );
         const replacementDigest = yield* hashRegisterIntentV1(
           domain,
           yield* decodeRegisterIntentV1(replacement.intent)
@@ -680,6 +719,7 @@ layer(ReadyReplayEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           Option.getOrThrow(yield* store.get(replacementDigest)).status,
           "ready"
         );
+        assert.strictEqual(abandonedReplayPrepareAttempts, 3);
       })
   );
 });

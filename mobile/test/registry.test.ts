@@ -55,4 +55,46 @@ describe("configured registry", () => {
     expect(getChainId).toHaveBeenCalledOnce();
     expect(readContract).not.toHaveBeenCalled();
   });
+
+  it("passes cancellation through the configured viem client to fetch", async () => {
+    const pending = Promise.withResolvers<Response>();
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      // SAFETY: viem's HTTP transport serializes every JSON-RPC request as an object with a method.
+      const request = JSON.parse(String(init?.body)) as { method: string };
+      if (request.method === "eth_chainId") {
+        return Promise.resolve(
+          Response.json({ id: 0, jsonrpc: "2.0", result: "0x7a69" })
+        );
+      }
+      expect(request.method).toBe("eth_call");
+      init?.signal?.addEventListener("abort", () => {
+        pending.reject(init.signal?.reason);
+      });
+      return pending.promise;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv(
+      "EXPO_PUBLIC_REGISTRY_ADDRESS",
+      "0x1111111111111111111111111111111111111111"
+    );
+    vi.stubEnv("EXPO_PUBLIC_REGISTRY_CHAIN_ID", "31337");
+    vi.stubEnv("EXPO_PUBLIC_RPC_URL", "https://rpc.qop.test");
+    try {
+      vi.resetModules();
+      const { lookupOwner } = await import("@/lib/registry");
+      const result = await Effect.runPromise(
+        lookupOwner("0x7e5f4552091a69125d5dfcb7b8c2659029395bdf").pipe(
+          Effect.timeoutOption(20)
+        )
+      );
+      expect(result._tag).toBe("None");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+        signal: expect.objectContaining({ aborted: true }),
+      });
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
 });

@@ -94,6 +94,7 @@ export const createP2pStore = ({
   let generation = 0;
   let recoveryOperation: Promise<void> = Promise.resolve();
   const inFlightJobs = new Set<Promise<void>>();
+  const retryJobs = new Map<string, Promise<void>>();
 
   const sessions = createPeerSessions({
     getContactByQid,
@@ -264,17 +265,19 @@ export const createP2pStore = ({
       const activeEndpoint = endpoint;
       const jobGeneration = generation;
       if (!activeEndpoint) {
-        return undefined;
+        return;
       }
       try {
-        // Bound registry lookup so a hung RPC cannot stack forever across navigations.
-        const peerId = await withTimeout(
-          Effect.runPromise(sessions.recipientPeerId(contact)),
-          10_000,
-          "Timed out looking up peer"
+        const peerId = await Effect.runPromise(
+          sessions.recipientPeerId(contact).pipe(
+            Effect.timeoutOrElse({
+              duration: 10_000,
+              orElse: () => Effect.fail(new Error("Timed out looking up peer")),
+            })
+          )
         );
         if (!isCurrentGeneration(jobGeneration)) {
-          return undefined;
+          return;
         }
         if (!activeEndpoint.connectedPeers().includes(peerId)) {
           await activeEndpoint.connect(peerId, { timeoutMs: 15_000 });
@@ -282,11 +285,14 @@ export const createP2pStore = ({
         return peerId;
       } catch {
         // The screen reports reachability from authoritative connection events.
-        return undefined;
       }
     },
 
     retryMessage: (id) => {
+      const existing = retryJobs.get(id);
+      if (existing) {
+        return existing;
+      }
       const ensureRunning = async () => {
         if (get().status === "failed" || get().status === "stopped") {
           // Must not run inside trackJob — start() waits for in-flight jobs.
@@ -296,9 +302,7 @@ export const createP2pStore = ({
         while (get().status === "starting" && Date.now() - startedAt < 15_000) {
           // Concurrent layout restart may already be in flight.
           // oxlint-disable-next-line eslint/no-await-in-loop -- Poll until start settles.
-          await new Promise<void>((resolve) => {
-            setTimeout(resolve, 50);
-          });
+          await Effect.runPromise(Effect.sleep(50));
         }
         return get().status === "running";
       };
@@ -345,7 +349,16 @@ export const createP2pStore = ({
         };
         return trackJob(send());
       };
-      return retry();
+      const job = retry();
+      retryJobs.set(id, job);
+      const removeWhenDone = async () => {
+        await Promise.allSettled([job]);
+        if (retryJobs.get(id) === job) {
+          retryJobs.delete(id);
+        }
+      };
+      void removeWhenDone();
+      return job;
     },
 
     sendMessage: (contact, text) => {

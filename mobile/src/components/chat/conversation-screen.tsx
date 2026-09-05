@@ -120,39 +120,42 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
     (count: number) => count + 1,
     0
   );
-  // Dial may resolve a newer peerId than the persisted contact after device-key rotation.
-  const [dialPeerId, setDialPeerId] = React.useState(contact.peerId);
+  // A dial may resolve a newer peerId than the persisted contact after device-key rotation.
+  const [dialTarget, setDialTarget] = React.useState(() => ({
+    contactPeerId: contact.peerId,
+    peerId: contact.peerId,
+  }));
   const connectedPeerIds = useP2pStore((state) => state.connectedPeerIds);
   const connectTo = useP2pStore((state) => state.connectTo);
   const retryMessage = useP2pStore((state) => state.retryMessage);
   const revision = useP2pStore((state) => state.revision);
   const sendMessage = useP2pStore((state) => state.sendMessage);
   const status = useP2pStore((state) => state.status);
-
-  React.useEffect(() => {
-    setDialPeerId(contact.peerId);
-  }, [contact.peerId]);
-
-  // Mark read once per focus — not on every global revision bump.
-  useFocusEffect(
-    React.useCallback(() => {
-      void markConversationRead(contact.qid).catch(() => {
-        // Reachability/message load still proceed if the read cursor write fails.
-      });
-    }, [contact.qid])
-  );
+  const dialPeerId =
+    dialTarget.contactPeerId === contact.peerId
+      ? dialTarget.peerId
+      : contact.peerId;
 
   // revision is process-global (any chat send/receive). Reloading here keeps the
-  // focused thread live; scoped invalidation would need store support.
+  // focused thread live. Advance the read cursor only through messages that the
+  // refresh loaded, so a concurrent arrival remains unread until the next refresh.
   useFocusEffect(
     React.useCallback(() => {
       let active = true;
-      const refresh = async () => {
+      const refresh = async (_revision: number, _retryCount: number) => {
         try {
           const rows = await listMessages(contact.qid);
           if (active) {
             setMessages(rows);
             setLoadError(false);
+            const latestReceivedAt = rows.at(-1)?.receivedAt;
+            if (latestReceivedAt !== undefined) {
+              try {
+                await markConversationRead(contact.qid, latestReceivedAt);
+              } catch {
+                // Message loading still succeeds if the read cursor write fails.
+              }
+            }
           }
         } catch {
           if (active) {
@@ -160,7 +163,7 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
           }
         }
       };
-      void refresh();
+      void refresh(revision, retryCount);
       return () => {
         active = false;
       };
@@ -181,7 +184,7 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
           qid: contact.qid,
         });
         if (!cancelled && peerId) {
-          setDialPeerId(peerId);
+          setDialTarget({ contactPeerId: contact.peerId, peerId });
         }
       })();
       return () => {
@@ -190,6 +193,7 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
     }, [
       connectTo,
       contact.handle,
+      contact.peerId,
       contact.qid,
       reachable,
       status,

@@ -56,9 +56,15 @@ const ChatsScreen = () => {
   const revision = useP2pStore((state) => state.revision);
   const contentContainerStyle = useResolveClassNames("pb-24");
 
+  // Keep a single tap guarded until the screen is focused again.
   useFocusEffect(
     React.useCallback(() => {
       isOpeningConversation.current = false;
+    }, [])
+  );
+
+  useFocusEffect(
+    React.useCallback(() => {
       let active = true;
       const load = async (_revision: number, _retryCount: number) => {
         try {
@@ -71,10 +77,9 @@ const ChatsScreen = () => {
           if (active) {
             setLoadError(true);
           }
-        } finally {
-          if (active) {
-            setLoaded(true);
-          }
+        }
+        if (active) {
+          setLoaded(true);
         }
       };
       void load(revision, retryCount);

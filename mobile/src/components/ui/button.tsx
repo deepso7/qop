@@ -128,6 +128,7 @@ const Button = ({
   style,
   variant,
   size,
+  accessibilityState,
   ...props
 }: ButtonProps) => {
   const defaultHitSlop = getDefaultHitSlop(size);
@@ -164,7 +165,10 @@ const Button = ({
           className
         )}
         accessibilityRole="button"
-        accessibilityState={{ disabled: Boolean(props.disabled) }}
+        accessibilityState={{
+          ...accessibilityState,
+          disabled: Boolean(props.disabled),
+        }}
         hitSlop={hitSlop ?? defaultHitSlop}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}

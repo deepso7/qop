@@ -18,6 +18,7 @@ import {
   Effect,
   Layer,
   Option,
+  Result,
   Schema,
   Semaphore,
 } from "effect";
@@ -179,6 +180,16 @@ const reconciledRegistration = (
   status: stored.status,
   transactionHash: stored.transactionHash,
 });
+
+const handleUnavailable = (handle: string, qid?: bigint) =>
+  qid === undefined
+    ? new RegistrationHandleUnavailable({ handle })
+    : new RegistrationHandleUnavailable({ handle, qid });
+
+const ownerUnavailable = (owner: Address, qid?: bigint) =>
+  qid === undefined
+    ? new RegistrationOwnerUnavailable({ owner })
+    : new RegistrationOwnerUnavailable({ owner, qid });
 
 export class RegistrationEnrollment extends Context.Service<
   RegistrationEnrollment,
@@ -496,66 +507,41 @@ export class RegistrationEnrollment extends Context.Service<
               ),
           })
         );
-        const stored = yield* createIntent.pipe(
-          Effect.catchTags({
-            RegistrationActiveHandleConflict: (error) =>
-              Effect.gen(function* () {
-                const result = yield* reconcileBlocker(error.digest);
-                if (!result.freed) {
-                  return yield* new RegistrationHandleUnavailable({
-                    handle: error.handle,
-                    ...(result.qid === undefined
-                      ? {}
-                      : { qid: result.qid }),
-                  });
-                }
-                return yield* createIntent.pipe(
-                  Effect.catchTags({
-                    RegistrationActiveHandleConflict: (retryError) =>
-                      Effect.fail(
-                        new RegistrationHandleUnavailable({
-                          handle: retryError.handle,
-                        })
-                      ),
-                    RegistrationActiveOwnerConflict: () =>
-                      Effect.fail(
-                        new RegistrationOwnerUnavailable({
-                          owner: expectedOwner,
-                        })
-                      ),
-                  })
-                );
-              }),
-            RegistrationActiveOwnerConflict: (error) =>
-              Effect.gen(function* () {
-                const result = yield* reconcileBlocker(error.digest);
-                if (!result.freed) {
-                  return yield* new RegistrationOwnerUnavailable({
-                    owner: expectedOwner,
-                    ...(result.qid === undefined
-                      ? {}
-                      : { qid: result.qid }),
-                  });
-                }
-                return yield* createIntent.pipe(
-                  Effect.catchTags({
-                    RegistrationActiveHandleConflict: (retryError) =>
-                      Effect.fail(
-                        new RegistrationHandleUnavailable({
-                          handle: retryError.handle,
-                        })
-                      ),
-                    RegistrationActiveOwnerConflict: () =>
-                      Effect.fail(
-                        new RegistrationOwnerUnavailable({
-                          owner: expectedOwner,
-                        })
-                      ),
-                  })
-                );
-              }),
-          })
-        );
+        const reconciledBlockers = new Set<Hash>();
+        let stored: StoredRegistrationIntent | undefined;
+        while (stored === undefined) {
+          const attempt = yield* Effect.result(createIntent);
+          if (Result.isSuccess(attempt)) {
+            stored = attempt.success;
+            continue;
+          }
+          const error = attempt.failure;
+          if (
+            error._tag !== "RegistrationActiveHandleConflict" &&
+            error._tag !== "RegistrationActiveOwnerConflict"
+          ) {
+            return yield* Effect.fail(error);
+          }
+          if (
+            reconciledBlockers.has(error.digest) ||
+            reconciledBlockers.size === 2
+          ) {
+            return yield* Effect.fail(
+              error._tag === "RegistrationActiveHandleConflict"
+                ? handleUnavailable(error.handle)
+                : ownerUnavailable(expectedOwner)
+            );
+          }
+          reconciledBlockers.add(error.digest);
+          const result = yield* reconcileBlocker(error.digest);
+          if (!result.freed) {
+            return yield* Effect.fail(
+              error._tag === "RegistrationActiveHandleConflict"
+                ? handleUnavailable(error.handle, result.qid)
+                : ownerUnavailable(expectedOwner, result.qid)
+            );
+          }
+        }
         return yield* registeredRegistration(stored);
       });
 

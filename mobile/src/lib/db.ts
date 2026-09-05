@@ -218,8 +218,21 @@ export const listConversations = async (): Promise<Conversation[]> => {
   }));
 };
 
-export const markConversationRead = async (qid: string): Promise<void> => {
+export const markConversationRead = async (
+  qid: string,
+  throughReceivedAt?: number
+): Promise<void> => {
   const database = await getDatabase();
+  if (throughReceivedAt !== undefined) {
+    await database.runAsync(
+      `UPDATE contacts
+       SET last_read_at = MAX(last_read_at, ?)
+       WHERE qid = ?`,
+      throughReceivedAt,
+      qid
+    );
+    return;
+  }
   await database.runAsync(
     `UPDATE contacts
      SET last_read_at = COALESCE(

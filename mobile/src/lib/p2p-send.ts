@@ -95,31 +95,58 @@ export const performSend = async ({
   sessions,
   timeoutMs,
 }: PerformSendInput): Promise<void> => {
-  // Lookup/verify can hang on RPC; keep the whole send inside timeoutMs so
-  // in-flight job tracking cannot stall forever.
   let stream: SendStream | undefined;
   try {
-    await withTimeout(
-      (async () => {
-        const peerId = await Effect.runPromise(
-          sessions.recipientPeerId(contact)
-        );
+    await Effect.runPromise(
+      Effect.gen(function* () {
+        const peerId = yield* sessions.recipientPeerId(contact);
         if (!endpoint.connectedPeers().includes(peerId)) {
-          await endpoint.connect(peerId, { timeoutMs });
+          yield* Effect.tryPromise({
+            catch: (error) =>
+              error instanceof Error ? error : new Error(String(error)),
+            try: () => endpoint.connect(peerId, { timeoutMs }),
+          });
         }
-        stream = await endpoint.openStream(peerId, CHAT_PROTOCOL, {
-          timeoutMs,
+        const opened = yield* Effect.tryPromise({
+          catch: (error) =>
+            error instanceof Error ? error : new Error(String(error)),
+          try: async (signal) => {
+            const lateStream = await endpoint.openStream(
+              peerId,
+              CHAT_PROTOCOL,
+              {
+                timeoutMs,
+              }
+            );
+            if (signal.aborted) {
+              lateStream.reset();
+              throw signal.reason;
+            }
+            return lateStream;
+          },
         });
-        await Effect.runPromise(sessions.verify(stream, contact.handle));
-        if (!sessions.isVerified(stream, contact.qid)) {
-          throw new Error("Chat connection is no longer authorized");
+        stream = opened;
+        yield* sessions.verify(opened, contact.handle);
+        if (!sessions.isVerified(opened, contact.qid)) {
+          return yield* Effect.fail(
+            new Error("Chat connection is no longer authorized")
+          );
         }
-        stream.write(encodeFrame(frame));
-        stream.closeWrite();
-        const ack = await readAck(stream);
+        opened.write(encodeFrame(frame));
+        opened.closeWrite();
+        const ack = yield* Effect.tryPromise({
+          catch: (error) =>
+            error instanceof Error ? error : new Error(String(error)),
+          try: () => readAck(opened),
+        });
         assertAckMatches(ack, frame.id);
-      })(),
-      timeoutMs
+      }).pipe(
+        Effect.timeoutOrElse({
+          duration: timeoutMs,
+          orElse: () =>
+            Effect.fail(new Error("Timed out waiting for chat ack")),
+        })
+      )
     );
   } catch (error) {
     stream?.reset();

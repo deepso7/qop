@@ -17,6 +17,10 @@ import "../../global.css";
 void SplashScreen.preventAutoHideAsync();
 SplashScreen.setOptions({ duration: 250, fade: true });
 
+const MAX_P2P_RESTART_ATTEMPTS = 5;
+const P2P_RESTART_DELAY_MS = 2000;
+const MAX_P2P_RESTART_DELAY_MS = 30_000;
+
 const AppStack = () => {
   const colors = useTheme();
   const hydrate = useIdentityStore((state) => state.hydrate);
@@ -25,6 +29,7 @@ const AppStack = () => {
   const stopP2p = useP2pStore((state) => state.stop);
   const p2pStatus = useP2pStore((state) => state.status);
   const isReady = status === "ready";
+  const p2pRestartAttempts = React.useRef(0);
 
   React.useEffect(() => {
     void hydrate();
@@ -39,6 +44,7 @@ const AppStack = () => {
   // Start once identity is ready; stop when it leaves ready.
   React.useEffect(() => {
     if (status === "ready") {
+      p2pRestartAttempts.current = 0;
       void startP2p();
       return () => {
         void stopP2p();
@@ -47,17 +53,27 @@ const AppStack = () => {
     void stopP2p();
   }, [startP2p, status, stopP2p]);
 
-  // After a hard failure, restart while identity stays ready (backoff avoids a tight loop).
+  // Retry hard failures a finite number of times. Do not reset this budget on
+  // "running": a synchronously-created endpoint can fail again immediately.
   React.useEffect(() => {
-    if (status !== "ready" || p2pStatus !== "failed") {
+    if (
+      status !== "ready" ||
+      p2pStatus !== "failed" ||
+      p2pRestartAttempts.current >= MAX_P2P_RESTART_ATTEMPTS
+    ) {
       return;
     }
+    const attempt = p2pRestartAttempts.current;
+    p2pRestartAttempts.current += 1;
     let cancelled = false;
-    const timer = setTimeout(() => {
-      if (!cancelled) {
-        void startP2p();
-      }
-    }, 2_000);
+    const timer = setTimeout(
+      () => {
+        if (!cancelled) {
+          void startP2p();
+        }
+      },
+      Math.min(P2P_RESTART_DELAY_MS * 2 ** attempt, MAX_P2P_RESTART_DELAY_MS)
+    );
     return () => {
       cancelled = true;
       clearTimeout(timer);

@@ -106,15 +106,20 @@ const readerError = (operation: RegistryReaderError["operation"]) =>
   new RegistryReaderError({ operation });
 
 export interface RegistryReadClient {
-  readonly readContract: (parameters: {
-    readonly abi: typeof registryAbi;
-    readonly args: readonly unknown[];
-    readonly functionName:
-      | "account"
-      | "qidByDeviceKey"
-      | "qidByHandleHash"
-      | "qidByOwner";
-  }) => Promise<RegistryContractResult>;
+  readonly readContract: (
+    parameters: {
+      readonly abi: typeof registryAbi;
+      readonly args: readonly unknown[];
+      readonly functionName:
+        | "account"
+        | "qidByDeviceKey"
+        | "qidByHandleHash"
+        | "qidByOwner";
+    },
+    options?: {
+      readonly signal?: AbortSignal;
+    }
+  ) => Promise<RegistryContractResult>;
 }
 
 const readQid = (value: RegistryContractResult) =>
@@ -131,7 +136,7 @@ export const createRegistryReader = ({
     (parameters: Parameters<RegistryReadClient["readContract"]>[0]) =>
       Effect.tryPromise({
         catch: () => readerError("rpc"),
-        try: () => client.readContract(parameters),
+        try: (signal) => client.readContract(parameters, { signal }),
       })
   );
 
