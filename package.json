@@ -19,9 +19,5 @@
     "oxlint": "1.80.0",
     "typescript": "catalog:",
     "ultracite": "7.10.7"
-  },
-  "engines": {
-    "node": "^22.19.0 || >=24.0.0"
-  },
-  "packageManager": "pnpm@11.24.0"
+  }
 }
