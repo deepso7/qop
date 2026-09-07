@@ -1,3 +1,4 @@
+/* oxlint-disable unicorn/throw-new-error -- Schema.TaggedError is a class factory, not an error constructor. */
 import {
   EcdsaSignature,
   Hex32,
@@ -56,7 +57,7 @@ export const ReconciledRegistrationResponse = Schema.Struct({
   transactionHash: Schema.NullOr(Digest),
 });
 
-export class RegistrationConflict extends Schema.TaggedErrorClass<RegistrationConflict>()(
+export class RegistrationConflict extends Schema.TaggedError<RegistrationConflict>()(
   "RegistrationConflict",
   {
     actual: Schema.optionalKey(Schema.Literals(registrationIntentStatuses)),
@@ -71,25 +72,25 @@ export class RegistrationConflict extends Schema.TaggedErrorClass<RegistrationCo
   { httpApiStatus: 409 }
 ) {}
 
-export class RegistrationNotFound extends Schema.TaggedErrorClass<RegistrationNotFound>()(
+export class RegistrationNotFound extends Schema.TaggedError<RegistrationNotFound>()(
   "RegistrationNotFound",
   { digest: Digest },
   { httpApiStatus: 404 }
 ) {}
 
-export class RegistrationUnauthorized extends Schema.TaggedErrorClass<RegistrationUnauthorized>()(
+export class RegistrationUnauthorized extends Schema.TaggedError<RegistrationUnauthorized>()(
   "RegistrationUnauthorized",
   {},
   { httpApiStatus: 401 }
 ) {}
 
-export class RegistrationInvalid extends Schema.TaggedErrorClass<RegistrationInvalid>()(
+export class RegistrationInvalid extends Schema.TaggedError<RegistrationInvalid>()(
   "RegistrationInvalid",
   {},
   { httpApiStatus: 422 }
 ) {}
 
-export class RegistrationServiceUnavailable extends Schema.TaggedErrorClass<RegistrationServiceUnavailable>()(
+export class RegistrationServiceUnavailable extends Schema.TaggedError<RegistrationServiceUnavailable>()(
   "RegistrationServiceUnavailable",
   {},
   { httpApiStatus: 503 }

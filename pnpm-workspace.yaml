@@ -3,7 +3,7 @@ engineStrict: true
 saveExact: true
 
 catalog:
-  effect: 4.0.0-beta.103
+  effect: 4.0.0-rc.112
   typescript: 7.0.2
 
 packages:
@@ -27,7 +27,7 @@ minimumReleaseAgeExclude:
 
 overrides:
   "@react-native/metro-config": 0.86.3
-  "@effect/platform-node-shared": 4.0.0-beta.103
+  "@effect/platform-node-shared": 4.0.0-rc.112
 
 allowBuilds:
   esbuild: true

@@ -6,28 +6,28 @@
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "admission:create": "node --env-file=.env src/create-admission-code.ts",
-    "db:push": "drizzle-kit push --config drizzle.config.ts",
+    "db:push": "drizzle-kit push --config drizzle.config.ts --strict",
     "dev": "node --watch --env-file=.env src/main.ts",
     "start": "node --env-file=.env dist/src/main.js",
     "test": "vitest run",
     "typecheck": "tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@effect/platform-node": "4.0.0-beta.103",
-    "@effect/sql-pg": "4.0.0-beta.103",
+    "@effect/platform-node": "4.0.0-rc.112",
+    "@effect/sql-pg": "4.0.0-rc.112",
     "@qop/identity": "workspace:*",
-    "drizzle-orm": "1.0.0-rc.4",
+    "drizzle-orm": "1.0.0-rc.5-169397b",
     "effect": "catalog:",
     "pg": "8.23.0",
     "viem": "2.56.3"
   },
   "devDependencies": {
-    "@effect/sql-pglite": "4.0.0-beta.103",
-    "@effect/vitest": "4.0.0-beta.103",
+    "@effect/sql-pglite": "4.0.0-rc.112",
+    "@effect/vitest": "4.0.0-rc.112",
     "@electric-sql/pglite": "0.5.8",
     "@types/node": "26.4.1",
     "@types/pg": "8.23.1",
-    "drizzle-kit": "1.0.0-rc.4",
+    "drizzle-kit": "1.0.0-rc.5-ab785fc",
     "typescript": "catalog:",
     "vitest": "4.1.11"
   }
