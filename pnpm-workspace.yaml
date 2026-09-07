@@ -26,6 +26,7 @@ minimumReleaseAgeExclude:
   - expo@57.0.18
 
 overrides:
+  "@react-native/metro-config": 0.86.3
   "@effect/platform-node-shared": 4.0.0-beta.103
 
 allowBuilds:
