@@ -6,7 +6,7 @@
       "env": {
         "APP_VARIANT": "development"
       },
-      "node": "24.13.0",
+      "node": "24.20.0",
       "pnpm": "12.3.4"
     },
     "preview": {
@@ -14,14 +14,14 @@
       "env": {
         "APP_VARIANT": "preview"
       },
-      "node": "24.13.0",
+      "node": "24.20.0",
       "pnpm": "12.3.4"
     },
     "production": {
       "env": {
         "APP_VARIANT": "production"
       },
-      "node": "24.13.0",
+      "node": "24.20.0",
       "pnpm": "12.3.4"
     }
   }
