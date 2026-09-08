@@ -41,12 +41,18 @@ export const noServiceConstructorImportsRule = defineRule({
 						if (specifier.importKind === "type") continue;
 
 						const importedName = getImportedName(specifier);
-						if (!SERVICE_CONSTRUCTOR_NAME.test(importedName)) continue;
+						// `import { default as makeFoo }` is a default import; the
+						// constructor binding is the local name, not `"default"`.
+						const name =
+							importedName === "default"
+								? specifier.local.name
+								: importedName;
+						if (!SERVICE_CONSTRUCTOR_NAME.test(name)) continue;
 
 						context.report({
 							node: specifier,
 							messageId: "serviceConstructorImport",
-							data: { name: importedName },
+							data: { name },
 						});
 						continue;
 					}
