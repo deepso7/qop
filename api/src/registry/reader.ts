@@ -1,7 +1,7 @@
 import { Context, Duration, Effect, Layer, Semaphore } from "effect";
 import type { Address, Hash } from "viem";
 
-import { makeCacheNamespace } from "../cache/namespace.ts";
+import { createCacheNamespace } from "../cache/namespace.ts";
 import type { CacheNamespaceRead } from "../cache/namespace.ts";
 import { RegistryChain, RegistryChainLive } from "./chain.ts";
 import type { RegistryChainReadError } from "./chain.ts";
@@ -105,19 +105,19 @@ export class RegistryReader extends Context.Service<
         backgroundRefreshSemaphore,
         refreshSemaphore,
       } as const;
-      const accounts = yield* makeCacheNamespace({
+      const accounts = yield* createCacheNamespace({
         ...cacheOptions,
         capacity: 10_000,
         lookup: chain.account,
         policy: policy.account,
       });
-      const handles = yield* makeCacheNamespace({
+      const handles = yield* createCacheNamespace({
         ...cacheOptions,
         capacity: 10_000,
         lookup: chain.qidByHandle,
         policy: policy.qidByHandle,
       });
-      const owners = yield* makeCacheNamespace({
+      const owners = yield* createCacheNamespace({
         ...cacheOptions,
         capacity: 10_000,
         lookup: chain.qidByOwner,
