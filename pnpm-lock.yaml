@@ -116,7 +116,6 @@ catalogs:
 
 overrides:
   '@react-native/metro-config': 0.86.3
-  '@effect/platform-node-shared': 4.0.0-rc.112
 
 importers:
 
