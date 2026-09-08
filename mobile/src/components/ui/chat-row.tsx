@@ -60,145 +60,199 @@ const ChatRowIdentity = ({
   </View>
 );
 
-// oxlint-disable eslint/complexity -- The row renders independent chat-state indicators declaratively.
-const ChatRow = React.forwardRef<
-  React.ElementRef<typeof Pressable>,
-  ChatRowProps
->(
-  // oxlint-disable-next-line eslint/prefer-arrow-callback -- The named render function improves DevTools output.
-  function ChatRow(
-    {
-      accessibilityHint,
-      accessibilityRole,
-      avatarFallback,
-      className,
-      disabled,
-      draft = false,
-      group = false,
-      name,
-      online = false,
-      onPress,
-      preview,
-      previewAuthor,
-      security,
-      showSeparator = true,
-      time,
-      unreadCount = 0,
-      ...props
-    },
-    ref
-  ) {
-    const hasUnread = unreadCount > 0;
-    const opensConversation = onPress !== undefined;
-    const accessibilityStatus = [
-      hasUnread ? `${unreadCount} unread` : undefined,
-      security ? securityCopy[security] : undefined,
-      online ? "online" : undefined,
-    ]
-      .filter(Boolean)
-      .join(", ");
-    const accessibilityPreview = `${draft ? "Draft. " : ""}${previewAuthor ? `${previewAuthor}. ` : ""}${preview}`;
-    const accessibilityLabel = [
-      name,
-      accessibilityPreview,
-      time,
-      accessibilityStatus,
-    ]
-      .filter(Boolean)
-      .join(". ");
+const buildChatRowAccessibilityLabel = ({
+  draft,
+  name,
+  online,
+  preview,
+  previewAuthor,
+  security,
+  time,
+  unreadCount,
+}: Pick<
+  ChatRowProps,
+  | "draft"
+  | "name"
+  | "online"
+  | "preview"
+  | "previewAuthor"
+  | "security"
+  | "time"
+  | "unreadCount"
+>) => {
+  const hasUnread = (unreadCount ?? 0) > 0;
+  const accessibilityStatus = [
+    hasUnread ? `${unreadCount} unread` : undefined,
+    security ? securityCopy[security] : undefined,
+    online ? "online" : undefined,
+  ]
+    .filter(Boolean)
+    .join(", ");
+  const accessibilityPreview = `${draft ? "Draft. " : ""}${previewAuthor ? `${previewAuthor}. ` : ""}${preview}`;
+  return [name, accessibilityPreview, time, accessibilityStatus]
+    .filter(Boolean)
+    .join(". ");
+};
 
-    return (
-      <View className={cn("pl-4", className)}>
-        <Pressable
-          ref={ref}
-          accessibilityHint={
-            accessibilityHint ??
-            (opensConversation ? "Opens the conversation" : undefined)
-          }
-          accessibilityLabel={accessibilityLabel}
-          accessibilityRole={
-            accessibilityRole ?? (opensConversation ? "button" : undefined)
-          }
-          className="active:bg-background-element/70 flex-row items-center gap-3"
-          disabled={disabled}
-          onPress={onPress}
-          style={{ opacity: disabled ? 0.5 : 1 }}
-          {...props}
+const ChatRowPreview = ({
+  draft,
+  hasUnread,
+  preview,
+  previewAuthor,
+}: {
+  draft: boolean;
+  hasUnread: boolean;
+  preview: string;
+  previewAuthor?: string;
+}) => (
+  <Text
+    className={cn(
+      "text-foreground-secondary text-[15px] leading-5",
+      hasUnread && "text-foreground font-medium"
+    )}
+    numberOfLines={1}
+  >
+    {draft ? (
+      <Text className="text-destructive font-medium">Draft: </Text>
+    ) : null}
+    {previewAuthor ? (
+      <Text className="font-medium">{previewAuthor}: </Text>
+    ) : null}
+    {preview}
+  </Text>
+);
+
+const ChatRowTrailing = ({
+  hasUnread,
+  time,
+  unreadCount,
+}: {
+  hasUnread: boolean;
+  time?: string;
+  unreadCount: number;
+}) => (
+  <View className="h-12 min-w-10 items-end justify-between py-0.5">
+    {time ? (
+      <Text
+        className={cn(
+          "text-foreground-secondary text-xs",
+          hasUnread && "text-primary font-medium"
+        )}
+        style={{ fontVariant: ["tabular-nums"] }}
+      >
+        {time}
+      </Text>
+    ) : (
+      <View />
+    )}
+    {hasUnread ? (
+      <View className="bg-primary min-w-5 items-center justify-center rounded-full px-1.5 py-0.5">
+        <Text
+          className="text-primary-foreground text-xs font-semibold"
+          style={{ fontVariant: ["tabular-nums"] }}
         >
-          <ChatRowIdentity
-            avatarFallback={avatarFallback}
-            group={group}
-            name={name}
-            online={online}
-          />
+          {unreadCount > 99 ? "99+" : unreadCount}
+        </Text>
+      </View>
+    ) : null}
+  </View>
+);
 
-          <View className="min-w-0 flex-1">
-            <View className="min-h-20 flex-row items-center gap-3 py-3 pr-4">
-              <View className="min-w-0 flex-1 gap-1">
-                <View className="flex-row items-center gap-1.5">
-                  <Text
-                    className="min-w-0 shrink text-[17px] leading-5 font-semibold"
-                    numberOfLines={1}
-                  >
-                    {name}
-                  </Text>
-                </View>
+const ChatRowRender = (
+  {
+    accessibilityHint,
+    accessibilityRole,
+    avatarFallback,
+    className,
+    disabled,
+    draft = false,
+    group = false,
+    name,
+    online = false,
+    onPress,
+    preview,
+    previewAuthor,
+    security,
+    showSeparator = true,
+    time,
+    unreadCount = 0,
+    ...props
+  }: ChatRowProps,
+  ref: React.ForwardedRef<React.ElementRef<typeof Pressable>>
+) => {
+  const hasUnread = unreadCount > 0;
+  const opensConversation = onPress !== undefined;
+  const accessibilityLabel = buildChatRowAccessibilityLabel({
+    draft,
+    name,
+    online,
+    preview,
+    previewAuthor,
+    security,
+    time,
+    unreadCount,
+  });
 
+  return (
+    <View className={cn("pl-4", className)}>
+      <Pressable
+        ref={ref}
+        accessibilityHint={
+          accessibilityHint ??
+          (opensConversation ? "Opens the conversation" : undefined)
+        }
+        accessibilityLabel={accessibilityLabel}
+        accessibilityRole={
+          accessibilityRole ?? (opensConversation ? "button" : undefined)
+        }
+        className="active:bg-background-element/70 flex-row items-center gap-3"
+        disabled={disabled}
+        onPress={onPress}
+        style={{ opacity: disabled ? 0.5 : 1 }}
+        {...props}
+      >
+        <ChatRowIdentity
+          avatarFallback={avatarFallback}
+          group={group}
+          name={name}
+          online={online}
+        />
+
+        <View className="min-w-0 flex-1">
+          <View className="min-h-20 flex-row items-center gap-3 py-3 pr-4">
+            <View className="min-w-0 flex-1 gap-1">
+              <View className="flex-row items-center gap-1.5">
                 <Text
-                  className={cn(
-                    "text-foreground-secondary text-[15px] leading-5",
-                    hasUnread && "text-foreground font-medium"
-                  )}
+                  className="min-w-0 shrink text-[17px] leading-5 font-semibold"
                   numberOfLines={1}
                 >
-                  {draft ? (
-                    <Text className="text-destructive font-medium">
-                      Draft:{" "}
-                    </Text>
-                  ) : null}
-                  {previewAuthor ? (
-                    <Text className="font-medium">{previewAuthor}: </Text>
-                  ) : null}
-                  {preview}
+                  {name}
                 </Text>
               </View>
 
-              <View className="h-12 min-w-10 items-end justify-between py-0.5">
-                {time ? (
-                  <Text
-                    className={cn(
-                      "text-foreground-secondary text-xs",
-                      hasUnread && "text-primary font-medium"
-                    )}
-                    style={{ fontVariant: ["tabular-nums"] }}
-                  >
-                    {time}
-                  </Text>
-                ) : (
-                  <View />
-                )}
-                {hasUnread ? (
-                  <View className="bg-primary min-w-5 items-center justify-center rounded-full px-1.5 py-0.5">
-                    <Text
-                      className="text-primary-foreground text-xs font-semibold"
-                      style={{ fontVariant: ["tabular-nums"] }}
-                    >
-                      {unreadCount > 99 ? "99+" : unreadCount}
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
+              <ChatRowPreview
+                draft={draft}
+                hasUnread={hasUnread}
+                preview={preview}
+                previewAuthor={previewAuthor}
+              />
             </View>
-            {showSeparator ? <Separator /> : null}
-          </View>
-        </Pressable>
-      </View>
-    );
-  }
-);
 
+            <ChatRowTrailing
+              hasUnread={hasUnread}
+              time={time}
+              unreadCount={unreadCount}
+            />
+          </View>
+          {showSeparator ? <Separator /> : null}
+        </View>
+      </Pressable>
+    </View>
+  );
+};
+
+const ChatRow = React.forwardRef(ChatRowRender);
 ChatRow.displayName = "ChatRow";
-// oxlint-enable eslint/complexity
 
 export { ChatRow };
 export type { ChatRowProps, ChatRowSecurity };

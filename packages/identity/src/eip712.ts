@@ -8,18 +8,17 @@ export const identityEip712DomainName = "QOP Identity" as const;
 // EIP712 constructor. Wire-schema versions evolve independently.
 export const identityEip712DomainVersion = "1" as const;
 
-// oxlint-disable-next-line no-redeclare -- The schema and its inferred type intentionally share the public API name.
-export const IdentityEip712DomainV1 = Schema.Struct({
+const IdentityEip712DomainV1Schema = Schema.Struct({
   chainId: ChainId,
   verifyingContract: EthereumAddress,
 }).annotate({
   messageUnexpectedKey: "Unexpected identity EIP-712 domain field",
   parseOptions: strictParseOptions,
 });
-
-export type IdentityEip712DomainV1 = typeof IdentityEip712DomainV1.Type;
+export { IdentityEip712DomainV1Schema as IdentityEip712DomainV1 };
+export type IdentityEip712DomainV1 = typeof IdentityEip712DomainV1Schema.Type;
 export type IdentityEip712DomainV1Encoded =
-  typeof IdentityEip712DomainV1.Encoded;
+  typeof IdentityEip712DomainV1Schema.Encoded;
 
 export class IdentityCryptoError extends Data.TaggedError(
   "IdentityCryptoError"
@@ -38,5 +37,5 @@ export class IdentityCryptoError extends Data.TaggedError(
 export const decodeIdentityEip712DomainV1 = Effect.fn(
   "@qop/identity/decodeIdentityEip712DomainV1"
 )((input: IdentityEip712DomainV1Encoded) =>
-  Schema.decodeEffect(IdentityEip712DomainV1)(input)
+  Schema.decodeEffect(IdentityEip712DomainV1Schema)(input)
 );

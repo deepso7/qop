@@ -4,10 +4,9 @@ import { Effect, Schema, SchemaIssue, SchemaTransformation } from "effect";
 const ED25519_PEER_ID_LENGTH = 38;
 const ED25519_PEER_ID_STRING_LENGTH = 52;
 const ED25519_PEER_ID_PREFIX = Uint8Array.from([0, 36, 8, 1, 18, 32]);
-// oxlint-disable unicorn/numeric-separators-style -- Keep the standard secp256k1 constant recognizable.
+// secp256k1 n/2 (low-s threshold).
 const SECP256K1_HALF_ORDER =
-  0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0n;
-// oxlint-enable unicorn/numeric-separators-style
+  0x7f_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_5d_57_6e_73_57_a4_50_1d_df_e9_2f_46_68_1b_20_a0n;
 const SECP256K1_ORDER = SECP256K1_HALF_ORDER * 2n + 1n;
 const UINT64_MAX = 2n ** 64n - 1n;
 const UINT256_MAX = 2n ** 256n - 1n;

@@ -190,6 +190,10 @@ const makeInboundStream = (
   };
 };
 
+const eofRead = async (): Promise<undefined> => {
+  await Promise.resolve();
+};
+
 describe("interrupted sends", () => {
   it("recovers a persisted send before starting a new endpoint", async () => {
     await insertMessage({
@@ -285,8 +289,7 @@ describe("interrupted sends", () => {
     const first = useP2pStore.getState().retryMessage(id);
     const second = useP2pStore.getState().retryMessage(id);
     await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
-    // oxlint-disable-next-line unicorn/no-useless-undefined -- performSend resolves to undefined.
-    retryPending.resolve(undefined);
+    retryPending.resolve(await eofRead());
     await Promise.all([first, second]);
 
     expect(await getMessageById(id)).toMatchObject({ status: "sent" });
@@ -315,21 +318,18 @@ describe("interrupted sends", () => {
     vi.useFakeTimers();
     try {
       const stopped = useP2pStore.getState().stop();
-      // oxlint-disable-next-line unicorn/numeric-separators-style -- This is the store's five-second stop cap.
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5000);
       await stopped;
       expect(cancelled).toBe(true);
       expect(await getMessageById(id)).toMatchObject({ status: "failed" });
 
       const freshRetry = useP2pStore.getState().retryMessage(id);
-      // oxlint-disable-next-line unicorn/numeric-separators-style -- This is the store's five-second stop cap.
-      await vi.advanceTimersByTimeAsync(5_000);
+      await vi.advanceTimersByTimeAsync(5000);
       await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(3));
       await freshRetry;
       expect(await getMessageById(id)).toMatchObject({ status: "sent" });
 
-      // oxlint-disable-next-line unicorn/no-useless-undefined -- The abandoned send resolves to undefined.
-      abandoned.resolve(undefined);
+      abandoned.resolve(await eofRead());
       await oldRetry;
       expect(await getMessageById(id)).toMatchObject({ status: "sent" });
     } finally {
@@ -380,8 +380,7 @@ describe("inbound chat streams", () => {
     let reads = 0;
     stream.read = () => {
       reads += 1;
-      // oxlint-disable-next-line unicorn/no-useless-undefined -- EOF is represented by undefined.
-      return reads === 1 ? hung.promise : Promise.resolve(undefined);
+      return reads === 1 ? hung.promise : eofRead();
     };
     onStream?.(stream);
     const stopped = useP2pStore.getState().stop();

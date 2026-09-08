@@ -449,7 +449,208 @@ const getBlurTint = (colorScheme: ReturnType<typeof useColorScheme>) => {
   return colorScheme === "dark" ? ("dark" as const) : ("light" as const);
 };
 
-// oxlint-disable-next-line eslint/complexity -- Declarative UI states account for the branches here.
+const getMessageMenuPosition = ({
+  actions,
+  align,
+  rect,
+  surfaceWidth,
+  windowHeight,
+  windowWidth,
+}: {
+  actions: MessageAction[];
+  align: "start" | "end";
+  rect: MessageRect | null;
+  surfaceWidth: number;
+  windowHeight: number;
+  windowWidth: number;
+}) => {
+  const separators = actions.filter((action) => action.separatorBefore).length;
+  const menuHeight = actions.length * MENU_ROW_HEIGHT + separators;
+  const groupHeight =
+    REACTION_RAIL_HEIGHT + 10 + (rect?.height ?? 0) + 12 + menuHeight;
+  const desiredTop = (rect?.y ?? 0) - REACTION_RAIL_HEIGHT - 10;
+  const top = Math.max(
+    54,
+    Math.min(desiredTop, windowHeight - groupHeight - 24)
+  );
+  const desiredLeft =
+    align === "end"
+      ? (rect?.x ?? 0) + (rect?.width ?? 0) - surfaceWidth
+      : (rect?.x ?? 0);
+  const left = Math.max(
+    16,
+    Math.min(desiredLeft, windowWidth - surfaceWidth - 16)
+  );
+  return { left, top };
+};
+
+const MessageActionRows = ({
+  actions,
+  firstActionRef,
+  onRunAction,
+}: {
+  actions: MessageAction[];
+  firstActionRef: React.RefObject<View | null>;
+  onRunAction: (action: MessageAction) => void;
+}) => (
+  <>
+    {actions.map((action, index) => (
+      <React.Fragment key={action.id}>
+        {action.separatorBefore ? (
+          <View className="bg-border mx-5 h-px" />
+        ) : null}
+        <Pressable
+          accessibilityRole="menuitem"
+          accessibilityState={{ disabled: action.disabled }}
+          className="active:bg-background-selected h-[46px] flex-row items-center gap-3.5 px-4"
+          disabled={action.disabled}
+          onPress={() => onRunAction(action)}
+          ref={index === 0 ? firstActionRef : undefined}
+        >
+          <Icon
+            as={action.icon}
+            className={
+              action.destructive
+                ? "text-destructive size-[18px]"
+                : "size-[18px]"
+            }
+          />
+          <Text
+            className={
+              action.destructive ? "text-destructive text-sm" : "text-sm"
+            }
+          >
+            {action.label}
+          </Text>
+        </Pressable>
+      </React.Fragment>
+    ))}
+  </>
+);
+
+const MessageLongPressOverlay = ({
+  actions,
+  align,
+  blurTarget,
+  children,
+  colorScheme,
+  firstActionRef,
+  left,
+  onAddReaction,
+  onClose,
+  onRunAction,
+  onSelectReaction,
+  portalName,
+  reactions,
+  rect,
+  reduceMotion,
+  surfaceWidth,
+  top,
+}: {
+  actions: MessageAction[];
+  align: "start" | "end";
+  blurTarget: ReturnType<typeof useBlurTarget>;
+  children: React.ReactNode;
+  colorScheme: ReturnType<typeof useColorScheme>;
+  firstActionRef: React.RefObject<View | null>;
+  left: number;
+  onAddReaction: () => void;
+  onClose: () => void;
+  onRunAction: (action: MessageAction) => void;
+  onSelectReaction: (emoji: string) => void;
+  portalName: string;
+  reactions: string[];
+  rect: MessageRect;
+  reduceMotion: boolean | null;
+  surfaceWidth: number;
+  top: number;
+}) => (
+  <Portal name={`message-actions-${portalName}`}>
+    <Animated.View
+      accessibilityLabel="Message actions"
+      accessibilityViewIsModal
+      className="absolute inset-0"
+      entering={FadeIn.duration(reduceMotion ? 80 : 140)}
+      exiting={FadeOut.duration(reduceMotion ? 80 : 140)}
+      onAccessibilityEscape={onClose}
+    >
+      <BlurView
+        blurMethod="dimezisBlurView"
+        blurReductionFactor={2}
+        blurTarget={blurTarget?.ref}
+        intensity={Platform.OS === "ios" ? 18 : 42}
+        style={StyleSheet.absoluteFill}
+        tint={getBlurTint(colorScheme)}
+      />
+      <Pressable
+        accessibilityLabel="Close message actions"
+        accessibilityRole="button"
+        className={cn(
+          "absolute inset-0",
+          Platform.OS === "ios" ? "bg-black/20" : "bg-black/30"
+        )}
+        onPress={onClose}
+      />
+
+      <Animated.View
+        entering={reduceMotion ? undefined : FadeIn.duration(160)}
+        pointerEvents="box-none"
+        style={{ left, position: "absolute", top, width: surfaceWidth }}
+      >
+        <Animated.View
+          entering={
+            reduceMotion
+              ? undefined
+              : FadeInDown.springify().damping(18).stiffness(260)
+          }
+        >
+          <MessageReactionPicker className="bg-background border-border shadow-lg">
+            {reactions.map((emoji) => (
+              <MessageReactionPickerItem
+                emoji={emoji}
+                key={emoji}
+                onPress={() => onSelectReaction(emoji)}
+              />
+            ))}
+            <MessageReactionAdd
+              className="bg-background-selected border-0"
+              onPress={onAddReaction}
+            />
+          </MessageReactionPicker>
+        </Animated.View>
+
+        <View
+          className={align === "end" ? "self-end" : "self-start"}
+          pointerEvents="none"
+          style={{ marginTop: 10, width: rect.width }}
+        >
+          <MessageContext.Provider value={align}>
+            {children}
+          </MessageContext.Provider>
+        </View>
+
+        <Animated.View
+          className={
+            align === "end"
+              ? "bg-background mt-3 self-end overflow-hidden rounded-[20px]"
+              : "bg-background mt-3 self-start overflow-hidden rounded-[20px]"
+          }
+          entering={
+            reduceMotion ? undefined : FadeInDown.delay(35).duration(180)
+          }
+          style={{ borderCurve: "continuous", width: ACTION_MENU_WIDTH }}
+        >
+          <MessageActionRows
+            actions={actions}
+            firstActionRef={firstActionRef}
+            onRunAction={onRunAction}
+          />
+        </Animated.View>
+      </Animated.View>
+    </Animated.View>
+  </Portal>
+);
+
 const MessageLongPressMenu = ({
   accessibilityLabel = "Open message actions",
   actions,
@@ -482,7 +683,6 @@ const MessageLongPressMenu = ({
   );
 
   const showMenu = React.useCallback(() => {
-    // oxlint-disable-next-line promise/prefer-await-to-callbacks -- React Native exposes callback-only view measurement.
     triggerRef.current?.measureInWindow((x, y, width, height) => {
       setRect({ height, width, x, y });
       setMenuOpen(true);
@@ -511,23 +711,18 @@ const MessageLongPressMenu = ({
     [setMenuOpen]
   );
 
-  const separators = actions.filter((action) => action.separatorBefore).length;
-  const menuHeight = actions.length * MENU_ROW_HEIGHT + separators;
-  const groupHeight =
-    REACTION_RAIL_HEIGHT + 10 + (rect?.height ?? 0) + 12 + menuHeight;
-  const desiredTop = (rect?.y ?? 0) - REACTION_RAIL_HEIGHT - 10;
-  const top = Math.max(
-    54,
-    Math.min(desiredTop, windowHeight - groupHeight - 24)
-  );
-  const desiredLeft =
-    align === "end"
-      ? (rect?.x ?? 0) + (rect?.width ?? 0) - surfaceWidth
-      : (rect?.x ?? 0);
-  const left = Math.max(
-    16,
-    Math.min(desiredLeft, windowWidth - surfaceWidth - 16)
-  );
+  const closeMenu = React.useCallback(() => {
+    setMenuOpen(false);
+  }, [setMenuOpen]);
+
+  const { left, top } = getMessageMenuPosition({
+    actions,
+    align,
+    rect,
+    surfaceWidth,
+    windowHeight,
+    windowWidth,
+  });
 
   React.useEffect(() => {
     blurTarget?.setOverlayOpen(open);
@@ -579,118 +774,26 @@ const MessageLongPressMenu = ({
       </View>
 
       {open && rect ? (
-        <Portal name={`message-actions-${portalName}`}>
-          <Animated.View
-            accessibilityLabel="Message actions"
-            accessibilityViewIsModal
-            className="absolute inset-0"
-            entering={FadeIn.duration(reduceMotion ? 80 : 140)}
-            exiting={FadeOut.duration(reduceMotion ? 80 : 140)}
-            onAccessibilityEscape={() => setMenuOpen(false)}
-          >
-            <BlurView
-              blurMethod="dimezisBlurView"
-              blurReductionFactor={2}
-              blurTarget={blurTarget?.ref}
-              intensity={Platform.OS === "ios" ? 18 : 42}
-              style={StyleSheet.absoluteFill}
-              tint={getBlurTint(colorScheme)}
-            />
-            <Pressable
-              accessibilityLabel="Close message actions"
-              accessibilityRole="button"
-              className={cn(
-                "absolute inset-0",
-                Platform.OS === "ios" ? "bg-black/20" : "bg-black/30"
-              )}
-              onPress={() => setMenuOpen(false)}
-            />
-
-            <Animated.View
-              entering={reduceMotion ? undefined : FadeIn.duration(160)}
-              pointerEvents="box-none"
-              style={{ left, position: "absolute", top, width: surfaceWidth }}
-            >
-              <Animated.View
-                entering={
-                  reduceMotion
-                    ? undefined
-                    : FadeInDown.springify().damping(18).stiffness(260)
-                }
-              >
-                <MessageReactionPicker className="bg-background border-border shadow-lg">
-                  {reactions.map((emoji) => (
-                    <MessageReactionPickerItem
-                      emoji={emoji}
-                      key={emoji}
-                      onPress={() => selectReaction(emoji)}
-                    />
-                  ))}
-                  <MessageReactionAdd
-                    className="bg-background-selected border-0"
-                    onPress={addReaction}
-                  />
-                </MessageReactionPicker>
-              </Animated.View>
-
-              <View
-                className={align === "end" ? "self-end" : "self-start"}
-                pointerEvents="none"
-                style={{ marginTop: 10, width: rect.width }}
-              >
-                <MessageContext.Provider value={align}>
-                  {children}
-                </MessageContext.Provider>
-              </View>
-
-              <Animated.View
-                className={
-                  align === "end"
-                    ? "bg-background mt-3 self-end overflow-hidden rounded-[20px]"
-                    : "bg-background mt-3 self-start overflow-hidden rounded-[20px]"
-                }
-                entering={
-                  reduceMotion ? undefined : FadeInDown.delay(35).duration(180)
-                }
-                style={{ borderCurve: "continuous", width: ACTION_MENU_WIDTH }}
-              >
-                {actions.map((action, index) => (
-                  <React.Fragment key={action.id}>
-                    {action.separatorBefore ? (
-                      <View className="bg-border mx-5 h-px" />
-                    ) : null}
-                    <Pressable
-                      accessibilityRole="menuitem"
-                      accessibilityState={{ disabled: action.disabled }}
-                      className="active:bg-background-selected h-[46px] flex-row items-center gap-3.5 px-4"
-                      disabled={action.disabled}
-                      onPress={() => runAction(action)}
-                      ref={index === 0 ? firstActionRef : undefined}
-                    >
-                      <Icon
-                        as={action.icon}
-                        className={
-                          action.destructive
-                            ? "text-destructive size-[18px]"
-                            : "size-[18px]"
-                        }
-                      />
-                      <Text
-                        className={
-                          action.destructive
-                            ? "text-destructive text-sm"
-                            : "text-sm"
-                        }
-                      >
-                        {action.label}
-                      </Text>
-                    </Pressable>
-                  </React.Fragment>
-                ))}
-              </Animated.View>
-            </Animated.View>
-          </Animated.View>
-        </Portal>
+        <MessageLongPressOverlay
+          actions={actions}
+          align={align}
+          blurTarget={blurTarget}
+          colorScheme={colorScheme}
+          firstActionRef={firstActionRef}
+          left={left}
+          onAddReaction={addReaction}
+          onClose={closeMenu}
+          onRunAction={runAction}
+          onSelectReaction={selectReaction}
+          portalName={portalName}
+          reactions={reactions}
+          rect={rect}
+          reduceMotion={reduceMotion}
+          surfaceWidth={surfaceWidth}
+          top={top}
+        >
+          {children}
+        </MessageLongPressOverlay>
       ) : null}
     </>
   );

@@ -68,6 +68,10 @@ const ackReader = (ackId: string) => {
   return () => Promise.resolve(chunks.shift());
 };
 
+const eofRead = async (): Promise<undefined> => {
+  await Promise.resolve();
+};
+
 describe("performSend", () => {
   it("writes a frame and accepts a matching ack", async () => {
     const { endpoint, stream, sessions } = makeEndpoint(ackReader(id));
@@ -209,8 +213,7 @@ describe("performSend", () => {
     await expect(
       performSend({ contact, endpoint, frame, sessions, timeoutMs: 5 })
     ).rejects.toThrow("Timed out");
-    // oxlint-disable-next-line unicorn/no-useless-undefined -- The endpoint promise resolves to undefined.
-    pending.resolve(undefined);
+    pending.resolve(await eofRead());
     await Promise.resolve();
     expect(endpoint.openStream).not.toHaveBeenCalled();
     expect(stream.write).not.toHaveBeenCalled();
@@ -288,10 +291,7 @@ describe("performSend", () => {
   });
 
   it("rejects an empty EOF close without an ack", async () => {
-    const { endpoint, stream, sessions } = makeEndpoint(() =>
-      // oxlint-disable-next-line unicorn/no-useless-undefined -- EOF is represented by undefined.
-      Promise.resolve(undefined)
-    );
+    const { endpoint, stream, sessions } = makeEndpoint(eofRead);
 
     await expect(
       performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 })

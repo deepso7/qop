@@ -8,10 +8,9 @@ const RECOVERY_KEY_DOMAIN = stringToBytes("qop/recovery-key/v1");
 const RECOVERY_KEY_PREFIX = "qop1_";
 const RECOVERY_KEY_PAYLOAD_LENGTH = 43;
 const RECOVERY_KEY_CHECKSUM_LENGTH = 8;
-// oxlint-disable unicorn/numeric-separators-style -- Keep the standard secp256k1 constant recognizable.
+// secp256k1 curve order.
 const SECP256K1_ORDER =
-  0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141n;
-// oxlint-enable unicorn/numeric-separators-style
+  0xff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_fe_ba_ae_dc_e6_af_48_a0_3b_bf_d2_5e_8c_d0_36_41_41n;
 
 const bytesToBigInt = (bytes: Uint8Array): bigint => {
   let value = 0n;

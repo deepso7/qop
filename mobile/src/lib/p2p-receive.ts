@@ -13,22 +13,26 @@ interface ReceiveStream extends PeerConnection {
   readonly read: () => Promise<Uint8Array | undefined>;
 }
 
-const readStream = async (stream: Pick<ReceiveStream, "read">) => {
-  const chunks: Uint8Array[] = [];
-  let byteLength = 0;
-  for (;;) {
-    // Stream chunks are ordered, so reads cannot run concurrently.
-    // oxlint-disable-next-line eslint/no-await-in-loop
-    const chunk = await stream.read();
-    if (!chunk) {
-      break;
-    }
-    byteLength += chunk.byteLength;
-    if (byteLength > MAX_CHAT_PAYLOAD_BYTES) {
-      throw new Error("Chat frame exceeds 16 KB");
-    }
-    chunks.push(chunk);
+// Stream chunks are ordered, so each read must finish before the next starts.
+const readStreamChunks = async (
+  stream: Pick<ReceiveStream, "read">,
+  chunks: Uint8Array[] = [],
+  byteLength = 0
+): Promise<{ readonly byteLength: number; readonly chunks: Uint8Array[] }> => {
+  const chunk = await stream.read();
+  if (!chunk) {
+    return { byteLength, chunks };
   }
+  const nextLength = byteLength + chunk.byteLength;
+  if (nextLength > MAX_CHAT_PAYLOAD_BYTES) {
+    throw new Error("Chat frame exceeds 16 KB");
+  }
+  chunks.push(chunk);
+  return readStreamChunks(stream, chunks, nextLength);
+};
+
+const readStream = async (stream: Pick<ReceiveStream, "read">) => {
+  const { byteLength, chunks } = await readStreamChunks(stream);
   const bytes = new Uint8Array(byteLength);
   let offset = 0;
   for (const chunk of chunks) {

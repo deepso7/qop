@@ -12,68 +12,63 @@ import { useTheme } from "@/constants/theme";
 import type { NativeAlertProps } from "./native-alert";
 
 // SwiftUI owns presentation and accessibility; QOP supplies semantic action colors.
-const NativeAlert = React.memo(
-  // oxlint-disable-next-line eslint/prefer-arrow-callback -- The named function keeps the memoized component identifiable in DevTools.
-  function NativeAlert({
-    cancelLabel = "Cancel",
-    confirmLabel,
-    description,
-    destructive = false,
-    onConfirm,
-    onOpenChange,
-    open,
-    title,
-  }: NativeAlertProps) {
-    const theme = useTheme();
+const NativeAlertView = ({
+  cancelLabel = "Cancel",
+  confirmLabel,
+  description,
+  destructive = false,
+  onConfirm,
+  onOpenChange,
+  open,
+  title,
+}: NativeAlertProps) => {
+  const theme = useTheme();
 
-    const close = React.useCallback(() => {
-      onOpenChange(false);
-    }, [onOpenChange]);
+  const close = React.useCallback(() => {
+    onOpenChange(false);
+  }, [onOpenChange]);
 
-    const handlePresentationChange = React.useCallback(
-      (isPresented: boolean) => {
-        if (!isPresented) {
-          close();
-        }
-      },
-      [close]
-    );
+  const handlePresentationChange = React.useCallback(
+    (isPresented: boolean) => {
+      if (!isPresented) {
+        close();
+      }
+    },
+    [close]
+  );
 
-    return (
-      <Host matchContents seedColor={theme.primary}>
-        <Alert
-          isPresented={open}
-          onIsPresentedChange={handlePresentationChange}
-          title={title}
-        >
-          <Alert.Trigger>
-            <NativeText
-              modifiers={[frame({ height: 1, width: 1 }), opacity(0)]}
-            >
-              {" "}
-            </NativeText>
-          </Alert.Trigger>
-          <Alert.Message>
-            <NativeText>{description}</NativeText>
-          </Alert.Message>
-          <Alert.Actions>
-            {/* SwiftUI uses `cancel` as a button role, not an ARIA role. */}
-            {/* eslint-disable-next-line jsx-a11y/aria-role */}
-            <NativeButton label={cancelLabel} onPress={close} role="cancel" />
-            <NativeButton
-              label={confirmLabel}
-              modifiers={[
-                tint(destructive ? theme.destructive : theme.primary),
-              ]}
-              onPress={onConfirm}
-              role={destructive ? "destructive" : "default"}
-            />
-          </Alert.Actions>
-        </Alert>
-      </Host>
-    );
-  }
-);
+  return (
+    <Host matchContents seedColor={theme.primary}>
+      <Alert
+        isPresented={open}
+        onIsPresentedChange={handlePresentationChange}
+        title={title}
+      >
+        <Alert.Trigger>
+          <NativeText modifiers={[frame({ height: 1, width: 1 }), opacity(0)]}>
+            {" "}
+          </NativeText>
+        </Alert.Trigger>
+        <Alert.Message>
+          <NativeText>{description}</NativeText>
+        </Alert.Message>
+        <Alert.Actions>
+          {/* SwiftUI Button.Role.cancel — not an ARIA role. */}
+          {/* oxlint-disable-next-line jsx-a11y/aria-role -- SwiftUI cancel role is required for alert dismissal semantics. */}
+          <NativeButton label={cancelLabel} onPress={close} role="cancel" />
+          <NativeButton
+            label={confirmLabel}
+            modifiers={[tint(destructive ? theme.destructive : theme.primary)]}
+            onPress={onConfirm}
+            role={destructive ? "destructive" : "default"}
+          />
+        </Alert.Actions>
+      </Alert>
+    </Host>
+  );
+};
+
+const NativeAlert = React.memo(NativeAlertView);
 NativeAlert.displayName = "NativeAlert";
 
 export { NativeAlert };

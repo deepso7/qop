@@ -10,8 +10,6 @@ import { Surface } from "@/components/ui/surface";
 import { Text } from "@/components/ui/text";
 import { useIdentityStore } from "@/lib/identity-store";
 
-// oxlint-disable react/todo -- The export spinner must reset after either share-sheet outcome.
-
 const recoveryPresentation = (needsBackup: boolean) => {
   if (needsBackup) {
     return {
@@ -44,62 +42,56 @@ const logoutPresentation = (needsBackup: boolean) => {
   };
 };
 
-const ProfileScreen = React.memo(
-  // oxlint-disable-next-line eslint/prefer-arrow-callback -- The named function keeps the memoized screen identifiable in DevTools.
-  function ProfileScreen() {
-    const identity = useIdentityStore((state) => state.identity);
-    const registration = useIdentityStore((state) => state.registration);
-    const revealRecoveryKey = useIdentityStore(
-      (state) => state.revealRecoveryKey
-    );
-    const resetIdentity = useIdentityStore((state) => state.resetIdentity);
-    const setBackupState = useIdentityStore((state) => state.setBackupState);
-    const [exportingRecoveryKey, setExportingRecoveryKey] =
-      React.useState(false);
-    const [awaitingBackupConfirmation, setAwaitingBackupConfirmation] =
-      React.useState(false);
-    const [logoutAlertOpen, setLogoutAlertOpen] = React.useState(false);
-    const [recoveryMessage, setRecoveryMessage] = React.useState<string>();
-    const needsBackup = identity?.backupState !== "copied";
-    const logout = React.useMemo(
-      () => logoutPresentation(needsBackup),
-      [needsBackup]
-    );
-    const recovery = React.useMemo(
-      () => recoveryPresentation(needsBackup),
-      [needsBackup]
-    );
+const ProfileScreen = () => {
+  const identity = useIdentityStore((state) => state.identity);
+  const registration = useIdentityStore((state) => state.registration);
+  const revealRecoveryKey = useIdentityStore(
+    (state) => state.revealRecoveryKey
+  );
+  const resetIdentity = useIdentityStore((state) => state.resetIdentity);
+  const setBackupState = useIdentityStore((state) => state.setBackupState);
+  const [exportingRecoveryKey, setExportingRecoveryKey] = React.useState(false);
+  const [awaitingBackupConfirmation, setAwaitingBackupConfirmation] =
+    React.useState(false);
+  const [logoutAlertOpen, setLogoutAlertOpen] = React.useState(false);
+  const [recoveryMessage, setRecoveryMessage] = React.useState<string>();
+  const needsBackup = identity?.backupState !== "copied";
+  const logout = React.useMemo(
+    () => logoutPresentation(needsBackup),
+    [needsBackup]
+  );
+  const recovery = React.useMemo(
+    () => recoveryPresentation(needsBackup),
+    [needsBackup]
+  );
 
-    const exportRecoveryKey = React.useCallback(async () => {
-      if (exportingRecoveryKey) {
-        return;
-      }
-      setExportingRecoveryKey(true);
-      setAwaitingBackupConfirmation(false);
-      setRecoveryMessage(undefined);
-      const revealed = await revealRecoveryKey();
-      if (Result.isFailure(revealed)) {
-        setRecoveryMessage("Could not open the recovery key. Try again.");
-        setExportingRecoveryKey(false);
-        return;
-      }
-      try {
-        const shared = await Share.share({
-          message: revealed.success,
-          title: "Qop recovery key",
-        });
-        if (shared.action === Share.sharedAction) {
-          if (Platform.OS === "android") {
-            if (needsBackup) {
-              setAwaitingBackupConfirmation(true);
-              setRecoveryMessage(
-                "Confirm once you have saved the recovery key."
-              );
-            } else {
-              setRecoveryMessage("Recovery key share sheet opened.");
-            }
-            return;
+  const exportRecoveryKey = React.useCallback(async () => {
+    if (exportingRecoveryKey) {
+      return;
+    }
+    setExportingRecoveryKey(true);
+    setAwaitingBackupConfirmation(false);
+    setRecoveryMessage(undefined);
+    const revealed = await revealRecoveryKey();
+    if (Result.isFailure(revealed)) {
+      setRecoveryMessage("Could not open the recovery key. Try again.");
+      setExportingRecoveryKey(false);
+      return;
+    }
+    try {
+      const shared = await Share.share({
+        message: revealed.success,
+        title: "Qop recovery key",
+      });
+      if (shared.action === Share.sharedAction) {
+        if (Platform.OS === "android") {
+          if (needsBackup) {
+            setAwaitingBackupConfirmation(true);
+            setRecoveryMessage("Confirm once you have saved the recovery key.");
+          } else {
+            setRecoveryMessage("Recovery key share sheet opened.");
           }
+        } else {
           const saved = await setBackupState("copied");
           setRecoveryMessage(
             Result.isSuccess(saved)
@@ -107,148 +99,146 @@ const ProfileScreen = React.memo(
               : "Key exported, but Qop could not save the backup status."
           );
         }
-      } catch {
-        setRecoveryMessage("Could not export the recovery key. Try again.");
-      } finally {
-        setExportingRecoveryKey(false);
       }
-    }, [exportingRecoveryKey, needsBackup, revealRecoveryKey, setBackupState]);
+    } catch {
+      setRecoveryMessage("Could not export the recovery key. Try again.");
+    }
+    setExportingRecoveryKey(false);
+  }, [exportingRecoveryKey, needsBackup, revealRecoveryKey, setBackupState]);
 
-    const confirmRecoveryBackup = React.useCallback(async () => {
-      if (exportingRecoveryKey) {
-        return;
-      }
-      setExportingRecoveryKey(true);
-      const saved = await setBackupState("copied");
-      if (Result.isSuccess(saved)) {
-        setAwaitingBackupConfirmation(false);
-        setRecoveryMessage("Recovery key marked as backed up.");
-      } else {
-        setRecoveryMessage("Could not save the backup status. Try again.");
-      }
-      setExportingRecoveryKey(false);
-    }, [exportingRecoveryKey, setBackupState]);
+  const confirmRecoveryBackup = React.useCallback(async () => {
+    if (exportingRecoveryKey) {
+      return;
+    }
+    setExportingRecoveryKey(true);
+    const saved = await setBackupState("copied");
+    if (Result.isSuccess(saved)) {
+      setAwaitingBackupConfirmation(false);
+      setRecoveryMessage("Recovery key marked as backed up.");
+    } else {
+      setRecoveryMessage("Could not save the backup status. Try again.");
+    }
+    setExportingRecoveryKey(false);
+  }, [exportingRecoveryKey, setBackupState]);
 
-    const submitRecoveryExport = React.useCallback(() => {
-      void exportRecoveryKey();
-    }, [exportRecoveryKey]);
+  const submitRecoveryExport = React.useCallback(() => {
+    void exportRecoveryKey();
+  }, [exportRecoveryKey]);
 
-    const confirmReset = React.useCallback(() => {
-      setLogoutAlertOpen(false);
-      void resetIdentity();
-    }, [resetIdentity]);
+  const confirmReset = React.useCallback(() => {
+    setLogoutAlertOpen(false);
+    void resetIdentity();
+  }, [resetIdentity]);
 
-    const openLogoutAlert = React.useCallback(() => {
-      setLogoutAlertOpen(true);
-    }, []);
+  const openLogoutAlert = React.useCallback(() => {
+    setLogoutAlertOpen(true);
+  }, []);
 
-    return (
-      <Screen bounces={false}>
-        <View className="gap-1">
-          <Text variant="title">Profile</Text>
-          <Text className="text-foreground-secondary" variant="caption">
-            Manage your identity on this device.
-          </Text>
-        </View>
+  return (
+    <Screen bounces={false}>
+      <View className="gap-1">
+        <Text variant="title">Profile</Text>
+        <Text className="text-foreground-secondary" variant="caption">
+          Manage your identity on this device.
+        </Text>
+      </View>
 
-        <View className="gap-2">
-          <SectionLabel>Identity</SectionLabel>
-          <Surface
-            className="border-background-selected rounded-xl border p-4"
-            tone="element"
-          >
-            <View className="gap-1">
-              <Text selectable variant="large">
-                @{identity?.handle}
-              </Text>
-              <Text className="text-foreground-secondary" variant="caption">
-                Permanent registered handle
-              </Text>
-              <Text
-                className="text-foreground-secondary font-mono"
-                selectable
-                variant="caption"
-              >
-                QID {registration?.qid ?? "—"} · Peer{" "}
-                {identity?.peerId.slice(0, 12)}…
-              </Text>
-            </View>
-          </Surface>
-        </View>
-
-        <View className="gap-2">
-          <SectionLabel>Recovery</SectionLabel>
-          <Surface
-            className="border-background-selected gap-4 rounded-xl border p-4"
-            tone="element"
-          >
-            <View className="gap-1">
-              <Text variant="label">{recovery.status}</Text>
-              <Text className="text-foreground-secondary" variant="caption">
-                Export it somewhere private. Anyone with this key controls your
-                qop.
-              </Text>
-            </View>
-            <Button
-              disabled={exportingRecoveryKey}
-              onPress={submitRecoveryExport}
-              variant={recovery.buttonVariant}
+      <View className="gap-2">
+        <SectionLabel>Identity</SectionLabel>
+        <Surface
+          className="border-background-selected rounded-xl border p-4"
+          tone="element"
+        >
+          <View className="gap-1">
+            <Text selectable variant="large">
+              @{identity?.handle}
+            </Text>
+            <Text className="text-foreground-secondary" variant="caption">
+              Permanent registered handle
+            </Text>
+            <Text
+              className="text-foreground-secondary font-mono"
+              selectable
+              variant="caption"
             >
-              {exportingRecoveryKey ? (
-                <ActivityIndicator colorClassName={recovery.activityColor} />
-              ) : null}
-              <Text>{recovery.buttonLabel}</Text>
-            </Button>
-            {awaitingBackupConfirmation ? (
-              <Button
-                accessibilityHint="Confirms that the recovery key was saved outside qop"
-                disabled={exportingRecoveryKey}
-                onPress={confirmRecoveryBackup}
-                variant="outline"
-              >
-                <Text>I saved the recovery key</Text>
-              </Button>
-            ) : null}
-            {recoveryMessage ? (
-              <Text
-                className="text-foreground-secondary text-center"
-                selectable
-                variant="caption"
-              >
-                {recoveryMessage}
-              </Text>
-            ) : null}
-          </Surface>
-        </View>
+              QID {registration?.qid ?? "—"} · Peer{" "}
+              {identity?.peerId.slice(0, 12)}…
+            </Text>
+          </View>
+        </Surface>
+      </View>
 
-        <View className="gap-2">
+      <View className="gap-2">
+        <SectionLabel>Recovery</SectionLabel>
+        <Surface
+          className="border-background-selected gap-4 rounded-xl border p-4"
+          tone="element"
+        >
+          <View className="gap-1">
+            <Text variant="label">{recovery.status}</Text>
+            <Text className="text-foreground-secondary" variant="caption">
+              Export it somewhere private. Anyone with this key controls your
+              qop.
+            </Text>
+          </View>
           <Button
-            className="h-12 rounded-xl"
-            onPress={openLogoutAlert}
-            variant="outline"
+            disabled={exportingRecoveryKey}
+            onPress={submitRecoveryExport}
+            variant={recovery.buttonVariant}
           >
-            <Text className="text-destructive">Log out</Text>
+            {exportingRecoveryKey ? (
+              <ActivityIndicator colorClassName={recovery.activityColor} />
+            ) : null}
+            <Text>{recovery.buttonLabel}</Text>
           </Button>
-          <NativeAlert
-            confirmLabel="Log out"
-            description={logout.description}
-            destructive
-            onConfirm={confirmReset}
-            onOpenChange={setLogoutAlertOpen}
-            open={logoutAlertOpen}
-            title={logout.title}
-          />
-          <Text
-            className="text-foreground-secondary text-center"
-            variant="caption"
-          >
-            You will need your recovery key to restore this identity.
-          </Text>
-        </View>
-      </Screen>
-    );
-  }
-);
-ProfileScreen.displayName = "ProfileScreen";
+          {awaitingBackupConfirmation ? (
+            <Button
+              accessibilityHint="Confirms that the recovery key was saved outside qop"
+              disabled={exportingRecoveryKey}
+              onPress={confirmRecoveryBackup}
+              variant="outline"
+            >
+              <Text>I saved the recovery key</Text>
+            </Button>
+          ) : null}
+          {recoveryMessage ? (
+            <Text
+              className="text-foreground-secondary text-center"
+              selectable
+              variant="caption"
+            >
+              {recoveryMessage}
+            </Text>
+          ) : null}
+        </Surface>
+      </View>
 
-export default ProfileScreen;
+      <View className="gap-2">
+        <Button
+          className="h-12 rounded-xl"
+          onPress={openLogoutAlert}
+          variant="outline"
+        >
+          <Text className="text-destructive">Log out</Text>
+        </Button>
+        <NativeAlert
+          confirmLabel="Log out"
+          description={logout.description}
+          destructive
+          onConfirm={confirmReset}
+          onOpenChange={setLogoutAlertOpen}
+          open={logoutAlertOpen}
+          title={logout.title}
+        />
+        <Text
+          className="text-foreground-secondary text-center"
+          variant="caption"
+        >
+          You will need your recovery key to restore this identity.
+        </Text>
+      </View>
+    </Screen>
+  );
+};
+
+export default React.memo(ProfileScreen);

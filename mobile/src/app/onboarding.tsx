@@ -32,9 +32,6 @@ import {
 } from "@/lib/local-registration";
 import type { LocalRegistration } from "@/lib/local-registration";
 
-// oxlint-disable react/function-component-definition -- Memoized inline components retain concise local prop declarations.
-// oxlint-disable react/exhaustive-effect-dependencies -- The retry counter intentionally re-runs recovery-key retrieval.
-
 const decodeHandle = Schema.decodeUnknownResult(Handle);
 const decodeAdmissionCode = Schema.decodeUnknownResult(
   RegistrationAdmissionCode
@@ -99,7 +96,7 @@ const getVaultErrorMessage = (error: IdentityVaultError | null) => {
   }
 };
 
-const StepIndicator = React.memo(({ step }: { step: 1 | 2 | 3 }) => (
+const StepIndicatorView = ({ step }: { step: 1 | 2 | 3 }) => (
   <View
     accessibilityLabel={`Step ${step} of 3`}
     accessible
@@ -117,26 +114,32 @@ const StepIndicator = React.memo(({ step }: { step: 1 | 2 | 3 }) => (
       ))}
     </View>
   </View>
-));
+);
+const StepIndicator = React.memo(StepIndicatorView);
 StepIndicator.displayName = "StepIndicator";
 
-const BackupConfirmationButton = React.memo(
-  ({ onConfirm, visible }: { onConfirm: () => void; visible: boolean }) => {
-    if (!visible) {
-      return null;
-    }
-    return (
-      <Button
-        accessibilityHint="Confirms that the recovery key was saved outside qop"
-        onPress={onConfirm}
-        variant="outline"
-      >
-        <Icon as={Check} className="size-5" />
-        <Text>I saved the recovery key</Text>
-      </Button>
-    );
+const BackupConfirmationButtonView = ({
+  onConfirm,
+  visible,
+}: {
+  onConfirm: () => void;
+  visible: boolean;
+}) => {
+  if (!visible) {
+    return null;
   }
-);
+  return (
+    <Button
+      accessibilityHint="Confirms that the recovery key was saved outside qop"
+      onPress={onConfirm}
+      variant="outline"
+    >
+      <Icon as={Check} className="size-5" />
+      <Text>I saved the recovery key</Text>
+    </Button>
+  );
+};
+const BackupConfirmationButton = React.memo(BackupConfirmationButtonView);
 BackupConfirmationButton.displayName = "BackupConfirmationButton";
 
 const stepTransition = FadeIn.duration(180).reduceMotion(ReduceMotion.System);
@@ -188,7 +191,7 @@ const useRecoveryKey = (
   enabled: boolean,
   revealRecoveryKey: () => Promise<Result.Result<string, IdentityVaultError>>
 ) => {
-  const [attempt, setAttempt] = React.useState(0);
+  const [retryNonce, setRetryNonce] = React.useState(0);
   const [error, setError] = React.useState<string>();
   const [recoveryKey, setRecoveryKey] = React.useState<string>();
 
@@ -197,9 +200,11 @@ const useRecoveryKey = (
       return;
     }
     let cancelled = false;
+    const activeNonce = retryNonce;
     const reveal = async () => {
       const result = await revealRecoveryKey();
-      if (cancelled) {
+      // Drop superseded loads when a newer retryNonce effect run has started.
+      if (cancelled || activeNonce !== retryNonce) {
         return;
       }
       if (Result.isSuccess(result)) {
@@ -213,11 +218,12 @@ const useRecoveryKey = (
     return () => {
       cancelled = true;
     };
-  }, [attempt, enabled, revealRecoveryKey]);
+  }, [enabled, revealRecoveryKey, retryNonce]);
 
   const retry = React.useCallback(() => {
     setError(undefined);
-    setAttempt((current) => current + 1);
+    setRecoveryKey(undefined);
+    setRetryNonce((current) => current + 1);
   }, []);
 
   return {
@@ -484,139 +490,71 @@ type RegistrationStepProps = ReturnType<typeof useOnboardingRegistration> & {
   handle: string;
 };
 
-const RegistrationStep = React.memo(
-  ({
-    admissionCode,
-    busy,
-    handle,
-    isValidAdmissionCode,
-    message,
-    registration,
-    setAdmissionCode,
-    submit,
-  }: RegistrationStepProps) => {
-    const canStart = canStartRegistration(registration);
+const RegistrationStepView = ({
+  admissionCode,
+  busy,
+  handle,
+  isValidAdmissionCode,
+  message,
+  registration,
+  setAdmissionCode,
+  submit,
+}: RegistrationStepProps) => {
+  const canStart = canStartRegistration(registration);
 
-    const registrationStatus = canStart ? (
-      <View className="gap-3">
-        <Text variant="label">Invitation code</Text>
-        <Input
-          accessibilityLabel="Invitation code"
-          autoCapitalize="characters"
-          autoComplete="off"
-          autoCorrect={false}
-          className="border-border bg-background-element dark:bg-background-element h-14 rounded-xl px-4 text-center font-mono text-[18px] tracking-widest"
-          editable={!busy}
-          enterKeyHint="done"
-          maxLength={7}
-          onChangeText={setAdmissionCode}
-          onSubmitEditing={submit}
-          placeholder="XXX-XXX"
-          returnKeyType="done"
-          spellCheck={false}
-          value={admissionCode}
-        />
-        <Text
-          className="text-foreground-secondary"
-          selectable
-          variant="caption"
-        >
-          Invitation codes are six characters and can be used once.
-        </Text>
-      </View>
-    ) : (
-      <View className="border-border bg-background-element gap-2 rounded-xl border p-4">
-        <ActivityIndicator colorClassName="accent-foreground-secondary" />
-        <Text className="text-center" variant="label">
-          Registering @{handle} on Sepolia…
-        </Text>
-        <Text
-          className="text-foreground-secondary text-center"
-          variant="caption"
-        >
-          Sepolia confirmation can take a few seconds.
-        </Text>
-      </View>
-    );
+  const registrationStatus = canStart ? (
+    <View className="gap-3">
+      <Text variant="label">Invitation code</Text>
+      <Input
+        accessibilityLabel="Invitation code"
+        autoCapitalize="characters"
+        autoComplete="off"
+        autoCorrect={false}
+        className="border-border bg-background-element dark:bg-background-element h-14 rounded-xl px-4 text-center font-mono text-[18px] tracking-widest"
+        editable={!busy}
+        enterKeyHint="done"
+        maxLength={7}
+        onChangeText={setAdmissionCode}
+        onSubmitEditing={submit}
+        placeholder="XXX-XXX"
+        returnKeyType="done"
+        spellCheck={false}
+        value={admissionCode}
+      />
+      <Text className="text-foreground-secondary" selectable variant="caption">
+        Invitation codes are six characters and can be used once.
+      </Text>
+    </View>
+  ) : (
+    <View className="border-border bg-background-element gap-2 rounded-xl border p-4">
+      <ActivityIndicator colorClassName="accent-foreground-secondary" />
+      <Text className="text-center" variant="label">
+        Registering @{handle} on Sepolia…
+      </Text>
+      <Text className="text-foreground-secondary text-center" variant="caption">
+        Sepolia confirmation can take a few seconds.
+      </Text>
+    </View>
+  );
 
-    let action: React.ReactNode;
-    if (canStart) {
-      action = (
-        <Button
-          className="h-14 rounded-xl"
-          disabled={!isValidAdmissionCode || busy}
-          onPress={submit}
-          size="lg"
-        >
-          {busy ? (
-            <ActivityIndicator colorClassName="accent-primary-foreground" />
-          ) : null}
-          <Text>{busy ? "Registering…" : "Register identity"}</Text>
-        </Button>
-      );
-    }
-
-    return (
-      <Animated.View
-        entering={stepTransition}
-        exiting={stepExit}
-        className="grow justify-between gap-10"
+  let action: React.ReactNode;
+  if (canStart) {
+    action = (
+      <Button
+        className="h-14 rounded-xl"
+        disabled={!isValidAdmissionCode || busy}
+        onPress={submit}
+        size="lg"
       >
-        <View className="gap-8">
-          <View className="items-end">
-            <StepIndicator step={3} />
-          </View>
-          <View className="gap-3">
-            <Text
-              accessibilityRole="header"
-              className="max-w-lg text-4xl leading-11 font-semibold tracking-tight"
-            >
-              Register @{handle}.
-            </Text>
-            <Text className="text-foreground-secondary max-w-md" variant="body">
-              Enter your invitation code to make this handle permanent.
-            </Text>
-          </View>
-          {registrationStatus}
-        </View>
-
-        <View className="gap-3">
-          {message ? (
-            <Text
-              className="text-destructive text-center"
-              selectable
-              variant="caption"
-            >
-              {message}
-            </Text>
-          ) : null}
-          {action}
-        </View>
-      </Animated.View>
+        {busy ? (
+          <ActivityIndicator colorClassName="accent-primary-foreground" />
+        ) : null}
+        <Text>{busy ? "Registering…" : "Register identity"}</Text>
+      </Button>
     );
   }
-);
-RegistrationStep.displayName = "RegistrationStep";
 
-type RecoveryStepProps = ReturnType<typeof useRecoverySetup> & {
-  handle: string;
-};
-
-const RecoveryStep = React.memo(
-  ({
-    awaitingConfirmation,
-    backedUp,
-    buttonLabel,
-    confirmBackup,
-    error,
-    finishing,
-    handle,
-    isOpening,
-    recoveryKey,
-    retry,
-    submitContinue,
-    submitExport,
-  }: RecoveryStepProps) => (
+  return (
     <Animated.View
       entering={stepTransition}
       exiting={stepExit}
@@ -624,195 +562,257 @@ const RecoveryStep = React.memo(
     >
       <View className="gap-8">
         <View className="items-end">
-          <StepIndicator step={2} />
+          <StepIndicator step={3} />
         </View>
         <View className="gap-3">
           <Text
             accessibilityRole="header"
             className="max-w-lg text-4xl leading-11 font-semibold tracking-tight"
           >
-            Save your recovery key.
+            Register @{handle}.
           </Text>
           <Text className="text-foreground-secondary max-w-md" variant="body">
-            This key restores @{handle}. Qop cannot reset or replace it for you.
+            Enter your invitation code to make this handle permanent.
           </Text>
         </View>
-
-        <View className="gap-3">
-          <View
-            className="border-border bg-code-background rounded-xl border p-4"
-            style={{ borderCurve: "continuous" }}
-          >
-            {recoveryKey ? (
-              <Text
-                accessibilityLabel="Recovery key"
-                className="font-mono text-sm leading-6"
-                selectable
-              >
-                {recoveryKey}
-              </Text>
-            ) : (
-              <View className="h-12 items-center justify-center">
-                <ActivityIndicator colorClassName="accent-foreground-secondary" />
-              </View>
-            )}
-          </View>
-          <Text
-            className="text-foreground-secondary"
-            selectable
-            variant="caption"
-          >
-            Anyone with this key controls your qop. Keep it private.
-          </Text>
-        </View>
+        {registrationStatus}
       </View>
 
       <View className="gap-3">
-        {error ? (
+        {message ? (
           <Text
             className="text-destructive text-center"
             selectable
             variant="caption"
           >
-            {error}
+            {message}
           </Text>
         ) : null}
-        <Button
-          accessibilityHint="Opens the system share sheet to export the recovery key"
-          className="h-14 rounded-xl"
-          disabled={isOpening}
-          onPress={recoveryKey ? submitExport : retry}
-          size="lg"
-        >
-          {isOpening ? (
-            <ActivityIndicator colorClassName="accent-primary-foreground" />
-          ) : (
-            <Icon as={backedUp ? Check : Share2} className="size-5" />
-          )}
-          <Text>{buttonLabel}</Text>
-        </Button>
-        <BackupConfirmationButton
-          onConfirm={confirmBackup}
-          visible={awaitingConfirmation}
-        />
-        <Button
-          accessibilityHint={
-            backedUp
-              ? "Finishes identity creation"
-              : "Finishes identity creation without confirming a backup"
-          }
-          className="h-10 self-center rounded-full px-5"
-          disabled={finishing}
-          onPress={submitContinue}
-          size="sm"
-          variant="ghost"
-        >
-          {finishing ? (
-            <ActivityIndicator colorClassName="accent-foreground-secondary" />
-          ) : null}
-          <Text>{backedUp ? "Continue" : "I'll save it later"}</Text>
-        </Button>
+        {action}
       </View>
     </Animated.View>
-  )
+  );
+};
+const RegistrationStep = React.memo(RegistrationStepView);
+RegistrationStep.displayName = "RegistrationStep";
+
+type RecoveryStepProps = ReturnType<typeof useRecoverySetup> & {
+  handle: string;
+};
+
+const RecoveryStepView = ({
+  awaitingConfirmation,
+  backedUp,
+  buttonLabel,
+  confirmBackup,
+  error,
+  finishing,
+  handle,
+  isOpening,
+  recoveryKey,
+  retry,
+  submitContinue,
+  submitExport,
+}: RecoveryStepProps) => (
+  <Animated.View
+    entering={stepTransition}
+    exiting={stepExit}
+    className="grow justify-between gap-10"
+  >
+    <View className="gap-8">
+      <View className="items-end">
+        <StepIndicator step={2} />
+      </View>
+      <View className="gap-3">
+        <Text
+          accessibilityRole="header"
+          className="max-w-lg text-4xl leading-11 font-semibold tracking-tight"
+        >
+          Save your recovery key.
+        </Text>
+        <Text className="text-foreground-secondary max-w-md" variant="body">
+          This key restores @{handle}. Qop cannot reset or replace it for you.
+        </Text>
+      </View>
+
+      <View className="gap-3">
+        <View
+          className="border-border bg-code-background rounded-xl border p-4"
+          style={{ borderCurve: "continuous" }}
+        >
+          {recoveryKey ? (
+            <Text
+              accessibilityLabel="Recovery key"
+              className="font-mono text-sm leading-6"
+              selectable
+            >
+              {recoveryKey}
+            </Text>
+          ) : (
+            <View className="h-12 items-center justify-center">
+              <ActivityIndicator colorClassName="accent-foreground-secondary" />
+            </View>
+          )}
+        </View>
+        <Text
+          className="text-foreground-secondary"
+          selectable
+          variant="caption"
+        >
+          Anyone with this key controls your qop. Keep it private.
+        </Text>
+      </View>
+    </View>
+
+    <View className="gap-3">
+      {error ? (
+        <Text
+          className="text-destructive text-center"
+          selectable
+          variant="caption"
+        >
+          {error}
+        </Text>
+      ) : null}
+      <Button
+        accessibilityHint="Opens the system share sheet to export the recovery key"
+        className="h-14 rounded-xl"
+        disabled={isOpening}
+        onPress={recoveryKey ? submitExport : retry}
+        size="lg"
+      >
+        {isOpening ? (
+          <ActivityIndicator colorClassName="accent-primary-foreground" />
+        ) : (
+          <Icon as={backedUp ? Check : Share2} className="size-5" />
+        )}
+        <Text>{buttonLabel}</Text>
+      </Button>
+      <BackupConfirmationButton
+        onConfirm={confirmBackup}
+        visible={awaitingConfirmation}
+      />
+      <Button
+        accessibilityHint={
+          backedUp
+            ? "Finishes identity creation"
+            : "Finishes identity creation without confirming a backup"
+        }
+        className="h-10 self-center rounded-full px-5"
+        disabled={finishing}
+        onPress={submitContinue}
+        size="sm"
+        variant="ghost"
+      >
+        {finishing ? (
+          <ActivityIndicator colorClassName="accent-foreground-secondary" />
+        ) : null}
+        <Text>{backedUp ? "Continue" : "I'll save it later"}</Text>
+      </Button>
+    </View>
+  </Animated.View>
 );
+const RecoveryStep = React.memo(RecoveryStepView);
 RecoveryStep.displayName = "RecoveryStep";
 
-const VaultErrorScreen = React.memo(
-  ({ error }: { error: IdentityVaultError | null }) => {
-    const isHydrating = useIdentityStore((state) => state.isHydrating);
-    const resetIdentity = useIdentityStore((state) => state.resetIdentity);
-    const retryLoad = useIdentityStore((state) => state.retryLoad);
-    const [resetting, setResetting] = React.useState(false);
-    const [resetAlertOpen, setResetAlertOpen] = React.useState(false);
-    const canReset =
-      error?.operation === "decode" ||
-      error?.operation === "delete" ||
-      error?.operation === "stale-install";
+const VaultErrorScreenView = ({
+  error,
+}: {
+  error: IdentityVaultError | null;
+}) => {
+  const isHydrating = useIdentityStore((state) => state.isHydrating);
+  const resetIdentity = useIdentityStore((state) => state.resetIdentity);
+  const retryLoad = useIdentityStore((state) => state.retryLoad);
+  const [resetting, setResetting] = React.useState(false);
+  const [resetAlertOpen, setResetAlertOpen] = React.useState(false);
+  const canReset =
+    error?.operation === "decode" ||
+    error?.operation === "delete" ||
+    error?.operation === "stale-install";
 
-    const resetVault = React.useCallback(async () => {
-      if (resetting) {
-        return;
-      }
-      setResetting(true);
-      const result = await resetIdentity();
-      if (Result.isFailure(result)) {
-        setResetting(false);
-      }
-    }, [resetIdentity, resetting]);
+  const resetVault = React.useCallback(async () => {
+    if (resetting) {
+      return;
+    }
+    setResetting(true);
+    const result = await resetIdentity();
+    if (Result.isFailure(result)) {
+      setResetting(false);
+    }
+  }, [resetIdentity, resetting]);
 
-    const confirmReset = React.useCallback(() => {
-      setResetAlertOpen(false);
-      void resetVault();
-    }, [resetVault]);
+  const confirmReset = React.useCallback(() => {
+    setResetAlertOpen(false);
+    void resetVault();
+  }, [resetVault]);
 
-    const openResetAlert = React.useCallback(() => {
-      setResetAlertOpen(true);
-    }, []);
+  const openResetAlert = React.useCallback(() => {
+    setResetAlertOpen(true);
+  }, []);
 
-    return (
-      <Animated.View
-        entering={stepTransition}
-        exiting={stepExit}
-        className="grow justify-between gap-10"
-      >
-        <View className="grow items-center justify-center gap-5 py-8">
-          <QopWordmark width={184} />
-          <View className="max-w-md items-center gap-3">
-            <Text
-              accessibilityRole="header"
-              className="text-center text-3xl leading-10 font-semibold tracking-tight"
-            >
-              Identity vault unavailable.
-            </Text>
-            <Text
-              className="text-foreground-secondary text-center"
-              selectable
-              variant="body"
-            >
-              {getVaultErrorMessage(error)}
-            </Text>
-          </View>
-        </View>
-        <View className="gap-3">
-          <Button
-            className="h-14 rounded-xl"
-            disabled={isHydrating}
-            onPress={retryLoad}
-            size="lg"
+  return (
+    <Animated.View
+      entering={stepTransition}
+      exiting={stepExit}
+      className="grow justify-between gap-10"
+    >
+      <View className="grow items-center justify-center gap-5 py-8">
+        <QopWordmark width={184} />
+        <View className="max-w-md items-center gap-3">
+          <Text
+            accessibilityRole="header"
+            className="text-center text-3xl leading-10 font-semibold tracking-tight"
           >
-            {isHydrating ? (
-              <ActivityIndicator colorClassName="accent-primary-foreground" />
-            ) : null}
-            <Text>{isHydrating ? "Trying again…" : "Try again"}</Text>
-          </Button>
-          {canReset ? (
-            <Button
-              className="h-10 self-center rounded-full px-5"
-              disabled={resetting}
-              onPress={openResetAlert}
-              variant="ghost"
-            >
-              <Text>Reset this device</Text>
-            </Button>
-          ) : null}
-          <NativeAlert
-            confirmLabel="Delete identity"
-            description="This permanently removes the local recovery and device keys. Only continue if you have saved the recovery key or want to create a different identity."
-            destructive
-            onConfirm={confirmReset}
-            onOpenChange={setResetAlertOpen}
-            open={resetAlertOpen}
-            title="Delete the stored identity?"
-          />
+            Identity vault unavailable.
+          </Text>
+          <Text
+            className="text-foreground-secondary text-center"
+            selectable
+            variant="body"
+          >
+            {getVaultErrorMessage(error)}
+          </Text>
         </View>
-      </Animated.View>
-    );
-  }
-);
+      </View>
+      <View className="gap-3">
+        <Button
+          className="h-14 rounded-xl"
+          disabled={isHydrating}
+          onPress={retryLoad}
+          size="lg"
+        >
+          {isHydrating ? (
+            <ActivityIndicator colorClassName="accent-primary-foreground" />
+          ) : null}
+          <Text>{isHydrating ? "Trying again…" : "Try again"}</Text>
+        </Button>
+        {canReset ? (
+          <Button
+            className="h-10 self-center rounded-full px-5"
+            disabled={resetting}
+            onPress={openResetAlert}
+            variant="ghost"
+          >
+            <Text>Reset this device</Text>
+          </Button>
+        ) : null}
+        <NativeAlert
+          confirmLabel="Delete identity"
+          description="This permanently removes the local recovery and device keys. Only continue if you have saved the recovery key or want to create a different identity."
+          destructive
+          onConfirm={confirmReset}
+          onOpenChange={setResetAlertOpen}
+          open={resetAlertOpen}
+          title="Delete the stored identity?"
+        />
+      </View>
+    </Animated.View>
+  );
+};
+const VaultErrorScreen = React.memo(VaultErrorScreenView);
 VaultErrorScreen.displayName = "VaultErrorScreen";
 
-const OnboardingRoute = React.memo(() => {
+const OnboardingRouteView = () => {
   const insets = useSafeAreaInsets();
   const createIdentity = useIdentityStore((state) => state.createIdentity);
   const error = useIdentityStore((state) => state.error);
@@ -1050,7 +1050,8 @@ const OnboardingRoute = React.memo(() => {
       </View>
     </ScrollView>
   );
-});
+};
+const OnboardingRoute = React.memo(OnboardingRouteView);
 OnboardingRoute.displayName = "OnboardingRoute";
 
 export default OnboardingRoute;
