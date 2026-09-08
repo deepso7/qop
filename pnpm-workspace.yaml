@@ -11,20 +11,6 @@ packages:
   - mobile
   - packages/*
 
-minimumReleaseAgeExclude:
-  - "@minip2p/core@0.5.3"
-  - "@minip2p/react-native@0.5.3"
-  - "@types/node@26.4.0"
-  - "@types/pg@8.23.1"
-  - viem@2.56.0
-  - "@expo/cli@57.0.20"
-  - "@expo/env@2.4.3"
-  - "@expo/fingerprint@0.20.11"
-  - "@expo/metro-config@57.0.12"
-  - expo-constants@57.0.16
-  - expo-font@57.0.2
-  - expo@57.0.18
-
 overrides:
   "@react-native/metro-config": 0.86.3
 
