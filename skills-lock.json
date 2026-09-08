@@ -193,6 +193,12 @@
       "skillPath": "skills/engineering/improve-codebase-architecture/SKILL.md",
       "computedHash": "2449db6ab1ded9581f69fcc56c1f64818112d05e271fd4c5da23c6523f9d3d9d"
     },
+    "install-anti-slop": {
+      "source": "dmmulroy/anti-slop",
+      "sourceType": "github",
+      "skillPath": "skills/install-anti-slop/SKILL.md",
+      "computedHash": "91e871213a7fcd86f68c288480cc80c9d5ec440aa9a77d0185321667c8f42ab7"
+    },
     "loop-me": {
       "source": "mattpocock/skills",
       "sourceType": "github",

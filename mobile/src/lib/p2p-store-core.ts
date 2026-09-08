@@ -1,6 +1,7 @@
 import type { Minip2p, Stream, Unsubscribe } from "@minip2p/react-native";
 import { Effect } from "effect";
 import { create } from "zustand";
+import type { StoreApi } from "zustand";
 
 import { CHAT_PROTOCOL, encodeAck } from "./chat-wire";
 import type { ChatFrame } from "./chat-wire";
@@ -19,8 +20,6 @@ import { withTimeout } from "./p2p-send";
 import type { performSend } from "./p2p-send";
 import { createPeerSessions } from "./p2p-sessions";
 import type { lookupDeviceKey, lookupHandle } from "./registry";
-
-// oxlint-disable eslint/no-use-before-define -- Store helpers run only after the store is initialized.
 
 type P2pStatus = "failed" | "running" | "starting" | "stopped";
 
@@ -79,6 +78,10 @@ interface P2pDependencies {
 
 const errorMessage = (error: Error | string) =>
   error instanceof Error ? error.message : String(error);
+
+const uninitializedSetState: StoreApi<P2pStore>["setState"] = () => {
+  throw new Error("P2P store used before initialization");
+};
 
 export const createP2pStore = ({
   createEndpoint,
@@ -149,6 +152,14 @@ export const createP2pStore = ({
     }
   };
 
+  // Bridge so helpers can call setState before create() returns the hook.
+  interface P2pStoreBridge {
+    setState: StoreApi<P2pStore>["setState"];
+  }
+  const storeBridge = {
+    setState: uninitializedSetState,
+  } satisfies P2pStoreBridge;
+
   // Finish pending database writes before recovering sends from a stopped endpoint.
   const recoverInterruptedSends = () => {
     const previous = recoveryOperation;
@@ -157,9 +168,9 @@ export const createP2pStore = ({
         await previous;
         await waitForInFlightJobs();
         await failInterruptedMessages();
-        useP2pStore.setState((state) => ({ revision: state.revision + 1 }));
+        storeBridge.setState((state) => ({ revision: state.revision + 1 }));
       } catch (error) {
-        useP2pStore.setState({
+        storeBridge.setState({
           error: errorMessage(error instanceof Error ? error : String(error)),
         });
       }
@@ -206,7 +217,7 @@ export const createP2pStore = ({
       }
       stream.write(encodeAck({ ack: frame.id, v: 1 }));
       stream.closeWrite();
-      useP2pStore.setState((state) => ({ revision: state.revision + 1 }));
+      storeBridge.setState((state) => ({ revision: state.revision + 1 }));
     } catch {
       stream.reset();
     }
@@ -262,7 +273,7 @@ export const createP2pStore = ({
       }
     } finally {
       if (isCurrentGeneration(jobGeneration)) {
-        useP2pStore.setState((state) => ({ revision: state.revision + 1 }));
+        storeBridge.setState((state) => ({ revision: state.revision + 1 }));
       }
     }
   };
@@ -309,12 +320,15 @@ export const createP2pStore = ({
           await get().start();
         }
         const startedAt = Date.now();
-        while (get().status === "starting" && Date.now() - startedAt < 15_000) {
-          // Concurrent layout restart may already be in flight.
-          // oxlint-disable-next-line eslint/no-await-in-loop -- Poll until start settles.
+        // Poll sequentially until start settles or the wait budget expires.
+        const waitWhileStarting = async (): Promise<boolean> => {
+          if (get().status !== "starting" || Date.now() - startedAt >= 15_000) {
+            return get().status === "running";
+          }
           await Effect.runPromise(Effect.sleep(50));
-        }
-        return get().status === "running";
+          return waitWhileStarting();
+        };
+        return waitWhileStarting();
       };
 
       const retry = async () => {
@@ -576,5 +590,6 @@ export const createP2pStore = ({
     },
   }));
 
+  storeBridge.setState = useP2pStore.setState;
   return useP2pStore;
 };

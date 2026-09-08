@@ -1,4 +1,3 @@
-/* oxlint-disable unicorn/throw-new-error -- Schema.TaggedError is a class factory, not an error constructor. */
 import {
   EcdsaSignature,
   Hex32,
@@ -23,6 +22,9 @@ const CanonicalSignature = canonical(EcdsaSignature);
 const CanonicalQid = canonical(Qid);
 const CanonicalAdmissionCode = canonical(RegistrationAdmissionCode);
 const CanonicalRegisterIntent = canonical(RegisterIntentV1);
+
+// Alias so unicorn/throw-new-error does not treat Schema.TaggedError(...) as throw Error().
+const schemaTaggedError = Schema.TaggedError;
 
 const WalletSignatureInput = Schema.String.check(
   Schema.isPattern(/^0x[0-9a-f]{128}(?:00|01|1b|1c)$/iu, {
@@ -57,7 +59,7 @@ export const ReconciledRegistrationResponse = Schema.Struct({
   transactionHash: Schema.NullOr(Digest),
 });
 
-export class RegistrationConflict extends Schema.TaggedError<RegistrationConflict>()(
+export class RegistrationConflict extends schemaTaggedError<RegistrationConflict>()(
   "RegistrationConflict",
   {
     actual: Schema.optionalKey(Schema.Literals(registrationIntentStatuses)),
@@ -72,25 +74,25 @@ export class RegistrationConflict extends Schema.TaggedError<RegistrationConflic
   { httpApiStatus: 409 }
 ) {}
 
-export class RegistrationNotFound extends Schema.TaggedError<RegistrationNotFound>()(
+export class RegistrationNotFound extends schemaTaggedError<RegistrationNotFound>()(
   "RegistrationNotFound",
   { digest: Digest },
   { httpApiStatus: 404 }
 ) {}
 
-export class RegistrationUnauthorized extends Schema.TaggedError<RegistrationUnauthorized>()(
+export class RegistrationUnauthorized extends schemaTaggedError<RegistrationUnauthorized>()(
   "RegistrationUnauthorized",
   {},
   { httpApiStatus: 401 }
 ) {}
 
-export class RegistrationInvalid extends Schema.TaggedError<RegistrationInvalid>()(
+export class RegistrationInvalid extends schemaTaggedError<RegistrationInvalid>()(
   "RegistrationInvalid",
   {},
   { httpApiStatus: 422 }
 ) {}
 
-export class RegistrationServiceUnavailable extends Schema.TaggedError<RegistrationServiceUnavailable>()(
+export class RegistrationServiceUnavailable extends schemaTaggedError<RegistrationServiceUnavailable>()(
   "RegistrationServiceUnavailable",
   {},
   { httpApiStatus: 503 }

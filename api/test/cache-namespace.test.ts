@@ -2,13 +2,13 @@ import { assert, describe, it } from "@effect/vitest";
 import { Deferred, Duration, Effect, Fiber, Semaphore } from "effect";
 import { TestClock } from "effect/testing";
 
-import { makeCacheNamespace } from "../src/cache/namespace.ts";
+import { createCacheNamespace } from "../src/cache/namespace.ts";
 
 describe("cache namespace", () => {
   it.effect("coalesces concurrent cache misses", () =>
     Effect.gen(function* () {
       let lookups = 0;
-      const cache = yield* makeCacheNamespace({
+      const cache = yield* createCacheNamespace({
         capacity: 10,
         lookup: (key: string) =>
           Effect.sync(() => {
@@ -38,7 +38,7 @@ describe("cache namespace", () => {
     Effect.gen(function* () {
       let origin = "first";
       let lookups = 0;
-      const cache = yield* makeCacheNamespace({
+      const cache = yield* createCacheNamespace({
         capacity: 10,
         lookup: () =>
           Effect.sync(() => {
@@ -71,7 +71,7 @@ describe("cache namespace", () => {
   it.effect("supports an explicit origin refresh", () =>
     Effect.gen(function* () {
       let origin = 1;
-      const cache = yield* makeCacheNamespace({
+      const cache = yield* createCacheNamespace({
         capacity: 10,
         lookup: () => Effect.sync(() => origin),
         policy: {
@@ -94,7 +94,7 @@ describe("cache namespace", () => {
       const secondLookupStarted = yield* Deferred.make<boolean>();
       const releaseSecondLookup = yield* Deferred.make<boolean>();
       let lookups = 0;
-      const cache = yield* makeCacheNamespace({
+      const cache = yield* createCacheNamespace({
         capacity: 10,
         lookup: () =>
           Effect.gen(function* () {
@@ -141,7 +141,7 @@ describe("cache namespace", () => {
       const refreshStarted = yield* Deferred.make<boolean>();
       const releaseRefresh = yield* Deferred.make<boolean>();
       let lookups = 0;
-      const cache = yield* makeCacheNamespace({
+      const cache = yield* createCacheNamespace({
         capacity: 10,
         lookup: () =>
           Effect.gen(function* () {
@@ -191,7 +191,7 @@ describe("cache namespace", () => {
       let maximumActive = 0;
       let phase: "refresh" | "seed" = "seed";
       let refreshLookups = 0;
-      const cache = yield* makeCacheNamespace({
+      const cache = yield* createCacheNamespace({
         capacity: 10,
         lookup: (key: string) =>
           Effect.gen(function* () {
@@ -281,7 +281,7 @@ describe("cache namespace", () => {
                   Effect.tap(() => Deferred.succeed(backgroundFinished, true))
                 ),
         };
-        const cache = yield* makeCacheNamespace({
+        const cache = yield* createCacheNamespace({
           backgroundRefreshSemaphore: controlledSemaphore,
           capacity: 1,
           lookup: () => Effect.succeed("value"),

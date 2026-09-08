@@ -9,5 +9,6 @@ export default defineConfig({
     ".claude/**",
     "contracts/lib/**",
     "mobile/src/uniwind-types.d.ts",
+    "tools/oxlint/anti-slop/**",
   ],
 });

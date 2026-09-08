@@ -13,8 +13,16 @@ export default defineConfig({
     "contracts/lib/**",
     "mobile/scripts/**",
     "mobile/src/uniwind-types.d.ts",
+    "tools/oxlint/anti-slop/**",
+  ],
+  jsPlugins: [
+    {
+      name: "anti-slop-effect",
+      specifier: "./tools/oxlint/anti-slop/effect/index.ts",
+    },
   ],
   rules: {
+    "anti-slop-effect/no-service-constructor-imports": "error",
     "func-names": "off",
     "max-classes-per-file": "off",
     "promise/prefer-await-to-callbacks": "off",

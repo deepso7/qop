@@ -56,7 +56,8 @@ const cacheRead = <Value>(
   value: entry.value,
 });
 
-export const makeCacheNamespace = <Key, Value, Error>(
+/** Build a keyed cache namespace with freshness/staleness policy and coalesced refresh. */
+export const createCacheNamespace = <Key, Value, Error>(
   options: CacheNamespaceOptions<Key, Value, Error>
 ): Effect.Effect<CacheNamespace<Key, Value, Error>> =>
   Effect.gen(function* () {

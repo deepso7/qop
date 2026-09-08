@@ -48,8 +48,7 @@ const OwnerPrivateKey = Schema.Uint8Array.check(
   })
 );
 
-// oxlint-disable-next-line no-redeclare -- The schema and its inferred type intentionally share the public API name.
-export const RegisterIntentV1 = Schema.Struct({
+const RegisterIntentV1Schema = Schema.Struct({
   deadline: UnixSeconds,
   deviceKey: DeviceKey,
   handle: Handle,
@@ -59,12 +58,11 @@ export const RegisterIntentV1 = Schema.Struct({
   messageUnexpectedKey: "Unexpected registration intent field",
   parseOptions: strictParseOptions,
 });
+export { RegisterIntentV1Schema as RegisterIntentV1 };
+export type RegisterIntentV1 = typeof RegisterIntentV1Schema.Type;
+export type RegisterIntentV1Encoded = typeof RegisterIntentV1Schema.Encoded;
 
-export type RegisterIntentV1 = typeof RegisterIntentV1.Type;
-export type RegisterIntentV1Encoded = typeof RegisterIntentV1.Encoded;
-
-// oxlint-disable-next-line no-redeclare -- The schema and its inferred type intentionally share the public API name.
-export const RotateOwnerIntentV1 = Schema.Struct({
+const RotateOwnerIntentV1Schema = Schema.Struct({
   deadline: UnixSeconds,
   newOwner: NonZeroEthereumAddress,
   nonce: Uint256,
@@ -73,12 +71,12 @@ export const RotateOwnerIntentV1 = Schema.Struct({
   messageUnexpectedKey: "Unexpected owner rotation intent field",
   parseOptions: strictParseOptions,
 });
+export { RotateOwnerIntentV1Schema as RotateOwnerIntentV1 };
+export type RotateOwnerIntentV1 = typeof RotateOwnerIntentV1Schema.Type;
+export type RotateOwnerIntentV1Encoded =
+  typeof RotateOwnerIntentV1Schema.Encoded;
 
-export type RotateOwnerIntentV1 = typeof RotateOwnerIntentV1.Type;
-export type RotateOwnerIntentV1Encoded = typeof RotateOwnerIntentV1.Encoded;
-
-// oxlint-disable-next-line no-redeclare -- The schema and its inferred type intentionally share the public API name.
-export const RotateDeviceIntentV1 = Schema.Struct({
+const RotateDeviceIntentV1Schema = Schema.Struct({
   deadline: UnixSeconds,
   newDeviceKey: DeviceKey,
   nonce: Uint256,
@@ -87,9 +85,10 @@ export const RotateDeviceIntentV1 = Schema.Struct({
   messageUnexpectedKey: "Unexpected device rotation intent field",
   parseOptions: strictParseOptions,
 });
-
-export type RotateDeviceIntentV1 = typeof RotateDeviceIntentV1.Type;
-export type RotateDeviceIntentV1Encoded = typeof RotateDeviceIntentV1.Encoded;
+export { RotateDeviceIntentV1Schema as RotateDeviceIntentV1 };
+export type RotateDeviceIntentV1 = typeof RotateDeviceIntentV1Schema.Type;
+export type RotateDeviceIntentV1Encoded =
+  typeof RotateDeviceIntentV1Schema.Encoded;
 
 export const registerIntentEip712Types = {
   RegisterV1: [
@@ -192,7 +191,7 @@ const validateRegisterInputs = (
   intent: RegisterIntentV1
 ) =>
   Schema.encodeEffect(IdentityEip712DomainV1)(domain).pipe(
-    Effect.andThen(Schema.encodeEffect(RegisterIntentV1)(intent)),
+    Effect.andThen(Schema.encodeEffect(RegisterIntentV1Schema)(intent)),
     Effect.mapError((cause) => new IdentityCryptoError({ cause, operation }))
   );
 
@@ -202,7 +201,7 @@ const validateRotateOwnerInputs = (
   intent: RotateOwnerIntentV1
 ) =>
   Schema.encodeEffect(IdentityEip712DomainV1)(domain).pipe(
-    Effect.andThen(Schema.encodeEffect(RotateOwnerIntentV1)(intent)),
+    Effect.andThen(Schema.encodeEffect(RotateOwnerIntentV1Schema)(intent)),
     Effect.mapError((cause) => new IdentityCryptoError({ cause, operation }))
   );
 
@@ -212,42 +211,44 @@ const validateRotateDeviceInputs = (
   intent: RotateDeviceIntentV1
 ) =>
   Schema.encodeEffect(IdentityEip712DomainV1)(domain).pipe(
-    Effect.andThen(Schema.encodeEffect(RotateDeviceIntentV1)(intent)),
+    Effect.andThen(Schema.encodeEffect(RotateDeviceIntentV1Schema)(intent)),
     Effect.mapError((cause) => new IdentityCryptoError({ cause, operation }))
   );
 
 export const decodeRegisterIntentV1 = Effect.fn(
   "@qop/identity/decodeRegisterIntentV1"
 )((input: RegisterIntentV1Encoded) =>
-  Schema.decodeEffect(RegisterIntentV1)(input)
+  Schema.decodeEffect(RegisterIntentV1Schema)(input)
 );
 
 export const decodeRotateOwnerIntentV1 = Effect.fn(
   "@qop/identity/decodeRotateOwnerIntentV1"
 )((input: RotateOwnerIntentV1Encoded) =>
-  Schema.decodeEffect(RotateOwnerIntentV1)(input)
+  Schema.decodeEffect(RotateOwnerIntentV1Schema)(input)
 );
 
 export const decodeRotateDeviceIntentV1 = Effect.fn(
   "@qop/identity/decodeRotateDeviceIntentV1"
 )((input: RotateDeviceIntentV1Encoded) =>
-  Schema.decodeEffect(RotateDeviceIntentV1)(input)
+  Schema.decodeEffect(RotateDeviceIntentV1Schema)(input)
 );
 
 export const encodeRegisterIntentV1 = Effect.fn(
   "@qop/identity/encodeRegisterIntentV1"
-)((intent: RegisterIntentV1) => Schema.encodeEffect(RegisterIntentV1)(intent));
+)((intent: RegisterIntentV1) =>
+  Schema.encodeEffect(RegisterIntentV1Schema)(intent)
+);
 
 export const encodeRotateOwnerIntentV1 = Effect.fn(
   "@qop/identity/encodeRotateOwnerIntentV1"
 )((intent: RotateOwnerIntentV1) =>
-  Schema.encodeEffect(RotateOwnerIntentV1)(intent)
+  Schema.encodeEffect(RotateOwnerIntentV1Schema)(intent)
 );
 
 export const encodeRotateDeviceIntentV1 = Effect.fn(
   "@qop/identity/encodeRotateDeviceIntentV1"
 )((intent: RotateDeviceIntentV1) =>
-  Schema.encodeEffect(RotateDeviceIntentV1)(intent)
+  Schema.encodeEffect(RotateDeviceIntentV1Schema)(intent)
 );
 
 export const hashRegisterIntentV1 = Effect.fn(

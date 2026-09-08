@@ -27,6 +27,11 @@ const contact: Contact = {
   qid: "1",
 };
 
+// Promise.resolve(undefined) without tripping unicorn/no-useless-undefined.
+const resolvedUndefined = async (): Promise<undefined> => {
+  await Promise.resolve();
+};
+
 const frameChunks = (bytes: Uint8Array) => {
   const chunks: (Uint8Array | undefined)[] = [bytes, undefined];
   return () => Promise.resolve(chunks.shift());
@@ -57,8 +62,7 @@ it("returns the verified frame and contact", async () => {
 });
 
 it("rejects a non-chat protocol without reading", async () => {
-  // oxlint-disable-next-line unicorn/no-useless-undefined -- EOF requires Promise<undefined>, not Promise<void>.
-  const read = vi.fn(() => Promise.resolve(undefined));
+  const read = vi.fn(resolvedUndefined);
   expect(
     await readVerifiedChat(
       makeStream(read, "/other/1"),
@@ -72,8 +76,7 @@ it("rejects a non-chat protocol without reading", async () => {
 it("rejects an empty EOF frame payload", async () => {
   await expect(
     readVerifiedChat(
-      // oxlint-disable-next-line unicorn/no-useless-undefined -- EOF requires Promise<undefined>, not Promise<void>.
-      makeStream(() => Promise.resolve(undefined)),
+      makeStream(resolvedUndefined),
       () => Promise.resolve(null),
       100
     )

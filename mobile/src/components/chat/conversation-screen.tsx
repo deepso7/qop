@@ -66,38 +66,36 @@ const getMessagePresentation = (item: StoredMessage) => {
   };
 };
 
-const ConversationMessage = React.memo(
-  // oxlint-disable-next-line eslint/prefer-arrow-callback -- A name keeps the memoized row identifiable in DevTools.
-  function ConversationMessage({
-    item,
-    retry,
-  }: {
-    item: StoredMessage;
-    retry: (id: string) => void;
-  }) {
-    const { metaStatus, outgoing, tone } = getMessagePresentation(item);
-    return (
-      <Message align={outgoing ? "end" : "start"}>
-        <MessageContent>
-          <MessageBubble tone={tone}>
-            <Text selectable>{item.text}</Text>
-            <MessageMeta
-              status={metaStatus}
-              time={timeFormatter.format(new Date(item.receivedAt))}
-            />
-          </MessageBubble>
-          {item.status === "failed" ? (
-            <MessageStatus
-              label="Not sent · Tap to retry"
-              onPress={() => retry(item.id)}
-              tone="failed"
-            />
-          ) : null}
-        </MessageContent>
-      </Message>
-    );
-  }
-);
+const ConversationMessageRow = ({
+  item,
+  retry,
+}: {
+  item: StoredMessage;
+  retry: (id: string) => void;
+}) => {
+  const { metaStatus, outgoing, tone } = getMessagePresentation(item);
+  return (
+    <Message align={outgoing ? "end" : "start"}>
+      <MessageContent>
+        <MessageBubble tone={tone}>
+          <Text selectable>{item.text}</Text>
+          <MessageMeta
+            status={metaStatus}
+            time={timeFormatter.format(new Date(item.receivedAt))}
+          />
+        </MessageBubble>
+        {item.status === "failed" ? (
+          <MessageStatus
+            label="Not sent · Tap to retry"
+            onPress={() => retry(item.id)}
+            tone="failed"
+          />
+        ) : null}
+      </MessageContent>
+    </Message>
+  );
+};
+const ConversationMessage = React.memo(ConversationMessageRow);
 ConversationMessage.displayName = "ConversationMessage";
 
 const EmptyConversation = () => (
