@@ -75,7 +75,7 @@ These checks require two development builds connected to the configured registry
 - Rotate a device key. The old live connection may continue, but the old key must fail verification after reconnecting. The replacement device must connect successfully.
 - Trigger dropped native events or queue overflow in a debug build. Check that invalidated connections cannot deliver chat messages and that relay reservation and messaging recover after restarting the endpoint.
 
-EAS profiles pin Node.js 24.13.0 to match the local validation runtime.
+EAS profiles pin Node.js 24.20.0 to match the local validation runtime.
 
 ### minip2p regression coverage
 
