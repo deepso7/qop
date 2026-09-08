@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { cpSync, existsSync, mkdirSync } from "node:fs";
+import { cpSync, existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -13,6 +13,10 @@ const force = arguments_.includes("--force");
 if (existsSync(target) && !force) {
   console.error(`Refusing to overwrite ${target}. Re-run with --force only after reviewing the existing files.`);
   process.exit(1);
+}
+
+if (force && existsSync(target)) {
+  rmSync(target, { recursive: true, force: true });
 }
 
 mkdirSync(dirname(target), { recursive: true });

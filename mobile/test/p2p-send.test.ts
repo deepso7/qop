@@ -68,7 +68,8 @@ const ackReader = (ackId: string) => {
   return () => Promise.resolve(chunks.shift());
 };
 
-const eofRead = async (): Promise<undefined> => {
+// Promise.resolve(undefined) without tripping unicorn/no-useless-undefined.
+const resolvedUndefined = async (): Promise<undefined> => {
   await Promise.resolve();
 };
 
@@ -213,7 +214,7 @@ describe("performSend", () => {
     await expect(
       performSend({ contact, endpoint, frame, sessions, timeoutMs: 5 })
     ).rejects.toThrow("Timed out");
-    pending.resolve(await eofRead());
+    pending.resolve(await resolvedUndefined());
     await Promise.resolve();
     expect(endpoint.openStream).not.toHaveBeenCalled();
     expect(stream.write).not.toHaveBeenCalled();
@@ -291,7 +292,7 @@ describe("performSend", () => {
   });
 
   it("rejects an empty EOF close without an ack", async () => {
-    const { endpoint, stream, sessions } = makeEndpoint(eofRead);
+    const { endpoint, stream, sessions } = makeEndpoint(resolvedUndefined);
 
     await expect(
       performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 })

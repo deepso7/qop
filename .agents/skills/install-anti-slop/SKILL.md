@@ -52,7 +52,7 @@ Install the bundled Oxlint plugin into the current repository and integrate it w
    ],
    ```
 
-   Keep every existing ignore. Adjust the final pattern when the plugin was copied elsewhere. Inspect the repository for other project-local agent tooling directories and add them rather than linting installed skills, hooks, or generated agent configuration as application source. Do not broadly ignore all dot-directories, because some repositories keep owned source or checks in them.
+   Keep every existing ignore. When the destination differs from `./tools/oxlint/anti-slop/`, adjust both the final `ignorePatterns` entry and the `jsPlugins` specifier paths (generic `./tools/oxlint/anti-slop/index.ts` and Effect `./tools/oxlint/anti-slop/effect/index.ts`) to match. Inspect the repository for other project-local agent tooling directories and add them rather than linting installed skills, hooks, or generated agent configuration as application source. Do not broadly ignore all dot-directories, because some repositories keep owned source or checks in them.
 
    For Vite+, add these fields to `lint.ignorePatterns` and `lint.jsPlugins`. Also merge the same patterns into `fmt.ignorePatterns` so `vp check` does not reformat installed agent assets or the vendored plugin. Merge existing entries instead of replacing them.
 

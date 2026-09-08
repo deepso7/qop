@@ -20,7 +20,7 @@ export const noServiceConstructorImportsRule = defineRule({
 		type: "problem",
 		docs: {
 			description:
-				"Disallow project-local make<CapabilityName> imports outside test and spec files.",
+				"Disallow project-local make<CapabilityName> imports outside test and spec files. Does not cover package-alias imports or namespace member access (import * as ns; ns.makeFoo).",
 		},
 		messages: {
 			serviceConstructorImport:
@@ -33,18 +33,37 @@ export const noServiceConstructorImportsRule = defineRule({
 		return {
 			ImportDeclaration(node) {
 				if (isTestFile || !isProjectLocalImport(node.source.value)) return;
+				// Type-only imports are erased and are not runtime constructor imports.
+				if (node.importKind === "type") return;
 
 				for (const specifier of node.specifiers) {
-					if (specifier.type !== "ImportSpecifier") continue;
+					if (specifier.type === "ImportSpecifier") {
+						if (specifier.importKind === "type") continue;
 
-					const importedName = getImportedName(specifier);
-					if (!SERVICE_CONSTRUCTOR_NAME.test(importedName)) continue;
+						const importedName = getImportedName(specifier);
+						if (!SERVICE_CONSTRUCTOR_NAME.test(importedName)) continue;
 
-					context.report({
-						node: specifier,
-						messageId: "serviceConstructorImport",
-						data: { name: importedName },
-					});
+						context.report({
+							node: specifier,
+							messageId: "serviceConstructorImport",
+							data: { name: importedName },
+						});
+						continue;
+					}
+
+					if (specifier.type === "ImportDefaultSpecifier") {
+						const localName = specifier.local.name;
+						if (!SERVICE_CONSTRUCTOR_NAME.test(localName)) continue;
+
+						context.report({
+							node: specifier,
+							messageId: "serviceConstructorImport",
+							data: { name: localName },
+						});
+					}
+
+					// ImportNamespaceSpecifier: imported names are not visible at the
+					// import site; namespace member access remains a known limitation.
 				}
 			},
 		};

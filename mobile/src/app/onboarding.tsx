@@ -194,8 +194,10 @@ const useRecoveryKey = (
   const [retryNonce, setRetryNonce] = React.useState(0);
   const [error, setError] = React.useState<string>();
   const [recoveryKey, setRecoveryKey] = React.useState<string>();
+  const retryNonceRef = React.useRef(retryNonce);
 
   React.useEffect(() => {
+    retryNonceRef.current = retryNonce;
     if (!enabled) {
       return;
     }
@@ -203,8 +205,8 @@ const useRecoveryKey = (
     const activeNonce = retryNonce;
     const reveal = async () => {
       const result = await revealRecoveryKey();
-      // Drop superseded loads when a newer retryNonce effect run has started.
-      if (cancelled || activeNonce !== retryNonce) {
+      // Drop superseded loads when a newer retry started (cleanup or newer nonce).
+      if (cancelled || activeNonce !== retryNonceRef.current) {
         return;
       }
       if (Result.isSuccess(result)) {

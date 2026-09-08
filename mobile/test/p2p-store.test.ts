@@ -190,7 +190,8 @@ const makeInboundStream = (
   };
 };
 
-const eofRead = async (): Promise<undefined> => {
+// Promise.resolve(undefined) without tripping unicorn/no-useless-undefined.
+const resolvedUndefined = async (): Promise<undefined> => {
   await Promise.resolve();
 };
 
@@ -289,7 +290,7 @@ describe("interrupted sends", () => {
     const first = useP2pStore.getState().retryMessage(id);
     const second = useP2pStore.getState().retryMessage(id);
     await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
-    retryPending.resolve(await eofRead());
+    retryPending.resolve(await resolvedUndefined());
     await Promise.all([first, second]);
 
     expect(await getMessageById(id)).toMatchObject({ status: "sent" });
@@ -329,7 +330,7 @@ describe("interrupted sends", () => {
       await freshRetry;
       expect(await getMessageById(id)).toMatchObject({ status: "sent" });
 
-      abandoned.resolve(await eofRead());
+      abandoned.resolve(await resolvedUndefined());
       await oldRetry;
       expect(await getMessageById(id)).toMatchObject({ status: "sent" });
     } finally {
@@ -380,7 +381,7 @@ describe("inbound chat streams", () => {
     let reads = 0;
     stream.read = () => {
       reads += 1;
-      return reads === 1 ? hung.promise : eofRead();
+      return reads === 1 ? hung.promise : resolvedUndefined();
     };
     onStream?.(stream);
     const stopped = useP2pStore.getState().stop();
