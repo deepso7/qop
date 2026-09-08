@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "admission:create": "node --env-file=.env src/create-admission-code.ts",
-    "db:push": "bash ./scripts/push-db.sh",
+    "db:push": "drizzle-kit push",
     "dev": "node --watch --env-file=.env src/main.ts",
     "start": "node --env-file=.env dist/src/main.js",
     "test": "vitest run",
