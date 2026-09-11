@@ -15,11 +15,12 @@ export class PeerVerificationError extends Data.TaggedError(
   readonly operation: "closed" | "identity" | "rpc" | "storage";
 }> {}
 
-/** Proposed max authorization age while running (monotonic elapsed ms). */
+/** Max authorization age while running (monotonic elapsed ms). */
 export const MAX_AUTH_AGE_MS = 60_000;
 
 interface AuthorizedContact {
   readonly confirmedAtMs: number;
+  readonly confirmedBlockNumber: bigint;
   readonly contact: Contact;
   readonly deviceKey: string;
 }
@@ -152,6 +153,24 @@ export const createPeerSessions = ({
                 operation: "identity",
               });
             }
+            // Only a fresh chain membership read may reset the live-auth window.
+            // Stale/cached RPC success must not mint another MAX_AUTH_AGE_MS.
+            if (account.freshness !== "fresh") {
+              session.authorization = undefined;
+              return yield* new PeerVerificationError({
+                operation: "identity",
+              });
+            }
+            const priorBlock = session.authorization?.confirmedBlockNumber;
+            if (
+              priorBlock !== undefined &&
+              account.blockNumber < priorBlock
+            ) {
+              session.authorization = undefined;
+              return yield* new PeerVerificationError({
+                operation: "identity",
+              });
+            }
             const fresh: ContactInput = {
               createdAt: Number(account.registeredAt) * 1000,
               deviceKey: deviceKeyHex,
@@ -182,6 +201,7 @@ export const createPeerSessions = ({
             };
             session.authorization = {
               confirmedAtMs: now(),
+              confirmedBlockNumber: account.blockNumber,
               contact,
               deviceKey: deviceKeyHex,
             };

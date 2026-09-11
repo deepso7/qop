@@ -35,7 +35,8 @@ export class IdentityCryptoError extends Data.TaggedError(
     | "recover-remove-device-intent-signer"
     | "recover-rotate-owner-intent-signer"
     | "recover-wipe-devices-intent-signer"
-    | "sign-register-intent";
+    | "sign-register-intent"
+    | "sign-wipe-devices-intent";
 }> {}
 
 export const decodeIdentityEip712DomainV1 = Effect.fn(

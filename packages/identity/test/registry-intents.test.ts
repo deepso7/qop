@@ -36,6 +36,7 @@ import {
   RemoveDeviceIntentV1,
   RotateOwnerIntentV1,
   signRegisterIntentV1,
+  signWipeDevicesIntentV1,
   WipeDevicesIntentV1,
 } from "../src/index.ts";
 
@@ -406,4 +407,29 @@ describe("registry intents", () => {
       ]);
     })
   );
+
+  it.effect("signs WipeDevicesIntentV1 with the owner key", () =>
+    Effect.gen(function* () {
+      const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
+      const wipeDevices = yield* decodeWipeDevicesIntentV1(
+        encodedWipeDevicesIntent
+      );
+      const signature = yield* signWipeDevicesIntentV1(
+        domain,
+        wipeDevices,
+        hexToBytes(PRIVATE_KEY)
+      );
+
+      assert.strictEqual(
+        yield* recoverWipeDevicesIntentSignerV1(
+          domain,
+          wipeDevices,
+          signature
+        ),
+        encodedRegisterIntent.owner
+      );
+    })
+  );
+
+
 });

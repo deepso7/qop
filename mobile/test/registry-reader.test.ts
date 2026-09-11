@@ -78,11 +78,13 @@ describe("registry reader", () => {
 
     await expect(Effect.runPromise(lookupHandle("bob"))).resolves.toBeNull();
     await expect(Effect.runPromise(lookupHandle("alice"))).resolves.toEqual({
+      blockNumber: 0n,
       deviceKey: DEVICE_KEY,
       devices: [
         { deviceKey: DEVICE_KEY, peerId: expectedPeerId },
         { deviceKey: CLI_KEY, peerId: expectedCliPeerId },
       ],
+      freshness: "fresh",
       handle: "alice",
       owner: OWNER.toLowerCase(),
       ownerVersion: 3,
@@ -91,11 +93,13 @@ describe("registry reader", () => {
       registeredAt: 1_700_000_000n,
     });
     await expect(Effect.runPromise(lookupDeviceKey(CLI_KEY))).resolves.toEqual({
+      blockNumber: 0n,
       deviceKey: CLI_KEY,
       devices: [
         { deviceKey: DEVICE_KEY, peerId: expectedPeerId },
         { deviceKey: CLI_KEY, peerId: expectedCliPeerId },
       ],
+      freshness: "fresh",
       handle: "alice",
       owner: OWNER.toLowerCase(),
       ownerVersion: 3,
@@ -153,5 +157,31 @@ describe("registry reader", () => {
     );
     expect(result._tag).toBe("None");
     expect(aborted).toBe(true);
+  });
+
+  it("returns null when the preferred device key is absent from the active list", async () => {
+    const removedKey = `0x${"44".repeat(32)}` as const;
+    const readContract = vi.fn(({ functionName, args }) => {
+      if (functionName === "qidByDeviceKey") {
+        return Promise.resolve(args[0] === removedKey ? 42n : 0n);
+      }
+      if (functionName === "listActiveDevices") {
+        return Promise.resolve([DEVICE_KEY, CLI_KEY]);
+      }
+      if (functionName === "account") {
+        return Promise.resolve({
+          handle: "alice",
+          nonce: 0n,
+          owner: OWNER,
+          ownerVersion: 3,
+          registeredAt: 1_700_000_000n,
+        });
+      }
+      return Promise.resolve(0n);
+    });
+    const { lookupDeviceKey } = createRegistryReader({
+      client: { readContract },
+    });
+    await expect(Effect.runPromise(lookupDeviceKey(removedKey))).resolves.toBeNull();
   });
 });

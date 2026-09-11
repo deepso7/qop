@@ -37,6 +37,8 @@ let now = 1_700_000_000n;
 let nextNonce = 1;
 
 const account = (owner = OWNER, handle = "alice") => ({
+  blockNumber: 1n,
+  freshness: "fresh",
   deviceKey: DEVICE_KEY,
   devices: [{ deviceKey: DEVICE_KEY, peerId: PEER_ID }],
   handle,

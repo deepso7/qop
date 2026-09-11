@@ -421,6 +421,41 @@ export const signRegisterIntentV1 = Effect.fn(
   );
 });
 
+export const signWipeDevicesIntentV1 = Effect.fn(
+  "@qop/identity/signWipeDevicesIntentV1"
+)(function* (
+  domain: IdentityDomain,
+  intent: WipeDevicesIntentV1,
+  input: Uint8Array
+) {
+  yield* validateWipeDevicesInputs("sign-wipe-devices-intent", domain, intent);
+  const privateKey = yield* Schema.decodeUnknownEffect(OwnerPrivateKey)(
+    input
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new IdentityCryptoError({ cause, operation: "sign-wipe-devices-intent" })
+    )
+  );
+  const account = yield* Effect.try({
+    catch: (cause) =>
+      new IdentityCryptoError({ cause, operation: "sign-wipe-devices-intent" }),
+    try: () => privateKeyToAccount(toHex(privateKey)),
+  });
+  const signature = yield* Effect.tryPromise({
+    catch: (cause) =>
+      new IdentityCryptoError({ cause, operation: "sign-wipe-devices-intent" }),
+    try: () =>
+      account.signTypedData(makeWipeDevicesIntentTypedDataV1(domain, intent)),
+  });
+  return yield* normalizeEcdsaSignature(signature).pipe(
+    Effect.mapError(
+      (cause) =>
+        new IdentityCryptoError({ cause, operation: "sign-wipe-devices-intent" })
+    )
+  );
+});
+
 export const hashRotateOwnerIntentV1 = Effect.fn(
   "@qop/identity/hashRotateOwnerIntentV1"
 )((domain: IdentityDomain, intent: RotateOwnerIntentV1) =>

@@ -77,6 +77,7 @@ export {
   RotateOwnerIntentV1,
   rotateOwnerIntentEip712Types,
   signRegisterIntentV1,
+  signWipeDevicesIntentV1,
   WipeDevicesIntentV1,
   wipeDevicesIntentEip712Types,
   type AddDeviceIntentV1Encoded,

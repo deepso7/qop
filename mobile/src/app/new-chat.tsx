@@ -81,6 +81,9 @@ const NewChatRoute = () => {
     if (!result || opening) {
       return;
     }
+    if (!result.deviceKey || !result.peerId) {
+      return;
+    }
     setMessage(undefined);
     setOpening(true);
     try {
@@ -183,7 +186,7 @@ const NewChatRoute = () => {
                   selectable
                   variant="caption"
                 >
-                  Peer {result.peerId.slice(0, 12)}…
+                  Peer {(result.peerId ?? "none").slice(0, 12)}…
                 </Text>
               </View>
               <Button disabled={opening} onPress={startChat}>

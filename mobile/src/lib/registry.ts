@@ -122,11 +122,20 @@ const configuredRegistry = createConfiguredRegistry({
         );
         return Number(chainId);
       },
+      getBlockNumber: async ({ signal } = {}) => {
+        const blockNumber = await publicClient.request(
+          { method: "eth_blockNumber" },
+          { dedupe: true, signal }
+        );
+        return BigInt(blockNumber);
+      },
       readContract: async (parameters, { signal } = {}) => {
+        const { blockNumber, ...rest } = parameters;
         // SAFETY: The bound address and ABI were validated before this call.
         const result = await publicClient.readContract({
-          ...parameters,
+          ...rest,
           address: registryAddress,
+          ...(blockNumber === undefined ? {} : { blockNumber }),
           requestOptions: { signal },
         } as Parameters<typeof publicClient.readContract>[0]);
         // SAFETY: The fixed ABI limits viem's result to the registry result union.

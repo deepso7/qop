@@ -16,6 +16,8 @@ const phoneDeviceKey = `0x${"22".repeat(32)}` as const;
 const cliDeviceKey = `0x${"33".repeat(32)}` as const;
 
 const phoneAccount = (): RegistryAccount => ({
+  blockNumber: 1n,
+  freshness: "fresh",
   deviceKey: phoneDeviceKey,
   devices: [
     { deviceKey: phoneDeviceKey, peerId: PEER_ALICE },
@@ -60,7 +62,8 @@ const fixture = (options?: { now?: () => number }) => {
         return Effect.succeed(phoneAccount());
       }
       if (deviceKey === cliDeviceKey) {
-        return Effect.succeed(cliAccount());
+        // Primary peerId stays the phone's; CLI must still verify via devices[].
+        return Effect.succeed(phoneAccount());
       }
       return Effect.succeed(null);
     }
@@ -356,4 +359,84 @@ describe("multi-device connection authorization", () => {
     ).resolves.toMatchObject({ qid: "1" });
     expect(sessions.isVerified(phoneConnection, "1")).toBe(true);
   });
+
+  it("does not refresh auth age when a successful lookup is stale", async () => {
+    const { advance, lookupDeviceKey, sessions } = fixture();
+    await Effect.runPromise(sessions.verify(cliConnection, "alice"));
+    expect(sessions.isVerified(cliConnection, "1")).toBe(true);
+
+    advance(MAX_AUTH_AGE_MS);
+    lookupDeviceKey.mockReturnValue(
+      Effect.succeed({
+        ...phoneAccount(),
+        // Still shows CLI membership, but the RPC view is stale/cached.
+        freshness: "stale",
+      })
+    );
+    const refused = await Effect.runPromise(
+      sessions.verify(cliConnection, "alice").pipe(Effect.result)
+    );
+    expect(Result.isFailure(refused) && refused.failure.operation).toBe(
+      "identity"
+    );
+    expect(sessions.isVerified(cliConnection, "1")).toBe(false);
+  });
+
+  it("rejects after resume invalidate when the device was revoked during sleep", async () => {
+    const { lookupDeviceKey, sessions } = fixture();
+    await Effect.runPromise(sessions.verify(cliConnection, "alice"));
+    expect(sessions.isVerified(cliConnection, "1")).toBe(true);
+
+    sessions.invalidateAuthorization();
+    expect(sessions.isVerified(cliConnection, "1")).toBe(false);
+
+    lookupDeviceKey.mockReturnValue(Effect.succeed(null));
+    const refused = await Effect.runPromise(
+      sessions.verify(cliConnection, "alice").pipe(Effect.result)
+    );
+    expect(Result.isFailure(refused) && refused.failure.operation).toBe(
+      "identity"
+    );
+    expect(sessions.isVerified(cliConnection, "1")).toBe(false);
+    // Phone path still works if still active.
+    lookupDeviceKey.mockImplementation((deviceKey: string) => {
+      if (deviceKey === phoneDeviceKey) {
+        return Effect.succeed({
+          ...phoneAccount(),
+          devices: [{ deviceKey: phoneDeviceKey, peerId: PEER_ALICE }],
+        });
+      }
+      return Effect.succeed(null);
+    });
+    await expect(
+      Effect.runPromise(sessions.verify(phoneConnection, "alice"))
+    ).resolves.toMatchObject({ peerId: PEER_ALICE });
+  });
+
+  it("fails both phone and CLI sessions after a recovery wipe", async () => {
+    const { lookupDeviceKey, sessions } = fixture();
+    await Effect.runPromise(sessions.verify(phoneConnection, "alice"));
+    await Effect.runPromise(sessions.verify(cliConnection, "alice"));
+    expect(sessions.isVerified(phoneConnection, "1")).toBe(true);
+    expect(sessions.isVerified(cliConnection, "1")).toBe(true);
+
+    sessions.invalidateAuthorization();
+    lookupDeviceKey.mockReturnValue(Effect.succeed(null));
+
+    const phoneRefused = await Effect.runPromise(
+      sessions.verify(phoneConnection, "alice").pipe(Effect.result)
+    );
+    const cliRefused = await Effect.runPromise(
+      sessions.verify(cliConnection, "alice").pipe(Effect.result)
+    );
+    expect(Result.isFailure(phoneRefused) && phoneRefused.failure.operation).toBe(
+      "identity"
+    );
+    expect(Result.isFailure(cliRefused) && cliRefused.failure.operation).toBe(
+      "identity"
+    );
+    expect(sessions.isVerified(phoneConnection, "1")).toBe(false);
+    expect(sessions.isVerified(cliConnection, "1")).toBe(false);
+  });
+
 });

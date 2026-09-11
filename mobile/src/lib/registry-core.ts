@@ -100,13 +100,17 @@ export interface RegistryDevice {
   readonly peerId: string;
 }
 
+export type RegistryFreshness = "fresh" | "stale";
+
 export interface RegistryAccount {
-  readonly deviceKey: typeof Hex32.Encoded;
+  readonly blockNumber: bigint;
+  readonly deviceKey: typeof Hex32.Encoded | null;
   readonly devices: readonly RegistryDevice[];
+  readonly freshness: RegistryFreshness;
   readonly handle: string;
   readonly owner: string;
   readonly ownerVersion: number;
-  readonly peerId: string;
+  readonly peerId: string | null;
   readonly qid: bigint;
   readonly registeredAt: bigint;
 }
@@ -121,10 +125,14 @@ const readerError = (operation: RegistryReaderError["operation"]) =>
   new RegistryReaderError({ operation });
 
 export interface RegistryReadClient {
+  readonly getBlockNumber?: (options?: {
+    readonly signal?: AbortSignal;
+  }) => Promise<bigint>;
   readonly readContract: (
     parameters: {
       readonly abi: typeof registryAbi;
       readonly args: readonly unknown[];
+      readonly blockNumber?: bigint;
       readonly functionName:
         | "account"
         | "listActiveDevices"
@@ -154,6 +162,18 @@ export const createRegistryReader = ({
         catch: () => readerError("rpc"),
         try: (signal) => client.readContract(parameters, { signal }),
       })
+  );
+
+  const readBlockNumber = Effect.fn("RegistryReader.readBlockNumber")(
+    function* () {
+      if (!client.getBlockNumber) {
+        return 0n;
+      }
+      return yield* Effect.tryPromise({
+        catch: () => readerError("rpc"),
+        try: (signal) => client.getBlockNumber!({ signal }),
+      });
+    }
   );
 
   const decodeDevice = Effect.fn("RegistryReader.decodeDevice")(function* (
@@ -213,22 +233,25 @@ export const createRegistryReader = ({
     ).pipe(Effect.mapError(() => readerError("decode")));
     const devices = yield* listActiveDevices(qid);
     const preferred = preferredDeviceKey?.toLowerCase();
-    const selected =
-      (preferred
-        ? devices.find((device) => device.deviceKey === preferred)
-        : undefined) ?? devices[0];
-    // Preferred key mapped by qidByDeviceKey must appear in the active list.
+    // Do not fall back to devices[0] before membership check — a stale
+    // qidByDeviceKey hit must not return another device's account.
+    const selected = preferred
+      ? devices.find((device) => device.deviceKey === preferred)
+      : devices[0];
     if (preferred && !selected) {
-      return yield* readerError("decode");
+      return null;
     }
+    const blockNumber = yield* readBlockNumber();
     const accountResult: RegistryAccount = {
+      blockNumber,
       // Dial/last-seen helpers use the preferred or first active device when present.
-      deviceKey: selected?.deviceKey ?? (`0x${"00".repeat(32)}` as const),
+      deviceKey: selected?.deviceKey ?? null,
       devices,
+      freshness: "fresh",
       handle,
       owner,
       ownerVersion,
-      peerId: selected?.peerId ?? "",
+      peerId: selected?.peerId ?? null,
       qid,
       registeredAt,
     };
