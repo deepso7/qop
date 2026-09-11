@@ -128,6 +128,8 @@ const contactFromRow = (row: ContactRow): Contact => ({
 
 export const upsertContact = async (contact: ContactInput): Promise<void> => {
   const database = await getDatabase();
+  // Contact identity is qid. device_key/peer_id are last-seen dial hints only —
+  // switching among authorized devices must not flip key_changed.
   await database.runAsync(
     `INSERT INTO contacts(qid, handle, owner, device_key, peer_id, created_at)
      VALUES (?, ?, ?, ?, ?, ?)
@@ -135,11 +137,7 @@ export const upsertContact = async (contact: ContactInput): Promise<void> => {
        handle = excluded.handle,
        owner = excluded.owner,
        device_key = excluded.device_key,
-       peer_id = excluded.peer_id,
-       key_changed = CASE
-         WHEN contacts.device_key <> excluded.device_key THEN 1
-         ELSE contacts.key_changed
-       END`,
+       peer_id = excluded.peer_id`,
     contact.qid,
     contact.handle,
     contact.owner,

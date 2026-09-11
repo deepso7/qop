@@ -119,4 +119,10 @@ After these checks pass, implement pending-message handoff and receipt synchroni
 
 ## Current code references
 
-The implementation starts from [QOPIdentityRegistry.sol](../../contracts/src/QOPIdentityRegistry.sol), [registry-core.ts](../../mobile/src/lib/registry-core.ts), [p2p-sessions.ts](../../mobile/src/lib/p2p-sessions.ts), and [db.ts](../../mobile/src/lib/db.ts). These currently represent one device per account and cache successful authorization for a connection's lifetime.
+Implemented on this branch:
+
+- [QOPIdentityRegistry.sol](../../contracts/src/QOPIdentityRegistry.sol) — enumerable active devices; `addDevice` / `removeDevice` / `wipeDevices`; `listActiveDevices`
+- [registry-intents.ts](../../packages/identity/src/registry-intents.ts) — Add/Remove/Wipe EIP-712 intents
+- [registry-core.ts](../../mobile/src/lib/registry-core.ts) — membership lookup + device list
+- [p2p-sessions.ts](../../mobile/src/lib/p2p-sessions.ts) — multi-device verify; 60s monotonic auth age; resume invalidate
+- [db.ts](../../mobile/src/lib/db.ts) — contact identity by `qid`; no false `keyChanged` on roster updates

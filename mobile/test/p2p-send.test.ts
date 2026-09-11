@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { encodeAck, MAX_CHAT_PAYLOAD_BYTES } from "@/lib/chat-wire";
 import { performSend, withTimeout } from "@/lib/p2p-send";
-import { createPeerSessions } from "@/lib/p2p-sessions";
+import { createPeerSessions, PeerVerificationError } from "@/lib/p2p-sessions";
 import { RegistryReaderError } from "@/lib/registry-core";
 import type { RegistryAccount } from "@/lib/registry-core";
 
@@ -20,6 +20,12 @@ const frame = {
 const contact = { handle: "bob", peerId: "peer-stale", qid: "1" };
 const account: RegistryAccount = {
   deviceKey: `0x${"22".repeat(32)}`,
+  devices: [
+    {
+      deviceKey: `0x${"22".repeat(32)}`,
+      peerId: PEER_BOB,
+    },
+  ],
   handle: "bob",
   owner: "0x0000000000000000000000000000000000000001",
   ownerVersion: 0,
@@ -186,7 +192,7 @@ describe("performSend", () => {
     let aborted = false;
     vi.spyOn(sessions, "recipientPeerId").mockReturnValue(
       Effect.tryPromise({
-        catch: () => new RegistryReaderError({ operation: "rpc" }),
+        catch: () => new PeerVerificationError({ operation: "rpc" }),
         try: (signal) => {
           signal.addEventListener("abort", () => {
             aborted = true;

@@ -1,7 +1,8 @@
 import type { Address, Hash } from "viem";
 
 export interface RegistryAccount {
-  readonly deviceKey: Hash;
+  readonly deviceKey: Hash | null;
+  readonly devices: readonly Hash[];
   readonly handle: string;
   readonly nonce: bigint;
   readonly owner: Address;

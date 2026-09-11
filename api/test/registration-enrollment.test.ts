@@ -106,6 +106,7 @@ const registryReads: RegistryReads = {
     Effect.succeed(
       read({
         deviceKey: testHash("device"),
+        devices: [testHash("device")],
         handle: "alice",
         nonce: 0n,
         owner,

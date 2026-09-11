@@ -74,6 +74,8 @@ interface P2pDependencies {
   readonly lookupHandle: typeof lookupHandle;
   readonly performSend: typeof performSend;
   readonly randomUUID: () => string;
+  /** Called when the app resumes from background/suspend; invalidate live auth. */
+  readonly subscribeAppResume?: (onResume: () => void) => Unsubscribe;
 }
 
 const errorMessage = (error: Error | string) =>
@@ -91,6 +93,7 @@ export const createP2pStore = ({
   lookupHandle,
   performSend,
   randomUUID,
+  subscribeAppResume,
 }: P2pDependencies) => {
   let endpoint: P2pEndpoint | undefined;
   let unsubscribe: Unsubscribe[] = [];
@@ -513,6 +516,15 @@ export const createP2pStore = ({
         };
         unsubscribe = [
           binding.bindAppState(),
+          ...(subscribeAppResume
+            ? [
+                subscribeAppResume(() => {
+                  if (generation === startGeneration) {
+                    sessions.invalidateAuthorization();
+                  }
+                }),
+              ]
+            : []),
           created.onClose((reason) => {
             failEndpoint(
               reason.reason === "driverFailed"

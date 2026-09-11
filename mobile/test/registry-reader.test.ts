@@ -11,26 +11,30 @@ import { describe, expect, it, vi } from "vitest";
 import { createRegistryReader, registryAbi } from "@/lib/registry-core";
 
 const DEVICE_KEY = `0x${"22".repeat(32)}` as const;
+const CLI_KEY = `0x${"33".repeat(32)}` as const;
 const OWNER = "0x7E5F4552091A69125d5DfCb7b8C2659029395Bdf";
 const ALICE_HASH = keccak256(toBytes("alice"));
 
 describe("registry reader", () => {
-  it("looks up a handle and derives its peer ID from the device key", async () => {
+  it("looks up handles and device keys across multiple active devices", async () => {
     const readContract = vi.fn(({ functionName, args }) => {
       if (functionName === "qidByHandleHash") {
         return Promise.resolve(args[0] === ALICE_HASH ? 42n : 0n);
       }
       if (functionName === "qidByDeviceKey") {
-        return Promise.resolve(args[0] === DEVICE_KEY ? 42n : 0n);
+        return Promise.resolve(
+          args[0] === DEVICE_KEY || args[0] === CLI_KEY ? 42n : 0n
+        );
+      }
+      if (functionName === "listActiveDevices") {
+        return Promise.resolve([DEVICE_KEY, CLI_KEY]);
       }
       if (functionName === "account") {
-        // Encode Solidity's dynamic struct return independently of the reader ABI.
         const data = encodeAbiParameters(
           [
             {
               components: [
                 { type: "address" },
-                { type: "bytes32" },
                 { type: "uint32" },
                 { type: "uint64" },
                 { type: "uint256" },
@@ -39,7 +43,7 @@ describe("registry reader", () => {
               type: "tuple",
             },
           ],
-          [[OWNER, DEVICE_KEY, 3, 1_700_000_000n, 0n, "alice"]]
+          [[OWNER, 3, 1_700_000_000n, 0n, "alice"]]
         );
         return Promise.resolve(
           decodeFunctionResult({
@@ -51,14 +55,23 @@ describe("registry reader", () => {
       }
       return Promise.resolve(0n);
     });
-    const { lookupDeviceKey, lookupHandle } = createRegistryReader({
-      client: { readContract },
-    });
+    const { listActiveDevices, lookupDeviceKey, lookupHandle } =
+      createRegistryReader({
+        client: { readContract },
+      });
     const deviceKey = await Effect.runPromise(
       Schema.decodeUnknownEffect(Hex32)(DEVICE_KEY)
     );
+    const cliKey = await Effect.runPromise(
+      Schema.decodeUnknownEffect(Hex32)(CLI_KEY)
+    );
     const expectedPeerId = await Effect.runPromise(
       peerIdFromDeviceKey(deviceKey).pipe(
+        Effect.flatMap(Schema.encodeEffect(PeerId))
+      )
+    );
+    const expectedCliPeerId = await Effect.runPromise(
+      peerIdFromDeviceKey(cliKey).pipe(
         Effect.flatMap(Schema.encodeEffect(PeerId))
       )
     );
@@ -66,6 +79,10 @@ describe("registry reader", () => {
     await expect(Effect.runPromise(lookupHandle("bob"))).resolves.toBeNull();
     await expect(Effect.runPromise(lookupHandle("alice"))).resolves.toEqual({
       deviceKey: DEVICE_KEY,
+      devices: [
+        { deviceKey: DEVICE_KEY, peerId: expectedPeerId },
+        { deviceKey: CLI_KEY, peerId: expectedCliPeerId },
+      ],
       handle: "alice",
       owner: OWNER.toLowerCase(),
       ownerVersion: 3,
@@ -73,34 +90,41 @@ describe("registry reader", () => {
       qid: 42n,
       registeredAt: 1_700_000_000n,
     });
-    await expect(
-      Effect.runPromise(lookupDeviceKey(DEVICE_KEY))
-    ).resolves.toEqual({
-      deviceKey: DEVICE_KEY,
+    await expect(Effect.runPromise(lookupDeviceKey(CLI_KEY))).resolves.toEqual({
+      deviceKey: CLI_KEY,
+      devices: [
+        { deviceKey: DEVICE_KEY, peerId: expectedPeerId },
+        { deviceKey: CLI_KEY, peerId: expectedCliPeerId },
+      ],
       handle: "alice",
       owner: OWNER.toLowerCase(),
       ownerVersion: 3,
-      peerId: expectedPeerId,
+      peerId: expectedCliPeerId,
       qid: 42n,
       registeredAt: 1_700_000_000n,
     });
+    await expect(Effect.runPromise(listActiveDevices(42n))).resolves.toEqual([
+      { deviceKey: DEVICE_KEY, peerId: expectedPeerId },
+      { deviceKey: CLI_KEY, peerId: expectedCliPeerId },
+    ]);
   });
 
-  it("rejects an account with an all-zero device key", async () => {
-    const readContract = vi.fn(({ functionName }) =>
-      Promise.resolve(
-        functionName === "qidByHandleHash"
-          ? 42n
-          : {
-              deviceKey: `0x${"00".repeat(32)}`,
-              handle: "alice",
-              nonce: 0n,
-              owner: OWNER,
-              ownerVersion: 3,
-              registeredAt: 1_700_000_000n,
-            }
-      )
-    );
+  it("rejects an active device list that includes an all-zero device key", async () => {
+    const readContract = vi.fn(({ functionName }) => {
+      if (functionName === "qidByHandleHash") {
+        return Promise.resolve(42n);
+      }
+      if (functionName === "listActiveDevices") {
+        return Promise.resolve([`0x${"00".repeat(32)}`]);
+      }
+      return Promise.resolve({
+        handle: "alice",
+        nonce: 0n,
+        owner: OWNER,
+        ownerVersion: 3,
+        registeredAt: 1_700_000_000n,
+      });
+    });
     const { lookupHandle } = createRegistryReader({ client: { readContract } });
 
     const result = await Effect.runPromise(

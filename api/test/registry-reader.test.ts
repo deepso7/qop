@@ -15,6 +15,7 @@ const NEXT_OWNER =
 
 const account = (owner: Address = OWNER): RegistryAccount => ({
   deviceKey: testHash("device"),
+  devices: [testHash("device")],
   handle: "alice",
   nonce: 0n,
   owner,

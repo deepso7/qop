@@ -202,9 +202,12 @@ export const createLocalRegistration = ({
       .lookupOwner(identity.ownerAddress)
       .pipe(Effect.mapError(() => localError("network")));
     if (ownerAccount?.handle === registration.handle) {
+      const deviceActive = ownerAccount.devices.some(
+        (device) => device.deviceKey === identity.deviceKey.toLowerCase()
+      );
       if (
         ownerAccount.owner === identity.ownerAddress.toLowerCase() &&
-        ownerAccount.deviceKey === identity.deviceKey.toLowerCase()
+        deviceActive
       ) {
         const confirmed: LocalRegistration = {
           ...registration,
@@ -214,7 +217,7 @@ export const createLocalRegistration = ({
         yield* writeStoredRegistration(confirmed);
         return confirmed;
       }
-      if (ownerAccount.deviceKey !== identity.deviceKey.toLowerCase()) {
+      if (!deviceActive) {
         const failed: LocalRegistration = {
           ...registration,
           failureCode: "DEVICE_KEY_MISMATCH",

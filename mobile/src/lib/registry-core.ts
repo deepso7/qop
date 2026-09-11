@@ -17,7 +17,6 @@ export const registryAbi = [
       {
         components: [
           { name: "owner", type: "address" },
-          { name: "deviceKey", type: "bytes32" },
           { name: "ownerVersion", type: "uint32" },
           { name: "registeredAt", type: "uint64" },
           { name: "nonce", type: "uint256" },
@@ -27,6 +26,13 @@ export const registryAbi = [
         type: "tuple",
       },
     ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "qid", type: "uint256" }],
+    name: "listActiveDevices",
+    outputs: [{ name: "", type: "bytes32[]" }],
     stateMutability: "view",
     type: "function",
   },
@@ -76,18 +82,27 @@ const ChainQid = Schema.BigInt.check(
   })
 );
 const ContractAccountResult = Schema.Struct({
-  deviceKey: Hex32Input,
   handle: Handle,
   nonce: ChainQid,
   owner: EthereumAddressInput,
   ownerVersion: OwnerVersion,
   registeredAt: RegisteredAt,
 });
+const ContractDeviceKeysResult = Schema.Array(Hex32Input);
 
-type RegistryContractResult = bigint | typeof ContractAccountResult.Type;
+type RegistryContractResult =
+  | bigint
+  | typeof ContractAccountResult.Type
+  | readonly (typeof Hex32Input.Type)[];
+
+export interface RegistryDevice {
+  readonly deviceKey: typeof Hex32.Encoded;
+  readonly peerId: string;
+}
 
 export interface RegistryAccount {
   readonly deviceKey: typeof Hex32.Encoded;
+  readonly devices: readonly RegistryDevice[];
   readonly handle: string;
   readonly owner: string;
   readonly ownerVersion: number;
@@ -112,6 +127,7 @@ export interface RegistryReadClient {
       readonly args: readonly unknown[];
       readonly functionName:
         | "account"
+        | "listActiveDevices"
         | "qidByDeviceKey"
         | "qidByHandleHash"
         | "qidByOwner";
@@ -140,24 +156,9 @@ export const createRegistryReader = ({
       })
   );
 
-  const account = Effect.fn("RegistryReader.account")(function* (qid: bigint) {
-    const result = yield* readContract({
-      abi: registryAbi,
-      args: [qid],
-      functionName: "account",
-    });
-    const {
-      owner: ownerInput,
-      deviceKey: deviceKeyInput,
-      ownerVersion,
-      registeredAt,
-      handle,
-    } = yield* Schema.decodeUnknownEffect(ContractAccountResult)(result).pipe(
-      Effect.mapError(() => readerError("decode"))
-    );
-    const owner = yield* Schema.decodeUnknownEffect(EthereumAddress)(
-      ownerInput.toLowerCase()
-    ).pipe(Effect.mapError(() => readerError("decode")));
+  const decodeDevice = Effect.fn("RegistryReader.decodeDevice")(function* (
+    deviceKeyInput: string
+  ) {
     const deviceKey = yield* Schema.decodeUnknownEffect(CanonicalDeviceKey)(
       deviceKeyInput.toLowerCase()
     ).pipe(Effect.mapError(() => readerError("decode")));
@@ -168,15 +169,70 @@ export const createRegistryReader = ({
       Effect.flatMap(Schema.encodeEffect(PeerId)),
       Effect.mapError(() => readerError("decode"))
     );
-    return {
-      deviceKey,
+    return { deviceKey, peerId } satisfies RegistryDevice;
+  });
+
+  const listActiveDevices = Effect.fn("RegistryReader.listActiveDevices")(
+    function* (qid: bigint) {
+      const result = yield* readContract({
+        abi: registryAbi,
+        args: [qid],
+        functionName: "listActiveDevices",
+      });
+      const keys = yield* Schema.decodeUnknownEffect(ContractDeviceKeysResult)(
+        result
+      ).pipe(Effect.mapError(() => readerError("decode")));
+      const devices: RegistryDevice[] = yield* Effect.forEach(
+        keys,
+        decodeDevice,
+        { concurrency: 1 }
+      );
+      return devices as readonly RegistryDevice[];
+    }
+  );
+
+  const account = Effect.fn("RegistryReader.account")(function* (
+    qid: bigint,
+    preferredDeviceKey?: string
+  ) {
+    const result = yield* readContract({
+      abi: registryAbi,
+      args: [qid],
+      functionName: "account",
+    });
+    const {
+      owner: ownerInput,
+      ownerVersion,
+      registeredAt,
+      handle,
+    } = yield* Schema.decodeUnknownEffect(ContractAccountResult)(result).pipe(
+      Effect.mapError(() => readerError("decode"))
+    );
+    const owner = yield* Schema.decodeUnknownEffect(EthereumAddress)(
+      ownerInput.toLowerCase()
+    ).pipe(Effect.mapError(() => readerError("decode")));
+    const devices = yield* listActiveDevices(qid);
+    const preferred = preferredDeviceKey?.toLowerCase();
+    const selected =
+      (preferred
+        ? devices.find((device) => device.deviceKey === preferred)
+        : undefined) ?? devices[0];
+    // Preferred key mapped by qidByDeviceKey must appear in the active list.
+    if (preferred && !selected) {
+      return yield* readerError("decode");
+    }
+    const accountResult: RegistryAccount = {
+      // Dial/last-seen helpers use the preferred or first active device when present.
+      deviceKey: selected?.deviceKey ?? (`0x${"00".repeat(32)}` as const),
+      devices,
       handle,
       owner,
       ownerVersion,
-      peerId,
+      peerId: selected?.peerId ?? "",
       qid,
       registeredAt,
-    } satisfies RegistryAccount;
+    };
+    return accountResult;
   });
 
   const lookupHandle = Effect.fn("RegistryReader.lookupHandle")(function* (
@@ -218,9 +274,9 @@ export const createRegistryReader = ({
         args: [deviceKey],
         functionName: "qidByDeviceKey",
       }).pipe(Effect.flatMap(readQid));
-      return qid === 0n ? null : yield* account(qid);
+      return qid === 0n ? null : yield* account(qid, deviceKey);
     }
   );
 
-  return { lookupDeviceKey, lookupHandle, lookupOwner };
+  return { listActiveDevices, lookupDeviceKey, lookupHandle, lookupOwner };
 };

@@ -13,11 +13,19 @@ import type { performSend } from "@/lib/p2p-send";
 import { createP2pStore } from "@/lib/p2p-store-core";
 import type { P2pEndpoint } from "@/lib/p2p-store-core";
 import type { RegistryAccount } from "@/lib/registry-core";
+import type { lookupDeviceKey as LookupDeviceKey } from "@/lib/registry";
+import type { lookupHandle as LookupHandle } from "@/lib/registry";
 
 const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
 
 const bobAccount: RegistryAccount = {
   deviceKey: `0x${"22".repeat(32)}`,
+  devices: [
+    {
+      deviceKey: `0x${"22".repeat(32)}`,
+      peerId: PEER_BOB,
+    },
+  ],
   handle: "bob",
   owner: "0x0000000000000000000000000000000000000001",
   ownerVersion: 0,
@@ -46,11 +54,11 @@ let queueOverflow: (() => void) | undefined;
 const disconnect = vi.fn();
 const connectedPeers = vi.fn((): string[] => [PEER_BOB]);
 const send = vi.fn<typeof performSend>();
-const lookupDeviceKey = vi.fn((): Effect.Effect<RegistryAccount | null> =>
-  Effect.succeed(bobAccount)
+const lookupDeviceKey = vi.fn(
+  (): ReturnType<typeof LookupDeviceKey> => Effect.succeed(bobAccount)
 );
-const lookupHandle = vi.fn((): Effect.Effect<RegistryAccount | null> =>
-  Effect.succeed(bobAccount)
+const lookupHandle = vi.fn(
+  (): ReturnType<typeof LookupHandle> => Effect.succeed(bobAccount)
 );
 
 type EventListener = (event: never) => void;

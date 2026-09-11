@@ -12,11 +12,20 @@ export interface PeerConnection {
 export class PeerVerificationError extends Data.TaggedError(
   "PeerVerificationError"
 )<{
-  readonly operation: "closed" | "identity" | "storage";
+  readonly operation: "closed" | "identity" | "rpc" | "storage";
 }> {}
 
+/** Proposed max authorization age while running (monotonic elapsed ms). */
+export const MAX_AUTH_AGE_MS = 60_000;
+
+interface AuthorizedContact {
+  readonly confirmedAtMs: number;
+  readonly contact: Contact;
+  readonly deviceKey: string;
+}
+
 interface PeerSession extends PeerConnection {
-  contact?: Contact;
+  authorization?: AuthorizedContact;
   readonly semaphore: Semaphore.Semaphore;
 }
 
@@ -28,14 +37,22 @@ interface PeerSessionDependencies {
   readonly lookupHandle: (
     handle: string
   ) => Effect.Effect<RegistryAccount | null, RegistryReaderError>;
+  /** Monotonic elapsed-time clock (e.g. performance.now). */
+  readonly now?: () => number;
   readonly upsertContact: (contact: ContactInput) => Promise<void>;
 }
+
+const mapLookupError = (error: RegistryReaderError) =>
+  new PeerVerificationError({
+    operation: error.operation === "rpc" ? "rpc" : "identity",
+  });
 
 // Authorization belongs to one live transport connection, never to a persisted contact.
 export const createPeerSessions = ({
   getContactByQid,
   lookupDeviceKey,
   lookupHandle,
+  now = () => performance.now(),
   upsertContact,
 }: PeerSessionDependencies) => {
   const sessions = new Map<number, PeerSession>();
@@ -52,8 +69,19 @@ export const createPeerSessions = ({
     }
   };
   const clear = () => sessions.clear();
+
+  /** Invalidate cached authorization on resume; keep connections open. */
+  const invalidateAuthorization = () => {
+    for (const session of sessions.values()) {
+      session.authorization = undefined;
+    }
+  };
+
   const isCurrent = (session: PeerSession) =>
     sessions.get(session.connId) === session;
+
+  const authAgeMs = (authorization: AuthorizedContact) =>
+    now() - authorization.confirmedAtMs;
 
   const verify = Effect.fn("PeerSessions.verify")(
     (connection: PeerConnection, handle: string) =>
@@ -69,13 +97,18 @@ export const createPeerSessions = ({
             if (!isCurrent(session)) {
               return yield* new PeerVerificationError({ operation: "closed" });
             }
-            if (session.contact) {
-              if (session.contact.handle !== handle) {
+
+            const cached = session.authorization;
+            if (cached) {
+              if (cached.contact.handle !== handle) {
+                session.authorization = undefined;
                 return yield* new PeerVerificationError({
                   operation: "identity",
                 });
               }
-              return session.contact;
+              if (authAgeMs(cached) < MAX_AUTH_AGE_MS) {
+                return cached.contact;
+              }
             }
 
             // Ground identity in the transport peerId, then assert the claimed handle.
@@ -98,22 +131,33 @@ export const createPeerSessions = ({
                 () => new PeerVerificationError({ operation: "identity" })
               )
             );
-            const account = yield* lookupDeviceKey(deviceKeyHex);
-            if (
-              !account ||
-              account.handle !== handle ||
-              account.peerId !== connection.peerId
-            ) {
+            const account = yield* lookupDeviceKey(deviceKeyHex).pipe(
+              Effect.mapError(mapLookupError)
+            );
+            // Active membership under the claimed handle — not a single primary peerId.
+            if (!account || account.handle !== handle) {
+              session.authorization = undefined;
+              return yield* new PeerVerificationError({
+                operation: "identity",
+              });
+            }
+            const membership = account.devices.some(
+              (device) =>
+                device.deviceKey === deviceKeyHex &&
+                device.peerId === connection.peerId
+            );
+            if (!membership) {
+              session.authorization = undefined;
               return yield* new PeerVerificationError({
                 operation: "identity",
               });
             }
             const fresh: ContactInput = {
               createdAt: Number(account.registeredAt) * 1000,
-              deviceKey: account.deviceKey,
+              deviceKey: deviceKeyHex,
               handle: account.handle,
               owner: account.owner,
-              peerId: account.peerId,
+              peerId: connection.peerId,
               qid: account.qid.toString(),
             };
             const known = yield* Effect.tryPromise({
@@ -130,14 +174,17 @@ export const createPeerSessions = ({
             if (!isCurrent(session)) {
               return yield* new PeerVerificationError({ operation: "closed" });
             }
+            // Second authorized device is roster noise, not keyChanged.
             const contact: Contact = {
               ...fresh,
-              keyChanged: known
-                ? known.keyChanged || known.deviceKey !== fresh.deviceKey
-                : false,
+              keyChanged: known?.keyChanged ?? false,
               lastReadAt: known?.lastReadAt ?? 0,
             };
-            session.contact = contact;
+            session.authorization = {
+              confirmedAtMs: now(),
+              contact,
+              deviceKey: deviceKeyHex,
+            };
             return contact;
           })
         );
@@ -148,28 +195,55 @@ export const createPeerSessions = ({
     contact: Pick<Contact, "handle" | "qid">
   ) {
     for (const session of sessions.values()) {
+      const authorization = session.authorization;
       if (
-        session.contact?.qid === contact.qid &&
-        session.contact.handle === contact.handle
+        authorization &&
+        authorization.contact.qid === contact.qid &&
+        authorization.contact.handle === contact.handle &&
+        authAgeMs(authorization) < MAX_AUTH_AGE_MS
       ) {
         return session.peerId;
       }
     }
-    const account = yield* lookupHandle(contact.handle);
+    const account = yield* lookupHandle(contact.handle).pipe(
+      Effect.mapError(mapLookupError)
+    );
     if (
       !account ||
       account.handle !== contact.handle ||
-      account.qid.toString() !== contact.qid
+      account.qid.toString() !== contact.qid ||
+      account.devices.length === 0
     ) {
       return yield* new PeerVerificationError({ operation: "identity" });
     }
-    return account.peerId;
+    // Prefer a live connected peer among active devices; else first active.
+    for (const session of sessions.values()) {
+      if (
+        account.devices.some((device) => device.peerId === session.peerId)
+      ) {
+        return session.peerId;
+      }
+    }
+    return account.devices[0].peerId;
   });
 
   const isVerified = ({ connId, peerId }: PeerConnection, qid: string) => {
     const session = sessions.get(connId);
-    return session?.peerId === peerId && session.contact?.qid === qid;
+    const authorization = session?.authorization;
+    return (
+      session?.peerId === peerId &&
+      authorization?.contact.qid === qid &&
+      authAgeMs(authorization) < MAX_AUTH_AGE_MS
+    );
   };
 
-  return { clear, closed, isVerified, opened, recipientPeerId, verify };
+  return {
+    clear,
+    closed,
+    invalidateAuthorization,
+    isVerified,
+    opened,
+    recipientPeerId,
+    verify,
+  };
 };

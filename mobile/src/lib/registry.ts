@@ -101,8 +101,14 @@ export const createConfiguredRegistry = ({
         Effect.flatMap((reader) => reader.lookupDeviceKey(deviceKey))
       )
   );
+  const listActiveDevices = Effect.fn("Registry.listActiveDevices")(
+    (qid: bigint) =>
+      cachedConfiguredReader.pipe(
+        Effect.flatMap((reader) => reader.listActiveDevices(qid))
+      )
+  );
 
-  return { lookupDeviceKey, lookupHandle, lookupOwner };
+  return { listActiveDevices, lookupDeviceKey, lookupHandle, lookupOwner };
 };
 
 const configuredRegistry = createConfiguredRegistry({
@@ -135,5 +141,5 @@ const configuredRegistry = createConfiguredRegistry({
   rpcUrl: process.env.EXPO_PUBLIC_RPC_URL,
 });
 
-export const { lookupDeviceKey, lookupHandle, lookupOwner } =
+export const { listActiveDevices, lookupDeviceKey, lookupHandle, lookupOwner } =
   configuredRegistry;

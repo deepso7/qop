@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deleteAll,
   failInterruptedMessages,
+  getContactByQid,
   getMessageById,
   insertMessage,
   listConversations,
@@ -211,6 +212,37 @@ describe("interrupted sends", () => {
     });
     await failInterruptedMessages();
     expect(await listMessages("1")).toEqual(after);
+  });
+});
+
+describe("contact device roster", () => {
+  it("does not treat a second authorized device as keyChanged and keeps history", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "in",
+      id: "kept",
+      sentAt: 1,
+      status: "received",
+      text: "history",
+    });
+    await upsertContact({
+      createdAt: 1,
+      deviceKey: "cli-device",
+      handle: "alice",
+      owner: "owner",
+      peerId: "cli-peer",
+      qid: "1",
+    });
+    const contact = await getContactByQid("1");
+    expect(contact).toMatchObject({
+      deviceKey: "cli-device",
+      keyChanged: false,
+      peerId: "cli-peer",
+      qid: "1",
+    });
+    expect(await listMessages("1")).toMatchObject([
+      { id: "kept", text: "history" },
+    ]);
   });
 });
 

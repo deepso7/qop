@@ -113,7 +113,7 @@ export class RegistryChain extends Context.Service<
         qid: bigint
       ) {
         const blockNumber = yield* confirmedBlock;
-        const { owner, deviceKey, ownerVersion, registeredAt, nonce, handle } =
+        const { owner, ownerVersion, registeredAt, nonce, handle } =
           yield* Effect.tryPromise({
             catch: (cause) =>
               new RegistryChainError({ cause, operation: "account" }),
@@ -126,11 +126,24 @@ export class RegistryChain extends Context.Service<
                 functionName: "account",
               }),
           });
+        const devices = yield* Effect.tryPromise({
+          catch: (cause) =>
+            new RegistryChainError({ cause, operation: "account" }),
+          try: () =>
+            client.readContract({
+              abi: registryReadAbi,
+              address: registryAddress,
+              args: [qid],
+              blockNumber,
+              functionName: "listActiveDevices",
+            }),
+        });
 
         return {
           blockNumber,
           value: {
-            deviceKey,
+            deviceKey: devices[0] ?? null,
+            devices,
             handle,
             nonce,
             // SAFETY: viem decodes the contract's address return as an Address.
