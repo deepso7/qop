@@ -14,7 +14,8 @@ Registry policies enforced by the contract:
 - Owner rotation requires signatures from both the current and new owners, proving control of the destination key. Active devices are preserved on planned owner rotation.
 - Device keys belong to one account at a time while active. An account may have up to four active devices. Zero active devices is allowed.
 - `addDevice` / `removeDevice` authorize concurrent devices. Removed keys cannot be re-added (fresh key required on relink).
-- `wipeDevices` clears every active key for owner recovery after compromise; devices must be re-added.
+- `wipeDevices` clears every active key without changing owner (device-only wipe).
+- `recoverOwner` is completed compromise recovery: rotates owner and wipes all devices so the old owner cannot `addDevice`.
 - Owner, device add/remove, and wipe actions share one account nonce.
 
 Cross-language formats pinned by the contract tests and `@qop/identity`:
@@ -30,6 +31,7 @@ The registry signs these EIP-712 intent types:
 - `AddDeviceV1(uint256 qid,bytes32 deviceKey,uint256 nonce,uint64 deadline)`
 - `RemoveDeviceV1(uint256 qid,bytes32 deviceKey,uint256 nonce,uint64 deadline)`
 - `WipeDevicesV1(uint256 qid,uint256 nonce,uint64 deadline)`
+- `RecoverOwnerV1(uint256 qid,address newOwner,uint256 nonce,uint64 deadline)`
 
 Initialize dependencies after cloning with:
 

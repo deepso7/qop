@@ -11,16 +11,25 @@ export interface WipeDevicesSubmission {
   readonly signature: `0x${string}`;
 }
 
+export interface RecoverOwnerSubmission {
+  readonly deadline: bigint;
+  readonly newOwner: `0x${string}`;
+  readonly newOwnerSignature: `0x${string}`;
+  readonly nonce: bigint;
+  readonly ownerSignature: `0x${string}`;
+  readonly qid: bigint;
+}
+
 export interface RegistryWriteClient {
   readonly writeContract: (parameters: {
     readonly abi: readonly unknown[];
     readonly address: `0x${string}`;
     readonly args: readonly unknown[];
-    readonly functionName: "wipeDevices";
+    readonly functionName: "recoverOwner" | "wipeDevices";
   }) => Promise<`0x${string}`>;
 }
 
-/** Minimal wipeDevices submit path for locked recovery wipe-all. */
+/** Device-only wipe. Does not rotate owner — not completed compromise recovery. */
 export const submitWipeDevices = Effect.fn("RegistryWrite.submitWipeDevices")(
   function* ({
     client,
@@ -48,6 +57,41 @@ export const submitWipeDevices = Effect.fn("RegistryWrite.submitWipeDevices")(
             submission.signature,
           ],
           functionName: "wipeDevices",
+        }),
+    });
+  }
+);
+
+/** Completed owner recovery: rotate owner and wipe all devices atomically. */
+export const submitRecoverOwner = Effect.fn("RegistryWrite.submitRecoverOwner")(
+  function* ({
+    client,
+    recoverAbi,
+    registryAddress,
+    submission,
+  }: {
+    readonly client: RegistryWriteClient;
+    readonly recoverAbi: readonly unknown[];
+    readonly registryAddress: `0x${string}`;
+    readonly submission: RecoverOwnerSubmission;
+  }) {
+    return yield* Effect.tryPromise({
+      catch: () => new RegistryWriteError({ operation: "rpc" }),
+      try: () =>
+        client.writeContract({
+          abi: recoverAbi,
+          address: registryAddress,
+          args: [
+            {
+              deadline: submission.deadline,
+              newOwner: submission.newOwner,
+              nonce: submission.nonce,
+              qid: submission.qid,
+            },
+            submission.ownerSignature,
+            submission.newOwnerSignature,
+          ],
+          functionName: "recoverOwner",
         }),
     });
   }

@@ -181,6 +181,14 @@ describe("multi-device connection authorization", () => {
     expect(lookupDeviceKey).toHaveBeenCalledOnce();
     sessions.invalidateAuthorization();
     expect(sessions.isVerified(phoneConnection, "1")).toBe(false);
+    // Resume still requires a newer confirmed head than the remembered one.
+    lookupDeviceKey.mockReturnValue(
+      Effect.succeed({
+        ...phoneAccount(),
+        blockNumber: 2n,
+        freshness: "fresh",
+      })
+    );
     await Effect.runPromise(sessions.verify(phoneConnection, "alice"));
     expect(lookupDeviceKey).toHaveBeenCalledTimes(2);
   });
@@ -422,6 +430,75 @@ describe("multi-device connection authorization", () => {
     expect(sessions.isVerified(cliConnection, "1")).toBe(true);
   });
 
+  it("does not grant another 60s on retry of the same stale block after rejection", async () => {
+    const { advance, lookupDeviceKey, sessions } = fixture();
+    await Effect.runPromise(sessions.verify(cliConnection, "alice"));
+    expect(sessions.isVerified(cliConnection, "1")).toBe(true);
+
+    advance(MAX_AUTH_AGE_MS);
+    lookupDeviceKey.mockReturnValue(
+      Effect.succeed({
+        ...phoneAccount(),
+        blockNumber: 1n,
+        freshness: "fresh",
+      })
+    );
+    const first = await Effect.runPromise(
+      sessions.verify(cliConnection, "alice").pipe(Effect.result)
+    );
+    expect(Result.isFailure(first) && first.failure.operation).toBe("identity");
+    expect(sessions.isVerified(cliConnection, "1")).toBe(false);
+
+    // Retrying the identical stuck head must still fail — rejection must not
+    // erase remembered freshness history with the cleared authorization.
+    const second = await Effect.runPromise(
+      sessions.verify(cliConnection, "alice").pipe(Effect.result)
+    );
+    expect(Result.isFailure(second) && second.failure.operation).toBe(
+      "identity"
+    );
+    expect(sessions.isVerified(cliConnection, "1")).toBe(false);
+  });
+
+  it("drops in-flight verify that finishes after resume invalidation", async () => {
+    let clock = 0;
+    const { getContactByQid, lookupDeviceKey, sessions } = fixture({
+      now: () => clock,
+    });
+    await Effect.runPromise(sessions.verify(cliConnection, "alice"));
+    expect(sessions.isVerified(cliConnection, "1")).toBe(true);
+
+    clock = MAX_AUTH_AGE_MS;
+    lookupDeviceKey.mockReturnValue(
+      Effect.succeed({
+        ...phoneAccount(),
+        blockNumber: 2n,
+        freshness: "fresh",
+      })
+    );
+
+    let releaseContact!: (contact: Contact | null) => void;
+    const contactGate = new Promise<Contact | null>((resolve) => {
+      releaseContact = resolve;
+    });
+    getContactByQid.mockReturnValue(contactGate);
+
+    const inFlight = Effect.runPromise(
+      sessions.verify(cliConnection, "alice").pipe(Effect.result)
+    );
+
+    // Resume invalidation must cancel the writer even if storage later succeeds.
+    sessions.invalidateAuthorization();
+    expect(sessions.isVerified(cliConnection, "1")).toBe(false);
+
+    releaseContact(contact);
+    const finished = await inFlight;
+    expect(Result.isFailure(finished) && finished.failure.operation).toBe(
+      "closed"
+    );
+    expect(sessions.isVerified(cliConnection, "1")).toBe(false);
+  });
+
   it("rejects after resume invalidate when the device was revoked during sleep", async () => {
     const { lookupDeviceKey, sessions } = fixture();
     await Effect.runPromise(sessions.verify(cliConnection, "alice"));
@@ -438,12 +515,14 @@ describe("multi-device connection authorization", () => {
       "identity"
     );
     expect(sessions.isVerified(cliConnection, "1")).toBe(false);
-    // Phone path still works if still active.
+    // Phone path still works if still active (and chain head advanced).
     lookupDeviceKey.mockImplementation((deviceKey: string) => {
       if (deviceKey === phoneDeviceKey) {
         return Effect.succeed({
           ...phoneAccount(),
+          blockNumber: 2n,
           devices: [{ deviceKey: phoneDeviceKey, peerId: PEER_ALICE }],
+          freshness: "fresh",
         });
       }
       return Effect.succeed(null);

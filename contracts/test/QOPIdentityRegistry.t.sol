@@ -160,6 +160,51 @@ contract QOPIdentityRegistryTest is Test {
         assertEq(registry.account(qid).owner, owner);
     }
 
+    function test_recoverOwnerRotatesOwnerAndWipesDevices() public {
+        uint256 qid = _register("alice", OWNER_KEY, keccak256("registration"));
+        bytes32 first = registry.listActiveDevices(qid)[0];
+        bytes32 second = keccak256("cli-device");
+        _addDevice(qid, OWNER_KEY, second, 0);
+
+        address newOwner = vm.addr(SECOND_OWNER_KEY);
+        QOPIdentityRegistry.RecoverOwnerIntent memory intent = QOPIdentityRegistry.RecoverOwnerIntent({
+            qid: qid, newOwner: newOwner, nonce: 1, deadline: deadline
+        });
+        bytes32 digest = registry.hashRecoverOwnerIntent(intent);
+
+        vm.expectEmit(true, true, true, true, address(registry));
+        emit QOPIdentityRegistry.OwnerRecovered(qid, owner, newOwner, 1, 2, 1);
+        registry.recoverOwner(intent, _sign(OWNER_KEY, digest), _sign(SECOND_OWNER_KEY, digest));
+
+        QOPIdentityRegistry.Account memory stored = registry.account(qid);
+        assertEq(stored.owner, newOwner);
+        assertEq(stored.ownerVersion, 1);
+        assertEq(stored.nonce, 2);
+        assertEq(registry.activeDeviceCount(qid), 0);
+        assertEq(registry.qidByDeviceKey(first), 0);
+        assertEq(registry.qidByDeviceKey(second), 0);
+        assertTrue(registry.deviceKeyRemoved(first));
+        assertTrue(registry.deviceKeyRemoved(second));
+        assertEq(registry.qidByOwner(owner), 0);
+        assertEq(registry.qidByOwner(newOwner), qid);
+
+        // Compromised previous owner cannot add devices anymore.
+        QOPIdentityRegistry.AddDeviceIntent memory addIntent = QOPIdentityRegistry.AddDeviceIntent({
+            qid: qid, deviceKey: keccak256("attacker-device"), nonce: 2, deadline: deadline
+        });
+        bytes memory compromisedSig = _sign(OWNER_KEY, registry.hashAddDeviceIntent(addIntent));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                QOPIdentityRegistry.InvalidOwnerSignature.selector, owner, newOwner
+            )
+        );
+        registry.addDevice(addIntent, compromisedSig);
+
+        // New owner can add a fresh device.
+        _addDevice(qid, SECOND_OWNER_KEY, keccak256("recovery-phone"), 2);
+        assertEq(registry.activeDeviceCount(qid), 1);
+    }
+
     function test_assignsSequentialQidsAndPermanentHandles() public {
         uint256 firstQid = _register("alice", OWNER_KEY, keccak256("first"));
         uint256 secondQid = _register("bob", SECOND_OWNER_KEY, keccak256("second"));

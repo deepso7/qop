@@ -1,9 +1,12 @@
 import { Effect, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import { submitWipeDevices } from "@/lib/registry-write-core";
+import {
+  submitRecoverOwner,
+  submitWipeDevices,
+} from "@/lib/registry-write-core";
 
-describe("registry wipe submit", () => {
+describe("registry write submit", () => {
   it("submits wipeDevices with the signed intent", async () => {
     const writeContract = vi.fn(async () => "0xabc" as const);
     const hash = await Effect.runPromise(
@@ -31,7 +34,7 @@ describe("registry wipe submit", () => {
     });
   });
 
-  it("maps write failures to rpc", async () => {
+  it("maps wipe write failures to rpc", async () => {
     const result = await Effect.runPromise(
       submitWipeDevices({
         client: {
@@ -50,5 +53,40 @@ describe("registry wipe submit", () => {
       }).pipe(Effect.result)
     );
     expect(Result.isFailure(result) && result.failure.operation).toBe("rpc");
+  });
+
+  it("submits recoverOwner with owner and newOwner signatures", async () => {
+    const writeContract = vi.fn(async () => "0xdef" as const);
+    const hash = await Effect.runPromise(
+      submitRecoverOwner({
+        client: { writeContract },
+        recoverAbi: [],
+        registryAddress: "0x1111111111111111111111111111111111111111",
+        submission: {
+          deadline: 1_700_003_600n,
+          newOwner: "0x2222222222222222222222222222222222222222",
+          newOwnerSignature: `0x${"cd".repeat(65)}`,
+          nonce: 13n,
+          ownerSignature: `0x${"ab".repeat(65)}`,
+          qid: 42n,
+        },
+      })
+    );
+    expect(hash).toBe("0xdef");
+    expect(writeContract).toHaveBeenCalledWith({
+      abi: [],
+      address: "0x1111111111111111111111111111111111111111",
+      args: [
+        {
+          deadline: 1_700_003_600n,
+          newOwner: "0x2222222222222222222222222222222222222222",
+          nonce: 13n,
+          qid: 42n,
+        },
+        `0x${"ab".repeat(65)}`,
+        `0x${"cd".repeat(65)}`,
+      ],
+      functionName: "recoverOwner",
+    });
   });
 });

@@ -27,7 +27,11 @@ interface AuthorizedContact {
 
 interface PeerSession extends PeerConnection {
   authorization?: AuthorizedContact;
+  /** Last confirmed registry head — kept even when authorization is cleared. */
+  lastConfirmedBlockNumber?: bigint;
   readonly semaphore: Semaphore.Semaphore;
+  /** Bumped by invalidateAuthorization so in-flight verify cannot write auth. */
+  verifyEpoch: number;
 }
 
 interface PeerSessionDependencies {
@@ -58,10 +62,14 @@ export const createPeerSessions = ({
 }: PeerSessionDependencies) => {
   const sessions = new Map<number, PeerSession>();
 
+  // Resume invalidation must cancel in-flight verify writers.
+  let verifyEpoch = 0;
+
   const opened = (connection: PeerConnection) => {
     sessions.set(connection.connId, {
       ...connection,
       semaphore: Semaphore.makeUnsafe(1),
+      verifyEpoch,
     });
   };
   const closed = ({ connId, peerId }: PeerConnection) => {
@@ -73,8 +81,10 @@ export const createPeerSessions = ({
 
   /** Invalidate cached authorization on resume; keep connections open. */
   const invalidateAuthorization = () => {
+    verifyEpoch += 1;
     for (const session of sessions.values()) {
       session.authorization = undefined;
+      session.verifyEpoch = verifyEpoch;
     }
   };
 
@@ -98,6 +108,8 @@ export const createPeerSessions = ({
             if (!isCurrent(session)) {
               return yield* new PeerVerificationError({ operation: "closed" });
             }
+
+            const epochAtStart = session.verifyEpoch;
 
             const cached = session.authorization;
             if (cached) {
@@ -163,7 +175,9 @@ export const createPeerSessions = ({
             }
             // Same or older block is not a new confirmation — stuck/cached
             // heads must not mint another MAX_AUTH_AGE_MS window.
-            const priorBlock = session.authorization?.confirmedBlockNumber;
+            // Freshness history lives on the session, not only on authorization,
+            // so rejecting a stale block cannot erase the remembered head.
+            const priorBlock = session.lastConfirmedBlockNumber;
             if (
               priorBlock !== undefined &&
               account.blockNumber <= priorBlock
@@ -185,14 +199,14 @@ export const createPeerSessions = ({
               catch: () => new PeerVerificationError({ operation: "storage" }),
               try: () => getContactByQid(fresh.qid),
             });
-            if (!isCurrent(session)) {
+            if (!isCurrent(session) || session.verifyEpoch !== epochAtStart) {
               return yield* new PeerVerificationError({ operation: "closed" });
             }
             yield* Effect.tryPromise({
               catch: () => new PeerVerificationError({ operation: "storage" }),
               try: () => upsertContact(fresh),
             });
-            if (!isCurrent(session)) {
+            if (!isCurrent(session) || session.verifyEpoch !== epochAtStart) {
               return yield* new PeerVerificationError({ operation: "closed" });
             }
             // Second authorized device is roster noise, not keyChanged.
@@ -201,6 +215,7 @@ export const createPeerSessions = ({
               keyChanged: known?.keyChanged ?? false,
               lastReadAt: known?.lastReadAt ?? 0,
             };
+            session.lastConfirmedBlockNumber = account.blockNumber;
             session.authorization = {
               confirmedAtMs: now(),
               confirmedBlockNumber: account.blockNumber,

@@ -76,6 +76,20 @@ export type RotateOwnerIntentV1 = typeof RotateOwnerIntentV1Schema.Type;
 export type RotateOwnerIntentV1Encoded =
   typeof RotateOwnerIntentV1Schema.Encoded;
 
+const RecoverOwnerIntentV1Schema = Schema.Struct({
+  deadline: UnixSeconds,
+  newOwner: NonZeroEthereumAddress,
+  nonce: Uint256,
+  qid: Qid,
+}).annotate({
+  messageUnexpectedKey: "Unexpected owner recovery intent field",
+  parseOptions: strictParseOptions,
+});
+export { RecoverOwnerIntentV1Schema as RecoverOwnerIntentV1 };
+export type RecoverOwnerIntentV1 = typeof RecoverOwnerIntentV1Schema.Type;
+export type RecoverOwnerIntentV1Encoded =
+  typeof RecoverOwnerIntentV1Schema.Encoded;
+
 const AddDeviceIntentV1Schema = Schema.Struct({
   deadline: UnixSeconds,
   deviceKey: DeviceKey,
@@ -128,6 +142,15 @@ export const registerIntentEip712Types = {
 
 export const rotateOwnerIntentEip712Types = {
   RotateOwnerV1: [
+    { name: "qid", type: "uint256" },
+    { name: "newOwner", type: "address" },
+    { name: "nonce", type: "uint256" },
+    { name: "deadline", type: "uint64" },
+  ],
+} as const;
+
+export const recoverOwnerIntentEip712Types = {
+  RecoverOwnerV1: [
     { name: "qid", type: "uint256" },
     { name: "newOwner", type: "address" },
     { name: "nonce", type: "uint256" },
@@ -202,6 +225,23 @@ export const makeRotateOwnerIntentTypedDataV1 = (
     },
     primaryType: "RotateOwnerV1",
     types: rotateOwnerIntentEip712Types,
+  }) as const;
+
+export const makeRecoverOwnerIntentTypedDataV1 = (
+  domain: IdentityDomain,
+  intent: RecoverOwnerIntentV1
+) =>
+  ({
+    domain: typedDataDomain(domain),
+    message: {
+      deadline: intent.deadline,
+      // SAFETY: The intent schema accepts only canonical 20-byte hex addresses.
+      newOwner: intent.newOwner as Address,
+      nonce: intent.nonce,
+      qid: intent.qid,
+    },
+    primaryType: "RecoverOwnerV1",
+    types: recoverOwnerIntentEip712Types,
   }) as const;
 
 export const makeAddDeviceIntentTypedDataV1 = (
@@ -279,6 +319,16 @@ const validateRotateOwnerInputs = (
     Effect.mapError((cause) => new IdentityCryptoError({ cause, operation }))
   );
 
+const validateRecoverOwnerInputs = (
+  operation: IdentityCryptoError["operation"],
+  domain: IdentityDomain,
+  intent: RecoverOwnerIntentV1
+) =>
+  Schema.encodeEffect(IdentityEip712DomainV1)(domain).pipe(
+    Effect.andThen(Schema.encodeEffect(RecoverOwnerIntentV1Schema)(intent)),
+    Effect.mapError((cause) => new IdentityCryptoError({ cause, operation }))
+  );
+
 const validateAddDeviceInputs = (
   operation: IdentityCryptoError["operation"],
   domain: IdentityDomain,
@@ -321,6 +371,12 @@ export const decodeRotateOwnerIntentV1 = Effect.fn(
   Schema.decodeEffect(RotateOwnerIntentV1Schema)(input)
 );
 
+export const decodeRecoverOwnerIntentV1 = Effect.fn(
+  "@qop/identity/decodeRecoverOwnerIntentV1"
+)((input: RecoverOwnerIntentV1Encoded) =>
+  Schema.decodeEffect(RecoverOwnerIntentV1Schema)(input)
+);
+
 export const decodeAddDeviceIntentV1 = Effect.fn(
   "@qop/identity/decodeAddDeviceIntentV1"
 )((input: AddDeviceIntentV1Encoded) =>
@@ -349,6 +405,12 @@ export const encodeRotateOwnerIntentV1 = Effect.fn(
   "@qop/identity/encodeRotateOwnerIntentV1"
 )((intent: RotateOwnerIntentV1) =>
   Schema.encodeEffect(RotateOwnerIntentV1Schema)(intent)
+);
+
+export const encodeRecoverOwnerIntentV1 = Effect.fn(
+  "@qop/identity/encodeRecoverOwnerIntentV1"
+)((intent: RecoverOwnerIntentV1) =>
+  Schema.encodeEffect(RecoverOwnerIntentV1Schema)(intent)
 );
 
 export const encodeAddDeviceIntentV1 = Effect.fn(
@@ -456,6 +518,41 @@ export const signWipeDevicesIntentV1 = Effect.fn(
   );
 });
 
+export const signRecoverOwnerIntentV1 = Effect.fn(
+  "@qop/identity/signRecoverOwnerIntentV1"
+)(function* (
+  domain: IdentityDomain,
+  intent: RecoverOwnerIntentV1,
+  input: Uint8Array
+) {
+  yield* validateRecoverOwnerInputs("sign-recover-owner-intent", domain, intent);
+  const privateKey = yield* Schema.decodeUnknownEffect(OwnerPrivateKey)(
+    input
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new IdentityCryptoError({ cause, operation: "sign-recover-owner-intent" })
+    )
+  );
+  const account = yield* Effect.try({
+    catch: (cause) =>
+      new IdentityCryptoError({ cause, operation: "sign-recover-owner-intent" }),
+    try: () => privateKeyToAccount(toHex(privateKey)),
+  });
+  const signature = yield* Effect.tryPromise({
+    catch: (cause) =>
+      new IdentityCryptoError({ cause, operation: "sign-recover-owner-intent" }),
+    try: () =>
+      account.signTypedData(makeRecoverOwnerIntentTypedDataV1(domain, intent)),
+  });
+  return yield* normalizeEcdsaSignature(signature).pipe(
+    Effect.mapError(
+      (cause) =>
+        new IdentityCryptoError({ cause, operation: "sign-recover-owner-intent" })
+    )
+  );
+});
+
 export const hashRotateOwnerIntentV1 = Effect.fn(
   "@qop/identity/hashRotateOwnerIntentV1"
 )((domain: IdentityDomain, intent: RotateOwnerIntentV1) =>
@@ -469,6 +566,24 @@ export const hashRotateOwnerIntentV1 = Effect.fn(
           }),
         try: () =>
           hashTypedData(makeRotateOwnerIntentTypedDataV1(domain, intent)),
+      })
+    )
+  )
+);
+
+export const hashRecoverOwnerIntentV1 = Effect.fn(
+  "@qop/identity/hashRecoverOwnerIntentV1"
+)((domain: IdentityDomain, intent: RecoverOwnerIntentV1) =>
+  validateRecoverOwnerInputs("hash-recover-owner-intent", domain, intent).pipe(
+    Effect.flatMap(() =>
+      Effect.try({
+        catch: (cause) =>
+          new IdentityCryptoError({
+            cause,
+            operation: "hash-recover-owner-intent",
+          }),
+        try: () =>
+          hashTypedData(makeRecoverOwnerIntentTypedDataV1(domain, intent)),
       })
     )
   )
@@ -579,6 +694,40 @@ export const recoverRotateOwnerIntentSignerV1 = Effect.fn(
           try: () =>
             recoverTypedDataAddress({
               ...makeRotateOwnerIntentTypedDataV1(domain, intent),
+              signature: toViemSignature(signature),
+            }),
+        })
+      ),
+      Effect.map((address) => address.toLowerCase())
+    )
+);
+
+export const recoverRecoverOwnerIntentSignerV1 = Effect.fn(
+  "@qop/identity/recoverRecoverOwnerIntentSignerV1"
+)(
+  (
+    domain: IdentityDomain,
+    intent: RecoverOwnerIntentV1,
+    signature: Uint8Array
+  ) =>
+    validateRecoverOwnerInputs(
+      "recover-recover-owner-intent-signer",
+      domain,
+      intent
+    ).pipe(
+      Effect.andThen(
+        validateSignature("recover-recover-owner-intent-signer", signature)
+      ),
+      Effect.flatMap(() =>
+        Effect.tryPromise({
+          catch: (cause) =>
+            new IdentityCryptoError({
+              cause,
+              operation: "recover-recover-owner-intent-signer",
+            }),
+          try: () =>
+            recoverTypedDataAddress({
+              ...makeRecoverOwnerIntentTypedDataV1(domain, intent),
               signature: toViemSignature(signature),
             }),
         })

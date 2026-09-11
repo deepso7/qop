@@ -51,6 +51,14 @@ contract QOPIdentityRegistry is EIP712 {
         uint64 deadline;
     }
 
+    /// @notice Compromise recovery: rotate owner and wipe all devices in one tx.
+    struct RecoverOwnerIntent {
+        uint256 qid;
+        address newOwner;
+        uint256 nonce;
+        uint64 deadline;
+    }
+
     uint256 public constant MIN_HANDLE_LENGTH = 1;
     uint256 public constant MAX_HANDLE_LENGTH = 32;
     uint256 public constant MAX_ACTIVE_DEVICES = 4;
@@ -65,6 +73,9 @@ contract QOPIdentityRegistry is EIP712 {
         keccak256("RemoveDeviceV1(uint256 qid,bytes32 deviceKey,uint256 nonce,uint64 deadline)");
     bytes32 public constant WIPE_DEVICES_TYPEHASH =
         keccak256("WipeDevicesV1(uint256 qid,uint256 nonce,uint64 deadline)");
+    bytes32 public constant RECOVER_OWNER_TYPEHASH = keccak256(
+        "RecoverOwnerV1(uint256 qid,address newOwner,uint256 nonce,uint64 deadline)"
+    );
 
     address public immutable registrationAdmin;
     address public registrationSigner;
@@ -97,6 +108,14 @@ contract QOPIdentityRegistry is EIP712 {
     event DeviceAdded(uint256 indexed qid, bytes32 indexed deviceKey, uint256 nonce);
     event DeviceRemoved(uint256 indexed qid, bytes32 indexed deviceKey, uint256 nonce);
     event DevicesWiped(uint256 indexed qid, uint256 removedCount, uint256 nonce);
+    event OwnerRecovered(
+        uint256 indexed qid,
+        address indexed previousOwner,
+        address indexed newOwner,
+        uint32 ownerVersion,
+        uint256 removedCount,
+        uint256 nonce
+    );
     event RegistrationOpened(address indexed previousSigner);
     event RegistrationSignerUpdated(address indexed previousSigner, address indexed newSigner);
 
@@ -297,8 +316,9 @@ contract QOPIdentityRegistry is EIP712 {
         emit DeviceRemoved(intent.qid, intent.deviceKey, intent.nonce);
     }
 
-    /// @notice Owner recovery after compromise: clear every active device.
-    /// Devices must be re-added with fresh keys.
+    /// @notice Device-only wipe: clear every active device without changing owner.
+    /// Not completed owner recovery — a compromised owner can still addDevice.
+    /// Use recoverOwner to rotate owner and wipe devices atomically.
     function wipeDevices(WipeDevicesIntent calldata intent, bytes calldata ownerSignature) external {
         Account storage current = _account(intent.qid);
         _validateDeadline(intent.deadline);
@@ -314,6 +334,51 @@ contract QOPIdentityRegistry is EIP712 {
         current.nonce = intent.nonce + 1;
         emit DevicesWiped(intent.qid, removedCount, intent.nonce);
     }
+
+    /// @notice Completed owner recovery after compromise: rotate owner and wipe
+    /// every active device so the compromised owner cannot addDevice again.
+    function recoverOwner(
+        RecoverOwnerIntent calldata intent,
+        bytes calldata ownerSignature,
+        bytes calldata newOwnerSignature
+    ) external {
+        Account storage current = _account(intent.qid);
+        _validateDeadline(intent.deadline);
+        _validateNonce(current.nonce, intent.nonce);
+        if (intent.newOwner == address(0)) revert ZeroAddress();
+
+        uint256 existingQid = qidByOwner[intent.newOwner];
+        if (existingQid != 0) {
+            revert OwnerAlreadyRegistered(intent.newOwner, existingQid);
+        }
+        if (current.ownerVersion == type(uint32).max) {
+            revert OwnerVersionOverflow(intent.qid);
+        }
+
+        bytes32 digest = hashRecoverOwnerIntent(intent);
+        address recoveredOwner = _recoverSigner(digest, ownerSignature);
+        if (recoveredOwner != current.owner) {
+            revert InvalidOwnerSignature(recoveredOwner, current.owner);
+        }
+        address recoveredNewOwner = _recoverSigner(digest, newOwnerSignature);
+        if (recoveredNewOwner != intent.newOwner) {
+            revert InvalidNewOwnerSignature(recoveredNewOwner, intent.newOwner);
+        }
+
+        address previousOwner = current.owner;
+        uint32 nextOwnerVersion = current.ownerVersion + 1;
+        current.owner = intent.newOwner;
+        current.ownerVersion = nextOwnerVersion;
+        current.nonce = intent.nonce + 1;
+        delete qidByOwner[previousOwner];
+        qidByOwner[intent.newOwner] = intent.qid;
+
+        uint256 removedCount = _wipeActiveDevices(intent.qid);
+        emit OwnerRecovered(
+            intent.qid, previousOwner, intent.newOwner, nextOwnerVersion, removedCount, intent.nonce
+        );
+    }
+
 
     function account(uint256 qid) external view returns (Account memory) {
         Account storage current = _account(qid);
@@ -373,6 +438,13 @@ contract QOPIdentityRegistry is EIP712 {
 
     function hashWipeDevicesIntent(WipeDevicesIntent calldata intent) public view returns (bytes32) {
         bytes32 structHash = keccak256(abi.encode(WIPE_DEVICES_TYPEHASH, intent.qid, intent.nonce, intent.deadline));
+        return _hashTypedDataV4(structHash);
+    }
+
+    function hashRecoverOwnerIntent(RecoverOwnerIntent calldata intent) public view returns (bytes32) {
+        bytes32 structHash = keccak256(
+            abi.encode(RECOVER_OWNER_TYPEHASH, intent.qid, intent.newOwner, intent.nonce, intent.deadline)
+        );
         return _hashTypedDataV4(structHash);
     }
 

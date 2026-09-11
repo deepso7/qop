@@ -7,34 +7,41 @@ import {
   AddDeviceIntentV1,
   decodeAddDeviceIntentV1,
   decodeIdentityEip712DomainV1,
+  decodeRecoverOwnerIntentV1,
   decodeRegisterIntentV1,
   decodeRemoveDeviceIntentV1,
   decodeRotateOwnerIntentV1,
   decodeWipeDevicesIntentV1,
   encodeAddDeviceIntentV1,
+  encodeRecoverOwnerIntentV1,
   encodeRegisterIntentV1,
   encodeRemoveDeviceIntentV1,
   encodeRotateOwnerIntentV1,
   encodeWipeDevicesIntentV1,
   hashAddDeviceIntentV1,
+  hashRecoverOwnerIntentV1,
   hashRegisterIntentV1,
   hashRemoveDeviceIntentV1,
   hashRotateOwnerIntentV1,
   hashWipeDevicesIntentV1,
   makeAddDeviceIntentTypedDataV1,
+  makeRecoverOwnerIntentTypedDataV1,
   makeRegisterIntentTypedDataV1,
   makeRemoveDeviceIntentTypedDataV1,
   makeRotateOwnerIntentTypedDataV1,
   makeWipeDevicesIntentTypedDataV1,
   normalizeEcdsaSignature,
   recoverAddDeviceIntentSignerV1,
+  recoverRecoverOwnerIntentSignerV1,
   recoverRegisterIntentSignerV1,
   recoverRemoveDeviceIntentSignerV1,
   recoverRotateOwnerIntentSignerV1,
   recoverWipeDevicesIntentSignerV1,
+  RecoverOwnerIntentV1,
   RegisterIntentV1,
   RemoveDeviceIntentV1,
   RotateOwnerIntentV1,
+  signRecoverOwnerIntentV1,
   signRegisterIntentV1,
   signWipeDevicesIntentV1,
   WipeDevicesIntentV1,
@@ -59,6 +66,13 @@ const encodedRegisterIntent = {
 } as const;
 
 const encodedRotateOwnerIntent = {
+  deadline: "1700003600",
+  newOwner: "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf",
+  nonce: "7",
+  qid: "42",
+} as const;
+
+const encodedRecoverOwnerIntent = {
   deadline: "1700003600",
   newOwner: "0x2b5ad5c4795c026514f8317c7a215e218dccd6cf",
   nonce: "7",
@@ -92,6 +106,8 @@ const expectedDigests = {
     "0x53dc6c862551e88c6021e67e163d162b1491a6a6b5e92a85196d2f9cea4aca9a",
   removeDevice:
     "0x93d4098944b4086859554efbee5bd6c129c7649ee03b3de63145372fb4717603",
+  recoverOwner:
+    "0x85177ecb06c719680cffda8b05c8c484a6c9bed3d0aa178aa8e1741170666b34",
   rotateOwner:
     "0xcfd2c2208d584d29013cb01bbcd1f1ae5cef6c3546b82c682c52a66633e24c6c",
   wipeDevices:
@@ -106,6 +122,9 @@ describe("registry intents", () => {
       const register = yield* decodeRegisterIntentV1(encodedRegisterIntent);
       const rotateOwner = yield* decodeRotateOwnerIntentV1(
         encodedRotateOwnerIntent
+      );
+      const recoverOwner = yield* decodeRecoverOwnerIntentV1(
+        encodedRecoverOwnerIntent
       );
       const addDevice = yield* decodeAddDeviceIntentV1(encodedAddDeviceIntent);
       const removeDevice = yield* decodeRemoveDeviceIntentV1(
@@ -122,6 +141,10 @@ describe("registry intents", () => {
       assert.deepStrictEqual(
         yield* encodeRotateOwnerIntentV1(rotateOwner),
         encodedRotateOwnerIntent
+      );
+      assert.deepStrictEqual(
+        yield* encodeRecoverOwnerIntentV1(recoverOwner),
+        encodedRecoverOwnerIntent
       );
       assert.deepStrictEqual(
         yield* encodeAddDeviceIntentV1(addDevice),
@@ -150,6 +173,9 @@ describe("registry intents", () => {
       const rotateOwner = yield* decodeRotateOwnerIntentV1(
         encodedRotateOwnerIntent
       );
+      const recoverOwner = yield* decodeRecoverOwnerIntentV1(
+        encodedRecoverOwnerIntent
+      );
       const addDevice = yield* decodeAddDeviceIntentV1(encodedAddDeviceIntent);
       const removeDevice = yield* decodeRemoveDeviceIntentV1(
         encodedRemoveDeviceIntent
@@ -165,6 +191,10 @@ describe("registry intents", () => {
       assert.strictEqual(
         yield* hashRotateOwnerIntentV1(domain, rotateOwner),
         expectedDigests.rotateOwner
+      );
+      assert.strictEqual(
+        yield* hashRecoverOwnerIntentV1(domain, recoverOwner),
+        expectedDigests.recoverOwner
       );
       assert.strictEqual(
         yield* hashAddDeviceIntentV1(domain, addDevice),
@@ -424,6 +454,29 @@ describe("registry intents", () => {
         yield* recoverWipeDevicesIntentSignerV1(
           domain,
           wipeDevices,
+          signature
+        ),
+        encodedRegisterIntent.owner
+      );
+    })
+  );
+
+  it.effect("signs RecoverOwnerIntentV1 with the owner key", () =>
+    Effect.gen(function* () {
+      const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
+      const recoverOwner = yield* decodeRecoverOwnerIntentV1(
+        encodedRecoverOwnerIntent
+      );
+      const signature = yield* signRecoverOwnerIntentV1(
+        domain,
+        recoverOwner,
+        hexToBytes(PRIVATE_KEY)
+      );
+
+      assert.strictEqual(
+        yield* recoverRecoverOwnerIntentSignerV1(
+          domain,
+          recoverOwner,
           signature
         ),
         encodedRegisterIntent.owner

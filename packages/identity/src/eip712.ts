@@ -28,13 +28,16 @@ export class IdentityCryptoError extends Data.TaggedError(
     | "hash-add-device-intent"
     | "hash-register-intent"
     | "hash-remove-device-intent"
+    | "hash-recover-owner-intent"
     | "hash-rotate-owner-intent"
     | "hash-wipe-devices-intent"
     | "recover-add-device-intent-signer"
     | "recover-register-intent-signer"
     | "recover-remove-device-intent-signer"
+    | "recover-recover-owner-intent-signer"
     | "recover-rotate-owner-intent-signer"
     | "recover-wipe-devices-intent-signer"
+    | "sign-recover-owner-intent"
     | "sign-register-intent"
     | "sign-wipe-devices-intent";
 }> {}
