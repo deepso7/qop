@@ -5,12 +5,11 @@ import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 /// @notice Immutable identity trust root for QOP accounts.
-/// @dev The registry stores account ownership, device keys, handles, owner
-/// versions, and action nonces.
+/// @dev Owner custody authorizes multiple concurrent Ed25519 device keys.
+/// Messaging authority is membership in the active device set for a `qid`.
 contract QOPIdentityRegistry is EIP712 {
     struct Account {
         address owner;
-        bytes32 deviceKey;
         uint32 ownerVersion;
         uint64 registeredAt;
         uint256 nonce;
@@ -32,22 +31,40 @@ contract QOPIdentityRegistry is EIP712 {
         uint64 deadline;
     }
 
-    struct RotateDeviceIntent {
+    struct AddDeviceIntent {
         uint256 qid;
-        bytes32 newDeviceKey;
+        bytes32 deviceKey;
+        uint256 nonce;
+        uint64 deadline;
+    }
+
+    struct RemoveDeviceIntent {
+        uint256 qid;
+        bytes32 deviceKey;
+        uint256 nonce;
+        uint64 deadline;
+    }
+
+    struct WipeDevicesIntent {
+        uint256 qid;
         uint256 nonce;
         uint64 deadline;
     }
 
     uint256 public constant MIN_HANDLE_LENGTH = 1;
     uint256 public constant MAX_HANDLE_LENGTH = 32;
+    uint256 public constant MAX_ACTIVE_DEVICES = 4;
 
     bytes32 public constant REGISTER_TYPEHASH =
         keccak256("RegisterV1(string handle,address owner,bytes32 deviceKey,bytes32 nonce,uint64 deadline)");
     bytes32 public constant ROTATE_OWNER_TYPEHASH =
         keccak256("RotateOwnerV1(uint256 qid,address newOwner,uint256 nonce,uint64 deadline)");
-    bytes32 public constant ROTATE_DEVICE_TYPEHASH =
-        keccak256("RotateDeviceV1(uint256 qid,bytes32 newDeviceKey,uint256 nonce,uint64 deadline)");
+    bytes32 public constant ADD_DEVICE_TYPEHASH =
+        keccak256("AddDeviceV1(uint256 qid,bytes32 deviceKey,uint256 nonce,uint64 deadline)");
+    bytes32 public constant REMOVE_DEVICE_TYPEHASH =
+        keccak256("RemoveDeviceV1(uint256 qid,bytes32 deviceKey,uint256 nonce,uint64 deadline)");
+    bytes32 public constant WIPE_DEVICES_TYPEHASH =
+        keccak256("WipeDevicesV1(uint256 qid,uint256 nonce,uint64 deadline)");
 
     address public immutable registrationAdmin;
     address public registrationSigner;
@@ -55,9 +72,14 @@ contract QOPIdentityRegistry is EIP712 {
     uint256 public nextQid = 1;
 
     mapping(uint256 qid => Account) private _accounts;
+    mapping(uint256 qid => bytes32[]) private _activeDevices;
+    // 1-based index into `_activeDevices[qid]` for O(1) removal.
+    mapping(uint256 qid => mapping(bytes32 deviceKey => uint256 indexPlusOne)) private _activeDeviceIndex;
     mapping(bytes32 handleHash => uint256 qid) public qidByHandleHash;
     mapping(address owner => uint256 qid) public qidByOwner;
     mapping(bytes32 deviceKey => uint256 qid) public qidByDeviceKey;
+    // Removed keys cannot be re-added (fresh key required on relink).
+    mapping(bytes32 deviceKey => bool) public deviceKeyRemoved;
     mapping(bytes32 registrationNonce => bool used) public registrationNonceUsed;
 
     event AccountRegistered(
@@ -72,16 +94,18 @@ contract QOPIdentityRegistry is EIP712 {
     event OwnerRotated(
         uint256 indexed qid, address indexed previousOwner, address indexed newOwner, uint32 ownerVersion, uint256 nonce
     );
-    event DeviceRotated(
-        uint256 indexed qid, bytes32 indexed previousDeviceKey, bytes32 indexed newDeviceKey, uint256 nonce
-    );
+    event DeviceAdded(uint256 indexed qid, bytes32 indexed deviceKey, uint256 nonce);
+    event DeviceRemoved(uint256 indexed qid, bytes32 indexed deviceKey, uint256 nonce);
+    event DevicesWiped(uint256 indexed qid, uint256 removedCount, uint256 nonce);
     event RegistrationOpened(address indexed previousSigner);
     event RegistrationSignerUpdated(address indexed previousSigner, address indexed newSigner);
 
     error AccountNotFound(uint256 qid);
-    error DeviceKeyUnchanged(uint256 qid, bytes32 deviceKey);
-    error EmptyDeviceKey();
+    error DeviceAlreadyActive(uint256 qid, bytes32 deviceKey);
     error DeviceKeyAlreadyRegistered(bytes32 deviceKey, uint256 qid);
+    error DeviceKeyRemoved(bytes32 deviceKey);
+    error DeviceNotActive(uint256 qid, bytes32 deviceKey);
+    error EmptyDeviceKey();
     error ExpiredIntent(uint64 deadline);
     error HandleAlreadyRegistered(bytes32 handleHash, uint256 qid);
     error InvalidHandleCharacter(uint256 index, bytes1 character);
@@ -91,6 +115,7 @@ contract QOPIdentityRegistry is EIP712 {
     error InvalidRegistrationSignature(address recovered, address expected);
     error InvalidSignatureLength(uint256 length);
     error InvalidYParity(uint8 yParity);
+    error MaxDevicesReached(uint256 qid, uint256 maxActiveDevices);
     error NonceConflict(uint256 expected, uint256 received);
     error OwnerAlreadyRegistered(address owner, uint256 qid);
     error OwnerVersionOverflow(uint256 qid);
@@ -150,8 +175,7 @@ contract QOPIdentityRegistry is EIP712 {
             revert HandleAlreadyRegistered(canonicalHandleHash, existingHandleQid);
         }
 
-        uint256 existingDeviceQid = qidByDeviceKey[intent.deviceKey];
-        if (existingDeviceQid != 0) revert DeviceKeyAlreadyRegistered(intent.deviceKey, existingDeviceQid);
+        _assertDeviceKeyAvailable(intent.deviceKey);
 
         bytes32 digest = hashRegisterIntent(intent);
         address recoveredOwner = _recoverSigner(digest, ownerSignature);
@@ -170,15 +194,14 @@ contract QOPIdentityRegistry is EIP712 {
         registrationNonceUsed[intent.nonce] = true;
         qidByHandleHash[canonicalHandleHash] = qid;
         qidByOwner[intent.owner] = qid;
-        qidByDeviceKey[intent.deviceKey] = qid;
         _accounts[qid] = Account({
             owner: intent.owner,
-            deviceKey: intent.deviceKey,
             ownerVersion: 0,
             registeredAt: uint64(block.timestamp),
             nonce: 0,
             handle: intent.handle
         });
+        _addActiveDevice(qid, intent.deviceKey);
 
         emit AccountRegistered(
             qid,
@@ -230,33 +253,86 @@ contract QOPIdentityRegistry is EIP712 {
         emit OwnerRotated(intent.qid, previousOwner, intent.newOwner, nextOwnerVersion, intent.nonce);
     }
 
-    function rotateDevice(RotateDeviceIntent calldata intent, bytes calldata ownerSignature) external {
+    function addDevice(AddDeviceIntent calldata intent, bytes calldata ownerSignature) external {
         Account storage current = _account(intent.qid);
         _validateDeadline(intent.deadline);
         _validateNonce(current.nonce, intent.nonce);
-        if (intent.newDeviceKey == bytes32(0)) revert EmptyDeviceKey();
-        if (intent.newDeviceKey == current.deviceKey) revert DeviceKeyUnchanged(intent.qid, intent.newDeviceKey);
+        if (intent.deviceKey == bytes32(0)) revert EmptyDeviceKey();
+        if (_activeDeviceIndex[intent.qid][intent.deviceKey] != 0) {
+            revert DeviceAlreadyActive(intent.qid, intent.deviceKey);
+        }
+        if (_activeDevices[intent.qid].length >= MAX_ACTIVE_DEVICES) {
+            revert MaxDevicesReached(intent.qid, MAX_ACTIVE_DEVICES);
+        }
+        _assertDeviceKeyAvailable(intent.deviceKey);
 
-        uint256 existingDeviceQid = qidByDeviceKey[intent.newDeviceKey];
-        if (existingDeviceQid != 0) revert DeviceKeyAlreadyRegistered(intent.newDeviceKey, existingDeviceQid);
-
-        bytes32 digest = hashRotateDeviceIntent(intent);
+        bytes32 digest = hashAddDeviceIntent(intent);
         address recoveredOwner = _recoverSigner(digest, ownerSignature);
         if (recoveredOwner != current.owner) {
             revert InvalidOwnerSignature(recoveredOwner, current.owner);
         }
 
-        bytes32 previousDeviceKey = current.deviceKey;
-        delete qidByDeviceKey[previousDeviceKey];
-        qidByDeviceKey[intent.newDeviceKey] = intent.qid;
-        current.deviceKey = intent.newDeviceKey;
+        _addActiveDevice(intent.qid, intent.deviceKey);
         current.nonce = intent.nonce + 1;
-        emit DeviceRotated(intent.qid, previousDeviceKey, intent.newDeviceKey, intent.nonce);
+        emit DeviceAdded(intent.qid, intent.deviceKey, intent.nonce);
+    }
+
+    function removeDevice(RemoveDeviceIntent calldata intent, bytes calldata ownerSignature) external {
+        Account storage current = _account(intent.qid);
+        _validateDeadline(intent.deadline);
+        _validateNonce(current.nonce, intent.nonce);
+        if (intent.deviceKey == bytes32(0)) revert EmptyDeviceKey();
+        if (_activeDeviceIndex[intent.qid][intent.deviceKey] == 0) {
+            revert DeviceNotActive(intent.qid, intent.deviceKey);
+        }
+
+        bytes32 digest = hashRemoveDeviceIntent(intent);
+        address recoveredOwner = _recoverSigner(digest, ownerSignature);
+        if (recoveredOwner != current.owner) {
+            revert InvalidOwnerSignature(recoveredOwner, current.owner);
+        }
+
+        _removeActiveDevice(intent.qid, intent.deviceKey);
+        current.nonce = intent.nonce + 1;
+        emit DeviceRemoved(intent.qid, intent.deviceKey, intent.nonce);
+    }
+
+    /// @notice Owner recovery after compromise: clear every active device.
+    /// Devices must be re-added with fresh keys.
+    function wipeDevices(WipeDevicesIntent calldata intent, bytes calldata ownerSignature) external {
+        Account storage current = _account(intent.qid);
+        _validateDeadline(intent.deadline);
+        _validateNonce(current.nonce, intent.nonce);
+
+        bytes32 digest = hashWipeDevicesIntent(intent);
+        address recoveredOwner = _recoverSigner(digest, ownerSignature);
+        if (recoveredOwner != current.owner) {
+            revert InvalidOwnerSignature(recoveredOwner, current.owner);
+        }
+
+        uint256 removedCount = _wipeActiveDevices(intent.qid);
+        current.nonce = intent.nonce + 1;
+        emit DevicesWiped(intent.qid, removedCount, intent.nonce);
     }
 
     function account(uint256 qid) external view returns (Account memory) {
         Account storage current = _account(qid);
         return current;
+    }
+
+    function listActiveDevices(uint256 qid) external view returns (bytes32[] memory) {
+        _account(qid);
+        return _activeDevices[qid];
+    }
+
+    function activeDeviceCount(uint256 qid) external view returns (uint256) {
+        _account(qid);
+        return _activeDevices[qid].length;
+    }
+
+    function isActiveDevice(uint256 qid, bytes32 deviceKey) external view returns (bool) {
+        _account(qid);
+        return _activeDeviceIndex[qid][deviceKey] != 0;
     }
 
     function handleHash(string calldata handle) external pure returns (bytes32) {
@@ -283,16 +359,67 @@ contract QOPIdentityRegistry is EIP712 {
         return _hashTypedDataV4(structHash);
     }
 
-    function hashRotateDeviceIntent(RotateDeviceIntent calldata intent) public view returns (bytes32) {
-        bytes32 structHash = keccak256(
-            abi.encode(ROTATE_DEVICE_TYPEHASH, intent.qid, intent.newDeviceKey, intent.nonce, intent.deadline)
-        );
+    function hashAddDeviceIntent(AddDeviceIntent calldata intent) public view returns (bytes32) {
+        bytes32 structHash =
+            keccak256(abi.encode(ADD_DEVICE_TYPEHASH, intent.qid, intent.deviceKey, intent.nonce, intent.deadline));
+        return _hashTypedDataV4(structHash);
+    }
+
+    function hashRemoveDeviceIntent(RemoveDeviceIntent calldata intent) public view returns (bytes32) {
+        bytes32 structHash =
+            keccak256(abi.encode(REMOVE_DEVICE_TYPEHASH, intent.qid, intent.deviceKey, intent.nonce, intent.deadline));
+        return _hashTypedDataV4(structHash);
+    }
+
+    function hashWipeDevicesIntent(WipeDevicesIntent calldata intent) public view returns (bytes32) {
+        bytes32 structHash = keccak256(abi.encode(WIPE_DEVICES_TYPEHASH, intent.qid, intent.nonce, intent.deadline));
         return _hashTypedDataV4(structHash);
     }
 
     function _account(uint256 qid) private view returns (Account storage current) {
         current = _accounts[qid];
         if (current.owner == address(0)) revert AccountNotFound(qid);
+    }
+
+    function _assertDeviceKeyAvailable(bytes32 deviceKey) private view {
+        if (deviceKeyRemoved[deviceKey]) revert DeviceKeyRemoved(deviceKey);
+        uint256 existingDeviceQid = qidByDeviceKey[deviceKey];
+        if (existingDeviceQid != 0) revert DeviceKeyAlreadyRegistered(deviceKey, existingDeviceQid);
+    }
+
+    function _addActiveDevice(uint256 qid, bytes32 deviceKey) private {
+        _activeDevices[qid].push(deviceKey);
+        _activeDeviceIndex[qid][deviceKey] = _activeDevices[qid].length;
+        qidByDeviceKey[deviceKey] = qid;
+    }
+
+    function _removeActiveDevice(uint256 qid, bytes32 deviceKey) private {
+        uint256 indexPlusOne = _activeDeviceIndex[qid][deviceKey];
+        if (indexPlusOne == 0) revert DeviceNotActive(qid, deviceKey);
+        uint256 index = indexPlusOne - 1;
+        bytes32[] storage devices = _activeDevices[qid];
+        uint256 lastIndex = devices.length - 1;
+        if (index != lastIndex) {
+            bytes32 moved = devices[lastIndex];
+            devices[index] = moved;
+            _activeDeviceIndex[qid][moved] = index + 1;
+        }
+        devices.pop();
+        delete _activeDeviceIndex[qid][deviceKey];
+        delete qidByDeviceKey[deviceKey];
+        deviceKeyRemoved[deviceKey] = true;
+    }
+
+    function _wipeActiveDevices(uint256 qid) private returns (uint256 removedCount) {
+        bytes32[] storage devices = _activeDevices[qid];
+        removedCount = devices.length;
+        for (uint256 index; index < removedCount; ++index) {
+            bytes32 deviceKey = devices[index];
+            delete _activeDeviceIndex[qid][deviceKey];
+            delete qidByDeviceKey[deviceKey];
+            deviceKeyRemoved[deviceKey] = true;
+        }
+        delete _activeDevices[qid];
     }
 
     function _requireRegistrationAdmin() private view {
