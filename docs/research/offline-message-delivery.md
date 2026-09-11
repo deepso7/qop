@@ -6,7 +6,7 @@
 
 **Non-goals for this slice:** hosted/VPS mailbox as the default path; full desktop app; third-party ciphertext stores; app E2EE / PQXDH / prekeys as MVP dependencies. Mailbox, DHT, and hosted-store material later in this document is **fallback comparison only** — do not expand implementation scope from those sections.
 
-**Locked auth model:** on-chain multi-device keys (`addDevice` / `removeDevice`) under existing `owner` custody. Breaking registry/client changes are OK (hard-cut; no soft migration / dual-read of single `deviceKey`). Details below and in Project store docs (`multi-device-auth-decisions.md`).
+**Locked auth model:** on-chain multi-device keys (`addDevice` / `removeDevice`) under existing `owner` custody. Breaking registry/client changes are OK (hard-cut; no soft migration / dual-read of single `deviceKey`). The repo-local [multi-device authorization plan](multi-device-auth-plan.md) defines the implementation sequence, acceptance checks, and remaining decisions.
 
 **Still open:** phone↔CLI sync contract (handoff transport, record schema, ack/conflict/completion). **Sequencing (proposal — not locked):** land auth including live-connection revoke bounds **before** phone↔CLI outbox sync.
 
@@ -56,7 +56,7 @@ Signal's Sesame describes separate device records and sessions, including sessio
 
 **Enrollment:** CLI generates its own device key. Phone (owner) signs add; anyone may relay. Cap N small (proposed default: 4). Do not copy recovery/owner material to the CLI.
 
-**Revoke must cover live connections (not “reject on next connect” only):** Today `p2p-sessions` caches `session.contact` for the connection’s life. After `removeDevice`, Bob must stop accepting that peer within a defined bound on **existing** P2P connections (max authorization age, recheck triggers, invalidate on failed recheck / observed remove). “Next connect only” is rejected as the sole revoke story. Concrete age/RPC defaults remain **proposal** until locked (see Project decisions sheet).
+**Revoke must cover live connections (not “reject on next connect” only):** Today `p2p-sessions` caches `session.contact` for the connection’s life. After `removeDevice`, Bob must stop accepting that peer within a defined bound on **existing** P2P connections (max authorization age, recheck triggers, invalidate on failed recheck / observed remove). “Next connect only” is rejected as the sole revoke story. Concrete age/RPC defaults remain **proposal** until locked (see the [auth plan](multi-device-auth-plan.md)).
 
 **Contacts:** Key contacts by `qid` (+ handle) with a **device roster** / last-seen device. Authorizing a second concurrent device is **not** `keyChanged`. Reserve `keyChanged` / security badge for unexpected or untrusted key change; roster add/remove is a distinct signal (“linked a device” / “removed a device”). v1 minimum: no false “key changed” when Alice’s CLI connects.
 
