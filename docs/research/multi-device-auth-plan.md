@@ -1,6 +1,6 @@
 # Multi-device authorization plan
 
-Status: auth model, hard-cut, recovery wipe-all, and **live revocation on existing connections** are **LOCKED** (must-have for MVP). History preserve on remove is a **strong proposal** (treat as requirement unless overridden). Max auth age **value**, chain finality policy, RPC-failure behavior, API/contact tightenings, device-cap details, planned `rotateOwner` keep-devices, and auth-before-sync sequencing remain **proposal**. Protocol defaults under open decisions are recommended until locked. This document brings the auth plan into PR #9 so implementation does not depend on Cursor Project store files.
+Status: auth model, hard-cut, recovery wipe-all, and **live revocation on existing connections** are **LOCKED** (must-have for MVP). On resume: invalidate cached authorization (required design rule under live revoke). History preserve on remove is a **strong proposal** (treat as requirement unless overridden). Max auth age **value**, chain finality policy, RPC-failure behavior, API/contact tightenings, device-cap details, planned `rotateOwner` keep-devices, and auth-before-sync sequencing remain **proposal**. Protocol defaults under open decisions are recommended until locked. This document brings the auth plan into PR #9 so implementation does not depend on Cursor Project store files.
 
 ## Decision table
 
@@ -9,9 +9,9 @@ Status: auth model, hard-cut, recovery wipe-all, and **live revocation on existi
 | On-chain multi-device keys (`addDevice` / `removeDevice`) | **LOCKED** | Owner custody; `qidByDeviceKey` for every active key |
 | Hard-cut / breaking OK | **LOCKED** | No legacy primary-key compatibility path |
 | Owner recovery after compromise → wipe all devices | **LOCKED** | Devices must be re-added |
-| Live revocation on existing connections | **LOCKED** | Must-have for MVP; not next-connect-only. Age/finality/RPC values below stay proposal |
+| Live revocation on existing connections | **LOCKED** | Must-have for MVP; not next-connect-only. On resume: invalidate cached auth + fresh registry verify. Age/finality/RPC values below stay proposal |
 | History preserve on device remove | **Strong proposal** | Treat as requirement unless overridden |
-| Max authorization age value | **Proposal** | Recommended: **60s elapsed** (not wall-clock) |
+| Max authorization age value | **Proposal** | Recommended: **60s monotonic elapsed time** (not wall-clock) |
 | Chain finality policy | **Proposal** | Define before implementation |
 | RPC-failure behavior after age | **Proposal** | Recommended: refuse sensitive ops (no silent extend) |
 | Contact/`keyChanged` / device roster | **Proposal** | Second authorized device is not `keyChanged` |
@@ -74,15 +74,15 @@ Today `p2p-sessions` caches `session.contact` for the connection’s life and sk
 
 Replace connection-lifetime trust with time-bounded authorization. Record the verified account, device, chain state, and local verification age. Check validity before accepting messages, returning private sync data, or sending private data to the peer.
 
-**Elapsed-time measurement (not wall-clock):** Authorization age is measured as **elapsed process time** since the last successful registry confirm for that `connId` (monotonic / elapsed clock — e.g. performance.now-style — not wall-clock `Date`). Wall-clock jumps must not extend authorization.
+**Monotonic elapsed-time measurement (not wall-clock):** While the process is running, authorization age is measured as **monotonic elapsed time** since the last successful registry confirm for that `connId` (e.g. performance.now-style — not wall-clock `Date`). Wall-clock jumps must not extend authorization.
 
-**Suspend / resume:** While the client/process is suspended (background, sleep, OS pause), elapsed authorization age **does not advance** as if the process were running, **or** — if the implementation cannot track suspension — treat resume as requiring an immediate recheck before any sensitive ops. On resume, check age again; if age already exceeded, recheck or refuse before chat/sync. Do not treat a wake as a free refresh of auth.
+**Suspend / resume (required with live revoke):** On resume (app/process wake from sleep/suspend), **invalidate cached authorization** and require a fresh registry verification before any sensitive operation. Do **not** let authorization age “pause” across sleep such that an overnight revoke is missed (e.g. Bob verifies Alice’s CLI, sleeps, the key is removed, then resumes using yesterday’s authorization). A wake is never a free refresh of auth.
 
 **Fresh confirmation:** Only a successful registry membership read that reflects current chain state for that verify/recheck resets the age. A successful response from a **stale or cached** RPC (or any reply that does not confirm current membership) must **not** count as fresh chain confirmation and must **not** reset the authorization age.
 
-Recheck before the authorization age expires. Invalidate access on observed removal or a failed membership check. When a fresh read fails, access must stop once the allowed age expires. Chain event notifications may accelerate revocation but cannot be its sole mechanism.
+Recheck before the authorization age expires while running. Invalidate access on observed removal or a failed membership check. When a fresh read fails, access must stop once the allowed age expires. Chain event notifications may accelerate revocation but cannot be its sole mechanism.
 
-Define the chain finality policy and maximum authorization age before implementation (**proposal** until locked). Recommended until locked: max authorization age **60s elapsed** since last successful fresh registry confirm for that connection; on RPC error during recheck, keep prior auth only until that age, then **refuse** sensitive ops (no silent extend). State the bound relative to revocation becoming visible under that policy. Never refresh the age of cached authorization merely because an RPC request failed or returned stale/cached success.
+Define the chain finality policy and maximum authorization age before implementation (**proposal** until locked). Recommended until locked: max authorization age **60s monotonic elapsed time** since last successful fresh registry confirm for that connection while running; on RPC error during recheck, keep prior auth only until that age, then **refuse** sensitive ops (no silent extend). State the bound relative to revocation becoming visible under that policy. Never refresh the age of cached authorization merely because an RPC request failed or returned stale/cached success.
 
 ### 4. Update sessions and contacts
 
@@ -98,7 +98,7 @@ The transaction sender, fee payment, pairing transport, and approval UI remain t
 
 ## Open decisions before coding
 
-- Exact maximum authorization age (**proposal**; recommended **60s elapsed**), chain finality policy, and RPC failure behavior (**proposal**; recommended refuse after age — no silent extend). Live revoke itself is **LOCKED**.
+- Exact maximum authorization age (**proposal**; recommended **60s monotonic elapsed time** while running), chain finality policy, and RPC failure behavior (**proposal**; recommended refuse after age — no silent extend). Live revoke itself is **LOCKED**. Resume → invalidate cached auth is a **required** design rule under that lock.
 - Whether ordinary owner rotation retains devices (**proposal**), and how recovery invalidation is represented (**LOCKED** wipe-all on compromise recovery).
 - Active-device cap, zero-device accounts, removed-key reuse, and atomic replacement (**proposal**; recommended defaults above until locked).
 - Pairing protocol and transaction submission, including fees.
@@ -113,7 +113,7 @@ The transaction sender, fee payment, pairing transport, and approval UI remain t
 5. Invalid signatures, expired intents, replayed nonces, duplicate keys, and device-cap violations fail predictably.
 6. A second authorized device causes no false identity-key mismatch warning (not `keyChanged`).
 7. The CLI receives no owner or recovery secret.
-8. Wall-clock changes do not extend live authorization; suspend/resume follows the elapsed-time rules above.
+8. Wall-clock changes do not extend live authorization; on resume, cached authorization is invalidated and fresh registry verification is required before sensitive ops; while running, the monotonic elapsed-time bound applies.
 
 After these checks pass, implement pending-message handoff and receipt synchronization (**recommended sequencing — proposal**). Application-level encrypted envelopes, mailbox storage, and hosted full devices remain outside this auth milestone.
 

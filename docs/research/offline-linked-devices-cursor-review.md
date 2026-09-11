@@ -11,7 +11,7 @@ The reviewer response below is historical. Locked Project decisions now override
 | MVP promise | Always-on CLI holds pending sends; phone-only unchanged |
 | Auth model | On-chain multi-device keys (`addDevice` / `removeDevice`); **not** `rotateDevice` as the multi-device path |
 | Breaking | Hard-cut OK; no soft migration / dual-read of single `deviceKey` |
-| Revoke | **LOCKED:** must cover **live** connections (recheck, invalidate) — not next-connect-only. Max age value / finality / RPC-failure still **proposal** (elapsed-time; recommended 60s) |
+| Revoke | **LOCKED:** must cover **live** connections (recheck, invalidate) — not next-connect-only. On resume: invalidate cached auth + fresh registry verify. Max age value / finality / RPC-failure still **proposal** (monotonic elapsed time while running; recommended 60s) |
 | Contacts | Key by `qid` + device roster; do not misuse `keyChanged` for a second authorized device |
 | Owner recovery after compromise | Wipe all devices / re-add |
 | History on remove | Preserve already-accepted conversation history |
