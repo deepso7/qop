@@ -25,12 +25,16 @@ export class IdentityCryptoError extends Data.TaggedError(
 )<{
   readonly cause: unknown;
   readonly operation:
+    | "hash-add-device-intent"
     | "hash-register-intent"
-    | "hash-rotate-device-intent"
+    | "hash-remove-device-intent"
     | "hash-rotate-owner-intent"
+    | "hash-wipe-devices-intent"
+    | "recover-add-device-intent-signer"
     | "recover-register-intent-signer"
-    | "recover-rotate-device-intent-signer"
+    | "recover-remove-device-intent-signer"
     | "recover-rotate-owner-intent-signer"
+    | "recover-wipe-devices-intent-signer"
     | "sign-register-intent";
 }> {}
 

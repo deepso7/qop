@@ -4,27 +4,39 @@ import { hexToBytes } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
 import {
+  AddDeviceIntentV1,
+  decodeAddDeviceIntentV1,
   decodeIdentityEip712DomainV1,
   decodeRegisterIntentV1,
-  decodeRotateDeviceIntentV1,
+  decodeRemoveDeviceIntentV1,
   decodeRotateOwnerIntentV1,
+  decodeWipeDevicesIntentV1,
+  encodeAddDeviceIntentV1,
   encodeRegisterIntentV1,
-  encodeRotateDeviceIntentV1,
+  encodeRemoveDeviceIntentV1,
   encodeRotateOwnerIntentV1,
+  encodeWipeDevicesIntentV1,
+  hashAddDeviceIntentV1,
   hashRegisterIntentV1,
-  hashRotateDeviceIntentV1,
+  hashRemoveDeviceIntentV1,
   hashRotateOwnerIntentV1,
+  hashWipeDevicesIntentV1,
+  makeAddDeviceIntentTypedDataV1,
   makeRegisterIntentTypedDataV1,
-  makeRotateDeviceIntentTypedDataV1,
+  makeRemoveDeviceIntentTypedDataV1,
   makeRotateOwnerIntentTypedDataV1,
+  makeWipeDevicesIntentTypedDataV1,
   normalizeEcdsaSignature,
+  recoverAddDeviceIntentSignerV1,
   recoverRegisterIntentSignerV1,
-  recoverRotateDeviceIntentSignerV1,
+  recoverRemoveDeviceIntentSignerV1,
   recoverRotateOwnerIntentSignerV1,
+  recoverWipeDevicesIntentSignerV1,
   RegisterIntentV1,
-  RotateDeviceIntentV1,
+  RemoveDeviceIntentV1,
   RotateOwnerIntentV1,
   signRegisterIntentV1,
+  WipeDevicesIntentV1,
 } from "../src/index.ts";
 
 const PRIVATE_KEY =
@@ -52,20 +64,37 @@ const encodedRotateOwnerIntent = {
   qid: "42",
 } as const;
 
-const encodedRotateDeviceIntent = {
+const encodedAddDeviceIntent = {
   deadline: "1700003600",
-  newDeviceKey: `0x${"09".repeat(32)}`,
+  deviceKey: `0x${"09".repeat(32)}`,
   nonce: "9",
   qid: "42",
 } as const;
 
+const encodedRemoveDeviceIntent = {
+  deadline: "1700003600",
+  deviceKey: `0x${"0a".repeat(32)}`,
+  nonce: "11",
+  qid: "42",
+} as const;
+
+const encodedWipeDevicesIntent = {
+  deadline: "1700003600",
+  nonce: "13",
+  qid: "42",
+} as const;
+
 const expectedDigests = {
+  addDevice:
+    "0xc9a7d7b29736e26c6932c8047d84122012260032485952f2df658ccc3b251ca0",
   register:
     "0x53dc6c862551e88c6021e67e163d162b1491a6a6b5e92a85196d2f9cea4aca9a",
-  rotateDevice:
-    "0x862b85ff610fa552a28ef5c22ddde5aa7a7eceb8590b7460c3cb4f26768be180",
+  removeDevice:
+    "0x93d4098944b4086859554efbee5bd6c129c7649ee03b3de63145372fb4717603",
   rotateOwner:
     "0xcfd2c2208d584d29013cb01bbcd1f1ae5cef6c3546b82c682c52a66633e24c6c",
+  wipeDevices:
+    "0xd21c9fb8cf5859d38503d7428b8c9becf50a46245e1b68e65395c88cd4c98e7b",
 } as const;
 
 const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
@@ -77,8 +106,12 @@ describe("registry intents", () => {
       const rotateOwner = yield* decodeRotateOwnerIntentV1(
         encodedRotateOwnerIntent
       );
-      const rotateDevice = yield* decodeRotateDeviceIntentV1(
-        encodedRotateDeviceIntent
+      const addDevice = yield* decodeAddDeviceIntentV1(encodedAddDeviceIntent);
+      const removeDevice = yield* decodeRemoveDeviceIntentV1(
+        encodedRemoveDeviceIntent
+      );
+      const wipeDevices = yield* decodeWipeDevicesIntentV1(
+        encodedWipeDevicesIntent
       );
 
       assert.deepStrictEqual(
@@ -90,12 +123,22 @@ describe("registry intents", () => {
         encodedRotateOwnerIntent
       );
       assert.deepStrictEqual(
-        yield* encodeRotateDeviceIntentV1(rotateDevice),
-        encodedRotateDeviceIntent
+        yield* encodeAddDeviceIntentV1(addDevice),
+        encodedAddDeviceIntent
+      );
+      assert.deepStrictEqual(
+        yield* encodeRemoveDeviceIntentV1(removeDevice),
+        encodedRemoveDeviceIntent
+      );
+      assert.deepStrictEqual(
+        yield* encodeWipeDevicesIntentV1(wipeDevices),
+        encodedWipeDevicesIntent
       );
       assert.strictEqual(register.owner, encodedRegisterIntent.owner);
       assert.strictEqual(rotateOwner.nonce, 7n);
-      assert.strictEqual(rotateDevice.qid, 42n);
+      assert.strictEqual(addDevice.qid, 42n);
+      assert.strictEqual(removeDevice.nonce, 11n);
+      assert.strictEqual(wipeDevices.nonce, 13n);
     })
   );
 
@@ -106,8 +149,12 @@ describe("registry intents", () => {
       const rotateOwner = yield* decodeRotateOwnerIntentV1(
         encodedRotateOwnerIntent
       );
-      const rotateDevice = yield* decodeRotateDeviceIntentV1(
-        encodedRotateDeviceIntent
+      const addDevice = yield* decodeAddDeviceIntentV1(encodedAddDeviceIntent);
+      const removeDevice = yield* decodeRemoveDeviceIntentV1(
+        encodedRemoveDeviceIntent
+      );
+      const wipeDevices = yield* decodeWipeDevicesIntentV1(
+        encodedWipeDevicesIntent
       );
 
       assert.strictEqual(
@@ -119,8 +166,16 @@ describe("registry intents", () => {
         expectedDigests.rotateOwner
       );
       assert.strictEqual(
-        yield* hashRotateDeviceIntentV1(domain, rotateDevice),
-        expectedDigests.rotateDevice
+        yield* hashAddDeviceIntentV1(domain, addDevice),
+        expectedDigests.addDevice
+      );
+      assert.strictEqual(
+        yield* hashRemoveDeviceIntentV1(domain, removeDevice),
+        expectedDigests.removeDevice
+      );
+      assert.strictEqual(
+        yield* hashWipeDevicesIntentV1(domain, wipeDevices),
+        expectedDigests.wipeDevices
       );
     })
   );
@@ -179,8 +234,12 @@ describe("registry intents", () => {
       const rotateOwner = yield* decodeRotateOwnerIntentV1(
         encodedRotateOwnerIntent
       );
-      const rotateDevice = yield* decodeRotateDeviceIntentV1(
-        encodedRotateDeviceIntent
+      const addDevice = yield* decodeAddDeviceIntentV1(encodedAddDeviceIntent);
+      const removeDevice = yield* decodeRemoveDeviceIntentV1(
+        encodedRemoveDeviceIntent
+      );
+      const wipeDevices = yield* decodeWipeDevicesIntentV1(
+        encodedWipeDevicesIntent
       );
 
       const registerSignature = yield* Effect.promise(() =>
@@ -196,9 +255,19 @@ describe("registry intents", () => {
           makeRotateOwnerIntentTypedDataV1(domain, rotateOwner)
         )
       ).pipe(Effect.flatMap(normalizeEcdsaSignature));
-      const rotateDeviceSignature = yield* Effect.promise(() =>
+      const addDeviceSignature = yield* Effect.promise(() =>
         account.signTypedData(
-          makeRotateDeviceIntentTypedDataV1(domain, rotateDevice)
+          makeAddDeviceIntentTypedDataV1(domain, addDevice)
+        )
+      ).pipe(Effect.flatMap(normalizeEcdsaSignature));
+      const removeDeviceSignature = yield* Effect.promise(() =>
+        account.signTypedData(
+          makeRemoveDeviceIntentTypedDataV1(domain, removeDevice)
+        )
+      ).pipe(Effect.flatMap(normalizeEcdsaSignature));
+      const wipeDevicesSignature = yield* Effect.promise(() =>
+        account.signTypedData(
+          makeWipeDevicesIntentTypedDataV1(domain, wipeDevices)
         )
       ).pipe(Effect.flatMap(normalizeEcdsaSignature));
 
@@ -227,10 +296,26 @@ describe("registry intents", () => {
         encodedRotateOwnerIntent.newOwner
       );
       assert.strictEqual(
-        yield* recoverRotateDeviceIntentSignerV1(
+        yield* recoverAddDeviceIntentSignerV1(
           domain,
-          rotateDevice,
-          rotateDeviceSignature
+          addDevice,
+          addDeviceSignature
+        ),
+        encodedRegisterIntent.owner
+      );
+      assert.strictEqual(
+        yield* recoverRemoveDeviceIntentSignerV1(
+          domain,
+          removeDevice,
+          removeDeviceSignature
+        ),
+        encodedRegisterIntent.owner
+      );
+      assert.strictEqual(
+        yield* recoverWipeDevicesIntentSignerV1(
+          domain,
+          wipeDevices,
+          wipeDevicesSignature
         ),
         encodedRegisterIntent.owner
       );
@@ -268,9 +353,19 @@ describe("registry intents", () => {
           "Unexpected owner rotation intent field",
         ],
         [
-          RotateDeviceIntentV1,
-          encodedRotateDeviceIntent,
-          "Unexpected device rotation intent field",
+          AddDeviceIntentV1,
+          encodedAddDeviceIntent,
+          "Unexpected add-device intent field",
+        ],
+        [
+          RemoveDeviceIntentV1,
+          encodedRemoveDeviceIntent,
+          "Unexpected remove-device intent field",
+        ],
+        [
+          WipeDevicesIntentV1,
+          encodedWipeDevicesIntent,
+          "Unexpected wipe-devices intent field",
         ],
       ] as const) {
         const error = yield* Schema.decodeUnknownEffect(schema)({
@@ -294,15 +389,20 @@ describe("registry intents", () => {
         { message: "Expected a non-zero device key", path: ["deviceKey"] },
       ]);
 
-      const rotateError = yield* decodeRotateDeviceIntentV1({
-        ...encodedRotateDeviceIntent,
-        newDeviceKey: `0x${"00".repeat(32)}`,
+      const addError = yield* decodeAddDeviceIntentV1({
+        ...encodedAddDeviceIntent,
+        deviceKey: `0x${"00".repeat(32)}`,
       }).pipe(Effect.flip);
-      assert.deepStrictEqual(formatIssue(rotateError.issue).issues, [
-        {
-          message: "Expected a non-zero device key",
-          path: ["newDeviceKey"],
-        },
+      assert.deepStrictEqual(formatIssue(addError.issue).issues, [
+        { message: "Expected a non-zero device key", path: ["deviceKey"] },
+      ]);
+
+      const removeError = yield* decodeRemoveDeviceIntentV1({
+        ...encodedRemoveDeviceIntent,
+        deviceKey: `0x${"00".repeat(32)}`,
+      }).pipe(Effect.flip);
+      assert.deepStrictEqual(formatIssue(removeError.issue).issues, [
+        { message: "Expected a non-zero device key", path: ["deviceKey"] },
       ]);
     })
   );
