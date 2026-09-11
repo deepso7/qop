@@ -1,10 +1,20 @@
 # Offline message delivery for QOP
 
+## MVP promise (LOCKED 2026-09-11)
+
+**An always-on CLI holds Alice’s pending sends so delivery can continue when her phone is offline.** Desktop and other linked devices come later. Phone-only users keep today’s behavior: no silent “messages wait in the cloud” claim, and no guarantee of delivery after the phone disconnects unless another of her devices has already accepted the pending send.
+
+**Non-goals for this slice:** hosted/VPS mailbox as the default path; full desktop app; third-party ciphertext stores; app E2EE / PQXDH / prekeys as MVP dependencies. Mailbox, DHT, and hosted-store material later in this document is **fallback comparison only** — do not expand implementation scope from those sections.
+
+**Locked auth model:** on-chain multi-device keys (`addDevice` / `removeDevice`) under existing `owner` custody. Breaking registry/client changes are OK (hard-cut; no soft migration / dual-read of single `deviceKey`). Details below and in Project store docs (`multi-device-auth-decisions.md`).
+
+**Still open:** phone↔CLI sync contract (handoff transport, record schema, ack/conflict/completion). **Sequencing (proposal — not locked):** land auth including live-connection revoke bounds **before** phone↔CLI outbox sync.
+
 ## Overview
 
-The main proposal under investigation is delivery through a user's linked devices. Alice's phone synchronizes a pending message to her desktop or CLI. That device keeps the message and delivers it when an authorized Bob device becomes reachable. A personal VPS can run the CLI continuously; QOP could offer a hosted instance for users who want one.
+The build direction is durable delivery through Alice’s always-on CLI (linked full device), after multi-device auth lands. Alice’s phone synchronizes a pending message to her CLI; that device keeps the message and delivers it when Bob becomes reachable. A personal VPS can run the CLI continuously later; hosted QOP instances and mailboxes are out of this slice.
 
-This preserves delivery between account devices. It extends availability beyond the composing phone, provided another device actually receives the pending message. Mailboxes and DHT storage remain alternatives below. Research supports prototyping linked-device delivery first; this is a proposed direction, not a completed protocol or a measured reliability guarantee.
+This extends availability beyond the composing phone only after another own device accepts the pending send. Research below still compares mailbox/DHT alternatives for context; they are not the MVP path.
 
 ## Main proposal: linked devices carry pending sends
 
@@ -34,17 +44,33 @@ Jami's synchronization design describes device announcements triggering peer cha
 
 Signal's Sesame describes separate device records and sessions, including sessions to a sender's own other devices. It assumes server mailboxes, so its relevance here is session management. It does not establish a serverless delivery mechanism. [39](https://signal.org/docs/specifications/sesame/)
 
-### Device identity and synchronization
+### Device identity and authorization (LOCKED: on-chain multi-device keys)
 
-Give each linked device a distinct key and peer ID. A signed, versioned device list or device certificates must bind it to the account and specify its authority. The current single-device registry cannot authenticate this arrangement without changes to account authorization and its distribution. A presence beacon authenticates a peer key, not permission to act for Alice.
+**Auth model (LOCKED):** Keep `owner` as custody. Authorize N active Ed25519 device keys per `qid` with owner-signed `addDevice` / `removeDevice` (EIP-712 + nonce/deadline). Keep `qidByDeviceKey` for **every active** key. Device-agnostic under that `qid` (multi-mobile + CLI/desktop).
 
-Use authenticated enrollment, such as a short-lived invitation confirmed on an existing device. Linking a CLI should grant messaging access without copying account ownership or recovery authority. Contacts need an authenticated route to learn device additions and revocations, including first contact by handle. Define how long cached authorization remains usable and what happens when fresh authorization cannot be obtained. Revocation cannot erase plaintext already copied to a device.
+**Not the multi-device path:** Do **not** present `rotateDevice` (single-key replace) or `rotateDevice` ping-pong as how a second device joins. Optional later convenience only; CLI MVP needs add+remove. Do **not** share one device key across phone and CLI.
 
-Synchronize logical messages and delivery obligations. Let each full device establish its own sessions. Do not clone mutable encryption-session state into concurrent devices. The security design must define whether a delivering device speaks for the account or carries separately authenticated origin information.
+**Hard-cut (LOCKED — breaking OK):** Replace the single-`deviceKey` account model cleanly. No soft migration, dual-read of legacy primary-only mapping, or compatibility shims that keep “one primary peerId” as SoT while pretending multi-key works.
 
-For this candidate, an online Alice desktop can wait for Bob and perform a live authenticated handshake. Published prekeys are therefore not a prerequisite for basic offline delivery. Pre-encrypting to an absent Bob device requires existing session state or authenticated key material available in advance. The asynchronous encryption requirements later in this report apply to that capability and to ciphertext storage helpers.
+**Verify:** transport `peerId` → deviceKey → `qidByDeviceKey` → account handle/`qid` match. **Do not** require `account.peerId === connection.peerId` where `peerId` is derived from a single primary `Account.deviceKey`.
 
-Start sync with contacts, authorized-device metadata, pending messages, and receipts. Initial history transfer is a separate feature. A snapshot plus subsequent changes, or an equivalent consistency rule, must include messages created during linking. Attachment delivery requires another holder to have the bytes, not merely a local file path on the absent phone.
+**Enrollment:** CLI generates its own device key. Phone (owner) signs add; anyone may relay. Cap N small (proposed default: 4). Do not copy recovery/owner material to the CLI.
+
+**Revoke must cover live connections (not “reject on next connect” only):** Today `p2p-sessions` caches `session.contact` for the connection’s life. After `removeDevice`, Bob must stop accepting that peer within a defined bound on **existing** P2P connections (max authorization age, recheck triggers, invalidate on failed recheck / observed remove). “Next connect only” is rejected as the sole revoke story. Concrete age/RPC defaults remain **proposal** until locked (see Project decisions sheet).
+
+**Contacts:** Key contacts by `qid` (+ handle) with a **device roster** / last-seen device. Authorizing a second concurrent device is **not** `keyChanged`. Reserve `keyChanged` / security badge for unexpected or untrusted key change; roster add/remove is a distinct signal (“linked a device” / “removed a device”). v1 minimum: no false “key changed” when Alice’s CLI connects.
+
+**Owner recovery after compromise (LOCKED):** Remove **all** existing devices; devices must be re-added. Do not leave any prior device authorized after owner recovery.
+
+**History on remove (strong requirement):** Removing a device must **not** delete or tombstone already-accepted conversation history on any peer (unlike Farcaster hub drop-of-signer-messages). Revoke only blocks **new** auth/delivery as that device; local plaintext already stored stays.
+
+**Presence:** A presence beacon authenticates a peer key, not permission to act for Alice — registry membership does.
+
+Synchronize logical messages and delivery obligations only **after** auth (including live revoke) is proven. Let each full device establish its own sessions. Do not clone mutable encryption-session state into concurrent devices.
+
+For this candidate, an online Alice CLI can wait for Bob and perform a live authenticated handshake. Published prekeys are **not** a prerequisite for this MVP. Pre-encrypting to an absent Bob device and the mailbox/E2EE material later in this report are **comparison / non-goals** for this slice — do not pull them into the linked-device build.
+
+Start sync with contacts, authorized-device metadata, pending messages, and receipts. Initial history transfer is a separate feature. Attachment delivery requires another holder to have the bytes, not merely a local file path on the absent phone.
 
 Allow several devices to retry. Deduplicate by authenticated sender account and logical message ID; reject conflicting content under an existing ID. Bob must acknowledge duplicates again when an earlier receipt was lost. Synchronize completion records so an old device cannot restore a completed send from stale state. Retention of those records must cover the retry window. A preferred worker may reduce duplicate traffic, but correctness should not require a permanent leader or exclusive queue ownership.
 
@@ -58,35 +84,35 @@ A relay reservation is not a subscription to arbitrary Bob-presence updates. Pub
 
 The prototype should establish discovery membership, authenticate announced devices against account authorization, and measure bytes and connection attempts as pending destinations grow. Test missing announcements, expired addresses, and loss of the shared mesh. Event-triggered delivery reduces repeated attempts, but discovery still has periodic traffic. There is no measured efficiency claim yet.
 
-### Personal and hosted deployment
+### Personal and hosted deployment (comparison / later)
 
-| Deployment | Access and responsibility |
-| --- | --- |
-| Own desktop or CLI | A full authorized device stores the synchronized content and retries while it runs |
-| Own VPS | The same device role, with durable disk and process supervision; the host can access the running endpoint |
-| QOP-hosted full device | QOP operates an authorized endpoint with access to its synchronized content and messaging keys |
-| Optional ciphertext-only helper | Holds prepared encrypted envelopes; requires a separate forwarding protocol and has narrower capabilities |
+| Deployment | Access and responsibility | This slice |
+| --- | --- | --- |
+| Own desktop or CLI | A full authorized device stores the synchronized content and retries while it runs | **CLI MVP path** (desktop later) |
+| Own VPS | The same device role, with durable disk and process supervision; the host can access the running endpoint | Optional later ops; not required for auth milestone |
+| QOP-hosted full device | QOP operates an authorized endpoint with access to its synchronized content and messaging keys | **Non-goal** |
+| Optional ciphertext-only helper | Holds prepared encrypted envelopes; requires a separate forwarding protocol and has narrower capabilities | **Non-goal / comparison** |
 
-A hosted full device changes the trust boundary. Encryption between devices does not hide content from the operator of an endpoint that can decrypt it. Disk encryption does not prevent a live host administrator from inspecting that process. Do not advertise this offering as content-inaccessible to QOP.
+A hosted full device changes the trust boundary. Encryption between devices does not hide content from the operator of an endpoint that can decrypt it. Disk encryption does not prevent a live host administrator from inspecting that process. Do not advertise this offering as content-inaccessible to QOP — and do not build it in this slice.
 
-A ciphertext-only helper can reduce that access, but cannot compose messages or re-encrypt for Bob's new keys. It is a separate optional role, with the mailbox-style encryption requirements described below. The proposed first experiment remains a full linked device on hardware the user controls.
+A ciphertext-only helper can reduce that access, but cannot compose messages or re-encrypt for Bob's new keys. It is a separate optional role described only in the mailbox comparison below.
 
 ### Prototype and decision gates
 
-Build no hosted service until the basic device path is demonstrated. The proposed implementation sequence is:
+Build no hosted service, mailbox, or app-E2EE path in this slice. **Recommended sequencing (proposal — not locked by Deepso):** prove multi-device auth (with live-connection revoke) **before** phone↔CLI outbox sync. Do not implement outbox sync against single-device auth.
 
-1. Specify device enrollment, account authorization, revocation freshness, and the meaning of delivery to any Bob device.
-2. Link Alice's phone and headless CLI with distinct keys. Keep Bob single-device for the first experiment. Specify the sync records, content-conflict rule, and completion retention, then implement durable outbox synchronization and receipt reconciliation for text messages. Use known reachable addresses and bounded dialing initially to isolate durability from discovery. Bob must verify Alice's CLI through the new account authorization rules; the current chat authentication cannot remain unchanged.
+1. **Auth milestone (first — recommended):** Registry `addDevice` / `removeDevice` + `qidByDeviceKey` for all actives (hard-cut from single `deviceKey`). Reader + `listActiveDevices`. Change `p2p-sessions` (drop primary-`peerId` equality; recheck live conns within max auth age; invalidate on revoke). Contacts keyed by `qid` + roster (no false `keyChanged` on second device). Prove: Bob accepts Alice phone **and** Alice CLI as the same `qid`; `removeDevice` stops that device within the live-session bound **including** an existing connection; the other device keeps working; already-accepted history remains after remove. Owner recovery after compromise wipes all devices / re-add.
+2. **Then** specify phone↔CLI sync records, content-conflict rule, and completion retention (still open). Link Alice's phone and headless CLI with distinct keys. Keep Bob single-device for the first durability demo. Implement durable outbox synchronization and receipt reconciliation for text messages. Use known reachable addresses and bounded dialing initially to isolate durability from discovery.
 3. Demonstrate the phone handing off a message, closing, the CLI restarting, and Bob returning later. Bob must display one logical message and Alice's phone must learn its receipt when reopened.
 4. Add event-triggered attempts and bounded recovery. Measure idle traffic, per-pending-contact traffic, time to delivery, duplicate attempts, and behavior when discovery or QOP relays fail.
-5. Exercise two simultaneous holders, lost acknowledgments, stale device lists, revocation, recipient device replacement, sleeping laptops, queue limits, and expiry. Define failure behavior before treating this as reliable offline delivery.
-6. Add Bob-side device synchronization as a separate gate before promising delivery to any Bob device in the product. Then evaluate history sync, attachments, mobile wakeup, and the optional hosted trust model.
+5. Exercise two simultaneous holders, lost acknowledgments, stale device lists, revocation (live + next connect), recipient device replacement, sleeping laptops, queue limits, and expiry. Define failure behavior before treating this as reliable offline delivery.
+6. Add Bob-side device synchronization as a separate gate before promising delivery to any Bob device in the product. History sync, attachments, mobile wakeup, and hosted trust remain later / non-goals for this slice.
 
-The initial service promise covers users whose composing device handed the message to another reachable own device. Phone-only users receive automatic local retry, with no guarantee of delivery after their phone disconnects.
+**MVP service promise (locked):** always-on CLI holds Alice’s pending sends; phone-only users unchanged. The design succeeds if users can extend availability through their own always-on device, with clear pending states when no holder is reachable. Mailbox / distributed storage comparison below is retained only if that availability bar cannot be met later — it is not an alternate MVP implementation path now.
 
-The design succeeds if users can extend their account's availability through their own devices, with clear pending states when no holder is reachable. Revisit mailbox or distributed storage options if the required default-user availability cannot be met this way. The comparison below remains available for that decision.
+## Fallback comparison only: what P2P contributes when a mailbox exists
 
-## Alternative: what P2P contributes when a mailbox exists
+> **Non-goal for this PR / slice.** The sections from here through the storage-candidate experiments are retained as research comparison. Do **not** treat them as implementation prerequisites for the always-on CLI MVP. Linked full-device delivery does **not** need app E2EE, PQXDH, or prekeys.
 
 Every message could go through a mailbox. Calling that mailbox an always-on peer describes its transport, but it still acts as a storage server. QOP therefore has two decisions to make: who stores offline messages, and whether live messages bypass storage.
 
@@ -108,13 +134,13 @@ For a mailbox-first candidate, test uploading immediately without a preliminary 
 
 ## Scope and evidence
 
-The scope is one-to-one text delivery, first contact, mobile notifications, attachments, and linked-device delivery. The initial comparison was checked on September 10, 2026; linked-device research was added on September 11, 2026. QOP was inspected at commit `e0cc503652502a3e8c7051da099d8ae1911b62ef`, with `@minip2p/react-native` 0.5.3 installed.
+The MVP scope is always-on CLI durable sends for one-to-one text after multi-device auth. First contact, mobile notifications, attachments, hosted endpoints, and mailbox/E2EE are out of this slice (comparison material only where retained). The initial comparison was checked on September 10, 2026; linked-device research was added on September 11, 2026; locked MVP/auth decisions were applied to this plan on September 11, 2026. QOP was inspected at commit `e0cc503652502a3e8c7051da099d8ae1911b62ef`, with `@minip2p/react-native` 0.5.3 installed.
 
 The findings come from documentation and source code. Reliability and complexity comparisons are engineering judgments; no network benchmarks or cryptographic audits were run. Source notes identify development branches and older material.
 
-The new [linked-device Cursor CLI review](offline-linked-devices-cursor-review.md), requested with `auto` on September 11, supports a sender-side phone-and-CLI prototype. Its recommendations informed the narrower first experiment and separation of storage prerequisites. The review is advice, not protocol validation.
+The [linked-device Cursor CLI review](offline-linked-devices-cursor-review.md) supports a sender-side phone-and-CLI prototype and correctly flagged multi-device auth as the blocker; Project locks now pick on-chain multi-device keys. The review is advice, not protocol validation.
 
-The earlier [Cursor CLI review](offline-message-delivery-cursor-review.md) records an additional architecture assessment using the `auto` model setting. Its useful findings are incorporated here; its preference for deferring DHT storage remains a recommendation, not an accepted architecture decision.
+The earlier [Cursor CLI review](offline-message-delivery-cursor-review.md) assesses the mailbox-oriented architecture. Treat it as **historical comparison**; its preference for a default mailbox / async E2EE path is **not** the locked MVP direction.
 
 ## What offline delivery requires
 
@@ -140,11 +166,13 @@ QOP saves outgoing messages before sending and incoming messages before acknowle
 
 The [chat frame](../../mobile/src/lib/chat-wire.ts) contains JSON text protected by the live transport connection. Storing it with a third party requires an independently encrypted and authenticated envelope. Bob must be able to verify Alice as the sender even when he retrieves the message through a connection to a mailbox.
 
-The [registry reader](../../mobile/src/lib/registry-core.ts) resolves one device key per account. Mailbox locations and prekey bundles are not part of it. The [identity package](../../packages/identity/README.md) can derive X25519 public keys; session setup and message encryption would need additional work.
+The [registry reader](../../mobile/src/lib/registry-core.ts) resolves one device key per account today — the blocker the locked multi-device auth model replaces (hard-cut). Mailbox locations and prekey bundles are not part of it and remain non-goals for this slice. The [identity package](../../packages/identity/README.md) can derive X25519 public keys; session setup and message encryption for third-party stores would need additional work and are out of MVP scope.
 
 minip2p supports custom authenticated streams, pubsub discovery, mDNS, and Circuit Relay v2. Discovery uses presence beacons. The examined React Native interface has no DHT record API, so QOP would need to integrate one. Its mobile lifecycle binding reduces background activity within the execution time allowed by the OS. [1](https://minip2p.com/reference/feature-matrix/) [2](https://minip2p.com/typescript/lifecycle/)
 
-## Alternative architectures and comparison
+## Alternative architectures and comparison (fallback only)
+
+> Retained for research context. **Not** the MVP implementation path. Prefer the locked always-on CLI + on-chain multi-device keys direction above.
 
 Complexity estimates are relative to the current codebase. Third-party storage needs asynchronous encryption and delivery that survives crashes, in addition to the storage work listed below.
 
@@ -420,11 +448,29 @@ A replicated network can handle node replacement for users. Direct DHT storage i
 
 Measure missing messages, acceptance and delivery latency, complete-backlog retrieval, traffic, repair cost, and battery use. Record the tested failures and verify retrieval separately from upload acknowledgment.
 
-## Open decisions
+## Locked vs open decisions
 
-Before implementation, settle device authorization and revocation, the maximum offline duration, public first-contact policy, attachment retention, number of devices, notification dependencies, and independence required from the default provider.
+**Locked (2026-09-11):**
 
-The sources do not settle QOP's actual node availability, operator diversity, encryption library, SDK compatibility, or delivery targets. Jami and Tox include historical material; Session desktop evidence comes from a development branch; Veilid's examined API gives no retention SLA; and the Waku reliability reference is archived. Prototype results are needed to compare real delivery behavior.
+| Item | Decision |
+| --- | --- |
+| MVP promise | Always-on CLI holds Alice’s pending sends; phone-only unchanged |
+| Auth model | On-chain multi-device keys (`addDevice` / `removeDevice`); not `rotateDevice` as the multi-device path |
+| Breaking changes | Hard-cut OK; no soft migration / dual-read of single `deviceKey` |
+| Owner recovery after compromise | Wipe all devices / re-add |
+| Non-goals this slice | Default hosted mailbox; app E2EE/PQXDH as MVP deps; expanding from comparison sections |
+
+**Still open / proposal:**
+
+| Item | Status |
+| --- | --- |
+| Live revoke bounds (max auth age, RPC freshness, contact/`keyChanged` tightenings, device cap details) | Proposal defaults in Project decisions sheet |
+| Preserve history on device remove | Strong proposal (treat as requirement unless overridden) |
+| Auth before phone↔CLI outbox sync | **Recommended sequencing — not locked** |
+| Phone↔CLI sync contract | Open (handoff transport, schema, ack/conflict/completion) |
+| Offline retention window, attachments, notifications, Bob multi-device | Deferred / later |
+
+The sources do not settle QOP's actual node availability, operator diversity, encryption library, SDK compatibility, or delivery targets for the comparison architectures. Prototype results are needed before revisiting mailbox/DHT as product options.
 
 ## Sources
 

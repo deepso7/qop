@@ -2,6 +2,10 @@
 
 Requested through Cursor CLI on September 10, 2026, using `--model auto --mode ask --print`. The CLI exited successfully. Auto selected the model; the underlying model was not reported. The review below is preserved as returned, including its recommendations. It reviews [the research report](offline-message-delivery.md) and the subsequent proposal for direct delivery with mailbox fallback.
 
+## Project lock update (2026-09-11)
+
+**Historical / comparison only.** This review centers on mailbox + async E2EE. That is **not** the locked MVP path. Locked direction: always-on CLI holds Alice’s pending sends (phone-only unchanged); on-chain multi-device keys (`addDevice` / `removeDevice`); hard-cut from single `deviceKey`; live-connection revoke; contacts by `qid` + roster; recovery wipe-all; preserve history on device remove; mailbox/E2EE/hosted stay non-goals for this slice. Auth before outbox sync is recommended (not locked). See [offline-message-delivery.md](offline-message-delivery.md).
+
 ## Reading notes from Codex
 
 These qualifications apply to the review below:
