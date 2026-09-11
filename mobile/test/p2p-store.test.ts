@@ -392,9 +392,12 @@ describe("inbound chat streams", () => {
     expect(lookupsAfterFirst).toBeGreaterThan(0);
     expect(appResumeHandler).toBeTypeOf("function");
 
-    // Resume must drop cached auth; a second inbound on the same conn re-checks.
+    // Resume must drop cached auth; re-auth needs a newer live head (not stuck 1n).
     appResumeHandler?.();
     lookupDeviceKey.mockClear();
+    lookupDeviceKey.mockReturnValue(
+      Effect.succeed({ ...bobAccount, blockNumber: 2n, freshness: "fresh" })
+    );
     const secondId = "22222222-2222-4222-8222-222222222222";
     const second = makeInboundStream(inboundFrame(secondId));
     onStream?.(second);

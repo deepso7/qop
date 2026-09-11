@@ -27,7 +27,7 @@ interface AuthorizedContact {
 
 interface PeerSession extends PeerConnection {
   authorization?: AuthorizedContact;
-  /** Last confirmed registry head. Kept on stale-block reject; cleared on resume. */
+  /** Last confirmed registry head. Survives stale-block reject and resume invalidate. */
   lastConfirmedBlockNumber?: bigint;
   readonly semaphore: Semaphore.Semaphore;
   /** Bumped by invalidateAuthorization so in-flight verify cannot write auth. */
@@ -80,15 +80,14 @@ export const createPeerSessions = ({
   const clear = () => sessions.clear();
 
   /** Invalidate cached authorization on resume; keep connections open.
-   * Also clear remembered head so a fresh live confirm of the *current*
-   * chain head may restore auth (same blockNumber is allowed). Age-expiry
-   * reject keeps lastConfirmedBlockNumber so a stuck head cannot remint 60s.
+   * Preserve lastConfirmedBlockNumber — a stuck/cached RPC replaying the same
+   * membership must not mint another MAX_AUTH_AGE_MS after resume. Re-auth
+   * requires freshness === "fresh" and a strictly newer live head.
    */
   const invalidateAuthorization = () => {
     verifyEpoch += 1;
     for (const session of sessions.values()) {
       session.authorization = undefined;
-      session.lastConfirmedBlockNumber = undefined;
       session.verifyEpoch = verifyEpoch;
     }
   };
@@ -178,10 +177,10 @@ export const createPeerSessions = ({
                 operation: "identity",
               });
             }
-            // Same or older block is not a new confirmation — stuck/cached
-            // heads must not mint another MAX_AUTH_AGE_MS window.
-            // Freshness history lives on the session, not only on authorization,
-            // so rejecting a stale block cannot erase the remembered head.
+            // Same or older block is not a new live confirmation — including
+            // after resume. Freshness history survives invalidate, so a stuck
+            // RPC replaying the old membership cannot remint auth age.
+            // Require freshness === "fresh" (above) AND a strictly newer head.
             const priorBlock = session.lastConfirmedBlockNumber;
             if (
               priorBlock !== undefined &&

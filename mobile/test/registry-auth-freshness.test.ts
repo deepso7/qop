@@ -105,6 +105,50 @@ describe("registry reader auth freshness", () => {
     expect(sessions.isVerified(cliConnection, "1")).toBe(true);
   });
 
+  it("does not remint auth after resume when the reader replays the same head", async () => {
+    let head = 10n;
+    const getBlockNumber = vi.fn(async () => head);
+    const readContract = vi.fn(async (parameters) => {
+      expect(parameters.blockNumber).toBe(head);
+      return membershipAccount(parameters);
+    });
+
+    const reader = createRegistryReader({
+      client: { getBlockNumber, readContract },
+    });
+
+    let clock = 0;
+    const sessions = createPeerSessions({
+      getContactByQid: async () => contact,
+      lookupDeviceKey: (deviceKey) => reader.lookupDeviceKey(deviceKey),
+      lookupHandle: (handle) => reader.lookupHandle(handle),
+      now: () => clock,
+      upsertContact: async () => {},
+    });
+    sessions.opened(cliConnection);
+
+    await Effect.runPromise(sessions.verify(cliConnection, "alice"));
+    expect(sessions.isVerified(cliConnection, "1")).toBe(true);
+
+    // Resume clears auth but preserves lastConfirmedBlockNumber.
+    sessions.invalidateAuthorization();
+    expect(sessions.isVerified(cliConnection, "1")).toBe(false);
+
+    // Reader still at the same head (stuck/cached RPC) — must not remint.
+    const stuck = await Effect.runPromise(
+      sessions.verify(cliConnection, "alice").pipe(Effect.result)
+    );
+    expect(Result.isFailure(stuck) && stuck.failure.operation).toBe("identity");
+    expect(sessions.isVerified(cliConnection, "1")).toBe(false);
+
+    // A newer live head may restore auth.
+    head = 11n;
+    await expect(
+      Effect.runPromise(sessions.verify(cliConnection, "alice"))
+    ).resolves.toMatchObject({ qid: "1" });
+    expect(sessions.isVerified(cliConnection, "1")).toBe(true);
+  });
+
   it("marks untagged reader lookups stale so sessions refuse to mint auth age", async () => {
     const readContract = vi.fn(async (parameters) => {
       expect(parameters.blockNumber).toBeUndefined();

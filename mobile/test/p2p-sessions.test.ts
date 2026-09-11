@@ -181,11 +181,11 @@ describe("multi-device connection authorization", () => {
     expect(lookupDeviceKey).toHaveBeenCalledOnce();
     sessions.invalidateAuthorization();
     expect(sessions.isVerified(phoneConnection, "1")).toBe(false);
-    // Resume forces a fresh live confirm of the *current* head — same block is OK.
+    // Resume keeps freshness history; only a strictly newer live head may remint.
     lookupDeviceKey.mockReturnValue(
       Effect.succeed({
         ...phoneAccount(),
-        blockNumber: 1n,
+        blockNumber: 2n,
         freshness: "fresh",
       })
     );
@@ -461,7 +461,7 @@ describe("multi-device connection authorization", () => {
     expect(sessions.isVerified(cliConnection, "1")).toBe(false);
   });
 
-  it("allows the same current head to re-authorize after resume invalidate", async () => {
+  it("rejects stuck same-head membership after resume invalidate", async () => {
     const { lookupDeviceKey, sessions } = fixture();
     await Effect.runPromise(sessions.verify(cliConnection, "alice"));
     expect(sessions.isVerified(cliConnection, "1")).toBe(true);
@@ -469,8 +469,7 @@ describe("multi-device connection authorization", () => {
     sessions.invalidateAuthorization();
     expect(sessions.isVerified(cliConnection, "1")).toBe(false);
 
-    // Same blockNumber as before resume — locked resume rule requires a fresh
-    // registry read of current state, not a newer head.
+    // Stuck/cached RPC replaying the pre-resume head must not remint auth.
     lookupDeviceKey.mockReturnValue(
       Effect.succeed({
         ...phoneAccount(),
@@ -478,10 +477,52 @@ describe("multi-device connection authorization", () => {
         freshness: "fresh",
       })
     );
+    const refused = await Effect.runPromise(
+      sessions.verify(cliConnection, "alice").pipe(Effect.result)
+    );
+    expect(Result.isFailure(refused) && refused.failure.operation).toBe(
+      "identity"
+    );
+    expect(sessions.isVerified(cliConnection, "1")).toBe(false);
+  });
+
+  it("re-authorizes after resume only with a strictly newer live head", async () => {
+    const { lookupDeviceKey, sessions } = fixture();
+    await Effect.runPromise(sessions.verify(cliConnection, "alice"));
+    sessions.invalidateAuthorization();
+
+    lookupDeviceKey.mockReturnValue(
+      Effect.succeed({
+        ...phoneAccount(),
+        blockNumber: 2n,
+        freshness: "fresh",
+      })
+    );
     await expect(
       Effect.runPromise(sessions.verify(cliConnection, "alice"))
     ).resolves.toMatchObject({ qid: "1" });
     expect(sessions.isVerified(cliConnection, "1")).toBe(true);
+  });
+
+  it("rejects stale-tagged membership after resume even at a newer head", async () => {
+    const { lookupDeviceKey, sessions } = fixture();
+    await Effect.runPromise(sessions.verify(cliConnection, "alice"));
+    sessions.invalidateAuthorization();
+
+    lookupDeviceKey.mockReturnValue(
+      Effect.succeed({
+        ...phoneAccount(),
+        blockNumber: 2n,
+        freshness: "stale",
+      })
+    );
+    const refused = await Effect.runPromise(
+      sessions.verify(cliConnection, "alice").pipe(Effect.result)
+    );
+    expect(Result.isFailure(refused) && refused.failure.operation).toBe(
+      "identity"
+    );
+    expect(sessions.isVerified(cliConnection, "1")).toBe(false);
   });
 
   it("drops in-flight verify that finishes after resume invalidation", async () => {
@@ -539,7 +580,8 @@ describe("multi-device connection authorization", () => {
       "identity"
     );
     expect(sessions.isVerified(cliConnection, "1")).toBe(false);
-    // Phone path still works if still active — same current head is enough after resume.
+    // Phone session never confirmed before resume, so it has no prior head —
+    // first live confirm at block 1 is allowed. (CLI history still blocks 1n.)
     lookupDeviceKey.mockImplementation((deviceKey: string) => {
       if (deviceKey === phoneDeviceKey) {
         return Effect.succeed({
