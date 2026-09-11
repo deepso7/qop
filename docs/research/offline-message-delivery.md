@@ -8,7 +8,7 @@
 
 **Locked auth model:** on-chain multi-device keys (`addDevice` / `removeDevice`) under existing `owner` custody. Breaking registry/client changes are OK (hard-cut; no soft migration / dual-read of single `deviceKey`). The repo-local [multi-device authorization plan](multi-device-auth-plan.md) defines the implementation sequence, acceptance checks, and remaining decisions.
 
-**Still open:** phone↔CLI sync contract (handoff transport, record schema, ack/conflict/completion). **Sequencing (proposal — not locked):** land auth including live-connection revoke bounds **before** phone↔CLI outbox sync.
+**Still open:** phone↔CLI sync contract (handoff transport, record schema, ack/conflict/completion). Exact max auth age value, finality, and RPC-failure defaults remain **proposal**. **Sequencing (proposal — not locked):** land auth including live-connection revoke **before** phone↔CLI outbox sync.
 
 ## Overview
 
@@ -56,7 +56,7 @@ Signal's Sesame describes separate device records and sessions, including sessio
 
 **Enrollment:** CLI generates its own device key. Phone (owner) signs add; anyone may relay. Cap N small (proposed default: 4). Do not copy recovery/owner material to the CLI.
 
-**Revoke must cover live connections (not “reject on next connect” only):** Today `p2p-sessions` caches `session.contact` for the connection’s life. After `removeDevice`, Bob must stop accepting that peer within a defined bound on **existing** P2P connections (max authorization age, recheck triggers, invalidate on failed recheck / observed remove). “Next connect only” is rejected as the sole revoke story. Concrete age/RPC defaults remain **proposal** until locked (see the [auth plan](multi-device-auth-plan.md)).
+**Live revocation on existing connections (LOCKED — must-have for MVP):** Today `p2p-sessions` caches `session.contact` for the connection’s life. After `removeDevice`, Bob must stop accepting that peer within a defined bound on **existing** P2P connections (recheck triggers, invalidate on failed recheck / observed remove). “Next connect only” is rejected as the sole revoke story. Authorization age uses **elapsed-time** (not wall-clock), with explicit suspend/resume rules; stale/cached RPC success must not reset age. Exact max age value, finality policy, and RPC-failure behavior remain **proposal** (recommended: 60s elapsed; refuse after age — see the [auth plan](multi-device-auth-plan.md)).
 
 **Contacts:** Key contacts by `qid` (+ handle) with a **device roster** / last-seen device. Authorizing a second concurrent device is **not** `keyChanged`. Reserve `keyChanged` / security badge for unexpected or untrusted key change; roster add/remove is a distinct signal (“linked a device” / “removed a device”). v1 minimum: no false “key changed” when Alice’s CLI connects.
 
@@ -458,13 +458,15 @@ Measure missing messages, acceptance and delivery latency, complete-backlog retr
 | Auth model | On-chain multi-device keys (`addDevice` / `removeDevice`); not `rotateDevice` as the multi-device path |
 | Breaking changes | Hard-cut OK; no soft migration / dual-read of single `deviceKey` |
 | Owner recovery after compromise | Wipe all devices / re-add |
+| Live revocation on existing connections | Must-have for MVP; not next-connect-only (age/finality/RPC values remain proposal) |
 | Non-goals this slice | Default hosted mailbox; app E2EE/PQXDH as MVP deps; expanding from comparison sections |
 
 **Still open / proposal:**
 
 | Item | Status |
 | --- | --- |
-| Live revoke bounds (max auth age, RPC freshness, contact/`keyChanged` tightenings, device cap details) | Proposal defaults in Project decisions sheet |
+| Live revoke on existing connections | **LOCKED** (must-have); max age value / finality / RPC-failure behavior still **proposal** (elapsed-time; recommended 60s) |
+| Contact/`keyChanged` tightenings, device cap details | Proposal defaults in Project decisions sheet / auth plan |
 | Preserve history on device remove | Strong proposal (treat as requirement unless overridden) |
 | Auth before phone↔CLI outbox sync | **Recommended sequencing — not locked** |
 | Phone↔CLI sync contract | Open (handoff transport, schema, ack/conflict/completion) |
