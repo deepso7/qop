@@ -122,10 +122,12 @@ const configuredRegistry = createConfiguredRegistry({
         );
         return Number(chainId);
       },
+      // Membership freshness depends on a current head — never reuse a
+      // deduped eth_blockNumber that could lag behind (or ahead of) eth_call.
       getBlockNumber: async ({ signal } = {}) => {
         const blockNumber = await publicClient.request(
           { method: "eth_blockNumber" },
-          { dedupe: true, signal }
+          { dedupe: false, signal }
         );
         return BigInt(blockNumber);
       },

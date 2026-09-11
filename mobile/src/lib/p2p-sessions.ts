@@ -161,10 +161,12 @@ export const createPeerSessions = ({
                 operation: "identity",
               });
             }
+            // Same or older block is not a new confirmation — stuck/cached
+            // heads must not mint another MAX_AUTH_AGE_MS window.
             const priorBlock = session.authorization?.confirmedBlockNumber;
             if (
               priorBlock !== undefined &&
-              account.blockNumber < priorBlock
+              account.blockNumber <= priorBlock
             ) {
               session.authorization = undefined;
               return yield* new PeerVerificationError({

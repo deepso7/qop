@@ -84,7 +84,7 @@ describe("registry reader", () => {
         { deviceKey: DEVICE_KEY, peerId: expectedPeerId },
         { deviceKey: CLI_KEY, peerId: expectedCliPeerId },
       ],
-      freshness: "fresh",
+      freshness: "stale",
       handle: "alice",
       owner: OWNER.toLowerCase(),
       ownerVersion: 3,
@@ -99,7 +99,7 @@ describe("registry reader", () => {
         { deviceKey: DEVICE_KEY, peerId: expectedPeerId },
         { deviceKey: CLI_KEY, peerId: expectedCliPeerId },
       ],
-      freshness: "fresh",
+      freshness: "stale",
       handle: "alice",
       owner: OWNER.toLowerCase(),
       ownerVersion: 3,
@@ -184,4 +184,69 @@ describe("registry reader", () => {
     });
     await expect(Effect.runPromise(lookupDeviceKey(removedKey))).resolves.toBeNull();
   });
+
+  it("pins membership reads to a non-deduped head and labels them fresh", async () => {
+    const getBlockNumber = vi.fn(async () => 99n);
+    const readContract = vi.fn(({ functionName, blockNumber, args }) => {
+      expect(blockNumber).toBe(99n);
+      if (functionName === "qidByDeviceKey") {
+        return Promise.resolve(args[0] === DEVICE_KEY ? 42n : 0n);
+      }
+      if (functionName === "listActiveDevices") {
+        return Promise.resolve([DEVICE_KEY]);
+      }
+      if (functionName === "account") {
+        return Promise.resolve({
+          handle: "alice",
+          nonce: 0n,
+          owner: OWNER,
+          ownerVersion: 3,
+          registeredAt: 1_700_000_000n,
+        });
+      }
+      return Promise.resolve(0n);
+    });
+    const { lookupDeviceKey } = createRegistryReader({
+      client: { getBlockNumber, readContract },
+    });
+    await expect(Effect.runPromise(lookupDeviceKey(DEVICE_KEY))).resolves.toMatchObject({
+      blockNumber: 99n,
+      freshness: "fresh",
+      handle: "alice",
+    });
+    expect(getBlockNumber).toHaveBeenCalled();
+    expect(
+      readContract.mock.calls.every(([{ blockNumber }]) => blockNumber === 99n)
+    ).toBe(true);
+  });
+
+  it("labels membership stale when the client cannot provide a block head", async () => {
+    const readContract = vi.fn(({ functionName, blockNumber, args }) => {
+      expect(blockNumber).toBeUndefined();
+      if (functionName === "qidByDeviceKey") {
+        return Promise.resolve(args[0] === DEVICE_KEY ? 42n : 0n);
+      }
+      if (functionName === "listActiveDevices") {
+        return Promise.resolve([DEVICE_KEY]);
+      }
+      if (functionName === "account") {
+        return Promise.resolve({
+          handle: "alice",
+          nonce: 0n,
+          owner: OWNER,
+          ownerVersion: 3,
+          registeredAt: 1_700_000_000n,
+        });
+      }
+      return Promise.resolve(0n);
+    });
+    const { lookupDeviceKey } = createRegistryReader({
+      client: { readContract },
+    });
+    await expect(Effect.runPromise(lookupDeviceKey(DEVICE_KEY))).resolves.toMatchObject({
+      blockNumber: 0n,
+      freshness: "stale",
+    });
+  });
+
 });

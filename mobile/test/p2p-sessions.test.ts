@@ -382,6 +382,46 @@ describe("multi-device connection authorization", () => {
     expect(sessions.isVerified(cliConnection, "1")).toBe(false);
   });
 
+
+  it("does not refresh auth age when a fresh lookup returns the same block", async () => {
+    const { advance, lookupDeviceKey, sessions } = fixture();
+    await Effect.runPromise(sessions.verify(cliConnection, "alice"));
+    expect(sessions.isVerified(cliConnection, "1")).toBe(true);
+
+    advance(MAX_AUTH_AGE_MS);
+    lookupDeviceKey.mockReturnValue(
+      Effect.succeed({
+        ...phoneAccount(),
+        blockNumber: 1n,
+        freshness: "fresh",
+      })
+    );
+    const refused = await Effect.runPromise(
+      sessions.verify(cliConnection, "alice").pipe(Effect.result)
+    );
+    expect(Result.isFailure(refused) && refused.failure.operation).toBe(
+      "identity"
+    );
+    expect(sessions.isVerified(cliConnection, "1")).toBe(false);
+  });
+
+  it("does refresh auth age when a fresh lookup advances the block", async () => {
+    const { advance, lookupDeviceKey, sessions } = fixture();
+    await Effect.runPromise(sessions.verify(cliConnection, "alice"));
+    advance(MAX_AUTH_AGE_MS);
+    lookupDeviceKey.mockReturnValue(
+      Effect.succeed({
+        ...phoneAccount(),
+        blockNumber: 2n,
+        freshness: "fresh",
+      })
+    );
+    await expect(
+      Effect.runPromise(sessions.verify(cliConnection, "alice"))
+    ).resolves.toMatchObject({ qid: "1" });
+    expect(sessions.isVerified(cliConnection, "1")).toBe(true);
+  });
+
   it("rejects after resume invalidate when the device was revoked during sleep", async () => {
     const { lookupDeviceKey, sessions } = fixture();
     await Effect.runPromise(sessions.verify(cliConnection, "alice"));
