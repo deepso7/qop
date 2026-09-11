@@ -27,7 +27,7 @@ interface AuthorizedContact {
 
 interface PeerSession extends PeerConnection {
   authorization?: AuthorizedContact;
-  /** Last confirmed registry head — kept even when authorization is cleared. */
+  /** Last confirmed registry head. Kept on stale-block reject; cleared on resume. */
   lastConfirmedBlockNumber?: bigint;
   readonly semaphore: Semaphore.Semaphore;
   /** Bumped by invalidateAuthorization so in-flight verify cannot write auth. */
@@ -79,11 +79,16 @@ export const createPeerSessions = ({
   };
   const clear = () => sessions.clear();
 
-  /** Invalidate cached authorization on resume; keep connections open. */
+  /** Invalidate cached authorization on resume; keep connections open.
+   * Also clear remembered head so a fresh live confirm of the *current*
+   * chain head may restore auth (same blockNumber is allowed). Age-expiry
+   * reject keeps lastConfirmedBlockNumber so a stuck head cannot remint 60s.
+   */
   const invalidateAuthorization = () => {
     verifyEpoch += 1;
     for (const session of sessions.values()) {
       session.authorization = undefined;
+      session.lastConfirmedBlockNumber = undefined;
       session.verifyEpoch = verifyEpoch;
     }
   };

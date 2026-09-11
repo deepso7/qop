@@ -553,6 +553,9 @@ contract QOPIdentityRegistryTest is Test {
         });
         QOPIdentityRegistry.WipeDevicesIntent memory wipeDevicesIntent =
             QOPIdentityRegistry.WipeDevicesIntent({qid: 42, nonce: 13, deadline: 1_700_003_600});
+        QOPIdentityRegistry.RecoverOwnerIntent memory recoverOwnerIntent = QOPIdentityRegistry.RecoverOwnerIntent({
+            qid: 42, newOwner: 0x2B5AD5c4795c026514f8317c7a215E218DcCD6cF, nonce: 7, deadline: 1_700_003_600
+        });
 
         assertEq(
             fixedRegistry.hashRegisterIntent(registerIntent),
@@ -573,6 +576,10 @@ contract QOPIdentityRegistryTest is Test {
         assertEq(
             fixedRegistry.hashWipeDevicesIntent(wipeDevicesIntent),
             0xd21c9fb8cf5859d38503d7428b8c9becf50a46245e1b68e65395c88cd4c98e7b
+        );
+        assertEq(
+            fixedRegistry.hashRecoverOwnerIntent(recoverOwnerIntent),
+            0x85177ecb06c719680cffda8b05c8c484a6c9bed3d0aa178aa8e1741170666b34
         );
 
         registerIntent = QOPIdentityRegistry.RegisterIntent({

@@ -181,16 +181,17 @@ describe("multi-device connection authorization", () => {
     expect(lookupDeviceKey).toHaveBeenCalledOnce();
     sessions.invalidateAuthorization();
     expect(sessions.isVerified(phoneConnection, "1")).toBe(false);
-    // Resume still requires a newer confirmed head than the remembered one.
+    // Resume forces a fresh live confirm of the *current* head — same block is OK.
     lookupDeviceKey.mockReturnValue(
       Effect.succeed({
         ...phoneAccount(),
-        blockNumber: 2n,
+        blockNumber: 1n,
         freshness: "fresh",
       })
     );
     await Effect.runPromise(sessions.verify(phoneConnection, "alice"));
     expect(lookupDeviceKey).toHaveBeenCalledTimes(2);
+    expect(sessions.isVerified(phoneConnection, "1")).toBe(true);
   });
 
   it("measures auth age with monotonic elapsed time, not wall clock", async () => {
@@ -460,6 +461,29 @@ describe("multi-device connection authorization", () => {
     expect(sessions.isVerified(cliConnection, "1")).toBe(false);
   });
 
+  it("allows the same current head to re-authorize after resume invalidate", async () => {
+    const { lookupDeviceKey, sessions } = fixture();
+    await Effect.runPromise(sessions.verify(cliConnection, "alice"));
+    expect(sessions.isVerified(cliConnection, "1")).toBe(true);
+
+    sessions.invalidateAuthorization();
+    expect(sessions.isVerified(cliConnection, "1")).toBe(false);
+
+    // Same blockNumber as before resume — locked resume rule requires a fresh
+    // registry read of current state, not a newer head.
+    lookupDeviceKey.mockReturnValue(
+      Effect.succeed({
+        ...phoneAccount(),
+        blockNumber: 1n,
+        freshness: "fresh",
+      })
+    );
+    await expect(
+      Effect.runPromise(sessions.verify(cliConnection, "alice"))
+    ).resolves.toMatchObject({ qid: "1" });
+    expect(sessions.isVerified(cliConnection, "1")).toBe(true);
+  });
+
   it("drops in-flight verify that finishes after resume invalidation", async () => {
     let clock = 0;
     const { getContactByQid, lookupDeviceKey, sessions } = fixture({
@@ -515,12 +539,12 @@ describe("multi-device connection authorization", () => {
       "identity"
     );
     expect(sessions.isVerified(cliConnection, "1")).toBe(false);
-    // Phone path still works if still active (and chain head advanced).
+    // Phone path still works if still active — same current head is enough after resume.
     lookupDeviceKey.mockImplementation((deviceKey: string) => {
       if (deviceKey === phoneDeviceKey) {
         return Effect.succeed({
           ...phoneAccount(),
-          blockNumber: 2n,
+          blockNumber: 1n,
           devices: [{ deviceKey: phoneDeviceKey, peerId: PEER_ALICE }],
           freshness: "fresh",
         });
