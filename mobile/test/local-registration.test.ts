@@ -37,7 +37,10 @@ let now = 1_700_000_000n;
 let nextNonce = 1;
 
 const account = (owner = OWNER, handle = "alice") => ({
+  blockNumber: 1n,
   deviceKey: DEVICE_KEY,
+  devices: [{ deviceKey: DEVICE_KEY, peerId: PEER_ID }],
+  freshness: "fresh",
   handle,
   owner,
   ownerVersion: 1,
@@ -406,7 +409,11 @@ describe("local registration", () => {
       loadRegistration();
     await Effect.runPromise(startLocalRegistration("ABC-123"));
     registryMock.lookupOwner.mockReturnValue(
-      Effect.succeed({ ...account(), deviceKey: OTHER_DEVICE_KEY })
+      Effect.succeed({
+        ...account(),
+        deviceKey: OTHER_DEVICE_KEY,
+        devices: [{ deviceKey: OTHER_DEVICE_KEY, peerId: PEER_ID }],
+      })
     );
 
     const result = await Effect.runPromise(checkLocalRegistration());

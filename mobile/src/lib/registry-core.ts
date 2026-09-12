@@ -17,7 +17,6 @@ export const registryAbi = [
       {
         components: [
           { name: "owner", type: "address" },
-          { name: "deviceKey", type: "bytes32" },
           { name: "ownerVersion", type: "uint32" },
           { name: "registeredAt", type: "uint64" },
           { name: "nonce", type: "uint256" },
@@ -27,6 +26,13 @@ export const registryAbi = [
         type: "tuple",
       },
     ],
+    stateMutability: "view",
+    type: "function",
+  },
+  {
+    inputs: [{ name: "qid", type: "uint256" }],
+    name: "listActiveDevices",
+    outputs: [{ name: "", type: "bytes32[]" }],
     stateMutability: "view",
     type: "function",
   },
@@ -76,22 +82,35 @@ const ChainQid = Schema.BigInt.check(
   })
 );
 const ContractAccountResult = Schema.Struct({
-  deviceKey: Hex32Input,
   handle: Handle,
   nonce: ChainQid,
   owner: EthereumAddressInput,
   ownerVersion: OwnerVersion,
   registeredAt: RegisteredAt,
 });
+const ContractDeviceKeysResult = Schema.Array(Hex32Input);
 
-type RegistryContractResult = bigint | typeof ContractAccountResult.Type;
+type RegistryContractResult =
+  | bigint
+  | typeof ContractAccountResult.Type
+  | readonly (typeof Hex32Input.Type)[];
+
+export interface RegistryDevice {
+  readonly deviceKey: typeof Hex32.Encoded;
+  readonly peerId: string;
+}
+
+export type RegistryFreshness = "fresh" | "stale";
 
 export interface RegistryAccount {
-  readonly deviceKey: typeof Hex32.Encoded;
+  readonly blockNumber: bigint;
+  readonly deviceKey: typeof Hex32.Encoded | null;
+  readonly devices: readonly RegistryDevice[];
+  readonly freshness: RegistryFreshness;
   readonly handle: string;
   readonly owner: string;
   readonly ownerVersion: number;
-  readonly peerId: string;
+  readonly peerId: string | null;
   readonly qid: bigint;
   readonly registeredAt: bigint;
 }
@@ -106,12 +125,17 @@ const readerError = (operation: RegistryReaderError["operation"]) =>
   new RegistryReaderError({ operation });
 
 export interface RegistryReadClient {
+  readonly getBlockNumber?: (options?: {
+    readonly signal?: AbortSignal;
+  }) => Promise<bigint>;
   readonly readContract: (
     parameters: {
       readonly abi: typeof registryAbi;
       readonly args: readonly unknown[];
+      readonly blockNumber?: bigint;
       readonly functionName:
         | "account"
+        | "listActiveDevices"
         | "qidByDeviceKey"
         | "qidByHandleHash"
         | "qidByOwner";
@@ -127,37 +151,54 @@ const readQid = (value: RegistryContractResult) =>
     Effect.mapError(() => readerError("decode"))
   );
 
+type ReadContractParams = Parameters<RegistryReadClient["readContract"]>[0];
+
+const withOptionalBlockNumber = (
+  base: Omit<ReadContractParams, "blockNumber">,
+  blockNumber: bigint | undefined
+): ReadContractParams => {
+  if (blockNumber === undefined) {
+    return base;
+  }
+  return { ...base, blockNumber };
+};
+
 export const createRegistryReader = ({
   client,
 }: {
   readonly client: RegistryReadClient;
 }) => {
   const readContract = Effect.fn("RegistryReader.readContract")(
-    (parameters: Parameters<RegistryReadClient["readContract"]>[0]) =>
+    (parameters: ReadContractParams) =>
       Effect.tryPromise({
         catch: () => readerError("rpc"),
         try: (signal) => client.readContract(parameters, { signal }),
       })
   );
 
-  const account = Effect.fn("RegistryReader.account")(function* (qid: bigint) {
-    const result = yield* readContract({
-      abi: registryAbi,
-      args: [qid],
-      functionName: "account",
+  // Live-auth membership must be pinned to a head we just observed.
+  // Missing getBlockNumber (or untagged calls) cannot claim freshness.
+  const captureHead = Effect.fn("RegistryReader.captureHead")(function* () {
+    const { getBlockNumber } = client;
+    if (!getBlockNumber) {
+      return {
+        blockNumber: undefined,
+        freshness: "stale" as const,
+      };
+    }
+    const blockNumber = yield* Effect.tryPromise({
+      catch: () => readerError("rpc"),
+      try: (signal) => getBlockNumber({ signal }),
     });
-    const {
-      owner: ownerInput,
-      deviceKey: deviceKeyInput,
-      ownerVersion,
-      registeredAt,
-      handle,
-    } = yield* Schema.decodeUnknownEffect(ContractAccountResult)(result).pipe(
-      Effect.mapError(() => readerError("decode"))
-    );
-    const owner = yield* Schema.decodeUnknownEffect(EthereumAddress)(
-      ownerInput.toLowerCase()
-    ).pipe(Effect.mapError(() => readerError("decode")));
+    return {
+      blockNumber,
+      freshness: "fresh" as const,
+    };
+  });
+
+  const decodeDevice = Effect.fn("RegistryReader.decodeDevice")(function* (
+    deviceKeyInput: string
+  ) {
     const deviceKey = yield* Schema.decodeUnknownEffect(CanonicalDeviceKey)(
       deviceKeyInput.toLowerCase()
     ).pipe(Effect.mapError(() => readerError("decode")));
@@ -168,15 +209,89 @@ export const createRegistryReader = ({
       Effect.flatMap(Schema.encodeEffect(PeerId)),
       Effect.mapError(() => readerError("decode"))
     );
-    return {
-      deviceKey,
+    return { deviceKey, peerId } satisfies RegistryDevice;
+  });
+
+  const listActiveDevicesAt = Effect.fn("RegistryReader.listActiveDevicesAt")(
+    function* (qid: bigint, blockNumber: bigint | undefined) {
+      const result = yield* readContract(
+        withOptionalBlockNumber(
+          {
+            abi: registryAbi,
+            args: [qid],
+            functionName: "listActiveDevices",
+          },
+          blockNumber
+        )
+      );
+      const keys = yield* Schema.decodeUnknownEffect(ContractDeviceKeysResult)(
+        result
+      ).pipe(Effect.mapError(() => readerError("decode")));
+      return yield* Effect.forEach(keys, decodeDevice, { concurrency: 1 });
+    }
+  );
+
+  const listActiveDevices = Effect.fn("RegistryReader.listActiveDevices")(
+    function* (qid: bigint) {
+      const head = yield* captureHead();
+      return yield* listActiveDevicesAt(qid, head.blockNumber);
+    }
+  );
+
+  const accountAt = Effect.fn("RegistryReader.accountAt")(function* (
+    qid: bigint,
+    head: {
+      readonly blockNumber: bigint | undefined;
+      readonly freshness: RegistryFreshness;
+    },
+    preferredDeviceKey?: string
+  ) {
+    const result = yield* readContract(
+      withOptionalBlockNumber(
+        {
+          abi: registryAbi,
+          args: [qid],
+          functionName: "account",
+        },
+        head.blockNumber
+      )
+    );
+    const {
+      owner: ownerInput,
+      ownerVersion,
+      registeredAt,
+      handle,
+    } = yield* Schema.decodeUnknownEffect(ContractAccountResult)(result).pipe(
+      Effect.mapError(() => readerError("decode"))
+    );
+    const owner = yield* Schema.decodeUnknownEffect(EthereumAddress)(
+      ownerInput.toLowerCase()
+    ).pipe(Effect.mapError(() => readerError("decode")));
+    const devices = yield* listActiveDevicesAt(qid, head.blockNumber);
+    const preferred = preferredDeviceKey?.toLowerCase();
+    // Do not fall back to devices[0] before membership check — a stale
+    // qidByDeviceKey hit must not return another device's account.
+    const selected = preferred
+      ? devices.find((device) => device.deviceKey === preferred)
+      : devices[0];
+    if (preferred && !selected) {
+      return null;
+    }
+    const accountResult: RegistryAccount = {
+      // Untagged reads report 0n; sessions must not treat that as a new head.
+      blockNumber: head.blockNumber ?? 0n,
+      // Dial/last-seen helpers use the preferred or first active device when present.
+      deviceKey: selected?.deviceKey ?? null,
+      devices,
+      freshness: head.freshness,
       handle,
       owner,
       ownerVersion,
-      peerId,
+      peerId: selected?.peerId ?? null,
       qid,
       registeredAt,
-    } satisfies RegistryAccount;
+    };
+    return accountResult;
   });
 
   const lookupHandle = Effect.fn("RegistryReader.lookupHandle")(function* (
@@ -185,12 +300,18 @@ export const createRegistryReader = ({
     const handle = yield* Schema.decodeUnknownEffect(Handle)(input).pipe(
       Effect.mapError(() => readerError("invalid-handle"))
     );
-    const qid = yield* readContract({
-      abi: registryAbi,
-      args: [keccak256(toBytes(handle))],
-      functionName: "qidByHandleHash",
-    }).pipe(Effect.flatMap(readQid));
-    return qid === 0n ? null : yield* account(qid);
+    const head = yield* captureHead();
+    const qid = yield* readContract(
+      withOptionalBlockNumber(
+        {
+          abi: registryAbi,
+          args: [keccak256(toBytes(handle))],
+          functionName: "qidByHandleHash",
+        },
+        head.blockNumber
+      )
+    ).pipe(Effect.flatMap(readQid));
+    return qid === 0n ? null : yield* accountAt(qid, head);
   });
 
   const lookupOwner = Effect.fn("RegistryReader.lookupOwner")(function* (
@@ -199,12 +320,18 @@ export const createRegistryReader = ({
     const owner = yield* Schema.decodeUnknownEffect(EthereumAddress)(
       input.toLowerCase()
     ).pipe(Effect.mapError(() => readerError("decode")));
-    const qid = yield* readContract({
-      abi: registryAbi,
-      args: [owner],
-      functionName: "qidByOwner",
-    }).pipe(Effect.flatMap(readQid));
-    return qid === 0n ? null : yield* account(qid);
+    const head = yield* captureHead();
+    const qid = yield* readContract(
+      withOptionalBlockNumber(
+        {
+          abi: registryAbi,
+          args: [owner],
+          functionName: "qidByOwner",
+        },
+        head.blockNumber
+      )
+    ).pipe(Effect.flatMap(readQid));
+    return qid === 0n ? null : yield* accountAt(qid, head);
   });
 
   // Transport peerId ↔ deviceKey; resolve identity from the live key, not a claimed handle.
@@ -213,14 +340,20 @@ export const createRegistryReader = ({
       const deviceKey = yield* Schema.decodeUnknownEffect(CanonicalDeviceKey)(
         input.toLowerCase()
       ).pipe(Effect.mapError(() => readerError("decode")));
-      const qid = yield* readContract({
-        abi: registryAbi,
-        args: [deviceKey],
-        functionName: "qidByDeviceKey",
-      }).pipe(Effect.flatMap(readQid));
-      return qid === 0n ? null : yield* account(qid);
+      const head = yield* captureHead();
+      const qid = yield* readContract(
+        withOptionalBlockNumber(
+          {
+            abi: registryAbi,
+            args: [deviceKey],
+            functionName: "qidByDeviceKey",
+          },
+          head.blockNumber
+        )
+      ).pipe(Effect.flatMap(readQid));
+      return qid === 0n ? null : yield* accountAt(qid, head, deviceKey);
     }
   );
 
-  return { lookupDeviceKey, lookupHandle, lookupOwner };
+  return { listActiveDevices, lookupDeviceKey, lookupHandle, lookupOwner };
 };

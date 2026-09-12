@@ -15,12 +15,11 @@ import {
 describe("registry confirmed block", () => {
   it("decodes the Solidity account struct, including its dynamic handle", () => {
     const owner = "0x1111111111111111111111111111111111111111";
-    const deviceKey = `0x${"22".repeat(32)}` as const;
     // account() returns one Account struct, so its dynamic tuple has an outer offset.
     // Define the wire shape independently from the ABI used by the reader.
     const data = encodeAbiParameters(
-      parseAbiParameters("(address, bytes32, uint32, uint64, uint256, string)"),
-      [[owner, deviceKey, 3, 1_700_000_000n, 7n, "alice"]]
+      parseAbiParameters("(address, uint32, uint64, uint256, string)"),
+      [[owner, 3, 1_700_000_000n, 7n, "alice"]]
     );
 
     assert.deepStrictEqual(
@@ -30,13 +29,27 @@ describe("registry confirmed block", () => {
         functionName: "account",
       }),
       {
-        deviceKey,
         handle: "alice",
         nonce: 7n,
         owner,
         ownerVersion: 3,
         registeredAt: 1_700_000_000n,
       }
+    );
+  });
+
+  it("decodes listActiveDevices", () => {
+    const deviceKey = `0x${"22".repeat(32)}` as const;
+    const data = encodeAbiParameters(parseAbiParameters("bytes32[]"), [
+      [deviceKey],
+    ]);
+    assert.deepStrictEqual(
+      decodeFunctionResult({
+        abi: registryReadAbi,
+        data,
+        functionName: "listActiveDevices",
+      }),
+      [deviceKey]
     );
   });
 

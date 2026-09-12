@@ -14,7 +14,7 @@ const NEXT_OWNER =
   "0x2222222222222222222222222222222222222222" satisfies Address;
 
 const account = (owner: Address = OWNER): RegistryAccount => ({
-  deviceKey: testHash("device"),
+  devices: [testHash("device")],
   handle: "alice",
   nonce: 0n,
   owner,
@@ -73,7 +73,7 @@ const makeReader = () => {
 
 describe("registry reader", () => {
   it.effect(
-    "returns the device key and distinguishes cached from fresh reads",
+    "returns the device roster and distinguishes cached from fresh reads",
     () => {
       const fixture = makeReader();
       return Effect.gen(function* () {
@@ -83,7 +83,7 @@ describe("registry reader", () => {
         const cached = yield* reader.cached.account(1n);
         const fresh = yield* reader.fresh.account(1n);
 
-        assert.strictEqual(first.value.deviceKey, testHash("device"));
+        assert.deepStrictEqual(first.value.devices, [testHash("device")]);
         assert.strictEqual(cached.value.owner, OWNER);
         assert.strictEqual(fresh.value.owner, NEXT_OWNER);
         assert.strictEqual(fixture.calls.account, 2);

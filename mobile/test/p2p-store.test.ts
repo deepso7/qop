@@ -12,12 +12,24 @@ import {
 import type { performSend } from "@/lib/p2p-send";
 import { createP2pStore } from "@/lib/p2p-store-core";
 import type { P2pEndpoint } from "@/lib/p2p-store-core";
+import type {
+  lookupDeviceKey as LookupDeviceKey,
+  lookupHandle as LookupHandle,
+} from "@/lib/registry";
 import type { RegistryAccount } from "@/lib/registry-core";
 
 const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
 
 const bobAccount: RegistryAccount = {
+  blockNumber: 1n,
   deviceKey: `0x${"22".repeat(32)}`,
+  devices: [
+    {
+      deviceKey: `0x${"22".repeat(32)}`,
+      peerId: PEER_BOB,
+    },
+  ],
+  freshness: "fresh",
   handle: "bob",
   owner: "0x0000000000000000000000000000000000000001",
   ownerVersion: 0,
@@ -46,10 +58,10 @@ let queueOverflow: (() => void) | undefined;
 const disconnect = vi.fn();
 const connectedPeers = vi.fn((): string[] => [PEER_BOB]);
 const send = vi.fn<typeof performSend>();
-const lookupDeviceKey = vi.fn((): Effect.Effect<RegistryAccount | null> =>
+const lookupDeviceKey = vi.fn((): ReturnType<typeof LookupDeviceKey> =>
   Effect.succeed(bobAccount)
 );
-const lookupHandle = vi.fn((): Effect.Effect<RegistryAccount | null> =>
+const lookupHandle = vi.fn((): ReturnType<typeof LookupHandle> =>
   Effect.succeed(bobAccount)
 );
 
@@ -96,6 +108,7 @@ const captureEndpointEvent: P2pEndpoint["on"] = (
   return () => {};
 };
 
+let appResumeHandler: (() => void) | undefined;
 const useP2pStore = createP2pStore({
   createEndpoint: () => ({
     bindAppState: () => () => {},
@@ -123,6 +136,12 @@ const useP2pStore = createP2pStore({
   lookupHandle,
   performSend: send,
   randomUUID: () => crypto.randomUUID(),
+  subscribeAppResume: (onResume) => {
+    appResumeHandler = onResume;
+    return () => {
+      appResumeHandler = undefined;
+    };
+  },
 });
 
 beforeEach(async () => {
@@ -138,9 +157,13 @@ beforeEach(async () => {
   onStream = undefined;
   queueOverflow = undefined;
   await deleteAll();
+  const bobDeviceKey = bobAccount.deviceKey;
+  if (bobDeviceKey === null) {
+    throw new Error("expected bob device key");
+  }
   await upsertContact({
     createdAt: 1,
-    deviceKey: bobAccount.deviceKey,
+    deviceKey: bobDeviceKey,
     handle: "bob",
     owner: bobAccount.owner,
     peerId: PEER_BOB,
@@ -360,6 +383,34 @@ describe("inbound chat streams", () => {
     );
     expect(stream.closeWrite).toHaveBeenCalledOnce();
     expect(stream.reset).not.toHaveBeenCalled();
+  });
+
+  it("invalidates authorization on app resume so the next verify hits the registry", async () => {
+    await useP2pStore.getState().start();
+    connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
+    const firstId = "11111111-1111-4111-8111-111111111111";
+    const first = makeInboundStream(inboundFrame(firstId));
+    onStream?.(first);
+    await vi.waitFor(async () =>
+      expect(await getMessageById(firstId)).not.toBeNull()
+    );
+    const lookupsAfterFirst = lookupDeviceKey.mock.calls.length;
+    expect(lookupsAfterFirst).toBeGreaterThan(0);
+    expect(appResumeHandler).toBeTypeOf("function");
+
+    // Resume must drop cached auth; re-auth needs a newer live head (not stuck 1n).
+    appResumeHandler?.();
+    lookupDeviceKey.mockClear();
+    lookupDeviceKey.mockReturnValue(
+      Effect.succeed({ ...bobAccount, blockNumber: 2n, freshness: "fresh" })
+    );
+    const secondId = "22222222-2222-4222-8222-222222222222";
+    const second = makeInboundStream(inboundFrame(secondId));
+    onStream?.(second);
+    await vi.waitFor(async () =>
+      expect(await getMessageById(secondId)).not.toBeNull()
+    );
+    expect(lookupDeviceKey).toHaveBeenCalled();
   });
 
   it("resets when the sender cannot be verified", async () => {

@@ -11,7 +11,9 @@ contract IdentityRegistryHandler is Test {
     uint256 public immutable registrationSignerKey;
 
     uint256 public successfulRegistrations;
-    uint256 public successfulDeviceRotations;
+    uint256 public successfulDeviceAdds;
+    uint256 public successfulDeviceRemoves;
+    uint256 public successfulDeviceWipes;
     uint256 public successfulRotations;
 
     uint256[] private _qids;
@@ -66,19 +68,51 @@ contract IdentityRegistryHandler is Test {
         successfulRotations += 1;
     }
 
-    function rotateDevice(uint256 qidSeed, bytes32 deviceKeySeed) external {
+    function addDevice(uint256 qidSeed, bytes32 deviceKeySeed) external {
         if (_qids.length == 0) return;
         uint256 qid = _qids[qidSeed % _qids.length];
-        bytes32 newDeviceKey = keccak256(abi.encode(qid, deviceKeySeed, successfulDeviceRotations));
-        if (newDeviceKey == bytes32(0) || newDeviceKey == registry.account(qid).deviceKey) return;
+        if (registry.activeDeviceCount(qid) >= registry.MAX_ACTIVE_DEVICES()) return;
+        bytes32 deviceKey = keccak256(abi.encode(qid, deviceKeySeed, successfulDeviceAdds));
+        if (deviceKey == bytes32(0) || registry.qidByDeviceKey(deviceKey) != 0 || registry.deviceKeyRemoved(deviceKey)) {
+            return;
+        }
 
-        QOPIdentityRegistry.RotateDeviceIntent memory intent = QOPIdentityRegistry.RotateDeviceIntent({
-            qid: qid, newDeviceKey: newDeviceKey, nonce: expectedNonces[qid], deadline: type(uint64).max
+        QOPIdentityRegistry.AddDeviceIntent memory intent = QOPIdentityRegistry.AddDeviceIntent({
+            qid: qid, deviceKey: deviceKey, nonce: expectedNonces[qid], deadline: type(uint64).max
         });
-        registry.rotateDevice(intent, _sign(_ownerKeys[qid], registry.hashRotateDeviceIntent(intent)));
+        registry.addDevice(intent, _sign(_ownerKeys[qid], registry.hashAddDeviceIntent(intent)));
 
         expectedNonces[qid] += 1;
-        successfulDeviceRotations += 1;
+        successfulDeviceAdds += 1;
+    }
+
+    function removeDevice(uint256 qidSeed, uint256 deviceIndexSeed) external {
+        if (_qids.length == 0) return;
+        uint256 qid = _qids[qidSeed % _qids.length];
+        bytes32[] memory devices = registry.listActiveDevices(qid);
+        if (devices.length == 0) return;
+        bytes32 deviceKey = devices[deviceIndexSeed % devices.length];
+
+        QOPIdentityRegistry.RemoveDeviceIntent memory intent = QOPIdentityRegistry.RemoveDeviceIntent({
+            qid: qid, deviceKey: deviceKey, nonce: expectedNonces[qid], deadline: type(uint64).max
+        });
+        registry.removeDevice(intent, _sign(_ownerKeys[qid], registry.hashRemoveDeviceIntent(intent)));
+
+        expectedNonces[qid] += 1;
+        successfulDeviceRemoves += 1;
+    }
+
+    function wipeDevices(uint256 qidSeed) external {
+        if (_qids.length == 0) return;
+        uint256 qid = _qids[qidSeed % _qids.length];
+        if (registry.activeDeviceCount(qid) == 0) return;
+
+        QOPIdentityRegistry.WipeDevicesIntent memory intent =
+            QOPIdentityRegistry.WipeDevicesIntent({qid: qid, nonce: expectedNonces[qid], deadline: type(uint64).max});
+        registry.wipeDevices(intent, _sign(_ownerKeys[qid], registry.hashWipeDevicesIntent(intent)));
+
+        expectedNonces[qid] += 1;
+        successfulDeviceWipes += 1;
     }
 
     function qidAt(uint256 index) external view returns (uint256) {
@@ -115,10 +149,12 @@ contract QOPIdentityRegistryInvariantTest is StdInvariant, Test {
         registry = new QOPIdentityRegistry(address(this), vm.addr(REGISTRATION_SIGNER_KEY));
         handler = new IdentityRegistryHandler(registry, REGISTRATION_SIGNER_KEY);
 
-        bytes4[] memory selectors = new bytes4[](3);
+        bytes4[] memory selectors = new bytes4[](5);
         selectors[0] = IdentityRegistryHandler.register.selector;
         selectors[1] = IdentityRegistryHandler.rotate.selector;
-        selectors[2] = IdentityRegistryHandler.rotateDevice.selector;
+        selectors[2] = IdentityRegistryHandler.addDevice.selector;
+        selectors[3] = IdentityRegistryHandler.removeDevice.selector;
+        selectors[4] = IdentityRegistryHandler.wipeDevices.selector;
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
         targetContract(address(handler));
     }
@@ -135,15 +171,27 @@ contract QOPIdentityRegistryInvariantTest is StdInvariant, Test {
 
             assertEq(qid, index + 1);
             assertTrue(stored.owner != address(0));
-            assertTrue(stored.deviceKey != bytes32(0));
             assertEq(registry.qidByOwner(stored.owner), qid);
-            assertEq(registry.qidByDeviceKey(stored.deviceKey), qid);
             assertEq(registry.qidByHandleHash(keccak256(bytes(stored.handle))), qid);
             assertEq(stored.nonce, handler.expectedNonces(qid));
             assertEq(stored.ownerVersion, handler.expectedOwnerVersions(qid));
+            assertTrue(registry.activeDeviceCount(qid) <= registry.MAX_ACTIVE_DEVICES());
+
+            bytes32[] memory devices = registry.listActiveDevices(qid);
+            for (uint256 deviceIndex; deviceIndex < devices.length; ++deviceIndex) {
+                bytes32 deviceKey = devices[deviceIndex];
+                assertTrue(deviceKey != bytes32(0));
+                assertEq(registry.qidByDeviceKey(deviceKey), qid);
+                assertTrue(registry.isActiveDevice(qid, deviceKey));
+                assertFalse(registry.deviceKeyRemoved(deviceKey));
+            }
             totalAccountActions += stored.nonce;
         }
 
-        assertEq(totalAccountActions, handler.successfulRotations() + handler.successfulDeviceRotations());
+        assertEq(
+            totalAccountActions,
+            handler.successfulRotations() + handler.successfulDeviceAdds() + handler.successfulDeviceRemoves()
+                + handler.successfulDeviceWipes()
+        );
     }
 }

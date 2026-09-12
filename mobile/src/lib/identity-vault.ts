@@ -22,6 +22,8 @@ export const {
   loadLocalIdentity,
   revealLocalIdentityRecoveryKey,
   signRegisterIntent,
+  signRecoverOwnerIntent,
+  signWipeDevicesIntent,
   updateLocalIdentityBackupState,
 } = createIdentityVault({
   makeInstallMarker: () => new File(Paths.document, ".qop-install-v1"),

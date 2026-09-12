@@ -101,14 +101,29 @@ export const createConfiguredRegistry = ({
         Effect.flatMap((reader) => reader.lookupDeviceKey(deviceKey))
       )
   );
+  const listActiveDevices = Effect.fn("Registry.listActiveDevices")(
+    (qid: bigint) =>
+      cachedConfiguredReader.pipe(
+        Effect.flatMap((reader) => reader.listActiveDevices(qid))
+      )
+  );
 
-  return { lookupDeviceKey, lookupHandle, lookupOwner };
+  return { listActiveDevices, lookupDeviceKey, lookupHandle, lookupOwner };
 };
 
 const configuredRegistry = createConfiguredRegistry({
   createClient: (rpcUrl, registryAddress) => {
     const publicClient = createPublicClient({ transport: http(rpcUrl) });
     return {
+      // Membership freshness depends on a current head — never reuse a
+      // deduped eth_blockNumber that could lag behind (or ahead of) eth_call.
+      getBlockNumber: async ({ signal } = {}) => {
+        const blockNumber = await publicClient.request(
+          { method: "eth_blockNumber" },
+          { dedupe: false, signal }
+        );
+        return BigInt(blockNumber);
+      },
       getChainId: async ({ signal } = {}) => {
         const chainId = await publicClient.request(
           { method: "eth_chainId" },
@@ -117,12 +132,24 @@ const configuredRegistry = createConfiguredRegistry({
         return Number(chainId);
       },
       readContract: async (parameters, { signal } = {}) => {
+        const { blockNumber, ...rest } = parameters;
+        const request =
+          blockNumber === undefined
+            ? {
+                ...rest,
+                address: registryAddress,
+                requestOptions: { signal },
+              }
+            : {
+                ...rest,
+                address: registryAddress,
+                blockNumber,
+                requestOptions: { signal },
+              };
         // SAFETY: The bound address and ABI were validated before this call.
-        const result = await publicClient.readContract({
-          ...parameters,
-          address: registryAddress,
-          requestOptions: { signal },
-        } as Parameters<typeof publicClient.readContract>[0]);
+        const result = await publicClient.readContract(
+          request as Parameters<typeof publicClient.readContract>[0]
+        );
         // SAFETY: The fixed ABI limits viem's result to the registry result union.
         return result as Awaited<
           ReturnType<RegistryReadClient["readContract"]>
@@ -135,5 +162,5 @@ const configuredRegistry = createConfiguredRegistry({
   rpcUrl: process.env.EXPO_PUBLIC_RPC_URL,
 });
 
-export const { lookupDeviceKey, lookupHandle, lookupOwner } =
+export const { listActiveDevices, lookupDeviceKey, lookupHandle, lookupOwner } =
   configuredRegistry;
