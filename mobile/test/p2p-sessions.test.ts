@@ -21,6 +21,7 @@ const phoneAccount = (): RegistryAccount => ({
   ],
   freshness: "fresh",
   handle: "alice",
+  nonce: 0n,
   owner: "0x0000000000000000000000000000000000000001",
   ownerVersion: 0,
   peerId: PEER_ALICE,

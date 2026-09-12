@@ -1,4 +1,5 @@
 import { Result } from "effect";
+import { useRouter } from "expo-router";
 import * as React from "react";
 import { ActivityIndicator, Platform, Share, View } from "react-native";
 
@@ -43,6 +44,7 @@ const logoutPresentation = (needsBackup: boolean) => {
 };
 
 const ProfileScreen = () => {
+  const { push } = useRouter();
   const identity = useIdentityStore((state) => state.identity);
   const registration = useIdentityStore((state) => state.registration);
   const revealRecoveryKey = useIdentityStore(
@@ -212,6 +214,14 @@ const ProfileScreen = () => {
           ) : null}
         </Surface>
       </View>
+
+      <Button
+        className="h-12 rounded-xl"
+        onPress={() => push("/devices")}
+        variant="outline"
+      >
+        <Text>Devices</Text>
+      </Button>
 
       <View className="gap-2">
         <Button

@@ -108,13 +108,50 @@ export const createConfiguredRegistry = ({
       )
   );
 
-  return { listActiveDevices, lookupDeviceKey, lookupHandle, lookupOwner };
+  const lookupQid = Effect.fn("Registry.lookupQid")((qid: bigint) =>
+    cachedConfiguredReader.pipe(
+      Effect.flatMap((reader) => reader.lookupQid(qid))
+    )
+  );
+
+  const latestTimestamp = Effect.fn("Registry.latestTimestamp")(() =>
+    cachedConfiguredReader.pipe(
+      Effect.flatMap((reader) => reader.latestTimestamp())
+    )
+  );
+
+  return {
+    latestTimestamp,
+    listActiveDevices,
+    lookupDeviceKey,
+    lookupHandle,
+    lookupOwner,
+    lookupQid,
+  };
 };
 
 const configuredRegistry = createConfiguredRegistry({
   createClient: (rpcUrl, registryAddress) => {
     const publicClient = createPublicClient({ transport: http(rpcUrl) });
     return {
+      getBlock: async ({ blockNumber, signal } = {}) => {
+        const block = await publicClient.request(
+          {
+            method: "eth_getBlockByNumber",
+            params: [
+              blockNumber === undefined
+                ? "latest"
+                : `0x${blockNumber.toString(16)}`,
+              false,
+            ],
+          },
+          { signal }
+        );
+        if (!block) {
+          throw new Error("Block not found");
+        }
+        return { timestamp: BigInt(block.timestamp) };
+      },
       // Membership freshness depends on a current head — never reuse a
       // deduped eth_blockNumber that could lag behind (or ahead of) eth_call.
       getBlockNumber: async ({ signal } = {}) => {
@@ -162,5 +199,11 @@ const configuredRegistry = createConfiguredRegistry({
   rpcUrl: process.env.EXPO_PUBLIC_RPC_URL,
 });
 
-export const { listActiveDevices, lookupDeviceKey, lookupHandle, lookupOwner } =
-  configuredRegistry;
+export const {
+  latestTimestamp,
+  listActiveDevices,
+  lookupDeviceKey,
+  lookupHandle,
+  lookupOwner,
+  lookupQid,
+} = configuredRegistry;

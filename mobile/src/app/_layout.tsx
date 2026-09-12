@@ -104,6 +104,11 @@ const AppStack = () => {
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="chat/[id]" options={{ title: "Chat" }} />
             <Stack.Screen name="new-chat" options={{ title: "New chat" }} />
+            <Stack.Screen name="devices" options={{ title: "Devices" }} />
+            <Stack.Screen
+              name="devices-link"
+              options={{ title: "Link device" }}
+            />
           </Stack.Protected>
         </Stack>
       </BlurTargetProvider>

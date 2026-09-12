@@ -1,15 +1,17 @@
 # @qop/api
 
-QOP's API handles invitation-gated registration. It verifies an owner-signed EIP-712 registration intent, claims a single-use admission code, adds the registrar signature, and relays the transaction to the registry.
+QOP's API handles invitation-gated registration and sponsored add/remove device actions. It verifies owner-signed EIP-712 intents and relays transactions to the registry. It never receives owner secrets and cannot approve devices by itself.
 
-The HTTP API has two registration routes:
+The HTTP API groups are:
 
 - `POST /v1/registrations` validates and submits a complete registration.
 - `GET /v1/registrations/:digest` reconciles a submitted registration with the confirmed registry state and may rebroadcast its transaction.
+- `POST /v1/device-actions` validates and submits an owner-signed add or remove.
+- `GET /v1/device-actions/:digest` reconciles a sponsored device action from its stored transaction receipt and matching registry event.
 
 OpenAPI is available at `GET /openapi.json`.
 
-Postgres stores admission codes, registration progress, and relayer nonce allocation. The registry remains authoritative for accounts. Each confirmed account includes its Ed25519 device key, so clients resolve handles over RPC. After registration confirms, the client never needs this service again.
+Postgres stores admission codes, registration progress, device-action intents, and shared relayer nonce allocation. The registry remains authoritative for accounts. Clients resolve handles and device membership over RPC. Registration and later device-roster changes both use this service.
 
 `REGISTRATION_PRIVATE_KEY` signs gated registration intents. `RELAYER_PRIVATE_KEY` pays gas and submits them. Use separate keys so the funded relayer cannot authorize registrations.
 

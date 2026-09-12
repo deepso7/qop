@@ -524,6 +524,92 @@ export const signWipeDevicesIntentV1 = Effect.fn(
   );
 });
 
+export const signAddDeviceIntentV1 = Effect.fn(
+  "@qop/identity/signAddDeviceIntentV1"
+)(function* (
+  domain: IdentityDomain,
+  intent: AddDeviceIntentV1,
+  input: Uint8Array
+) {
+  yield* validateAddDeviceInputs("sign-add-device-intent", domain, intent);
+  const privateKey = yield* Schema.decodeUnknownEffect(OwnerPrivateKey)(
+    input
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new IdentityCryptoError({ cause, operation: "sign-add-device-intent" })
+    )
+  );
+  const account = yield* Effect.try({
+    catch: (cause) =>
+      new IdentityCryptoError({ cause, operation: "sign-add-device-intent" }),
+    try: () => privateKeyToAccount(toHex(privateKey)),
+  });
+  const signature = yield* Effect.tryPromise({
+    catch: (cause) =>
+      new IdentityCryptoError({ cause, operation: "sign-add-device-intent" }),
+    try: () =>
+      account.signTypedData(makeAddDeviceIntentTypedDataV1(domain, intent)),
+  });
+  return yield* normalizeEcdsaSignature(signature).pipe(
+    Effect.mapError(
+      (cause) =>
+        new IdentityCryptoError({ cause, operation: "sign-add-device-intent" })
+    )
+  );
+});
+
+export const signRemoveDeviceIntentV1 = Effect.fn(
+  "@qop/identity/signRemoveDeviceIntentV1"
+)(function* (
+  domain: IdentityDomain,
+  intent: RemoveDeviceIntentV1,
+  input: Uint8Array
+) {
+  yield* validateRemoveDeviceInputs(
+    "sign-remove-device-intent",
+    domain,
+    intent
+  );
+  const privateKey = yield* Schema.decodeUnknownEffect(OwnerPrivateKey)(
+    input
+  ).pipe(
+    Effect.mapError(
+      (cause) =>
+        new IdentityCryptoError({
+          cause,
+          operation: "sign-remove-device-intent",
+        })
+    )
+  );
+  const account = yield* Effect.try({
+    catch: (cause) =>
+      new IdentityCryptoError({
+        cause,
+        operation: "sign-remove-device-intent",
+      }),
+    try: () => privateKeyToAccount(toHex(privateKey)),
+  });
+  const signature = yield* Effect.tryPromise({
+    catch: (cause) =>
+      new IdentityCryptoError({
+        cause,
+        operation: "sign-remove-device-intent",
+      }),
+    try: () =>
+      account.signTypedData(makeRemoveDeviceIntentTypedDataV1(domain, intent)),
+  });
+  return yield* normalizeEcdsaSignature(signature).pipe(
+    Effect.mapError(
+      (cause) =>
+        new IdentityCryptoError({
+          cause,
+          operation: "sign-remove-device-intent",
+        })
+    )
+  );
+});
+
 export const signRecoverOwnerIntentV1 = Effect.fn(
   "@qop/identity/signRecoverOwnerIntentV1"
 )(function* (
