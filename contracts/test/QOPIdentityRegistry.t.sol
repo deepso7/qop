@@ -205,6 +205,28 @@ contract QOPIdentityRegistryTest is Test {
         assertEq(registry.activeDeviceCount(qid), 1);
     }
 
+    function test_recoverOwnerRequiresTheNewOwnerToProveControl() public {
+        uint256 qid = _register("alice", OWNER_KEY, keccak256("registration"));
+        address newOwner = vm.addr(SECOND_OWNER_KEY);
+        QOPIdentityRegistry.RecoverOwnerIntent memory intent = QOPIdentityRegistry.RecoverOwnerIntent({
+            qid: qid, newOwner: newOwner, nonce: 0, deadline: deadline
+        });
+        bytes32 digest = registry.hashRecoverOwnerIntent(intent);
+
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                QOPIdentityRegistry.InvalidNewOwnerSignature.selector, vm.addr(REGISTRATION_SIGNER_KEY), newOwner
+            )
+        );
+        registry.recoverOwner(intent, _sign(OWNER_KEY, digest), _sign(REGISTRATION_SIGNER_KEY, digest));
+
+        QOPIdentityRegistry.Account memory stored = registry.account(qid);
+        assertEq(stored.owner, owner);
+        assertEq(stored.ownerVersion, 0);
+        assertEq(stored.nonce, 0);
+        assertEq(registry.activeDeviceCount(qid), 1);
+    }
+
     function test_assignsSequentialQidsAndPermanentHandles() public {
         uint256 firstQid = _register("alice", OWNER_KEY, keccak256("first"));
         uint256 secondQid = _register("bob", SECOND_OWNER_KEY, keccak256("second"));

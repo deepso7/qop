@@ -1,6 +1,6 @@
 # Multi-device authorization plan
 
-Status: auth model, hard-cut, recovery wipe-all, and **live revocation on existing connections** are **LOCKED** (must-have for MVP). On resume: invalidate cached authorization (required design rule under live revoke). History preserve on remove is a **strong proposal** (treat as requirement unless overridden). Max auth age **value**, chain finality policy, RPC-failure behavior, API/contact tightenings, device-cap details, planned `rotateOwner` keep-devices, and auth-before-sync sequencing remain **proposal**. Protocol defaults under open decisions are recommended until locked. This document brings the auth plan into PR #9 so implementation does not depend on Cursor Project store files.
+Status: auth model, hard-cut, recovery wipe-all, and **live revocation on existing connections** are **LOCKED** (must-have for MVP). On resume: invalidate cached authorization (required design rule under live revoke). History preserve on remove is a **strong proposal** (treat as requirement unless overridden). Max auth age value is **implemented** at **60s** monotonic elapsed time. Chain finality policy, RPC-failure behavior, API/contact tightenings, device-cap details, planned `rotateOwner` keep-devices, and auth-before-sync sequencing remain **proposal**. Protocol defaults under open decisions are recommended until locked. This document brings the auth plan into PR #9 so implementation does not depend on Cursor Project store files.
 
 ## Decision table
 
@@ -9,9 +9,9 @@ Status: auth model, hard-cut, recovery wipe-all, and **live revocation on existi
 | On-chain multi-device keys (`addDevice` / `removeDevice`) | **LOCKED** | Owner custody; `qidByDeviceKey` for every active key |
 | Hard-cut / breaking OK | **LOCKED** | No legacy primary-key compatibility path |
 | Owner recovery after compromise → wipe all devices | **LOCKED** | Devices must be re-added |
-| Live revocation on existing connections | **LOCKED** | Must-have for MVP; not next-connect-only. On resume: invalidate cached auth + fresh registry verify. Age/finality/RPC values below stay proposal |
+| Live revocation on existing connections | **LOCKED** | Must-have for MVP; not next-connect-only. On resume: invalidate cached auth + fresh registry verify. Finality/RPC values below stay proposal |
 | History preserve on device remove | **Strong proposal** | Treat as requirement unless overridden |
-| Max authorization age value | **Proposal** | Recommended: **60s monotonic elapsed time** (not wall-clock) |
+| Max authorization age value | **Implemented** | **60s** monotonic elapsed time (`MAX_AUTH_AGE_MS`) |
 | Chain finality policy | **Proposal** | Define before implementation |
 | RPC-failure behavior after age | **Proposal** | Recommended: refuse sensitive ops (no silent extend) |
 | Contact/`keyChanged` / device roster | **Proposal** | Second authorized device is not `keyChanged` |
@@ -30,7 +30,7 @@ Requirements:
 - **LOCKED:** Owner-signed `addDevice` and `removeDevice` operations use EIP-712, nonces, and deadlines. The owner or recovery secret never goes to the CLI.
 - **LOCKED:** Replace the single-device account and client model directly. No legacy primary-key compatibility path.
 - **LOCKED:** Every active device key maps to its account through `qidByDeviceKey`.
-- **LOCKED:** Revocation applies within a defined bound on **existing** connections, as well as new connections. “Next connect only” is rejected as the sole revoke story. (Exact age, finality, and RPC-failure defaults remain **proposal** below.)
+- **LOCKED:** Revocation applies within a defined bound on **existing** connections, as well as new connections. “Next connect only” is rejected as the sole revoke story. Max auth age is **implemented** at **60s**; finality and RPC-failure defaults remain **proposal** below.
 - **LOCKED:** Owner recovery after compromise removes all devices. They must be enrolled again.
 - **Strong proposal:** Removing a device preserves already accepted conversation history.
 - **Proposal:** Connecting another authorized device does not trigger an identity-key mismatch warning (`keyChanged`).
@@ -68,7 +68,7 @@ Provide active membership lookup by device key (`lookupDeviceKey`) and active-de
 
 Verification answers whether a connected key belongs to Alice. Enumeration (`listActiveDevices`) identifies authorized peer IDs for dial, handoff, and UI roster. Neither proves that a device is currently reachable.
 
-### 3. Bound live authorization (**LOCKED** requirement; age/finality/RPC values **proposal**)
+### 3. Bound live authorization (**LOCKED** requirement; **60s age implemented**; finality/RPC **proposal**)
 
 Today `p2p-sessions` caches `session.contact` for the connection’s life and skips further `lookupDeviceKey` once set. That is insufficient for an always-on CLI: after `removeDevice`, Bob must stop accepting that peer on an **existing** P2P connection within a defined bound.
 
@@ -82,7 +82,7 @@ Replace connection-lifetime trust with time-bounded authorization. Record the ve
 
 Recheck before the authorization age expires while running. Invalidate access on observed removal or a failed membership check. When a fresh read fails, access must stop once the allowed age expires. Chain event notifications may accelerate revocation but cannot be its sole mechanism.
 
-Define the chain finality policy and maximum authorization age before implementation (**proposal** until locked). Recommended until locked: max authorization age **60s monotonic elapsed time** since last successful fresh registry confirm for that connection while running; on RPC error during recheck, keep prior auth only until that age, then **refuse** sensitive ops (no silent extend). State the bound relative to revocation becoming visible under that policy. Never refresh the age of cached authorization merely because an RPC request failed or returned stale/cached success.
+Define the chain finality policy before treating revoke latency as fully locked (**proposal** until locked). **Implemented:** max authorization age **60s monotonic elapsed time** since last successful fresh registry confirm for that connection while running (`MAX_AUTH_AGE_MS`). On RPC error during recheck, keep prior auth only until that age, then **refuse** sensitive ops (no silent extend) — RPC-failure behavior remains **proposal**. State the bound relative to revocation becoming visible under that policy. Never refresh the age of cached authorization merely because an RPC request failed or returned stale/cached success.
 
 ### 4. Update sessions and contacts
 
@@ -98,7 +98,7 @@ The transaction sender, fee payment, pairing transport, and approval UI remain t
 
 ## Open decisions before coding
 
-- Exact maximum authorization age (**proposal**; recommended **60s monotonic elapsed time** while running), chain finality policy, and RPC failure behavior (**proposal**; recommended refuse after age — no silent extend). Live revoke itself is **LOCKED**. Resume → invalidate cached auth is a **required** design rule under that lock.
+- Maximum authorization age (**implemented**: **60s** monotonic elapsed time while running), chain finality policy, and RPC failure behavior (**proposal**; recommended refuse after age — no silent extend). Live revoke itself is **LOCKED**. Resume → invalidate cached auth is a **required** design rule under that lock.
 - Whether ordinary owner rotation retains devices (**proposal**), and how recovery invalidation is represented (**LOCKED** wipe-all on compromise recovery).
 - Active-device cap, zero-device accounts, removed-key reuse, and atomic replacement (**proposal**; recommended defaults above until locked).
 - Pairing protocol and transaction submission, including fees.

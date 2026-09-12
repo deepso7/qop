@@ -1,7 +1,7 @@
 import { Data, Effect } from "effect";
 
 export class RegistryWriteError extends Data.TaggedError("RegistryWriteError")<{
-  readonly operation: "rpc" | "sign";
+  readonly operation: "configuration" | "rpc" | "sign";
 }> {}
 
 export interface WipeDevicesSubmission {
@@ -96,3 +96,28 @@ export const submitRecoverOwner = Effect.fn("RegistryWrite.submitRecoverOwner")(
     });
   }
 );
+
+export interface RegistryWriteDependencies {
+  readonly client: RegistryWriteClient;
+  readonly recoverAbi: readonly unknown[];
+  readonly registryAddress: `0x${string}`;
+  readonly wipeAbi: readonly unknown[];
+}
+
+/** Bound write helpers for a configured registry address + client. */
+export const createRegistryWrite = ({
+  client,
+  recoverAbi,
+  registryAddress,
+  wipeAbi,
+}: RegistryWriteDependencies) => {
+  const wipeDevices = Effect.fn("RegistryWrite.wipeDevices")(
+    (submission: WipeDevicesSubmission) =>
+      submitWipeDevices({ client, registryAddress, submission, wipeAbi })
+  );
+  const recoverOwner = Effect.fn("RegistryWrite.recoverOwner")(
+    (submission: RecoverOwnerSubmission) =>
+      submitRecoverOwner({ client, recoverAbi, registryAddress, submission })
+  );
+  return { recoverOwner, wipeDevices };
+};

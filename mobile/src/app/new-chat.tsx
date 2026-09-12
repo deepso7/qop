@@ -73,15 +73,21 @@ const NewChatRoute = () => {
       setResult(null);
     } else {
       setResult(lookup.success);
+      if (!(lookup.success.deviceKey && lookup.success.peerId)) {
+        setMessage("This account has no active device yet.");
+      }
     }
     setLookingUp(false);
   }, [handle, isValid, lookingUp, ownHandle]);
+
+  const hasReachableDevice = Boolean(result?.deviceKey && result?.peerId);
 
   const startChat = React.useCallback(async () => {
     if (!result || opening) {
       return;
     }
-    if (!result.deviceKey || !result.peerId) {
+    if (!(result.deviceKey && result.peerId)) {
+      setMessage("This account has no active device yet.");
       return;
     }
     setMessage(undefined);
@@ -189,7 +195,10 @@ const NewChatRoute = () => {
                   Peer {(result.peerId ?? "none").slice(0, 12)}…
                 </Text>
               </View>
-              <Button disabled={opening} onPress={startChat}>
+              <Button
+                disabled={opening || !hasReachableDevice}
+                onPress={startChat}
+              >
                 {opening ? (
                   <ActivityIndicator colorClassName="accent-primary-foreground" />
                 ) : null}

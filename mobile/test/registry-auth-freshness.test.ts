@@ -51,32 +51,43 @@ const membershipAccount = ({
   return 0n;
 };
 
+const freshReaderSessions = (clock: () => number) => {
+  let head = 10n;
+  const getBlockNumber = vi.fn(() => Promise.resolve(head));
+  const readContract = vi.fn((parameters) => {
+    expect(parameters.blockNumber).toBe(head);
+    return Promise.resolve(membershipAccount(parameters));
+  });
+  const reader = createRegistryReader({
+    client: { getBlockNumber, readContract },
+  });
+  const sessions = createPeerSessions({
+    getContactByQid: () => Promise.resolve(contact),
+    lookupDeviceKey: (deviceKey) => reader.lookupDeviceKey(deviceKey),
+    lookupHandle: (handle) => reader.lookupHandle(handle),
+    now: clock,
+    upsertContact: () => Promise.resolve(),
+  });
+  sessions.opened(cliConnection);
+  return {
+    advanceHead: () => {
+      head += 1n;
+    },
+    getBlockNumber,
+    sessions,
+  };
+};
+
 /**
  * Production-path proof: freshness is produced by createRegistryReader
  * (pinned head), not by a session mock injecting freshness: "stale".
  */
 describe("registry reader auth freshness", () => {
   it("does not extend live auth when the reader keeps returning the same head", async () => {
-    let head = 10n;
-    const getBlockNumber = vi.fn(() => Promise.resolve(head));
-    const readContract = vi.fn((parameters) => {
-      expect(parameters.blockNumber).toBe(head);
-      return Promise.resolve(membershipAccount(parameters));
-    });
-
-    const reader = createRegistryReader({
-      client: { getBlockNumber, readContract },
-    });
-
     let clock = 0;
-    const sessions = createPeerSessions({
-      getContactByQid: () => Promise.resolve(contact),
-      lookupDeviceKey: (deviceKey) => reader.lookupDeviceKey(deviceKey),
-      lookupHandle: (handle) => reader.lookupHandle(handle),
-      now: () => clock,
-      upsertContact: () => Promise.resolve(),
-    });
-    sessions.opened(cliConnection);
+    const { advanceHead, getBlockNumber, sessions } = freshReaderSessions(
+      () => clock
+    );
 
     await Effect.runPromise(sessions.verify(cliConnection, "alice"));
     expect(sessions.isVerified(cliConnection, "1")).toBe(true);
@@ -93,7 +104,7 @@ describe("registry reader auth freshness", () => {
     expect(sessions.isVerified(cliConnection, "1")).toBe(false);
 
     // A newer head is a real confirm and may refresh.
-    head = 11n;
+    advanceHead();
     await expect(
       Effect.runPromise(sessions.verify(cliConnection, "alice"))
     ).resolves.toMatchObject({ qid: "1" });
@@ -101,26 +112,7 @@ describe("registry reader auth freshness", () => {
   });
 
   it("does not remint auth after resume when the reader replays the same head", async () => {
-    let head = 10n;
-    const getBlockNumber = vi.fn(() => Promise.resolve(head));
-    const readContract = vi.fn((parameters) => {
-      expect(parameters.blockNumber).toBe(head);
-      return Promise.resolve(membershipAccount(parameters));
-    });
-
-    const reader = createRegistryReader({
-      client: { getBlockNumber, readContract },
-    });
-
-    const clock = 0;
-    const sessions = createPeerSessions({
-      getContactByQid: () => Promise.resolve(contact),
-      lookupDeviceKey: (deviceKey) => reader.lookupDeviceKey(deviceKey),
-      lookupHandle: (handle) => reader.lookupHandle(handle),
-      now: () => clock,
-      upsertContact: () => Promise.resolve(),
-    });
-    sessions.opened(cliConnection);
+    const { advanceHead, sessions } = freshReaderSessions(() => 0);
 
     await Effect.runPromise(sessions.verify(cliConnection, "alice"));
     expect(sessions.isVerified(cliConnection, "1")).toBe(true);
@@ -137,7 +129,7 @@ describe("registry reader auth freshness", () => {
     expect(sessions.isVerified(cliConnection, "1")).toBe(false);
 
     // A newer live head may restore auth.
-    head = 11n;
+    advanceHead();
     await expect(
       Effect.runPromise(sessions.verify(cliConnection, "alice"))
     ).resolves.toMatchObject({ qid: "1" });

@@ -2,9 +2,12 @@ import { Effect, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  createConfiguredRegistryWrite,
+  createRegistryWrite,
+  registryWriteAbi,
   submitRecoverOwner,
   submitWipeDevices,
-} from "@/lib/registry-write-core";
+} from "@/lib/registry-write";
 
 describe("registry write submit", () => {
   it("submits wipeDevices with the signed intent", async () => {
@@ -86,5 +89,70 @@ describe("registry write submit", () => {
       ],
       functionName: "recoverOwner",
     });
+  });
+
+  it("exposes a bound production facade over wipe and recover", async () => {
+    const writeContract = vi.fn(() => Promise.resolve("0xcafe" as const));
+    const { wipeDevices, recoverOwner } = createRegistryWrite({
+      client: { writeContract },
+      recoverAbi: registryWriteAbi,
+      registryAddress: "0x1111111111111111111111111111111111111111",
+      wipeAbi: registryWriteAbi,
+    });
+
+    await Effect.runPromise(
+      wipeDevices({
+        deadline: 1n,
+        nonce: 0n,
+        qid: 1n,
+        signature: `0x${"11".repeat(65)}`,
+      })
+    );
+    await Effect.runPromise(
+      recoverOwner({
+        deadline: 2n,
+        newOwner: "0x2222222222222222222222222222222222222222",
+        newOwnerSignature: `0x${"22".repeat(65)}`,
+        nonce: 1n,
+        ownerSignature: `0x${"33".repeat(65)}`,
+        qid: 1n,
+      })
+    );
+
+    expect(writeContract).toHaveBeenCalledTimes(2);
+    expect(writeContract).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        abi: registryWriteAbi,
+        functionName: "wipeDevices",
+      })
+    );
+    expect(writeContract).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        abi: registryWriteAbi,
+        functionName: "recoverOwner",
+      })
+    );
+  });
+
+  it("fails closed when the configured registry address is missing", async () => {
+    const createClient = vi.fn();
+    const { wipeDevices } = createConfiguredRegistryWrite({
+      createClient,
+      registryAddress: undefined,
+    });
+    const result = await Effect.runPromise(
+      wipeDevices({
+        deadline: 1n,
+        nonce: 0n,
+        qid: 1n,
+        signature: `0x${"00".repeat(65)}`,
+      }).pipe(Effect.result)
+    );
+    expect(Result.isFailure(result) && result.failure.operation).toBe(
+      "configuration"
+    );
+    expect(createClient).not.toHaveBeenCalled();
   });
 });

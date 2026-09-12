@@ -187,21 +187,21 @@ describe("multi-device connection authorization", () => {
     expect(sessions.isVerified(phoneConnection, "1")).toBe(true);
   });
 
-  it("measures auth age with monotonic elapsed time, not wall clock", async () => {
-    let monotonic = 0;
+  it("measures auth age by the injected now() clock", async () => {
+    let clock = 0;
     const { lookupDeviceKey, sessions } = fixture({
-      now: () => monotonic,
+      now: () => clock,
     });
     await Effect.runPromise(sessions.verify(phoneConnection, "alice"));
     lookupDeviceKey.mockReturnValue(
       Effect.fail(new RegistryReaderError({ operation: "rpc" }))
     );
-    // Wall-clock jump must not matter; only monotonic advance does.
-    monotonic += MAX_AUTH_AGE_MS - 1;
+    // Auth age follows the injected now() advance, not an implicit wall clock.
+    clock += MAX_AUTH_AGE_MS - 1;
     await expect(
       Effect.runPromise(sessions.verify(phoneConnection, "alice"))
     ).resolves.toMatchObject({ qid: "1" });
-    monotonic += 2;
+    clock += 2;
     const refused = await Effect.runPromise(
       sessions.verify(phoneConnection, "alice").pipe(Effect.result)
     );

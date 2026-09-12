@@ -36,6 +36,7 @@ import {
   recoverRemoveDeviceIntentSignerV1,
   recoverRotateOwnerIntentSignerV1,
   recoverWipeDevicesIntentSignerV1,
+  RecoverOwnerIntentV1,
   RegisterIntentV1,
   RemoveDeviceIntentV1,
   RotateOwnerIntentV1,
@@ -393,6 +394,11 @@ describe("registry intents", () => {
           WipeDevicesIntentV1,
           encodedWipeDevicesIntent,
           "Unexpected wipe-devices intent field",
+        ],
+        [
+          RecoverOwnerIntentV1,
+          encodedRecoverOwnerIntent,
+          "Unexpected owner recovery intent field",
         ],
       ] as const) {
         const error = yield* Schema.decodeUnknownEffect(schema)({

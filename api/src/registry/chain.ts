@@ -142,7 +142,6 @@ export class RegistryChain extends Context.Service<
         return {
           blockNumber,
           value: {
-            deviceKey: devices[0] ?? null,
             devices,
             handle,
             nonce,
