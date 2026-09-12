@@ -208,6 +208,19 @@ describe("multi-device connection authorization", () => {
     expect(Result.isFailure(refused) && refused.failure.operation).toBe("rpc");
   });
 
+  it("expires auth from registry confirm time, not after slow storage", async () => {
+    const storageDelayMs = 9_000;
+    const { advance, sessions, upsertContact } = fixture();
+    upsertContact.mockImplementation(async () => {
+      advance(storageDelayMs);
+    });
+    await Effect.runPromise(sessions.verify(phoneConnection, "alice"));
+    expect(sessions.isVerified(phoneConnection, "1")).toBe(true);
+    // Still inside post-storage 60s, but past confirm + 60s.
+    advance(MAX_AUTH_AGE_MS - storageDelayMs + 1);
+    expect(sessions.isVerified(phoneConnection, "1")).toBe(false);
+  });
+
   it("routes outgoing messages to a live authorized device peer", async () => {
     const { sessions } = fixture();
     await Effect.runPromise(sessions.verify(cliConnection, "alice"));

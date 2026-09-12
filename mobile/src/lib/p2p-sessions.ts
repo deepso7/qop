@@ -188,6 +188,9 @@ export const createPeerSessions = ({
                 operation: "identity",
               });
             }
+            // Auth window starts at registry confirmation, not after storage.
+            // Slow DB/upsert must not stretch live auth past MAX_AUTH_AGE_MS.
+            const confirmedAtMs = now();
             const fresh: ContactInput = {
               createdAt: Number(account.registeredAt) * 1000,
               deviceKey: deviceKeyHex,
@@ -218,7 +221,7 @@ export const createPeerSessions = ({
             };
             session.lastConfirmedBlockNumber = account.blockNumber;
             session.authorization = {
-              confirmedAtMs: now(),
+              confirmedAtMs,
               confirmedBlockNumber: account.blockNumber,
               contact,
               deviceKey: deviceKeyHex,
