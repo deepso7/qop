@@ -182,10 +182,7 @@ export const createPeerSessions = ({
             // RPC replaying the old membership cannot remint auth age.
             // Require freshness === "fresh" (above) AND a strictly newer head.
             const priorBlock = session.lastConfirmedBlockNumber;
-            if (
-              priorBlock !== undefined &&
-              account.blockNumber <= priorBlock
-            ) {
+            if (priorBlock !== undefined && account.blockNumber <= priorBlock) {
               session.authorization = undefined;
               return yield* new PeerVerificationError({
                 operation: "identity",
@@ -236,7 +233,7 @@ export const createPeerSessions = ({
     contact: Pick<Contact, "handle" | "qid">
   ) {
     for (const session of sessions.values()) {
-      const authorization = session.authorization;
+      const { authorization } = session;
       if (
         authorization &&
         authorization.contact.qid === contact.qid &&
@@ -259,9 +256,7 @@ export const createPeerSessions = ({
     }
     // Prefer a live connected peer among active devices; else first active.
     for (const session of sessions.values()) {
-      if (
-        account.devices.some((device) => device.peerId === session.peerId)
-      ) {
+      if (account.devices.some((device) => device.peerId === session.peerId)) {
         return session.peerId;
       }
     }

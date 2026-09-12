@@ -8,7 +8,7 @@ import {
 
 describe("registry write submit", () => {
   it("submits wipeDevices with the signed intent", async () => {
-    const writeContract = vi.fn(async () => "0xabc" as const);
+    const writeContract = vi.fn(() => Promise.resolve("0xabc" as const));
     const hash = await Effect.runPromise(
       submitWipeDevices({
         client: { writeContract },
@@ -38,9 +38,7 @@ describe("registry write submit", () => {
     const result = await Effect.runPromise(
       submitWipeDevices({
         client: {
-          writeContract: async () => {
-            throw new Error("rpc down");
-          },
+          writeContract: () => Promise.reject(new Error("rpc down")),
         },
         registryAddress: "0x1111111111111111111111111111111111111111",
         submission: {
@@ -56,7 +54,7 @@ describe("registry write submit", () => {
   });
 
   it("submits recoverOwner with owner and newOwner signatures", async () => {
-    const writeContract = vi.fn(async () => "0xdef" as const);
+    const writeContract = vi.fn(() => Promise.resolve("0xdef" as const));
     const hash = await Effect.runPromise(
       submitRecoverOwner({
         client: { writeContract },

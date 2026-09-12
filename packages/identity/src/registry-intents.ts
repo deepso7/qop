@@ -496,7 +496,10 @@ export const signWipeDevicesIntentV1 = Effect.fn(
   ).pipe(
     Effect.mapError(
       (cause) =>
-        new IdentityCryptoError({ cause, operation: "sign-wipe-devices-intent" })
+        new IdentityCryptoError({
+          cause,
+          operation: "sign-wipe-devices-intent",
+        })
     )
   );
   const account = yield* Effect.try({
@@ -513,7 +516,10 @@ export const signWipeDevicesIntentV1 = Effect.fn(
   return yield* normalizeEcdsaSignature(signature).pipe(
     Effect.mapError(
       (cause) =>
-        new IdentityCryptoError({ cause, operation: "sign-wipe-devices-intent" })
+        new IdentityCryptoError({
+          cause,
+          operation: "sign-wipe-devices-intent",
+        })
     )
   );
 });
@@ -525,30 +531,46 @@ export const signRecoverOwnerIntentV1 = Effect.fn(
   intent: RecoverOwnerIntentV1,
   input: Uint8Array
 ) {
-  yield* validateRecoverOwnerInputs("sign-recover-owner-intent", domain, intent);
+  yield* validateRecoverOwnerInputs(
+    "sign-recover-owner-intent",
+    domain,
+    intent
+  );
   const privateKey = yield* Schema.decodeUnknownEffect(OwnerPrivateKey)(
     input
   ).pipe(
     Effect.mapError(
       (cause) =>
-        new IdentityCryptoError({ cause, operation: "sign-recover-owner-intent" })
+        new IdentityCryptoError({
+          cause,
+          operation: "sign-recover-owner-intent",
+        })
     )
   );
   const account = yield* Effect.try({
     catch: (cause) =>
-      new IdentityCryptoError({ cause, operation: "sign-recover-owner-intent" }),
+      new IdentityCryptoError({
+        cause,
+        operation: "sign-recover-owner-intent",
+      }),
     try: () => privateKeyToAccount(toHex(privateKey)),
   });
   const signature = yield* Effect.tryPromise({
     catch: (cause) =>
-      new IdentityCryptoError({ cause, operation: "sign-recover-owner-intent" }),
+      new IdentityCryptoError({
+        cause,
+        operation: "sign-recover-owner-intent",
+      }),
     try: () =>
       account.signTypedData(makeRecoverOwnerIntentTypedDataV1(domain, intent)),
   });
   return yield* normalizeEcdsaSignature(signature).pipe(
     Effect.mapError(
       (cause) =>
-        new IdentityCryptoError({ cause, operation: "sign-recover-owner-intent" })
+        new IdentityCryptoError({
+          cause,
+          operation: "sign-recover-owner-intent",
+        })
     )
   );
 });
@@ -738,36 +760,31 @@ export const recoverRecoverOwnerIntentSignerV1 = Effect.fn(
 
 export const recoverAddDeviceIntentSignerV1 = Effect.fn(
   "@qop/identity/recoverAddDeviceIntentSignerV1"
-)(
-  (
-    domain: IdentityDomain,
-    intent: AddDeviceIntentV1,
-    signature: Uint8Array
-  ) =>
-    validateAddDeviceInputs(
-      "recover-add-device-intent-signer",
-      domain,
-      intent
-    ).pipe(
-      Effect.andThen(
-        validateSignature("recover-add-device-intent-signer", signature)
-      ),
-      Effect.flatMap(() =>
-        Effect.tryPromise({
-          catch: (cause) =>
-            new IdentityCryptoError({
-              cause,
-              operation: "recover-add-device-intent-signer",
-            }),
-          try: () =>
-            recoverTypedDataAddress({
-              ...makeAddDeviceIntentTypedDataV1(domain, intent),
-              signature: toViemSignature(signature),
-            }),
-        })
-      ),
-      Effect.map((address) => address.toLowerCase())
-    )
+)((domain: IdentityDomain, intent: AddDeviceIntentV1, signature: Uint8Array) =>
+  validateAddDeviceInputs(
+    "recover-add-device-intent-signer",
+    domain,
+    intent
+  ).pipe(
+    Effect.andThen(
+      validateSignature("recover-add-device-intent-signer", signature)
+    ),
+    Effect.flatMap(() =>
+      Effect.tryPromise({
+        catch: (cause) =>
+          new IdentityCryptoError({
+            cause,
+            operation: "recover-add-device-intent-signer",
+          }),
+        try: () =>
+          recoverTypedDataAddress({
+            ...makeAddDeviceIntentTypedDataV1(domain, intent),
+            signature: toViemSignature(signature),
+          }),
+      })
+    ),
+    Effect.map((address) => address.toLowerCase())
+  )
 );
 
 export const recoverRemoveDeviceIntentSignerV1 = Effect.fn(

@@ -38,9 +38,9 @@ let nextNonce = 1;
 
 const account = (owner = OWNER, handle = "alice") => ({
   blockNumber: 1n,
-  freshness: "fresh",
   deviceKey: DEVICE_KEY,
   devices: [{ deviceKey: DEVICE_KEY, peerId: PEER_ID }],
+  freshness: "fresh",
   handle,
   owner,
   ownerVersion: 1,

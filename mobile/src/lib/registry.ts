@@ -115,13 +115,6 @@ const configuredRegistry = createConfiguredRegistry({
   createClient: (rpcUrl, registryAddress) => {
     const publicClient = createPublicClient({ transport: http(rpcUrl) });
     return {
-      getChainId: async ({ signal } = {}) => {
-        const chainId = await publicClient.request(
-          { method: "eth_chainId" },
-          { dedupe: true, signal }
-        );
-        return Number(chainId);
-      },
       // Membership freshness depends on a current head — never reuse a
       // deduped eth_blockNumber that could lag behind (or ahead of) eth_call.
       getBlockNumber: async ({ signal } = {}) => {
@@ -131,15 +124,32 @@ const configuredRegistry = createConfiguredRegistry({
         );
         return BigInt(blockNumber);
       },
+      getChainId: async ({ signal } = {}) => {
+        const chainId = await publicClient.request(
+          { method: "eth_chainId" },
+          { dedupe: true, signal }
+        );
+        return Number(chainId);
+      },
       readContract: async (parameters, { signal } = {}) => {
         const { blockNumber, ...rest } = parameters;
+        const request =
+          blockNumber === undefined
+            ? {
+                ...rest,
+                address: registryAddress,
+                requestOptions: { signal },
+              }
+            : {
+                ...rest,
+                address: registryAddress,
+                blockNumber,
+                requestOptions: { signal },
+              };
         // SAFETY: The bound address and ABI were validated before this call.
-        const result = await publicClient.readContract({
-          ...rest,
-          address: registryAddress,
-          ...(blockNumber === undefined ? {} : { blockNumber }),
-          requestOptions: { signal },
-        } as Parameters<typeof publicClient.readContract>[0]);
+        const result = await publicClient.readContract(
+          request as Parameters<typeof publicClient.readContract>[0]
+        );
         // SAFETY: The fixed ABI limits viem's result to the registry result union.
         return result as Awaited<
           ReturnType<RegistryReadClient["readContract"]>

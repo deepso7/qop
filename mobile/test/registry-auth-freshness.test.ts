@@ -2,14 +2,9 @@ import { Effect, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Contact } from "@/lib/db";
-import {
-  createPeerSessions,
-  MAX_AUTH_AGE_MS,
-} from "@/lib/p2p-sessions";
-import {
-  createRegistryReader,
-  type RegistryAccount,
-} from "@/lib/registry-core";
+import { createPeerSessions, MAX_AUTH_AGE_MS } from "@/lib/p2p-sessions";
+import { createRegistryReader } from "@/lib/registry-core";
+import type { RegistryAccount } from "@/lib/registry-core";
 
 const PEER_ALICE = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
 const PEER_CLI = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
@@ -63,10 +58,10 @@ const membershipAccount = ({
 describe("registry reader auth freshness", () => {
   it("does not extend live auth when the reader keeps returning the same head", async () => {
     let head = 10n;
-    const getBlockNumber = vi.fn(async () => head);
-    const readContract = vi.fn(async (parameters) => {
+    const getBlockNumber = vi.fn(() => Promise.resolve(head));
+    const readContract = vi.fn((parameters) => {
       expect(parameters.blockNumber).toBe(head);
-      return membershipAccount(parameters);
+      return Promise.resolve(membershipAccount(parameters));
     });
 
     const reader = createRegistryReader({
@@ -75,11 +70,11 @@ describe("registry reader auth freshness", () => {
 
     let clock = 0;
     const sessions = createPeerSessions({
-      getContactByQid: async () => contact,
+      getContactByQid: () => Promise.resolve(contact),
       lookupDeviceKey: (deviceKey) => reader.lookupDeviceKey(deviceKey),
       lookupHandle: (handle) => reader.lookupHandle(handle),
       now: () => clock,
-      upsertContact: async () => {},
+      upsertContact: () => Promise.resolve(),
     });
     sessions.opened(cliConnection);
 
@@ -107,23 +102,23 @@ describe("registry reader auth freshness", () => {
 
   it("does not remint auth after resume when the reader replays the same head", async () => {
     let head = 10n;
-    const getBlockNumber = vi.fn(async () => head);
-    const readContract = vi.fn(async (parameters) => {
+    const getBlockNumber = vi.fn(() => Promise.resolve(head));
+    const readContract = vi.fn((parameters) => {
       expect(parameters.blockNumber).toBe(head);
-      return membershipAccount(parameters);
+      return Promise.resolve(membershipAccount(parameters));
     });
 
     const reader = createRegistryReader({
       client: { getBlockNumber, readContract },
     });
 
-    let clock = 0;
+    const clock = 0;
     const sessions = createPeerSessions({
-      getContactByQid: async () => contact,
+      getContactByQid: () => Promise.resolve(contact),
       lookupDeviceKey: (deviceKey) => reader.lookupDeviceKey(deviceKey),
       lookupHandle: (handle) => reader.lookupHandle(handle),
       now: () => clock,
-      upsertContact: async () => {},
+      upsertContact: () => Promise.resolve(),
     });
     sessions.opened(cliConnection);
 
@@ -150,9 +145,9 @@ describe("registry reader auth freshness", () => {
   });
 
   it("marks untagged reader lookups stale so sessions refuse to mint auth age", async () => {
-    const readContract = vi.fn(async (parameters) => {
+    const readContract = vi.fn((parameters) => {
       expect(parameters.blockNumber).toBeUndefined();
-      return membershipAccount(parameters);
+      return Promise.resolve(membershipAccount(parameters));
     });
     const reader = createRegistryReader({ client: { readContract } });
     const account = await Effect.runPromise(
@@ -164,11 +159,11 @@ describe("registry reader auth freshness", () => {
     } satisfies Partial<RegistryAccount>);
 
     const sessions = createPeerSessions({
-      getContactByQid: async () => contact,
+      getContactByQid: () => Promise.resolve(contact),
       lookupDeviceKey: (deviceKey) => reader.lookupDeviceKey(deviceKey),
       lookupHandle: (handle) => reader.lookupHandle(handle),
       now: () => 0,
-      upsertContact: async () => {},
+      upsertContact: () => Promise.resolve(),
     });
     sessions.opened(cliConnection);
     const refused = await Effect.runPromise(

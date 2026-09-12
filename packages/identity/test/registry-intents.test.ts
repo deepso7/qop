@@ -25,7 +25,6 @@ import {
   hashRotateOwnerIntentV1,
   hashWipeDevicesIntentV1,
   makeAddDeviceIntentTypedDataV1,
-  makeRecoverOwnerIntentTypedDataV1,
   makeRegisterIntentTypedDataV1,
   makeRemoveDeviceIntentTypedDataV1,
   makeRotateOwnerIntentTypedDataV1,
@@ -37,7 +36,6 @@ import {
   recoverRemoveDeviceIntentSignerV1,
   recoverRotateOwnerIntentSignerV1,
   recoverWipeDevicesIntentSignerV1,
-  RecoverOwnerIntentV1,
   RegisterIntentV1,
   RemoveDeviceIntentV1,
   RotateOwnerIntentV1,
@@ -102,12 +100,12 @@ const encodedWipeDevicesIntent = {
 const expectedDigests = {
   addDevice:
     "0xc9a7d7b29736e26c6932c8047d84122012260032485952f2df658ccc3b251ca0",
+  recoverOwner:
+    "0x85177ecb06c719680cffda8b05c8c484a6c9bed3d0aa178aa8e1741170666b34",
   register:
     "0x53dc6c862551e88c6021e67e163d162b1491a6a6b5e92a85196d2f9cea4aca9a",
   removeDevice:
     "0x93d4098944b4086859554efbee5bd6c129c7649ee03b3de63145372fb4717603",
-  recoverOwner:
-    "0x85177ecb06c719680cffda8b05c8c484a6c9bed3d0aa178aa8e1741170666b34",
   rotateOwner:
     "0xcfd2c2208d584d29013cb01bbcd1f1ae5cef6c3546b82c682c52a66633e24c6c",
   wipeDevices:
@@ -287,9 +285,7 @@ describe("registry intents", () => {
         )
       ).pipe(Effect.flatMap(normalizeEcdsaSignature));
       const addDeviceSignature = yield* Effect.promise(() =>
-        account.signTypedData(
-          makeAddDeviceIntentTypedDataV1(domain, addDevice)
-        )
+        account.signTypedData(makeAddDeviceIntentTypedDataV1(domain, addDevice))
       ).pipe(Effect.flatMap(normalizeEcdsaSignature));
       const removeDeviceSignature = yield* Effect.promise(() =>
         account.signTypedData(
@@ -451,11 +447,7 @@ describe("registry intents", () => {
       );
 
       assert.strictEqual(
-        yield* recoverWipeDevicesIntentSignerV1(
-          domain,
-          wipeDevices,
-          signature
-        ),
+        yield* recoverWipeDevicesIntentSignerV1(domain, wipeDevices, signature),
         encodedRegisterIntent.owner
       );
     })
@@ -483,6 +475,4 @@ describe("registry intents", () => {
       );
     })
   );
-
-
 });

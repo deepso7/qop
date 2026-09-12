@@ -20,7 +20,6 @@ const frame = {
 const contact = { handle: "bob", peerId: "peer-stale", qid: "1" };
 const account: RegistryAccount = {
   blockNumber: 1n,
-  freshness: "fresh",
   deviceKey: `0x${"22".repeat(32)}`,
   devices: [
     {
@@ -28,6 +27,7 @@ const account: RegistryAccount = {
       peerId: PEER_BOB,
     },
   ],
+  freshness: "fresh",
   handle: "bob",
   owner: "0x0000000000000000000000000000000000000001",
   ownerVersion: 0,
@@ -54,7 +54,7 @@ const makeEndpoint = (read: () => Promise<Uint8Array | undefined>) => {
   const stream = {
     closeWrite: vi.fn(),
     connId: 1,
-    peerId: account.peerId!,
+    peerId: PEER_BOB,
     read: vi.fn(read),
     reset: vi.fn(),
     write: vi.fn(),
@@ -112,7 +112,7 @@ describe("performSend", () => {
     lookupHandle.mockReturnValue(
       Effect.fail(new RegistryReaderError({ operation: "rpc" }))
     );
-    endpoint.connectedPeers.mockReturnValue([account.peerId!]);
+    endpoint.connectedPeers.mockReturnValue([PEER_BOB]);
     stream.read.mockImplementation(ackReader(id));
     await performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 });
     expect(lookupHandle).toHaveBeenCalledTimes(handleCalls);

@@ -2,10 +2,7 @@ import { Effect, Result } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Contact } from "@/lib/db";
-import {
-  createPeerSessions,
-  MAX_AUTH_AGE_MS,
-} from "@/lib/p2p-sessions";
+import { createPeerSessions, MAX_AUTH_AGE_MS } from "@/lib/p2p-sessions";
 import { RegistryReaderError } from "@/lib/registry-core";
 import type { RegistryAccount } from "@/lib/registry-core";
 
@@ -17,24 +14,18 @@ const cliDeviceKey = `0x${"33".repeat(32)}` as const;
 
 const phoneAccount = (): RegistryAccount => ({
   blockNumber: 1n,
-  freshness: "fresh",
   deviceKey: phoneDeviceKey,
   devices: [
     { deviceKey: phoneDeviceKey, peerId: PEER_ALICE },
     { deviceKey: cliDeviceKey, peerId: PEER_CLI },
   ],
+  freshness: "fresh",
   handle: "alice",
   owner: "0x0000000000000000000000000000000000000001",
   ownerVersion: 0,
   peerId: PEER_ALICE,
   qid: 1n,
   registeredAt: 1_700_000_000n,
-});
-
-const cliAccount = (): RegistryAccount => ({
-  ...phoneAccount(),
-  deviceKey: cliDeviceKey,
-  peerId: PEER_CLI,
 });
 
 const contact: Contact = {
@@ -75,8 +66,8 @@ const fixture = (options?: { now?: () => number }) => {
       Effect.succeed(phoneAccount())
   );
   const upsertContact = vi.fn(() => Promise.resolve());
-  const getContactByQid = vi.fn(
-    (_qid: string): Promise<Contact | null> => Promise.resolve(contact)
+  const getContactByQid = vi.fn((_qid: string): Promise<Contact | null> =>
+    Promise.resolve(contact)
   );
   const sessions = createPeerSessions({
     getContactByQid,
@@ -393,7 +384,6 @@ describe("multi-device connection authorization", () => {
     expect(sessions.isVerified(cliConnection, "1")).toBe(false);
   });
 
-
   it("does not refresh auth age when a fresh lookup returns the same block", async () => {
     const { advance, lookupDeviceKey, sessions } = fixture();
     await Effect.runPromise(sessions.verify(cliConnection, "alice"));
@@ -544,11 +534,8 @@ describe("multi-device connection authorization", () => {
       })
     );
 
-    let releaseContact!: (contact: Contact | null) => void;
-    const contactGate = new Promise<Contact | null>((resolve) => {
-      releaseContact = resolve;
-    });
-    getContactByQid.mockReturnValue(contactGate);
+    const contactGate = Promise.withResolvers<Contact | null>();
+    getContactByQid.mockReturnValue(contactGate.promise);
 
     const inFlight = Effect.runPromise(
       sessions.verify(cliConnection, "alice").pipe(Effect.result)
@@ -558,7 +545,7 @@ describe("multi-device connection authorization", () => {
     sessions.invalidateAuthorization();
     expect(sessions.isVerified(cliConnection, "1")).toBe(false);
 
-    releaseContact(contact);
+    contactGate.resolve(contact);
     const finished = await inFlight;
     expect(Result.isFailure(finished) && finished.failure.operation).toBe(
       "closed"
@@ -616,14 +603,13 @@ describe("multi-device connection authorization", () => {
     const cliRefused = await Effect.runPromise(
       sessions.verify(cliConnection, "alice").pipe(Effect.result)
     );
-    expect(Result.isFailure(phoneRefused) && phoneRefused.failure.operation).toBe(
-      "identity"
-    );
+    expect(
+      Result.isFailure(phoneRefused) && phoneRefused.failure.operation
+    ).toBe("identity");
     expect(Result.isFailure(cliRefused) && cliRefused.failure.operation).toBe(
       "identity"
     );
     expect(sessions.isVerified(phoneConnection, "1")).toBe(false);
     expect(sessions.isVerified(cliConnection, "1")).toBe(false);
   });
-
 });

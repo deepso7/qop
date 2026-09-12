@@ -395,56 +395,55 @@ export const createIdentityVault = ({
 
   // Device-only wipe: owner signs WipeDevices. Not completed owner recovery —
   // a compromised owner can still addDevice until recoverOwner rotates ownership.
-  const signWipeDevicesIntent = Effect.fn("IdentityVault.signWipeDevicesIntent")(
-    function* (
-      domainInput: IdentityEip712DomainV1Encoded,
-      intentInput: WipeDevicesIntentV1Encoded
-    ) {
-      const identity = yield* loadStoredLocalIdentity();
-      if (!identity) {
-        return yield* vaultError("missing-identity");
-      }
-      const [domain, intent, privateKey] = yield* Effect.all(
-        [
-          decodeIdentityEip712DomainV1(domainInput),
-          decodeWipeDevicesIntentV1(intentInput),
-          decodeRecoveryKeyV1(identity.recoveryKey),
-        ] as const,
-        { concurrency: "unbounded" }
-      ).pipe(Effect.mapError(() => vaultError("sign")));
-      return yield* signWipeDevicesIntentV1(domain, intent, privateKey).pipe(
-        Effect.flatMap(Schema.encodeEffect(EcdsaSignature)),
-        Effect.mapError(() => vaultError("sign"))
-      );
+  const signWipeDevicesIntent = Effect.fn(
+    "IdentityVault.signWipeDevicesIntent"
+  )(function* (
+    domainInput: IdentityEip712DomainV1Encoded,
+    intentInput: WipeDevicesIntentV1Encoded
+  ) {
+    const identity = yield* loadStoredLocalIdentity();
+    if (!identity) {
+      return yield* vaultError("missing-identity");
     }
-  );
+    const [domain, intent, privateKey] = yield* Effect.all(
+      [
+        decodeIdentityEip712DomainV1(domainInput),
+        decodeWipeDevicesIntentV1(intentInput),
+        decodeRecoveryKeyV1(identity.recoveryKey),
+      ] as const,
+      { concurrency: "unbounded" }
+    ).pipe(Effect.mapError(() => vaultError("sign")));
+    return yield* signWipeDevicesIntentV1(domain, intent, privateKey).pipe(
+      Effect.flatMap(Schema.encodeEffect(EcdsaSignature)),
+      Effect.mapError(() => vaultError("sign"))
+    );
+  });
 
   // Completed owner recovery: rotate owner + wipe devices (on-chain recoverOwner).
   // Current recovery key signs as the compromised owner; caller supplies newOwnerSignature.
-  const signRecoverOwnerIntent = Effect.fn("IdentityVault.signRecoverOwnerIntent")(
-    function* (
-      domainInput: IdentityEip712DomainV1Encoded,
-      intentInput: RecoverOwnerIntentV1Encoded
-    ) {
-      const identity = yield* loadStoredLocalIdentity();
-      if (!identity) {
-        return yield* vaultError("missing-identity");
-      }
-      const [domain, intent, privateKey] = yield* Effect.all(
-        [
-          decodeIdentityEip712DomainV1(domainInput),
-          decodeRecoverOwnerIntentV1(intentInput),
-          decodeRecoveryKeyV1(identity.recoveryKey),
-        ] as const,
-        { concurrency: "unbounded" }
-      ).pipe(Effect.mapError(() => vaultError("sign")));
-      return yield* signRecoverOwnerIntentV1(domain, intent, privateKey).pipe(
-        Effect.flatMap(Schema.encodeEffect(EcdsaSignature)),
-        Effect.mapError(() => vaultError("sign"))
-      );
+  const signRecoverOwnerIntent = Effect.fn(
+    "IdentityVault.signRecoverOwnerIntent"
+  )(function* (
+    domainInput: IdentityEip712DomainV1Encoded,
+    intentInput: RecoverOwnerIntentV1Encoded
+  ) {
+    const identity = yield* loadStoredLocalIdentity();
+    if (!identity) {
+      return yield* vaultError("missing-identity");
     }
-  );
-
+    const [domain, intent, privateKey] = yield* Effect.all(
+      [
+        decodeIdentityEip712DomainV1(domainInput),
+        decodeRecoverOwnerIntentV1(intentInput),
+        decodeRecoveryKeyV1(identity.recoveryKey),
+      ] as const,
+      { concurrency: "unbounded" }
+    ).pipe(Effect.mapError(() => vaultError("sign")));
+    return yield* signRecoverOwnerIntentV1(domain, intent, privateKey).pipe(
+      Effect.flatMap(Schema.encodeEffect(EcdsaSignature)),
+      Effect.mapError(() => vaultError("sign"))
+    );
+  });
 
   const updateLocalIdentityBackupState = Effect.fn(
     "IdentityVault.updateLocalIdentityBackupState"
@@ -482,8 +481,8 @@ export const createIdentityVault = ({
     loadDeviceSecretKey,
     loadLocalIdentity,
     revealLocalIdentityRecoveryKey,
-    signRegisterIntent,
     signRecoverOwnerIntent,
+    signRegisterIntent,
     signWipeDevicesIntent,
     updateLocalIdentityBackupState,
   };

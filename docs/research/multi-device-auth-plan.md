@@ -16,7 +16,7 @@ Status: auth model, hard-cut, recovery wipe-all, and **live revocation on existi
 | RPC-failure behavior after age | **Proposal** | Recommended: refuse sensitive ops (no silent extend) |
 | Contact/`keyChanged` / device roster | **Proposal** | Second authorized device is not `keyChanged` |
 | Device cap / zero-device / fresh key on relink | **Proposal** | Recommended: cap **4**; zero allowed; fresh key required |
-| Planned `rotateOwner` keep-devices | **Proposal** | |
+| Planned `rotateOwner` keep-devices | **Proposal** |  |
 | Auth before outbox sync | **Proposal** | Recommended sequencing |
 
 ## Scope and selected model

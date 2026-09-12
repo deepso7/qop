@@ -182,11 +182,13 @@ describe("registry reader", () => {
     const { lookupDeviceKey } = createRegistryReader({
       client: { readContract },
     });
-    await expect(Effect.runPromise(lookupDeviceKey(removedKey))).resolves.toBeNull();
+    await expect(
+      Effect.runPromise(lookupDeviceKey(removedKey))
+    ).resolves.toBeNull();
   });
 
   it("pins membership reads to a non-deduped head and labels them fresh", async () => {
-    const getBlockNumber = vi.fn(async () => 99n);
+    const getBlockNumber = vi.fn(() => Promise.resolve(99n));
     const readContract = vi.fn(({ functionName, blockNumber, args }) => {
       expect(blockNumber).toBe(99n);
       if (functionName === "qidByDeviceKey") {
@@ -209,7 +211,9 @@ describe("registry reader", () => {
     const { lookupDeviceKey } = createRegistryReader({
       client: { getBlockNumber, readContract },
     });
-    await expect(Effect.runPromise(lookupDeviceKey(DEVICE_KEY))).resolves.toMatchObject({
+    await expect(
+      Effect.runPromise(lookupDeviceKey(DEVICE_KEY))
+    ).resolves.toMatchObject({
       blockNumber: 99n,
       freshness: "fresh",
       handle: "alice",
@@ -243,10 +247,11 @@ describe("registry reader", () => {
     const { lookupDeviceKey } = createRegistryReader({
       client: { readContract },
     });
-    await expect(Effect.runPromise(lookupDeviceKey(DEVICE_KEY))).resolves.toMatchObject({
+    await expect(
+      Effect.runPromise(lookupDeviceKey(DEVICE_KEY))
+    ).resolves.toMatchObject({
       blockNumber: 0n,
       freshness: "stale",
     });
   });
-
 });
