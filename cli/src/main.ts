@@ -7,6 +7,7 @@ import { Cause, Effect, Exit, Schema } from "effect";
 import { runStart } from "./chat.ts";
 import { configuredRegistry } from "./config.ts";
 import {
+  CliIdentityStoreError,
   createCliIdentityStore,
   defaultDataDirectory,
 } from "./identity-store.ts";
@@ -78,8 +79,25 @@ const program = Effect.fn("qop")(function* () {
   console.error(usage);
 });
 
+const operatorMessage = (error: CliIdentityStoreError) => {
+  if (error.operation === "permissions") {
+    return "CLI identity files must be mode 600 (directory 700). Fix permissions or move the data directory aside — do not overwrite device.key.";
+  }
+  if (error.operation === "decode") {
+    return "CLI identity is unreadable. Move the data directory aside to recover — do not overwrite device.key.";
+  }
+  if (error.operation === "conflict") {
+    return "Could not lock the CLI data directory or reuse this identity. If no other qop process is running, delete the lock file. A secret without identity.json must not be overwritten.";
+  }
+};
+
 const exit = await Effect.runPromiseExit(program());
 if (Exit.isFailure(exit)) {
-  console.error(Cause.pretty(exit.cause));
+  const squashed = Cause.squash(exit.cause);
+  console.error(
+    squashed instanceof CliIdentityStoreError
+      ? (operatorMessage(squashed) ?? Cause.pretty(exit.cause))
+      : Cause.pretty(exit.cause)
+  );
   process.exitCode = 1;
 }

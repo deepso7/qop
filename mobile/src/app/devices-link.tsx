@@ -9,22 +9,14 @@ import { Screen } from "@/components/screen";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Text } from "@/components/ui/text";
-import {
-  signDeviceActionRecord,
-  trustedIdentityDomain,
-} from "@/lib/device-action-approval";
+import { trustedIdentityDomain } from "@/lib/device-action-approval";
+import { completeDeviceLink } from "@/lib/device-link-flow";
 import { useIdentityStore } from "@/lib/identity-store";
-import {
-  markAcknowledged,
-  persistApproval,
-  reconcileMembership,
-  submitAcknowledged,
-} from "@/lib/local-device-action";
+import { LocalDeviceActionError } from "@/lib/local-device-action";
 import { useP2pStore } from "@/lib/p2p-store";
 import {
   decodePairingPayload,
   handshakePairing,
-  sendPairingApproval,
 } from "@/lib/pairing-client-core";
 
 const DevicesLinkScreen = () => {
@@ -131,63 +123,47 @@ const DevicesLinkScreen = () => {
     }
     setBusy(true);
     setMessage("Saving approval…");
-    const deviceKey = asHex(offer.deviceKey);
-    const signed = await Effect.runPromise(
-      signDeviceActionRecord({
-        deviceKey,
+    const result = await Effect.runPromise(
+      completeDeviceLink({
+        deviceKey: asHex(offer.deviceKey),
         expectedOwner: identity.ownerAddress,
-        operation: "add",
+        offer,
+        peerId,
         qid: BigInt(registration.qid),
+        transport,
       }).pipe(Effect.result)
     );
-    if (Result.isFailure(signed)) {
-      setBusy(false);
-      setMessage("Could not sign the device approval.");
-      return;
-    }
-    if (asHex(signed.success.record.intent.deviceKey) !== deviceKey) {
-      setBusy(false);
-      setMessage("The signed key did not match the paired CLI.");
-      return;
-    }
-    const persisted = await Effect.runPromise(
-      persistApproval(signed.success.record).pipe(Effect.result)
-    );
-    if (Result.isFailure(persisted)) {
-      setBusy(false);
-      setMessage("Could not save the approval.");
-      return;
-    }
-    setMessage("Waiting for the CLI to save the approval…");
-    const ack = await Effect.runPromise(
-      sendPairingApproval(transport, offer, peerId, signed.success.record).pipe(
-        Effect.result
-      )
-    );
-    if (Result.isFailure(ack)) {
-      setBusy(false);
+    setBusy(false);
+    if (Result.isFailure(result)) {
+      const { failure } = result;
+      if (
+        failure instanceof LocalDeviceActionError &&
+        failure.operation === "conflict"
+      ) {
+        setMessage("Another device action is still in flight.");
+        return;
+      }
+      if (
+        failure instanceof LocalDeviceActionError &&
+        failure.operation === "submit"
+      ) {
+        setMessage("Could not submit to the API. Try again.");
+        return;
+      }
       setMessage(
-        "The CLI did not acknowledge this approval. Re-pair to retry the same record."
+        "Could not finish linking. Re-pair to retry the same approval."
       );
       return;
     }
-    await Effect.runPromise(
-      markAcknowledged(signed.success.record.digest).pipe(Effect.result)
-    );
-    setMessage("Submitting to the API…");
-    await Effect.runPromise(submitAcknowledged().pipe(Effect.result));
-    const membership = await Effect.runPromise(
-      reconcileMembership().pipe(Effect.result)
-    );
-    setBusy(false);
-    if (
-      Result.isSuccess(membership) &&
-      membership.success?.membership === "linked"
-    ) {
+    if (result.success?.membership === "linked") {
       setMessage("Linked. Both devices confirmed chain membership.");
       return;
     }
-    setMessage("Submitted. Waiting for chain membership…");
+    if (result.success?.membership === "removed") {
+      setMessage("This key was added and later removed.");
+      return;
+    }
+    setMessage("The device action finished without becoming an active member.");
   }, [busy, identity, offer, peerId, registration, transport]);
 
   return (

@@ -3,7 +3,6 @@ import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
 import {
   asHex,
   encodePairingOfferV1,
-  enrollmentMembership,
   PAIR_PROTOCOL,
   PAIRING_MAX_ADDRESSES,
   PAIRING_TTL_SECONDS,
@@ -17,6 +16,8 @@ import { Effect, Schema } from "effect";
 import { hexToBytes, isHex } from "viem";
 
 import { cliRelays, configuredRegistry } from "./config.ts";
+import { getDeviceActionStatus } from "./device-action-status.ts";
+import { pollEnrollmentState, readEnrollmentState } from "./enrollment-poll.ts";
 import type { createCliIdentityStore } from "./identity-store.ts";
 import {
   createCliPairingSession,
@@ -60,30 +61,12 @@ const selectPairingAddrs = (
   return unique;
 };
 
-const pollLinked = Effect.fn("cli.pollLinked")(function* (
-  lookup: () => Effect.Effect<{ readonly qid: bigint } | null, unknown>,
-  expectedQid: bigint,
-  historicallyAdded: boolean
-) {
-  while (true) {
-    const current = yield* lookup();
-    const state = enrollmentMembership({
-      activeQid: current?.qid ?? null,
-      expectedQid,
-      historicallyAdded,
-    });
-    if (state === "linked" || state === "removed") {
-      return state;
-    }
-    yield* Effect.sleep(2000);
-  }
-});
-
 export const runLink = Effect.fn("qop.link")(function* (
   store: ReturnType<typeof createCliIdentityStore>,
   handle: string
 ) {
-  const { chainId, reader, registryAddress } = yield* configuredRegistry();
+  const { apiUrl, chainId, reader, registryAddress } =
+    yield* configuredRegistry();
   const account = yield* reader.lookupHandle(handle);
   if (!account) {
     console.error(
@@ -91,17 +74,49 @@ export const runLink = Effect.fn("qop.link")(function* (
     );
     return;
   }
-  const identity = yield* store.createPendingKey({
+  const publicIdentity = {
     account: handle,
     chainId,
     handle,
     qid: account.qid.toString(),
     registry: registryAddress,
-  });
-  const membership = yield* reader.lookupDeviceKey(identity.deviceKey);
-  if (membership?.qid.toString() === identity.qid) {
+  };
+  let identity = yield* store.createPendingKey(publicIdentity);
+  const currentMembership = yield* reader.lookupDeviceKey(identity.deviceKey);
+  if (currentMembership?.qid.toString() === identity.qid) {
     console.log(`Already linked as @${handle}. Run qop start.`);
     return;
+  }
+
+  const lookupSelf = () => reader.lookupDeviceKey(identity.deviceKey);
+  const getStatus = () =>
+    apiUrl
+      ? store
+          .loadApproval()
+          .pipe(
+            Effect.flatMap((pending) =>
+              pending
+                ? getDeviceActionStatus(apiUrl, pending.digest).pipe(
+                    Effect.map((row) => row.status)
+                  )
+                : Effect.fail(new Error("no pending digest"))
+            )
+          )
+      : Effect.fail(new Error("no api url"));
+  const prior = yield* readEnrollmentState({
+    expectedQid: BigInt(identity.qid),
+    getStatus,
+    lookup: lookupSelf,
+  });
+  if (prior.state === "linked") {
+    console.log(`Already linked as @${handle}. Run qop start.`);
+    return;
+  }
+  if (prior.state === "removed") {
+    identity = yield* store.rotatePendingKey(publicIdentity);
+    console.log(
+      "Previous pending key was added and later removed. Generated a new key."
+    );
   }
 
   const secretKey = yield* store.loadSecret();
@@ -176,19 +191,22 @@ export const runLink = Effect.fn("qop.link")(function* (
     console.log("");
 
     const accountSnapshot = () =>
-      reader.lookupQid(account.qid).pipe(
-        Effect.map((current) =>
-          current
-            ? {
-                chainId,
-                devices: current.devices.map((device) => device.deviceKey),
-                owner: current.owner,
-                qid: current.qid,
-                registry: registryAddress,
-              }
-            : null
-        )
-      );
+      Effect.gen(function* () {
+        const current = yield* reader.lookupQid(account.qid);
+        if (!current) {
+          return null;
+        }
+        const chainTime = yield* reader.latestTimestamp();
+        return {
+          chainId,
+          chainTime,
+          devices: current.devices.map((device) => device.deviceKey),
+          nonce: current.nonce,
+          owner: current.owner,
+          qid: current.qid,
+          registry: registryAddress,
+        };
+      });
 
     endpoint.on("stream", (stream) => {
       if (stream.protocolId !== PAIR_PROTOCOL) {
@@ -228,7 +246,8 @@ export const runLink = Effect.fn("qop.link")(function* (
             const ack = yield* session.receiveApproval(
               stream.peerId,
               frame.record,
-              snapshot
+              snapshot,
+              frame.sessionId
             );
             yield* writePairingFrame(
               (data) => stream.write(data),
@@ -259,20 +278,26 @@ export const runLink = Effect.fn("qop.link")(function* (
       );
     });
 
-    const pending = yield* store.loadApproval();
     console.log(
       "Waiting for phone approval. Ctrl+C cancels pairing, not a signed intent."
     );
-    const state = yield* pollLinked(
-      () => reader.lookupDeviceKey(identity.deviceKey),
-      BigInt(identity.qid),
-      pending !== null
-    );
+    const state = yield* pollEnrollmentState({
+      expectedQid: BigInt(identity.qid),
+      getStatus,
+      lookup: lookupSelf,
+    });
     if (state === "linked") {
       console.log(`Linked as @${handle}. Run qop start.`);
       return;
     }
-    console.log("This key was added and later removed. Generate a new link.");
+    if (state === "removed") {
+      yield* store.rotatePendingKey(publicIdentity);
+      console.log(
+        "This key was added and later removed. A new pending key was generated. Run qop link again."
+      );
+      return;
+    }
+    console.log("Enrollment did not complete.");
   });
 
   return yield* program.pipe(Effect.ensuring(closeEndpoint));

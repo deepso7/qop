@@ -17,8 +17,10 @@ const secureStoreOptions: SecureStore.SecureStoreOptions = {
 export const {
   markAcknowledged,
   persistApproval,
+  pollEnrollment,
   readStored: loadLocalDeviceAction,
   reconcileMembership,
+  resumeInFlightAdd,
   submitAcknowledged,
 } = createLocalDeviceAction({
   deviceActionClient: { get: getDeviceAction, submit: submitDeviceAction },

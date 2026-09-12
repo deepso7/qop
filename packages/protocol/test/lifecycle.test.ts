@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { createLifecycleAdapter } from "../src/lifecycle.ts";
-import { enrollmentMembership } from "../src/membership.ts";
+import {
+  enrollmentMembership,
+  occupiesApprovalSlot,
+} from "../src/membership.ts";
 
 describe("lifecycle adapter", () => {
   it("invalidates when wall time advances across a monotonic pause", () => {
@@ -65,5 +68,26 @@ describe("enrollment membership", () => {
         historicallyAdded: true,
       })
     ).toBe("wrong-account");
+  });
+
+  it("releases the local slot after a terminal digest or settled roster", () => {
+    expect(
+      occupiesApprovalSlot({ apiStatus: "submitted", membership: "pending" })
+    ).toBe(true);
+    expect(
+      occupiesApprovalSlot({ apiStatus: null, membership: "pending" })
+    ).toBe(true);
+    expect(
+      occupiesApprovalSlot({ apiStatus: "confirmed", membership: "pending" })
+    ).toBe(false);
+    expect(
+      occupiesApprovalSlot({ apiStatus: "reverted", membership: "pending" })
+    ).toBe(false);
+    expect(
+      occupiesApprovalSlot({ apiStatus: "submitted", membership: "linked" })
+    ).toBe(false);
+    expect(
+      occupiesApprovalSlot({ apiStatus: null, membership: "removed" })
+    ).toBe(false);
   });
 });

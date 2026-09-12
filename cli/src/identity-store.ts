@@ -1,3 +1,4 @@
+import type { Stats } from "node:fs";
 import {
   chmod,
   mkdir,
@@ -58,6 +59,22 @@ export const defaultDataDirectory = (home = process.env.HOME ?? "") =>
 const MODE_DIR = 0o700;
 const MODE_FILE = 0o600;
 
+const NodeErrno = Schema.Struct({
+  code: Schema.String,
+});
+
+const errnoCode = Schema.decodeUnknownOption(NodeErrno);
+
+const processExists = (pid: number) => {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    const parsed = errnoCode(error);
+    return parsed._tag === "Some" && parsed.value.code === "EPERM";
+  }
+};
+
 const assertPrivateMode = Effect.fn("CliIdentity.assertPrivateMode")(function* (
   filePath: string,
   directory: boolean
@@ -92,11 +109,88 @@ const writeAtomic = Effect.fn("CliIdentity.writeAtomic")(function* (
   });
 });
 
+const readTextOptional = (filePath: string) =>
+  Effect.tryPromise({
+    catch: (error) => error,
+    try: () => readFile(filePath, "utf-8"),
+  }).pipe(
+    Effect.matchEffect({
+      onFailure: (error) => {
+        const parsed = errnoCode(error);
+        return parsed._tag === "Some" && parsed.value.code === "ENOENT"
+          ? Effect.succeed(null)
+          : Effect.fail(storeError("read"));
+      },
+      onSuccess: (value) => Effect.succeed(value),
+    })
+  );
+
+const statOptional = (filePath: string) =>
+  Effect.tryPromise({
+    catch: (error) => error,
+    try: () => stat(filePath),
+  }).pipe(
+    Effect.matchEffect({
+      onFailure: (error) => {
+        const parsed = errnoCode(error);
+        return parsed._tag === "Some" && parsed.value.code === "ENOENT"
+          ? Effect.succeed<Stats | null>(null)
+          : Effect.fail(storeError("read"));
+      },
+      onSuccess: (value) => Effect.succeed(value),
+    })
+  );
+
+const unlinkOptional = (filePath: string) =>
+  Effect.tryPromise({
+    catch: (error) => error,
+    try: () => unlink(filePath),
+  }).pipe(
+    Effect.matchEffect({
+      onFailure: (error) => {
+        const parsed = errnoCode(error);
+        return parsed._tag === "Some" && parsed.value.code === "ENOENT"
+          ? Effect.void
+          : Effect.fail(storeError("write"));
+      },
+      onSuccess: () => Effect.void,
+    })
+  );
+
 export const createCliIdentityStore = (root: string) => {
   const identityPath = path.join(root, "identity.json");
   const secretPath = path.join(root, "device.key");
   const approvalPath = path.join(root, "pending-approval.json");
   const lockPath = path.join(root, "lock");
+
+  const openExclusiveLock = () =>
+    Effect.tryPromise({
+      catch: (error) => {
+        const parsed = errnoCode(error);
+        return parsed._tag === "Some" && parsed.value.code === "EEXIST"
+          ? storeError("conflict")
+          : storeError("lock");
+      },
+      try: () => open(lockPath, "wx"),
+    });
+
+  const recoverStaleLock = Effect.fn("CliIdentity.recoverStaleLock")(
+    function* () {
+      const encoded = yield* readTextOptional(lockPath);
+      if (encoded === null) {
+        return;
+      }
+      const pid = Number(encoded.trim());
+      if (!Number.isInteger(pid) || pid <= 0) {
+        yield* unlinkOptional(lockPath);
+        return;
+      }
+      if (processExists(pid)) {
+        return yield* storeError("conflict");
+      }
+      yield* unlinkOptional(lockPath);
+    }
+  );
 
   const acquireLock = Effect.fn("CliIdentity.acquireLock")(function* () {
     yield* Effect.tryPromise({
@@ -108,10 +202,12 @@ export const createCliIdentityStore = (root: string) => {
       try: () => chmod(root, MODE_DIR),
     });
     yield* assertPrivateMode(root, true);
-    const handle = yield* Effect.tryPromise({
-      catch: () => storeError("lock"),
-      try: () => open(lockPath, "wx"),
-    }).pipe(Effect.catch(() => Effect.fail(storeError("conflict"))));
+    const handle = yield* openExclusiveLock().pipe(
+      Effect.catchIf(
+        (error) => error.operation === "conflict",
+        () => recoverStaleLock().pipe(Effect.andThen(openExclusiveLock()))
+      )
+    );
     yield* Effect.tryPromise({
       catch: () => storeError("write"),
       try: () => handle.writeFile(String(process.pid)),
@@ -127,10 +223,7 @@ export const createCliIdentityStore = (root: string) => {
   });
 
   const loadIdentity = Effect.fn("CliIdentity.loadIdentity")(function* () {
-    const encoded = yield* Effect.tryPromise({
-      catch: () => storeError("read"),
-      try: () => readFile(identityPath, "utf-8"),
-    }).pipe(Effect.catch(() => Effect.succeed(null)));
+    const encoded = yield* readTextOptional(identityPath);
     if (!encoded) {
       return null;
     }
@@ -152,23 +245,10 @@ export const createCliIdentityStore = (root: string) => {
     return new Uint8Array(bytes);
   });
 
-  const createPendingKey = Effect.fn("CliIdentity.createPendingKey")(function* (
-    publicIdentity: Omit<StoredCliIdentity, "deviceKey" | "peerId" | "version">
+  const persistIdentity = Effect.fn("CliIdentity.persistIdentity")(function* (
+    publicIdentity: Omit<StoredCliIdentity, "deviceKey" | "peerId" | "version">,
+    secret: Uint8Array
   ) {
-    const existing = yield* loadIdentity().pipe(
-      Effect.catch(() => Effect.succeed(null))
-    );
-    if (existing) {
-      if (
-        existing.handle !== publicIdentity.handle ||
-        existing.qid !== publicIdentity.qid ||
-        existing.registry !== publicIdentity.registry
-      ) {
-        return yield* storeError("conflict");
-      }
-      return existing;
-    }
-    const secret = crypto.getRandomValues(new Uint8Array(32));
     yield* writeAtomic(secretPath, secret);
     const deviceKey = yield* deviceKeyFromEd25519SecretKey(secret).pipe(
       Effect.flatMap(Schema.encodeEffect(Hex32)),
@@ -197,11 +277,40 @@ export const createCliIdentityStore = (root: string) => {
     return identity;
   });
 
+  const createPendingKey = Effect.fn("CliIdentity.createPendingKey")(function* (
+    publicIdentity: Omit<StoredCliIdentity, "deviceKey" | "peerId" | "version">
+  ) {
+    const existing = yield* loadIdentity();
+    if (existing) {
+      if (
+        existing.handle !== publicIdentity.handle ||
+        existing.qid !== publicIdentity.qid ||
+        existing.registry !== publicIdentity.registry
+      ) {
+        return yield* storeError("conflict");
+      }
+      return existing;
+    }
+    const secretInfo = yield* statOptional(secretPath);
+    if (secretInfo) {
+      // Secret without identity is incomplete — never mint over it.
+      return yield* storeError("conflict");
+    }
+    const secret = crypto.getRandomValues(new Uint8Array(32));
+    return yield* persistIdentity(publicIdentity, secret);
+  });
+
+  const rotatePendingKey = Effect.fn("CliIdentity.rotatePendingKey")(function* (
+    publicIdentity: Omit<StoredCliIdentity, "deviceKey" | "peerId" | "version">
+  ) {
+    const secret = crypto.getRandomValues(new Uint8Array(32));
+    const identity = yield* persistIdentity(publicIdentity, secret);
+    yield* unlinkOptional(approvalPath);
+    return identity;
+  });
+
   const loadApproval = Effect.fn("CliIdentity.loadApproval")(function* () {
-    const encoded = yield* Effect.tryPromise({
-      catch: () => storeError("read"),
-      try: () => readFile(approvalPath, "utf-8"),
-    }).pipe(Effect.catch(() => Effect.succeed(null)));
+    const encoded = yield* readTextOptional(approvalPath);
     if (!encoded) {
       return null;
     }
@@ -230,6 +339,7 @@ export const createCliIdentityStore = (root: string) => {
     loadApproval,
     loadIdentity,
     loadSecret,
+    rotatePendingKey,
     saveApproval,
   };
 };

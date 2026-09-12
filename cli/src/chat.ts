@@ -15,6 +15,10 @@ import { Effect } from "effect";
 import { CliConfigError, cliRelays, configuredRegistry } from "./config.ts";
 import type { createCliIdentityStore } from "./identity-store.ts";
 
+const MAX_INBOUND_STREAMS = 8;
+const INBOUND_READ_TIMEOUT_MS = 15_000;
+const LIFECYCLE_OBSERVE_MS = 1000;
+
 const concatChunks = (chunks: readonly Uint8Array[], byteLength: number) => {
   const bytes = new Uint8Array(byteLength);
   let offset = 0;
@@ -83,10 +87,14 @@ export const runStart = Effect.fn("qop.start")(function* (
       return Promise.resolve();
     },
   });
-  const invalidateIfNeeded = () => {
+  // Invalidate at the sensitive-op boundary and bump verifyEpoch so an
+  // in-flight verify cannot commit after suspend/stall/SIGCONT.
+  const guardSensitive = () => {
     if (lifecycle.takeInvalidation()) {
       sessions.invalidateAuthorization();
+      return true;
     }
+    return false;
   };
 
   const secretKey = yield* store.loadSecret();
@@ -99,7 +107,16 @@ export const runStart = Effect.fn("qop.start")(function* (
   const endpoint = Minip2p.create(
     relays.length > 0 ? { ...chatConfig, relays } : chatConfig
   );
+  let inbound = 0;
+  const onWake = () => {
+    lifecycle.observe();
+    guardSensitive();
+  };
+  const observeTimer = setInterval(onWake, LIFECYCLE_OBSERVE_MS);
+  process.on("SIGCONT", onWake);
   const closeEndpoint = Effect.sync(() => {
+    clearInterval(observeTimer);
+    process.off("SIGCONT", onWake);
     endpoint.close();
   });
 
@@ -116,17 +133,32 @@ export const runStart = Effect.fn("qop.start")(function* (
         stream.reset();
         return;
       }
+      if (inbound >= MAX_INBOUND_STREAMS) {
+        stream.reset();
+        return;
+      }
+      inbound += 1;
       Effect.runFork(
         Effect.gen(function* () {
-          invalidateIfNeeded();
+          guardSensitive();
           const bytes = yield* Effect.tryPromise({
             catch: (cause) =>
               cause instanceof Error ? cause : new Error(String(cause)),
             try: () => readUntilEof(() => stream.read()),
-          });
+          }).pipe(
+            Effect.timeoutOrElse({
+              duration: INBOUND_READ_TIMEOUT_MS,
+              orElse: () =>
+                Effect.fail(new Error("Inbound chat read timed out")),
+            })
+          );
           const frame = decodeFrame(bytes);
+          if (guardSensitive()) {
+            stream.reset();
+            return;
+          }
           const contact = yield* sessions.verify(stream, frame.fromHandle);
-          if (!sessions.isVerified(stream, contact.qid)) {
+          if (guardSensitive() || !sessions.isVerified(stream, contact.qid)) {
             stream.reset();
             return;
           }
@@ -134,6 +166,11 @@ export const runStart = Effect.fn("qop.start")(function* (
           stream.closeWrite();
           console.log(`@${frame.fromHandle}: ${frame.text}`);
         }).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              inbound -= 1;
+            })
+          ),
           Effect.matchEffect({
             onFailure: () =>
               Effect.sync(() => {
@@ -148,10 +185,15 @@ export const runStart = Effect.fn("qop.start")(function* (
     console.log(
       `CLI messaging ready for @${identity.handle} (${identity.peerId}).`
     );
-    console.log("Lifecycle invalidation is armed for suspend/stall.");
+    console.log(
+      "Lifecycle invalidation is armed (SIGCONT, stall interval, verify boundary)."
+    );
 
     if (options.to && options.message) {
-      invalidateIfNeeded();
+      if (guardSensitive()) {
+        console.error("Authorization was invalidated. Try sending again.");
+        return;
+      }
       const recipient = yield* reader.lookupHandle(options.to);
       if (!recipient) {
         console.error(`Account @${options.to} was not found.`);
@@ -181,8 +223,16 @@ export const runStart = Effect.fn("qop.start")(function* (
         try: () =>
           endpoint.openStream(peerId, CHAT_PROTOCOL, { timeoutMs: 15_000 }),
       });
+      if (guardSensitive()) {
+        stream.reset();
+        console.error("Authorization was invalidated. Try sending again.");
+        return;
+      }
       yield* sessions.verify(stream, recipient.handle);
-      if (!sessions.isVerified(stream, recipient.qid.toString())) {
+      if (
+        guardSensitive() ||
+        !sessions.isVerified(stream, recipient.qid.toString())
+      ) {
         stream.reset();
         console.error("Could not authorize a chat connection.");
         return;

@@ -38,8 +38,11 @@ export {
 } from "./limits.ts";
 export { createLifecycleAdapter } from "./lifecycle.ts";
 export type { LifecycleAdapter } from "./lifecycle.ts";
-export { enrollmentMembership } from "./membership.ts";
-export type { EnrollmentMembership } from "./membership.ts";
+export { enrollmentMembership, occupiesApprovalSlot } from "./membership.ts";
+export type {
+  DeviceActionApiStatus,
+  EnrollmentMembership,
+} from "./membership.ts";
 export {
   decodePairingFrameV1,
   decodePairingOfferV1,

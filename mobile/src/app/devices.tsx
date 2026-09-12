@@ -10,13 +10,9 @@ import { NativeAlert } from "@/components/ui/native-alert";
 import { SectionLabel } from "@/components/ui/section-label";
 import { Surface } from "@/components/ui/surface";
 import { Text } from "@/components/ui/text";
-import { signDeviceActionRecord } from "@/lib/device-action-approval";
+import { completeDeviceRemove } from "@/lib/device-link-flow";
 import { useIdentityStore } from "@/lib/identity-store";
-import {
-  persistApproval,
-  reconcileMembership,
-  submitAcknowledged,
-} from "@/lib/local-device-action";
+import { LocalDeviceActionError } from "@/lib/local-device-action";
 import { lookupQid } from "@/lib/registry";
 
 const DevicesScreen = () => {
@@ -86,34 +82,39 @@ const DevicesScreen = () => {
       }
       setBusy(true);
       setMessage("Saving removal…");
-      const signed = await Effect.runPromise(
-        signDeviceActionRecord({
+      const result = await Effect.runPromise(
+        completeDeviceRemove({
           deviceKey,
           expectedOwner: identity.ownerAddress,
-          operation: "remove",
           qid: BigInt(registration.qid),
         }).pipe(Effect.result)
       );
-      if (Result.isFailure(signed)) {
+      if (Result.isFailure(result)) {
         setBusy(false);
-        setMessage("Could not sign the removal.");
-        return;
-      }
-      const persisted = await Effect.runPromise(
-        persistApproval(signed.success.record, { acknowledged: true }).pipe(
-          Effect.result
-        )
-      );
-      if (Result.isFailure(persisted)) {
-        setBusy(false);
+        const { failure } = result;
+        if (
+          failure instanceof LocalDeviceActionError &&
+          failure.operation === "conflict"
+        ) {
+          setMessage("Another device action is still in flight.");
+          return;
+        }
+        if (
+          failure instanceof LocalDeviceActionError &&
+          failure.operation === "submit"
+        ) {
+          setMessage("Could not submit the removal. Try again.");
+          return;
+        }
         setMessage("Could not save the removal.");
         return;
       }
-      setMessage("Submitting removal…");
-      await Effect.runPromise(submitAcknowledged().pipe(Effect.result));
-      await Effect.runPromise(reconcileMembership().pipe(Effect.result));
       await refresh();
       setBusy(false);
+      if (result.success?.membership === "removed") {
+        setMessage("Removed. History on this phone stays.");
+        return;
+      }
       setMessage("Removal submitted. History on this phone stays.");
     },
     [busy, identity, refresh, registration]
