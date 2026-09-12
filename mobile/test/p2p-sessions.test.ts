@@ -209,10 +209,11 @@ describe("multi-device connection authorization", () => {
   });
 
   it("expires auth from registry confirm time, not after slow storage", async () => {
-    const storageDelayMs = 9_000;
+    const storageDelayMs = 9000;
     const { advance, sessions, upsertContact } = fixture();
-    upsertContact.mockImplementation(async () => {
+    upsertContact.mockImplementation(() => {
       advance(storageDelayMs);
+      return Promise.resolve();
     });
     await Effect.runPromise(sessions.verify(phoneConnection, "alice"));
     expect(sessions.isVerified(phoneConnection, "1")).toBe(true);
