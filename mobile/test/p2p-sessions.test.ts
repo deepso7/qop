@@ -75,7 +75,9 @@ const fixture = (options?: { now?: () => number }) => {
       Effect.succeed(phoneAccount())
   );
   const upsertContact = vi.fn(() => Promise.resolve());
-  const getContactByQid = vi.fn(() => Promise.resolve(contact));
+  const getContactByQid = vi.fn(
+    (_qid: string): Promise<Contact | null> => Promise.resolve(contact)
+  );
   const sessions = createPeerSessions({
     getContactByQid,
     lookupDeviceKey,
