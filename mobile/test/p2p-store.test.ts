@@ -31,6 +31,7 @@ const bobAccount: RegistryAccount = {
   ],
   freshness: "fresh",
   handle: "bob",
+  nonce: 0n,
   owner: "0x0000000000000000000000000000000000000001",
   ownerVersion: 0,
   peerId: PEER_BOB,
@@ -116,6 +117,8 @@ const useP2pStore = createP2pStore({
       activeReservation: () => {},
       close: () => {},
       connect: () => Promise.reject(new Error("No dial in lifecycle fixture")),
+      connectAddr: () =>
+        Promise.reject(new Error("No pairing dial in lifecycle fixture")),
       connectedPeers,
       disconnect,
       on: captureEndpointEvent,
@@ -128,6 +131,8 @@ const useP2pStore = createP2pStore({
       openStream: () =>
         Promise.reject(new Error("No stream in lifecycle fixture")),
       peerId: () => "peer-alice",
+      waitPeerReady: () =>
+        Promise.reject(new Error("No pairing wait in lifecycle fixture")),
     },
   }),
   getIdentityHandle: () => "alice",

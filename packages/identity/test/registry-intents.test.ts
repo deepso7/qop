@@ -40,8 +40,10 @@ import {
   RegisterIntentV1,
   RemoveDeviceIntentV1,
   RotateOwnerIntentV1,
+  signAddDeviceIntentV1,
   signRecoverOwnerIntentV1,
   signRegisterIntentV1,
+  signRemoveDeviceIntentV1,
   signWipeDevicesIntentV1,
   WipeDevicesIntentV1,
 } from "../src/index.ts";
@@ -362,6 +364,39 @@ describe("registry intents", () => {
 
       assert.strictEqual(
         yield* recoverRegisterIntentSignerV1(domain, intent, signature),
+        encodedRegisterIntent.owner
+      );
+    })
+  );
+
+  it.effect("signs add and remove device intents with owner key bytes", () =>
+    Effect.gen(function* () {
+      const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
+      const addDevice = yield* decodeAddDeviceIntentV1(encodedAddDeviceIntent);
+      const removeDevice = yield* decodeRemoveDeviceIntentV1(
+        encodedRemoveDeviceIntent
+      );
+      const addSignature = yield* signAddDeviceIntentV1(
+        domain,
+        addDevice,
+        hexToBytes(PRIVATE_KEY)
+      );
+      const removeSignature = yield* signRemoveDeviceIntentV1(
+        domain,
+        removeDevice,
+        hexToBytes(PRIVATE_KEY)
+      );
+
+      assert.strictEqual(
+        yield* recoverAddDeviceIntentSignerV1(domain, addDevice, addSignature),
+        encodedRegisterIntent.owner
+      );
+      assert.strictEqual(
+        yield* recoverRemoveDeviceIntentSignerV1(
+          domain,
+          removeDevice,
+          removeSignature
+        ),
         encodedRegisterIntent.owner
       );
     })

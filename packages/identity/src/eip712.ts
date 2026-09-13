@@ -37,8 +37,10 @@ export class IdentityCryptoError extends Data.TaggedError(
     | "recover-recover-owner-intent-signer"
     | "recover-rotate-owner-intent-signer"
     | "recover-wipe-devices-intent-signer"
+    | "sign-add-device-intent"
     | "sign-recover-owner-intent"
     | "sign-register-intent"
+    | "sign-remove-device-intent"
     | "sign-wipe-devices-intent";
 }> {}
 

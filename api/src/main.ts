@@ -4,6 +4,8 @@ import { NodeHttpServer, NodeRuntime } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
 import { HttpRouter } from "effect/unstable/http";
 
+import { DeviceActionEnrollmentLive } from "./device-action/enrollment.ts";
+import { deviceActionRelayerLayer } from "./device-action/relayer.ts";
 import { Env } from "./env.ts";
 import { QopHttpApiRoutes } from "./http/routes.ts";
 import { RegistrationEnrollmentLive } from "./registration/enrollment.ts";
@@ -21,7 +23,17 @@ const ApplicationLive = Layer.unwrap(
           )
         )
       );
-      const routes = QopHttpApiRoutes.pipe(Layer.provide(registration));
+      const deviceActions = DeviceActionEnrollmentLive.pipe(
+        Layer.provide(
+          deviceActionRelayerLayer(env.RELAYER_PRIVATE_KEY).pipe(
+            Layer.provide(Layer.succeed(Env, env))
+          )
+        )
+      );
+      const routes = QopHttpApiRoutes.pipe(
+        Layer.provide(registration),
+        Layer.provide(deviceActions)
+      );
       return HttpRouter.serve(routes).pipe(
         Layer.provideMerge(
           NodeHttpServer.layer(createServer, { port: env.PORT })

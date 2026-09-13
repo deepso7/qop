@@ -1,4 +1,5 @@
 import type { Minip2p, Stream, Unsubscribe } from "@minip2p/react-native";
+import { PAIR_PROTOCOL } from "@qop/protocol";
 import { Effect } from "effect";
 import { create } from "zustand";
 import type { StoreApi } from "zustand";
@@ -36,6 +37,21 @@ interface P2pActions {
   readonly connectTo: (
     contact: Pick<Contact, "handle" | "qid">
   ) => Promise<string | undefined>;
+  readonly openPairingStream: (peerId: string) => Promise<
+    | {
+        readonly closeWrite: () => void;
+        readonly peerId: string;
+        readonly protocolId: string;
+        readonly read: () => Promise<Uint8Array | undefined>;
+        readonly reset: () => void;
+        readonly write: (data: Uint8Array) => void;
+      }
+    | undefined
+  >;
+  readonly pairConnectAddr: (
+    address: string
+  ) => Promise<{ readonly peerId: string } | undefined>;
+  readonly pairWaitPeerReady: (peerId: string) => Promise<void>;
   readonly retryMessage: (id: string) => Promise<void>;
   readonly sendMessage: (contact: Contact, text: string) => string;
   readonly start: () => Promise<void>;
@@ -57,11 +73,13 @@ export type P2pEndpoint = Pick<
   | "close"
   | "connectedPeers"
   | "connect"
+  | "connectAddr"
   | "disconnect"
   | "on"
   | "onClose"
   | "openStream"
   | "peerId"
+  | "waitPeerReady"
 >;
 interface P2pDependencies {
   readonly createEndpoint: (options: Parameters<typeof Minip2p.create>[0]) => {
@@ -311,6 +329,33 @@ export const createP2pStore = ({
       }
     },
 
+    openPairingStream: async (peerId) => {
+      const activeEndpoint = endpoint;
+      if (!activeEndpoint) {
+        return;
+      }
+      const stream = await activeEndpoint.openStream(peerId, PAIR_PROTOCOL, {
+        timeoutMs: 15_000,
+      });
+      return stream;
+    },
+
+    pairConnectAddr: async (address) => {
+      const activeEndpoint = endpoint;
+      if (!activeEndpoint) {
+        return;
+      }
+      return await activeEndpoint.connectAddr(address, { timeoutMs: 15_000 });
+    },
+
+    pairWaitPeerReady: async (peerId) => {
+      const activeEndpoint = endpoint;
+      if (!activeEndpoint) {
+        return;
+      }
+      await activeEndpoint.waitPeerReady(peerId, { timeoutMs: 15_000 });
+    },
+
     retryMessage: (id) => {
       const existing = retryJobs.get(id);
       if (existing) {
@@ -471,7 +516,7 @@ export const createP2pStore = ({
         }
         const binding = createEndpoint({
           agentVersion: "qop/0.1.0",
-          protocols: [CHAT_PROTOCOL],
+          protocols: [CHAT_PROTOCOL, PAIR_PROTOCOL],
           relays,
           secretKey,
         });

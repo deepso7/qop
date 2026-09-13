@@ -1,0 +1,25 @@
+{
+  "name": "@qop/protocol",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --project tsconfig.json"
+  },
+  "dependencies": {
+    "@qop/identity": "workspace:*",
+    "@scure/base": "2.4.0",
+    "effect": "catalog:",
+    "viem": "2.56.3"
+  },
+  "devDependencies": {
+    "@effect/vitest": "4.0.0-rc.112",
+    "typescript": "catalog:",
+    "vitest": "4.1.11"
+  }
+}

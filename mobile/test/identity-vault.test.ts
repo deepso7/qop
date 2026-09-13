@@ -204,6 +204,76 @@ describe("identity vault", () => {
     expect(Result.isFailure(result) && result.failure.operation).toBe("sign");
   });
 
+  it("signs an approved add and rejects a substituted device key", async () => {
+    const { createLocalIdentity, signApprovedDeviceAction } = await loadVault();
+    const identity = await Effect.runPromise(createLocalIdentity("alice"));
+    const {
+      decodeAddDeviceIntentV1,
+      decodeIdentityEip712DomainV1,
+      hashAddDeviceIntentV1,
+    } = await import("@qop/identity");
+    const domain = {
+      chainId: "31337",
+      verifyingContract: "0x1111111111111111111111111111111111111111",
+    } as const;
+    const intent = {
+      deadline: "1700003600",
+      deviceKey: `0x${"09".repeat(32)}`,
+      nonce: "9",
+      qid: "42",
+    } as const;
+    const digest = await Effect.runPromise(
+      decodeIdentityEip712DomainV1(domain).pipe(
+        Effect.flatMap((decodedDomain) =>
+          decodeAddDeviceIntentV1(intent).pipe(
+            Effect.flatMap((decodedIntent) =>
+              hashAddDeviceIntentV1(decodedDomain, decodedIntent)
+            )
+          )
+        )
+      )
+    );
+    const unsigned = {
+      digest,
+      domain,
+      expectedOwner: identity.ownerAddress,
+      intent,
+      operation: "add" as const,
+      ownerSignature: `0x${"1".padStart(64, "0")}${"1".padStart(64, "0")}00`,
+      v: 1 as const,
+    };
+    const snapshot = {
+      nonce: "9",
+      owner: identity.ownerAddress,
+      qid: "42",
+    };
+    const signed = await Effect.runPromise(
+      signApprovedDeviceAction({
+        displayed: unsigned,
+        requested: unsigned,
+        snapshot,
+        trustedDomain: domain,
+      })
+    );
+    expect(signed).toMatch(/^0x[0-9a-f]{130}$/u);
+
+    const substituted = {
+      ...unsigned,
+      intent: { ...intent, deviceKey: `0x${"0a".repeat(32)}` },
+    };
+    const rejected = await Effect.runPromise(
+      signApprovedDeviceAction({
+        displayed: unsigned,
+        requested: substituted,
+        snapshot,
+        trustedDomain: domain,
+      }).pipe(Effect.result)
+    );
+    expect(Result.isFailure(rejected) && rejected.failure.operation).toBe(
+      "sign"
+    );
+  });
+
   it("treats a v1 identity as a decode failure", async () => {
     secureStoreMock.items.set(LEGACY_IDENTITY_STORAGE_KEY, "{}");
     const { loadLocalIdentity } = await loadVault();
