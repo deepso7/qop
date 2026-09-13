@@ -1,7 +1,10 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { pollEnrollmentState } from "../src/enrollment-poll.ts";
+import {
+  pollEnrollmentState,
+  readEnrollmentState,
+} from "../src/enrollment-poll.ts";
 
 describe("CLI enrollment poll", () => {
   it.effect("keeps polling after API confirmed until the roster agrees", () =>
@@ -31,11 +34,59 @@ describe("CLI enrollment poll", () => {
         expectedQid: 42n,
         getStatus: () => Effect.succeed("confirmed" as const),
         lookup: () => Effect.succeed(null),
+        lookupRemoved: () => Effect.succeed(false),
         maxAttempts: 3,
       });
       expect(snapshot.state).toBe("pending");
       expect(snapshot.historicallyAdded).toBe(false);
       expect(snapshot.apiStatus).toBe("confirmed");
+    })
+  );
+
+  it.effect(
+    "treats a registry removal marker as historical membership after restart",
+    () =>
+      Effect.gen(function* () {
+        const snapshot = yield* readEnrollmentState({
+          expectedQid: 42n,
+          getStatus: () => Effect.succeed("confirmed" as const),
+          lookup: () => Effect.succeed(null),
+          lookupRemoved: () => Effect.succeed(true),
+        });
+        expect(snapshot.state).toBe("removed");
+        expect(snapshot.historicallyAdded).toBe(true);
+        expect(snapshot.apiStatus).toBe("confirmed");
+      })
+  );
+
+  it.effect(
+    "reports removed after restart when the registry marks the key removed",
+    () =>
+      Effect.gen(function* () {
+        const snapshot = yield* pollEnrollmentState({
+          delayMs: 0,
+          expectedQid: 42n,
+          getStatus: () => Effect.succeed("confirmed" as const),
+          lookup: () => Effect.succeed(null),
+          lookupRemoved: () => Effect.succeed(true),
+          maxAttempts: 3,
+        });
+        expect(snapshot.state).toBe("removed");
+        expect(snapshot.historicallyAdded).toBe(true);
+        expect(snapshot.apiStatus).toBe("confirmed");
+      })
+  );
+
+  it.effect("keeps pending when the removal-marker read fails", () =>
+    Effect.gen(function* () {
+      const snapshot = yield* readEnrollmentState({
+        expectedQid: 42n,
+        getStatus: () => Effect.succeed("confirmed" as const),
+        lookup: () => Effect.succeed(null),
+        lookupRemoved: () => Effect.fail(new Error("rpc")),
+      });
+      expect(snapshot.state).toBe("pending");
+      expect(snapshot.historicallyAdded).toBe(false);
     })
   );
 

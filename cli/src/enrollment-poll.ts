@@ -17,6 +17,7 @@ export const readEnrollmentState = Effect.fn("cli.readEnrollmentState")(
     getStatus,
     historicallyAdded = false,
     lookup,
+    lookupRemoved,
   }: {
     readonly expectedQid: bigint;
     readonly getStatus?:
@@ -27,6 +28,9 @@ export const readEnrollmentState = Effect.fn("cli.readEnrollmentState")(
       { readonly qid: bigint } | null,
       unknown
     >;
+    readonly lookupRemoved?:
+      | (() => Effect.Effect<boolean, unknown>)
+      | undefined;
   }) {
     let added = historicallyAdded;
     let apiStatus: DeviceActionApiStatus | null = null;
@@ -37,11 +41,19 @@ export const readEnrollmentState = Effect.fn("cli.readEnrollmentState")(
       }
     }
     const current = yield* lookup();
-    // Roster observation is the only historical-add signal. API `confirmed`
+    // Roster observation is the live historical-add signal. API `confirmed`
     // can lead the CLI's RPC head, so treating it as added would look like
-    // `removed` and rotate a still-valid pending key.
+    // `removed` and rotate a still-valid pending key. After restart the
+    // in-memory flag is gone; the registry's removal marker is chain proof
+    // the key was added and later removed, and a lagging head will not
+    // show that marker yet.
     if (current?.qid === expectedQid) {
       added = true;
+    } else if (lookupRemoved) {
+      const removed = yield* lookupRemoved().pipe(Effect.result);
+      if (Result.isSuccess(removed) && removed.success) {
+        added = true;
+      }
     }
     const state: EnrollmentMembership = enrollmentMembership({
       activeQid: current?.qid ?? null,
@@ -58,6 +70,7 @@ export const pollEnrollmentState = Effect.fn("cli.pollEnrollmentState")(
     expectedQid,
     getStatus,
     lookup,
+    lookupRemoved,
     maxAttempts = 150,
   }: {
     readonly delayMs?: number | undefined;
@@ -69,6 +82,9 @@ export const pollEnrollmentState = Effect.fn("cli.pollEnrollmentState")(
       { readonly qid: bigint } | null,
       unknown
     >;
+    readonly lookupRemoved?:
+      | (() => Effect.Effect<boolean, unknown>)
+      | undefined;
     readonly maxAttempts?: number | undefined;
   }) {
     let observedAdd = false;
@@ -83,6 +99,7 @@ export const pollEnrollmentState = Effect.fn("cli.pollEnrollmentState")(
         getStatus,
         historicallyAdded: observedAdd,
         lookup,
+        lookupRemoved,
       });
       observedAdd = snapshot.historicallyAdded;
       if (

@@ -57,6 +57,13 @@ export const registryAbi = [
     stateMutability: "view",
     type: "function",
   },
+  {
+    inputs: [{ name: "deviceKey", type: "bytes32" }],
+    name: "deviceKeyRemoved",
+    outputs: [{ name: "", type: "bool" }],
+    stateMutability: "view",
+    type: "function",
+  },
 ] as const;
 
 const CanonicalDeviceKey = DeviceKey.pipe(
@@ -92,6 +99,7 @@ const ContractDeviceKeysResult = Schema.Array(Hex32Input);
 
 type RegistryContractResult =
   | bigint
+  | boolean
   | typeof ContractAccountResult.Type
   | readonly (typeof Hex32Input.Type)[];
 
@@ -140,6 +148,7 @@ export interface RegistryReadClient {
       readonly blockNumber?: bigint;
       readonly functionName:
         | "account"
+        | "deviceKeyRemoved"
         | "listActiveDevices"
         | "qidByDeviceKey"
         | "qidByHandleHash"
@@ -388,7 +397,30 @@ export const createRegistryReader = ({
     }
   );
 
+  const deviceKeyRemoved = Effect.fn("RegistryReader.deviceKeyRemoved")(
+    function* (input: string) {
+      const deviceKey = yield* Schema.decodeUnknownEffect(CanonicalDeviceKey)(
+        input.toLowerCase()
+      ).pipe(Effect.mapError(() => readerError("decode")));
+      const head = yield* captureHead();
+      const result = yield* readContract(
+        withOptionalBlockNumber(
+          {
+            abi: registryAbi,
+            args: [deviceKey],
+            functionName: "deviceKeyRemoved",
+          },
+          head.blockNumber
+        )
+      );
+      return yield* Schema.decodeUnknownEffect(Schema.Boolean)(result).pipe(
+        Effect.mapError(() => readerError("decode"))
+      );
+    }
+  );
+
   return {
+    deviceKeyRemoved,
     latestTimestamp,
     listActiveDevices,
     lookupDeviceKey,

@@ -158,11 +158,11 @@ const unlinkOptional = (filePath: string) =>
     })
   );
 
-/** Put a wrongly renamed live lock back without overwriting a newer lock. */
-const restoreStolenLock = (lockPath: string, stalePath: string) =>
+/** Put a wrongly renamed live inode back without overwriting a newer file. */
+const restoreStolenInode = (pathName: string, stalePath: string) =>
   Effect.tryPromise({
     catch: (error) => error,
-    try: () => link(stalePath, lockPath),
+    try: () => link(stalePath, pathName),
   }).pipe(
     Effect.matchEffect({
       onFailure: (error) => {
@@ -179,7 +179,7 @@ const restoreStolenLock = (lockPath: string, stalePath: string) =>
     })
   );
 
-const sameDeadLock = (
+const sameDeadInode = (
   observed: Stats,
   trimmed: string,
   info: Stats | null,
@@ -208,6 +208,11 @@ export const createCliIdentityStore = (
      * exclusive recover claim. Used to inject the TOCTOU window.
      */
     readonly beforeRecoverSteal?: () => Effect.Effect<void, never>;
+    /**
+     * Test hook: run after a dead recover-claim PID + inode is confirmed,
+     * before renaming that claim. Injects the stale-claim takeover window.
+     */
+    readonly beforeRecoverClaimTakeover?: () => Effect.Effect<void, never>;
   }
 ) => {
   const identityPath = path.join(root, "identity.json");
@@ -269,6 +274,10 @@ export const createCliIdentityStore = (
     if (!trimmed || !Number.isInteger(pid) || pid <= 0 || processExists(pid)) {
       return null;
     }
+    const claimInfo = yield* statOptional(claimPath);
+    if (claimInfo === null) {
+      return null;
+    }
     const lockNow = yield* statOptional(lockPath);
     // Only take over a dead claim if `lock` is still the inode it was claiming.
     if (
@@ -278,12 +287,23 @@ export const createCliIdentityStore = (
     ) {
       return null;
     }
+    if (options?.beforeRecoverClaimTakeover) {
+      yield* options.beforeRecoverClaimTakeover();
+    }
     const staleClaim = `${claimPath}.stale.${process.pid}.${crypto.randomUUID()}`;
     const moved = yield* Effect.tryPromise({
       catch: (error) => error,
       try: () => rename(claimPath, staleClaim),
     }).pipe(Effect.result);
     if (Result.isFailure(moved)) {
+      return null;
+    }
+    const stolenClaim = yield* statOptional(staleClaim);
+    const stolenText = yield* readTextOptional(staleClaim);
+    // Path rename is not atomic with the dead-PID check. If another recoverer
+    // already replaced this claim, put their live inode back and back off.
+    if (!sameDeadInode(claimInfo, trimmed, stolenClaim, stolenText)) {
+      yield* restoreStolenInode(claimPath, staleClaim);
       return null;
     }
     yield* unlinkOptional(staleClaim);
@@ -334,7 +354,7 @@ export const createCliIdentityStore = (
       }
       const still = yield* statOptional(lockPath);
       const stillText = yield* readTextOptional(lockPath);
-      if (!sameDeadLock(dead.observed, dead.trimmed, still, stillText)) {
+      if (!sameDeadInode(dead.observed, dead.trimmed, still, stillText)) {
         yield* unlinkOptional(claimPath);
         return { kind: "held" } satisfies RecoverOutcome;
       }
@@ -354,8 +374,8 @@ export const createCliIdentityStore = (
       const stolenText = yield* readTextOptional(stalePath);
       // With the inode claim held, this mismatch is leftover defense: restore
       // (link does not overwrite) and drop the claim. Do not wx.
-      if (!sameDeadLock(dead.observed, dead.trimmed, stolen, stolenText)) {
-        yield* restoreStolenLock(lockPath, stalePath);
+      if (!sameDeadInode(dead.observed, dead.trimmed, stolen, stolenText)) {
+        yield* restoreStolenInode(lockPath, stalePath);
         yield* unlinkOptional(claimPath);
         return { kind: "held" } satisfies RecoverOutcome;
       }

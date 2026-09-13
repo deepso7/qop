@@ -256,4 +256,26 @@ describe("registry reader", () => {
       freshness: "stale",
     });
   });
+
+  it("reports whether a device key was permanently removed", async () => {
+    const removedKey = `0x${"44".repeat(32)}` as const;
+    const getBlockNumber = vi.fn(() => Promise.resolve(99n));
+    const readContract = vi.fn(({ functionName, blockNumber, args }) => {
+      expect(blockNumber).toBe(99n);
+      if (functionName === "deviceKeyRemoved") {
+        return Promise.resolve(args[0] === removedKey);
+      }
+      return Promise.resolve(false);
+    });
+    const { deviceKeyRemoved } = createRegistryReader({
+      client: { getBlockNumber, readContract },
+    });
+    await expect(Effect.runPromise(deviceKeyRemoved(removedKey))).resolves.toBe(
+      true
+    );
+    await expect(Effect.runPromise(deviceKeyRemoved(DEVICE_KEY))).resolves.toBe(
+      false
+    );
+    expect(getBlockNumber).toHaveBeenCalled();
+  });
 });

@@ -10,9 +10,11 @@ const observedPath = process.argv.at(4);
 const releasePath = process.argv.at(5);
 const renamedPath = process.argv.at(6);
 const releaseAfterRenamePath = process.argv.at(7);
+const claimTakeoverPath = process.argv.at(8);
+const releaseClaimTakeoverPath = process.argv.at(9);
 if (!root) {
   console.error(
-    "usage: lock-recover-worker <root> [delayMs] [observedPath] [releasePath] [renamedPath] [releaseAfterRenamePath]"
+    "usage: lock-recover-worker <root> [delayMs] [observedPath] [releasePath] [renamedPath] [releaseAfterRenamePath] [claimTakeoverPath] [releaseClaimTakeoverPath]"
   );
   process.exit(2);
 }
@@ -42,6 +44,15 @@ const store = createCliIdentityStore(root, {
       }
       if (releaseAfterRenamePath) {
         yield* waitForPath(releaseAfterRenamePath);
+      }
+    }),
+  beforeRecoverClaimTakeover: () =>
+    Effect.gen(function* () {
+      if (claimTakeoverPath) {
+        yield* Effect.promise(() => writeFile(claimTakeoverPath, "1"));
+      }
+      if (releaseClaimTakeoverPath) {
+        yield* waitForPath(releaseClaimTakeoverPath);
       }
     }),
   beforeRecoverSteal: () =>

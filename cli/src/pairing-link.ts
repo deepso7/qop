@@ -90,6 +90,7 @@ export const runLink = Effect.fn("qop.link")(function* (
   }
 
   const lookupSelf = () => reader.lookupDeviceKey(identity.deviceKey);
+  const lookupRemoved = () => reader.deviceKeyRemoved(identity.deviceKey);
   const getStatus = () =>
     apiUrl
       ? store
@@ -108,6 +109,7 @@ export const runLink = Effect.fn("qop.link")(function* (
     expectedQid: BigInt(identity.qid),
     getStatus,
     lookup: lookupSelf,
+    lookupRemoved,
   });
   if (prior.state === "linked") {
     console.log(`Already linked as @${handle}. Run qop start.`);
@@ -298,6 +300,7 @@ export const runLink = Effect.fn("qop.link")(function* (
       expectedQid: BigInt(identity.qid),
       getStatus,
       lookup: lookupSelf,
+      lookupRemoved,
     });
     if (snapshot.state === "linked") {
       console.log(`Linked as @${handle}. Run qop start.`);
