@@ -1,6 +1,7 @@
 import type { Stats } from "node:fs";
 import {
   chmod,
+  link,
   mkdir,
   open,
   readFile,
@@ -157,11 +158,35 @@ const unlinkOptional = (filePath: string) =>
     })
   );
 
+/** Put a wrongly renamed live lock back without overwriting a newer lock. */
+const restoreStolenLock = (lockPath: string, stalePath: string) =>
+  Effect.tryPromise({
+    catch: (error) => error,
+    try: () => link(stalePath, lockPath),
+  }).pipe(
+    Effect.matchEffect({
+      onFailure: (error) => {
+        const parsed = errnoCode(error);
+        if (
+          parsed._tag === "Some" &&
+          (parsed.value.code === "EEXIST" || parsed.value.code === "ENOENT")
+        ) {
+          return unlinkOptional(stalePath);
+        }
+        return Effect.fail(storeError("lock"));
+      },
+      onSuccess: () => unlinkOptional(stalePath),
+    })
+  );
+
 export const createCliIdentityStore = (
   root: string,
   options?: {
-    /** Test hook: run after a dead PID is confirmed, before the exclusive steal. */
-    readonly beforeRecoverSteal?: () => Effect.Effect<void>;
+    /**
+     * Test hook: run after a dead lock is observed (PID + inode), before the
+     * exclusive steal rename. Used to inject the TOCTOU window.
+     */
+    readonly beforeRecoverSteal?: () => Effect.Effect<void, never>;
   }
 ) => {
   const identityPath = path.join(root, "identity.json");
@@ -199,15 +224,16 @@ export const createCliIdentityStore = (
       if (processExists(pid)) {
         return "held" as const;
       }
+      const again = yield* readTextOptional(lockPath);
+      if (again === null || again.trim() !== trimmed) {
+        return "held" as const;
+      }
+      const observed = yield* statOptional(lockPath);
+      if (observed === null) {
+        return "held" as const;
+      }
       if (options?.beforeRecoverSteal) {
         yield* options.beforeRecoverSteal();
-      }
-      const again = yield* readTextOptional(lockPath);
-      if (again === null) {
-        return "held" as const;
-      }
-      if (again.trim() !== trimmed) {
-        return "held" as const;
       }
       const stalePath = `${lockPath}.stale.${process.pid}.${crypto.randomUUID()}`;
       const renamed = yield* Effect.tryPromise({
@@ -215,6 +241,21 @@ export const createCliIdentityStore = (
         try: () => rename(lockPath, stalePath),
       }).pipe(Effect.result);
       if (Result.isFailure(renamed)) {
+        return "held" as const;
+      }
+      const stolen = yield* statOptional(stalePath);
+      const stolenText = yield* readTextOptional(stalePath);
+      // Rename is path-based. If another process created a fresh lock in the
+      // window after we observed the dead inode, we just moved *that* file.
+      // Restore it (link does not overwrite) and do not wx.
+      if (
+        stolen === null ||
+        stolen.dev !== observed.dev ||
+        stolen.ino !== observed.ino ||
+        stolenText === null ||
+        stolenText.trim() !== trimmed
+      ) {
+        yield* restoreStolenLock(lockPath, stalePath);
         return "held" as const;
       }
       yield* unlinkOptional(stalePath);
@@ -275,8 +316,8 @@ export const createCliIdentityStore = (
         return yield* opened.failure;
       }
       const recovered = yield* recoverStaleLock();
-      // Only the rename winner may create. Losers must not wx until they
-      // observe a live owner (held → conflict).
+      // Only the recoverer that renamed the observed dead inode may create.
+      // Losers (including anyone who renamed a later live lock) conflict.
       if (recovered !== "stolen") {
         return yield* storeError("conflict");
       }

@@ -39,6 +39,7 @@ export {
 export { createLifecycleAdapter } from "./lifecycle.ts";
 export type { LifecycleAdapter } from "./lifecycle.ts";
 export {
+  deviceActionDeadlineExpired,
   enrollmentMembership,
   enrollmentPollComplete,
   isTerminalDeviceActionStatus,

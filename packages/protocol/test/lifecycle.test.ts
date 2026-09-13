@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createLifecycleAdapter } from "../src/lifecycle.ts";
 import {
+  deviceActionDeadlineExpired,
   enrollmentMembership,
   enrollmentPollComplete,
   occupiesApprovalSlot,
@@ -139,6 +140,22 @@ describe("enrollment membership", () => {
   });
 
   it("releases a never-submitted missing digest after the deadline", () => {
+    expect(deviceActionDeadlineExpired(1_700_003_600n, 1_700_003_600n)).toBe(
+      false
+    );
+    expect(deviceActionDeadlineExpired(1_700_003_600n, 1_700_003_601n)).toBe(
+      true
+    );
+    expect(
+      occupiesApprovalSlot({
+        apiRecord: "missing",
+        apiStatus: null,
+        chainTime: 1_700_003_600n,
+        deadline: 1_700_003_600n,
+        membership: "pending",
+        operation: "add",
+      })
+    ).toBe(true);
     expect(
       occupiesApprovalSlot({
         apiRecord: "missing",

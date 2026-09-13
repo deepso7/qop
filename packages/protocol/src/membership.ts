@@ -16,6 +16,15 @@ export type DeviceActionOperation = "add" | "remove";
 /** Whether GET /device-actions/:digest observed a row. */
 export type DeviceActionApiRecord = "present" | "missing" | "unknown";
 
+/**
+ * Contract `ExpiredIntent` is `block.timestamp > deadline`. Equality is still
+ * executable — do not treat `chainTime === deadline` as expired.
+ */
+export const deviceActionDeadlineExpired = (
+  deadline: bigint,
+  chainTime: bigint
+) => chainTime > deadline;
+
 /** Linked/Removed is a current roster read, independent of digest confirmation. */
 export const enrollmentMembership = ({
   activeQid,
@@ -73,13 +82,13 @@ export const occupiesApprovalSlot = ({
   if (isTerminalDeviceActionStatus(apiStatus)) {
     return false;
   }
-  // Never-submitted + GET 404/missing + deadline <= chain time: cannot execute.
-  // ready/submitted keep occupying even if the local clock is past the deadline.
+  // Never-submitted + GET 404/missing + chain time strictly after deadline:
+  // cannot execute. ready/submitted keep occupying even if local clock is past.
   if (
     neverSubmittedDigestMissing({ apiRecord, apiStatus }) &&
     deadline !== undefined &&
     chainTime !== undefined &&
-    deadline <= chainTime
+    deviceActionDeadlineExpired(deadline, chainTime)
   ) {
     return false;
   }

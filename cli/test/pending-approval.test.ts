@@ -36,7 +36,7 @@ const createStore = (initial: typeof pendingAdd | null) => {
 
 describe("CLI pending approval occupancy", () => {
   it.effect(
-    "clears a never-submitted digest when GET is 404 past the deadline",
+    "keeps a never-submitted digest when GET is 404 at the deadline",
     () =>
       Effect.gen(function* () {
         const store = createStore(pendingAdd);
@@ -45,6 +45,23 @@ describe("CLI pending approval occupancy", () => {
           getStatus: () =>
             Effect.fail(new DeviceActionStatusError({ operation: "missing" })),
           latestTimestamp: () => Effect.succeed(1_700_003_600n),
+          store,
+        });
+        expect(occupying?.digest).toBe(pendingAdd.digest);
+        expect(store.snapshot()?.digest).toBe(pendingAdd.digest);
+      })
+  );
+
+  it.effect(
+    "clears a never-submitted digest when GET is 404 after the deadline",
+    () =>
+      Effect.gen(function* () {
+        const store = createStore(pendingAdd);
+        const occupying = yield* loadOccupyingApproval({
+          apiUrl: "http://127.0.0.1",
+          getStatus: () =>
+            Effect.fail(new DeviceActionStatusError({ operation: "missing" })),
+          latestTimestamp: () => Effect.succeed(1_700_003_601n),
           store,
         });
         expect(occupying).toBeNull();
@@ -58,7 +75,7 @@ describe("CLI pending approval occupancy", () => {
       const occupying = yield* loadOccupyingApproval({
         apiUrl: "http://127.0.0.1",
         getStatus: () => Effect.succeed({ status: "submitted" as const }),
-        latestTimestamp: () => Effect.succeed(1_700_003_600n),
+        latestTimestamp: () => Effect.succeed(1_700_003_601n),
         store,
       });
       expect(occupying?.digest).toBe(pendingAdd.digest);

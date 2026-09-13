@@ -45,7 +45,7 @@ interface OccupyingApproval {
 
 /**
  * Keep pending-approval.json while the digest can still execute. Clear it when
- * GET is 404/missing and the intent deadline is at or before chain time. Do
+ * GET is 404/missing and chain time is strictly after the intent deadline. Do
  * not clear ready/submitted on local clock alone.
  */
 export const loadOccupyingApproval = <T extends OccupyingApproval>({

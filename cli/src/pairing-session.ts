@@ -9,6 +9,7 @@ import {
   asHex,
   asQidString,
   DEVICE_ACTION_DEADLINE_SECONDS,
+  deviceActionDeadlineExpired,
   verifyApprovalDigest,
 } from "@qop/protocol";
 import type {
@@ -89,7 +90,7 @@ export const createCliPairingSession = <E>({
     }
     const deadline = BigInt(record.intent.deadline);
     if (
-      deadline <= snapshot.chainTime ||
+      deviceActionDeadlineExpired(deadline, snapshot.chainTime) ||
       deadline > snapshot.chainTime + BigInt(DEVICE_ACTION_DEADLINE_SECONDS)
     ) {
       return Effect.fail(mismatch());

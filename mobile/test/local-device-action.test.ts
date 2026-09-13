@@ -317,9 +317,34 @@ describe("local device action", () => {
     expect(Result.isSuccess(saved)).toBe(true);
   });
 
-  it("releases a never-submitted digest when GET is 404 and the deadline has passed", async () => {
+  it("keeps a never-submitted digest when GET is 404 at the deadline", async () => {
     const harness = createHarness({
       chainTime: 1_700_003_600n,
+      get: () =>
+        Effect.fail(new DeviceActionClientError({ kind: null, status: 404 })),
+    });
+    const record = await signedAdd();
+    await Effect.runPromise(harness.persistApproval(record));
+    const resumed = await Effect.runPromise(
+      harness.resumeInFlight("add", record.intent.deviceKey)
+    );
+    expect(resumed?.digest).toBe(record.digest);
+    const conflict = await Effect.runPromise(
+      harness
+        .persistApproval({
+          ...record,
+          digest: `0x${"cd".repeat(32)}`,
+        })
+        .pipe(Effect.result)
+    );
+    expect(Result.isFailure(conflict) && conflict.failure.operation).toBe(
+      "conflict"
+    );
+  });
+
+  it("releases a never-submitted digest when GET is 404 and the deadline has passed", async () => {
+    const harness = createHarness({
+      chainTime: 1_700_003_601n,
       get: () =>
         Effect.fail(new DeviceActionClientError({ kind: null, status: 404 })),
     });
@@ -343,7 +368,7 @@ describe("local device action", () => {
 
   it("does not free a submitted digest on GET 404 after the deadline", async () => {
     const harness = createHarness({
-      chainTime: 1_700_003_600n,
+      chainTime: 1_700_003_601n,
       get: () =>
         Effect.fail(new DeviceActionClientError({ kind: null, status: 404 })),
     });
