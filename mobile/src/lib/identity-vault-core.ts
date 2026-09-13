@@ -5,6 +5,8 @@ import {
   decodeRegisterIntentV1,
   decodeRecoverOwnerIntentV1,
   decodeWipeDevicesIntentV1,
+  decodeAddDeviceIntentV1,
+  decodeRemoveDeviceIntentV1,
   deviceKeyFromEd25519SecretKey,
   encodeRecoveryKeyV1,
   EcdsaSignature,
@@ -16,6 +18,8 @@ import {
   peerIdFromEd25519SecretKey,
   signRegisterIntentV1,
   signRecoverOwnerIntentV1,
+  signRemoveDeviceIntentV1,
+  signAddDeviceIntentV1,
   signWipeDevicesIntentV1,
 } from "@qop/identity";
 import type {
@@ -24,6 +28,12 @@ import type {
   RecoverOwnerIntentV1Encoded,
   WipeDevicesIntentV1Encoded,
 } from "@qop/identity";
+import {
+  approvalsMatch,
+  decodeDeviceActionApprovalV1,
+  verifyApprovalDigest,
+} from "@qop/protocol";
+import type { DeviceActionApprovalV1Encoded } from "@qop/protocol";
 import { Data, Effect, Result, Schema, Semaphore } from "effect";
 
 const INSTALL_STORAGE_KEY = "qop.install.v1";
@@ -445,6 +455,79 @@ export const createIdentityVault = ({
     );
   });
 
+  const signApprovedDeviceAction = Effect.fn(
+    "IdentityVault.signApprovedDeviceAction"
+  )(function* ({
+    displayed,
+    requested,
+    snapshot,
+    trustedDomain,
+  }: {
+    readonly displayed: DeviceActionApprovalV1Encoded;
+    readonly requested: DeviceActionApprovalV1Encoded;
+    readonly snapshot: {
+      readonly nonce: string;
+      readonly owner: string;
+      readonly qid: string;
+    };
+    readonly trustedDomain: IdentityEip712DomainV1Encoded;
+  }) {
+    const identity = yield* loadStoredLocalIdentity();
+    if (!identity) {
+      return yield* vaultError("missing-identity");
+    }
+    const displayedRecord = yield* decodeDeviceActionApprovalV1(displayed).pipe(
+      Effect.mapError(() => vaultError("sign"))
+    );
+    const requestedRecord = yield* decodeDeviceActionApprovalV1(requested).pipe(
+      Effect.mapError(() => vaultError("sign"))
+    );
+    if (!approvalsMatch(displayedRecord, requestedRecord)) {
+      return yield* vaultError("sign");
+    }
+    if (
+      requestedRecord.domain.chainId.toString() !== trustedDomain.chainId ||
+      requestedRecord.domain.verifyingContract !==
+        trustedDomain.verifyingContract
+    ) {
+      return yield* vaultError("sign");
+    }
+    if (
+      requestedRecord.expectedOwner !== identity.ownerAddress ||
+      requestedRecord.expectedOwner !== snapshot.owner ||
+      requestedRecord.intent.qid.toString() !== snapshot.qid ||
+      requestedRecord.intent.nonce.toString() !== snapshot.nonce
+    ) {
+      return yield* vaultError("sign");
+    }
+    yield* verifyApprovalDigest(requestedRecord).pipe(
+      Effect.mapError(() => vaultError("sign"))
+    );
+    const [domain, privateKey] = yield* Effect.all(
+      [
+        decodeIdentityEip712DomainV1(trustedDomain),
+        decodeRecoveryKeyV1(identity.recoveryKey),
+      ] as const,
+      { concurrency: "unbounded" }
+    ).pipe(Effect.mapError(() => vaultError("sign")));
+    const signature = yield* (
+      requestedRecord.operation === "add"
+        ? decodeAddDeviceIntentV1(requestedRecord.intent).pipe(
+            Effect.flatMap((decodedIntent) =>
+              signAddDeviceIntentV1(domain, decodedIntent, privateKey)
+            )
+          )
+        : decodeRemoveDeviceIntentV1(requestedRecord.intent).pipe(
+            Effect.flatMap((decodedIntent) =>
+              signRemoveDeviceIntentV1(domain, decodedIntent, privateKey)
+            )
+          )
+    ).pipe(Effect.mapError(() => vaultError("sign")));
+    return yield* Schema.encodeEffect(EcdsaSignature)(signature).pipe(
+      Effect.mapError(() => vaultError("sign"))
+    );
+  });
+
   const updateLocalIdentityBackupState = Effect.fn(
     "IdentityVault.updateLocalIdentityBackupState"
   )((backupState: Exclude<IdentityBackupState, "pending">) =>
@@ -481,6 +564,7 @@ export const createIdentityVault = ({
     loadDeviceSecretKey,
     loadLocalIdentity,
     revealLocalIdentityRecoveryKey,
+    signApprovedDeviceAction,
     signRecoverOwnerIntent,
     signRegisterIntent,
     signWipeDevicesIntent,

@@ -2,26 +2,30 @@
 
 QOP is a simple, minimal and secure messaging app built on top of [minip2p](https://minip2p.com).
 
-Messages travel peer to peer. Identity lives on chain. The only server in the picture is a small registration API that a client uses once, then never again.
+Messages travel peer to peer. Identity lives on chain. A small API sponsors invitation-gated registration and later phone-approved add/remove device actions. It never holds owner secrets and does not choose pairing endpoints.
 
 - **Open at the core.** Completely open source and self hostable.
 - **Performance without compromise.** P2P and fully decentralised apps can easily become complicated and difficult to use. QOP stays simple and intuitive without compromising decentralisation, permissionlessness, or performance.
 
 ## How it works
 
-1. **Identity registry** (`contracts/`). A Solidity contract maps a permanent handle to an owner address and a raw Ed25519 device key. It is the single source of truth for who owns which handle. Registration starts invitation gated and can be opened permanently by the registration admin.
-2. **Registration API** (`api/`). Verifies an owner signed EIP-712 registration intent, claims a single use admission code, adds the registrar signature, and relays the transaction on chain. After the registration confirms, the client never needs this service again.
-3. **Mobile app** (`mobile/`). An Expo app that generates keys on device, registers through the API, resolves peers straight from the chain over RPC, and chats over minip2p. Each transport connection is verified against the registry once in each direction before any chat message is accepted.
-4. **Identity library** (`packages/identity/`). Shared key derivation, EIP-712 domains and intents, recovery key encoding, and wire codecs used by both the API and the app.
+1. **Identity registry** (`contracts/`). A Solidity contract maps a permanent handle to an owner address and raw Ed25519 device keys. It is the single source of truth for who owns which handle. Registration starts invitation gated and can be opened permanently by the registration admin.
+2. **API** (`api/`). Verifies owner-signed EIP-712 intents and relays gas for registration and add/remove device actions. Clients still confirm account and device membership over RPC.
+3. **Mobile app** (`mobile/`). An Expo app that generates keys on device, registers through the API, links additional devices, resolves peers from the chain, and chats over minip2p. Each transport connection is verified against the registry with a bounded authorization cache.
+4. **CLI** (`cli/`). Links a separate device key with phone approval, then runs diagnostic chat as the same account. Durable outbox handoff is a later milestone.
+5. **Identity library** (`packages/identity/`). Shared key derivation, EIP-712 domains and intents, recovery key encoding, and wire codecs.
+6. **Protocol library** (`packages/protocol/`). Pairing codecs and the shared registry/session/chat pieces used by phone and CLI.
 
 ## Repository layout
 
 | Path | Package | Description |
 | --- | --- | --- |
 | `contracts/` | Foundry | `QOPIdentityRegistry` and its protocol tests |
-| `api/` | `@qop/api` | Registration relay service (Effect, Postgres, viem) |
+| `api/` | `@qop/api` | Registration and device-action relay service (Effect, Postgres, viem) |
+| `cli/` | `@qop/cli` | Phone-approved device linking and diagnostic chat |
 | `mobile/` | `mobile` | Expo app (Expo Router, minip2p, Effect) |
-| `packages/identity/` | `@qop/identity` | Identity primitives shared by the API and app |
+| `packages/identity/` | `@qop/identity` | Identity primitives shared by the API, CLI, and app |
+| `packages/protocol/` | `@qop/protocol` | Pairing, registry reads, and live-session authorization |
 
 Each package has its own README with details on configuration and operation.
 

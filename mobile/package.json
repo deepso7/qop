@@ -18,6 +18,7 @@
     "@expo/ui": "57.0.16",
     "@minip2p/react-native": "0.5.3",
     "@qop/identity": "workspace:*",
+    "@qop/protocol": "workspace:*",
     "@rn-primitives/accordion": "1.5.2",
     "@rn-primitives/alert-dialog": "1.5.2",
     "@rn-primitives/aspect-ratio": "1.5.2",

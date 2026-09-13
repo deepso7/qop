@@ -1,0 +1,118 @@
+import { enrollmentMembership, enrollmentPollComplete } from "@qop/protocol";
+import type {
+  DeviceActionApiStatus,
+  EnrollmentMembership,
+} from "@qop/protocol";
+import { Effect, Result } from "effect";
+
+export interface EnrollmentSnapshot {
+  readonly apiStatus: DeviceActionApiStatus | null;
+  readonly historicallyAdded: boolean;
+  readonly state: EnrollmentMembership;
+}
+
+export const readEnrollmentState = Effect.fn("cli.readEnrollmentState")(
+  function* ({
+    expectedQid,
+    getStatus,
+    historicallyAdded = false,
+    lookup,
+    lookupRemoved,
+  }: {
+    readonly expectedQid: bigint;
+    readonly getStatus?:
+      | (() => Effect.Effect<DeviceActionApiStatus, unknown>)
+      | undefined;
+    readonly historicallyAdded?: boolean | undefined;
+    readonly lookup: () => Effect.Effect<
+      { readonly qid: bigint } | null,
+      unknown
+    >;
+    readonly lookupRemoved?:
+      | (() => Effect.Effect<boolean, unknown>)
+      | undefined;
+  }) {
+    let added = historicallyAdded;
+    let apiStatus: DeviceActionApiStatus | null = null;
+    if (getStatus) {
+      const status = yield* getStatus().pipe(Effect.result);
+      if (Result.isSuccess(status)) {
+        apiStatus = status.success;
+      }
+    }
+    const current = yield* lookup();
+    // Roster observation is the live historical-add signal. API `confirmed`
+    // can lead the CLI's RPC head, so treating it as added would look like
+    // `removed` and rotate a still-valid pending key. After restart the
+    // in-memory flag is gone; the registry's removal marker is chain proof
+    // the key was added and later removed, and a lagging head will not
+    // show that marker yet.
+    if (current?.qid === expectedQid) {
+      added = true;
+    } else if (lookupRemoved) {
+      const removed = yield* lookupRemoved().pipe(Effect.result);
+      if (Result.isSuccess(removed) && removed.success) {
+        added = true;
+      }
+    }
+    const state: EnrollmentMembership = enrollmentMembership({
+      activeQid: current?.qid ?? null,
+      expectedQid,
+      historicallyAdded: added,
+    });
+    return { apiStatus, historicallyAdded: added, state };
+  }
+);
+
+export const pollEnrollmentState = Effect.fn("cli.pollEnrollmentState")(
+  function* ({
+    delayMs = 2000,
+    expectedQid,
+    getStatus,
+    lookup,
+    lookupRemoved,
+    maxAttempts = 150,
+  }: {
+    readonly delayMs?: number | undefined;
+    readonly expectedQid: bigint;
+    readonly getStatus?:
+      | (() => Effect.Effect<DeviceActionApiStatus, unknown>)
+      | undefined;
+    readonly lookup: () => Effect.Effect<
+      { readonly qid: bigint } | null,
+      unknown
+    >;
+    readonly lookupRemoved?:
+      | (() => Effect.Effect<boolean, unknown>)
+      | undefined;
+    readonly maxAttempts?: number | undefined;
+  }) {
+    let observedAdd = false;
+    let snapshot: EnrollmentSnapshot = {
+      apiStatus: null,
+      historicallyAdded: false,
+      state: "pending",
+    };
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      snapshot = yield* readEnrollmentState({
+        expectedQid,
+        getStatus,
+        historicallyAdded: observedAdd,
+        lookup,
+        lookupRemoved,
+      });
+      observedAdd = snapshot.historicallyAdded;
+      if (
+        enrollmentPollComplete({
+          apiStatus: snapshot.apiStatus,
+          membership: snapshot.state,
+          operation: "add",
+        })
+      ) {
+        return snapshot;
+      }
+      yield* Effect.sleep(delayMs);
+    }
+    return snapshot;
+  }
+);

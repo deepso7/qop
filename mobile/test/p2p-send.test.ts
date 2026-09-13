@@ -29,6 +29,7 @@ const account: RegistryAccount = {
   ],
   freshness: "fresh",
   handle: "bob",
+  nonce: 0n,
   owner: "0x0000000000000000000000000000000000000001",
   ownerVersion: 0,
   peerId: PEER_BOB,

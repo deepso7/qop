@@ -20,8 +20,7 @@ Accepted scope (QR pairing, phone approval, sponsored add/remove, durable handof
 
 ### 1. Signed intent/status never have a specified path to the CLI, and crash persistence is only named, not designed
 
-**Severity:** Blocker
-**Kind:** New-plan gap (existing registration already solved this on the phone)
+**Severity:** Blocker **Kind:** New-plan gap (existing registration already solved this on the phone)
 
 The phone is the submitter (`docs/research/cli-device-linking-plan.md:32-34`, `:47-49`). The CLI is told to verify the owner signature against a fresh account read (`:47`) and to keep “transaction metadata” across restart (`:49`). Nothing specifies:
 
@@ -57,8 +56,7 @@ Until this sequence is in the plan, “CLI verifies the owner signature” is no
 
 ### 2. Uncached membership plus existing non-advancing-head rejection is not implementable for “every sensitive CLI operation”
 
-**Severity:** Blocker
-**Kind:** New-plan vs existing sessions
+**Severity:** Blocker **Kind:** New-plan vs existing sessions
 
 The plan (`:85-87`) wants a fresh uncached membership check before every CLI sensitive op, **and** the shared freshness rules (stale-tagged and non-advancing heads refused).
 
@@ -111,8 +109,7 @@ If a later CLI wants uncached checks, that is a new `verify` mode that allows sa
 
 ### 3. “Narrowly scoped” add/remove signing is unspecified, and the existing vault patterns disagree
 
-**Severity:** Blocker for unauthorized enrollment
-**Kind:** New-plan gap, with an existing-code trap
+**Severity:** Blocker for unauthorized enrollment **Kind:** New-plan gap, with an existing-code trap
 
 `@qop/identity` can hash/recover add/remove but **cannot sign them** (`packages/identity/src/index.ts:86-88` exports `signRegisterIntentV1` / `signWipeDevicesIntentV1` / `signRecoverOwnerIntentV1` only). That much is planned work.
 
@@ -150,8 +147,7 @@ On-chain, owner uniqueness (`contracts/src/QOPIdentityRegistry.sol:90`, `:275-29
 
 ### 4. Device-action confirmation cannot reuse registration’s “nonce used” probe
 
-**Severity:** Important
-**Kind:** New-plan vs existing API
+**Severity:** Important **Kind:** New-plan vs existing API
 
 Registration confirms by `registrationNonceUsed` at a **confirmed** head (`api/src/registration/enrollment.ts:289-317`, `api/src/registry/chain.ts:96-110`, `:204-254`). Add/remove have no equivalent flag. Account `nonce` advances for rotate/wipe/recover too (`contracts/src/QOPIdentityRegistry.sol:294-296`, `:314-316`, `:333-334`). The API account cache is 15s fresh / 1 min stale (`api/src/registry/reader.ts:68-83`) and does not even call `qidByDeviceKey` (`api/src/registry/abi.ts:8` is unused in `chain.ts`).
 
@@ -167,8 +163,7 @@ Local demo: set API `REGISTRY_CONFIRMATIONS` to the same policy as the clients (
 
 ### 5. Digest idempotency does not serialize two different intents for one account
 
-**Severity:** Important
-**Kind:** New-plan (registration only unique-indexes handle/owner)
+**Severity:** Important **Kind:** New-plan (registration only unique-indexes handle/owner)
 
 Registration uniqueness is per digest, plus active handle/owner (`api/src/db/schema.ts:67-80`). Add/remove digests include deadline, so two approvals in one nonce window are two rows. Plan says serialize per account (`:59`) but does not specify the store constraint.
 
@@ -180,8 +175,7 @@ Registration uniqueness is per digest, plus active handle/owner (`api/src/db/sch
 
 ### 6. Shared relayer nonce is real, and easy to break by cloning
 
-**Severity:** Important
-**Kind:** Existing code, amplified by the plan
+**Severity:** Important **Kind:** Existing code, amplified by the plan
 
 Durable allocation exists and is process-safe: singleton row, `FOR UPDATE`, persist signed bytes and hash, skip re-prepare when already `submitted` (`api/src/db/schema.ts:112-121`; `api/src/registration/store.ts:321-368`, `:337-342`; rebroadcast in `api/src/registration/enrollment.ts:216-256` and `api/src/registration/relayer.ts:177-204`). Tests show later prepares use `max(chain, nextNonce)` (`api/src/test/registration-store.test.ts:134-165`).
 
@@ -197,8 +191,7 @@ Durable allocation exists and is process-safe: singleton row, `FOR UPDATE`, pers
 
 ### 7. Phone P2P currently cannot carry `/qop/pair/1`
 
-**Severity:** Improvement / practical
-**Kind:** Existing mobile endpoint vs new pairing stream
+**Severity:** Improvement / practical **Kind:** Existing mobile endpoint vs new pairing stream
 
 The running phone endpoint advertises only `/qop/chat/1` (`mobile/src/lib/p2p-store-core.ts:472-477`, `mobile/src/lib/chat-wire.ts:4`). Inbound unknown protocols are reset (`p2p-store-core.ts:562-570`).
 
@@ -212,8 +205,7 @@ The running phone endpoint advertises only `/qop/chat/1` (`mobile/src/lib/p2p-st
 
 ### 8. 4 KiB QR budget is larger than a reliable QR
 
-**Severity:** Improvement
-**Kind:** New-plan practicality
+**Severity:** Improvement **Kind:** New-plan practicality
 
 Plan allows 4 KiB and four full multiaddrs (`:43`, `:49`). Typical version-40 QR binary capacity is under 3 KiB.
 

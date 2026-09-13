@@ -7,7 +7,7 @@ The current package exports:
 - The identity protocol version.
 - Canonical codecs for MiniP2P PeerIds, 32-byte base64url values, ECDSA signatures, qids, chain IDs, Unix timestamps, and Ethereum addresses.
 - The fixed QOP EIP-712 domain and strict domain codec.
-- Strict schemas, EIP-712 definitions, digests, and signer recovery for registration, owner rotation, and device-key rotation intents.
+- Strict schemas, EIP-712 definitions, digests, signing, and signer recovery for registration, owner rotation, add/remove device, and wipe intents.
 - Ed25519 device-key derivation and conversion between raw 32-byte device keys and MiniP2P PeerIds.
 - X25519 device-encryption public-key derivation.
 - Recovery-key helpers: `encodeRecoveryKeyV1`, `decodeRecoveryKeyV1`, and `ownerAddressFromRecoveryKeyV1`, with typed `RecoveryKeyError` failures.
