@@ -6,6 +6,7 @@ import {
   readFile,
   rm,
   stat,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -514,46 +515,77 @@ describe("CLI identity store", () => {
   );
 
   it.effect(
-    "does not admit a third writer after a stale recover-claim is replaced",
+    "does not admit a writer while an abandoned recover-claim is left in place",
     () =>
       Effect.gen(function* () {
         const root = yield* Effect.tryPromise(() =>
           mkdtemp(path.join(tmpdir(), "qop-cli-"))
         );
         yield* seedDeadLockWithAbandonedClaim(root);
-        const validatedClaim = yield* Deferred.make<boolean>();
+        const observedClaim = yield* Deferred.make<boolean>();
         const releaseSlow = yield* Deferred.make<boolean>();
         const slow = createCliIdentityStore(root, {
-          beforeRecoverClaimTakeover: () =>
+          afterExistingRecoverClaim: () =>
             Effect.gen(function* () {
-              yield* Deferred.succeed(validatedClaim, true);
+              yield* Deferred.succeed(observedClaim, true);
               yield* Deferred.await(releaseSlow);
             }),
         });
         const slowFiber = yield* Effect.forkChild(
           slow.acquireLock().pipe(Effect.result)
         );
-        yield* Deferred.await(validatedClaim);
+        yield* Deferred.await(observedClaim);
+        // Restore-window interleaving: B has seen the leftover claim and has
+        // not yet returned. A and C try to wx a replacement; D tries after B
+        // backs off. Takeover-by-rename emptied the path here and admitted
+        // two writers (A then D). Fail-closed keeps the path occupied.
         const fastResult = yield* createCliIdentityStore(root)
+          .acquireLock()
+          .pipe(Effect.result);
+        const thirdResult = yield* createCliIdentityStore(root)
           .acquireLock()
           .pipe(Effect.result);
         yield* Deferred.succeed(releaseSlow, true);
         const slowResult = yield* Fiber.join(slowFiber);
-        const thirdResult = yield* createCliIdentityStore(root)
+        const fourthResult = yield* createCliIdentityStore(root)
           .acquireLock()
           .pipe(Effect.result);
-        const successes = [fastResult, slowResult, thirdResult].filter(
-          (result) => result._tag === "Success"
-        );
-        expect(successes.length).toBe(1);
-        expect(fastResult._tag).toBe("Success");
+        const successes = [
+          fastResult,
+          slowResult,
+          thirdResult,
+          fourthResult,
+        ].filter((result) => result._tag === "Success");
+        expect(successes.length).toBe(0);
+        expect(fastResult._tag).toBe("Failure");
         expect(slowResult._tag).toBe("Failure");
         expect(thirdResult._tag).toBe("Failure");
-        if (fastResult._tag === "Success") {
-          yield* fastResult.success.release;
-        }
-        if (thirdResult._tag === "Success") {
-          yield* thirdResult.success.release;
+        expect(fourthResult._tag).toBe("Failure");
+        yield* Effect.tryPromise(() =>
+          rm(root, { force: true, recursive: true })
+        );
+      })
+  );
+
+  it.effect(
+    "recovers a dead lock after the operator removes the abandoned claim",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* Effect.tryPromise(() =>
+          mkdtemp(path.join(tmpdir(), "qop-cli-"))
+        );
+        const { claimPath } = yield* seedDeadLockWithAbandonedClaim(root);
+        const blocked = yield* createCliIdentityStore(root)
+          .acquireLock()
+          .pipe(Effect.result);
+        expect(blocked._tag).toBe("Failure");
+        yield* Effect.tryPromise(() => unlink(claimPath));
+        const recovered = yield* createCliIdentityStore(root)
+          .acquireLock()
+          .pipe(Effect.result);
+        expect(recovered._tag).toBe("Success");
+        if (recovered._tag === "Success") {
+          yield* recovered.success.release;
         }
         yield* Effect.tryPromise(() =>
           rm(root, { force: true, recursive: true })
@@ -562,7 +594,7 @@ describe("CLI identity store", () => {
   );
 
   it.live(
-    "admits only one writer when a stale recover-claim is taken over",
+    "does not admit a writer when another recoverer enters during claim refusal",
     () =>
       Effect.gen(function* () {
         const root = yield* withTempRoot;
@@ -572,10 +604,10 @@ describe("CLI identity store", () => {
         const worker = fileURLToPath(
           new URL("lock-recover-worker.ts", import.meta.url)
         );
-        // B validates the abandoned claim then waits. A replaces it and
-        // acquires. Path-based claim rename would let B steal A's claim,
-        // move A's live lock, and let C wx — A+C success. Inode-checked
-        // takeover restores A's claim; only A writes.
+        // B sees the leftover claim and waits (old restore window). A and C
+        // try to wx a replacement while the path is still occupied. Rename
+        // takeover left that path empty so C could claim and later D could
+        // steal A's live lock. Fail-closed: 0 writers until operator clear.
         const slow = yield* startRecoverer(root, worker, [
           "0",
           "",
@@ -588,18 +620,17 @@ describe("CLI identity store", () => {
         const slowFiber = yield* Effect.forkChild(slow.outcome);
         yield* waitForPath(claimObservedPath);
         const fastResult = yield* spawnRecoverer(root, worker);
+        const thirdResult = yield* spawnRecoverer(root, worker);
         yield* Effect.tryPromise(() => writeFile(claimReleasePath, "go"));
         const slowResult = yield* Fiber.join(slowFiber);
-        const thirdResult = yield* spawnRecoverer(root, worker);
         const lines = `${fastResult.output}\n${slowResult.output}\n${thirdResult.output}`;
         const successes = (lines.match(/SUCCESS/gu) ?? []).length;
         const failures = (lines.match(/FAILURE/gu) ?? []).length;
-        expect(successes).toBe(1);
-        expect(failures).toBe(2);
-        expect(fastResult.output).toContain("SUCCESS");
+        expect(successes).toBe(0);
+        expect(failures).toBe(3);
+        expect(fastResult.output).toContain("FAILURE");
         expect(slowResult.output).toContain("FAILURE");
         expect(thirdResult.output).toContain("FAILURE");
-        expect(fastResult.child.exitCode).toBeNull();
       }),
     20_000
   );

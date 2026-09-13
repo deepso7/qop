@@ -59,7 +59,7 @@ const operatorMessage = (error: CliIdentityStoreError) => {
     return "CLI identity is unreadable. Move the data directory aside to recover — do not overwrite device.key.";
   }
   if (error.operation === "conflict") {
-    return "Could not lock the CLI data directory or reuse this identity. If no other qop process is running, delete the lock file. A secret without identity.json must not be overwritten.";
+    return "Could not lock the CLI data directory or reuse this identity. If no other qop process is running, delete `lock` and any `lock.recover.*` files in the data directory, then retry. Leftover recover claims are not taken over automatically. A secret without identity.json must not be overwritten.";
   }
 };
 

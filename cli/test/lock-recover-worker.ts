@@ -46,7 +46,7 @@ const store = createCliIdentityStore(root, {
         yield* waitForPath(releaseAfterRenamePath);
       }
     }),
-  beforeRecoverClaimTakeover: () =>
+  afterExistingRecoverClaim: () =>
     Effect.gen(function* () {
       if (claimTakeoverPath) {
         yield* Effect.promise(() => writeFile(claimTakeoverPath, "1"));

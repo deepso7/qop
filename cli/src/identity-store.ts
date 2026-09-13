@@ -209,10 +209,11 @@ export const createCliIdentityStore = (
      */
     readonly beforeRecoverSteal?: () => Effect.Effect<void, never>;
     /**
-     * Test hook: run after a dead recover-claim PID + inode is confirmed,
-     * before renaming that claim. Injects the stale-claim takeover window.
+     * Test hook: run after `wx` of the recover claim hits EEXIST, before
+     * refusing. Injects the window that used to rename-and-restore a live
+     * claim (a third recoverer could `wx` the empty path).
      */
-    readonly beforeRecoverClaimTakeover?: () => Effect.Effect<void, never>;
+    readonly afterExistingRecoverClaim?: () => Effect.Effect<void, never>;
   }
 ) => {
   const identityPath = path.join(root, "identity.json");
@@ -251,8 +252,10 @@ export const createCliIdentityStore = (
     });
 
   /**
-   * Exclusive permission to rename this dead inode. Held until lock release
-   * so a later recoverer cannot rename away the live lock we then wx.
+   * Exclusive permission to rename this dead inode. `wx` of the claim path is
+   * the only admission. An existing claim — live or abandoned — is refused:
+   * renaming it aside empties the path for a third `wx` before restore.
+   * Held until lock release so a later recoverer cannot rename the live lock.
    */
   const claimDeadInode = Effect.fn("CliIdentity.claimDeadInode")(function* (
     observed: Stats
@@ -265,50 +268,10 @@ export const createCliIdentityStore = (
     if (created.failure.operation !== "conflict") {
       return yield* created.failure;
     }
-    const encoded = yield* readTextOptional(claimPath);
-    if (encoded === null) {
-      return null;
+    if (options?.afterExistingRecoverClaim) {
+      yield* options.afterExistingRecoverClaim();
     }
-    const trimmed = encoded.trim();
-    const pid = Number(trimmed);
-    if (!trimmed || !Number.isInteger(pid) || pid <= 0 || processExists(pid)) {
-      return null;
-    }
-    const claimInfo = yield* statOptional(claimPath);
-    if (claimInfo === null) {
-      return null;
-    }
-    const lockNow = yield* statOptional(lockPath);
-    // Only take over a dead claim if `lock` is still the inode it was claiming.
-    if (
-      lockNow === null ||
-      lockNow.dev !== observed.dev ||
-      lockNow.ino !== observed.ino
-    ) {
-      return null;
-    }
-    if (options?.beforeRecoverClaimTakeover) {
-      yield* options.beforeRecoverClaimTakeover();
-    }
-    const staleClaim = `${claimPath}.stale.${process.pid}.${crypto.randomUUID()}`;
-    const moved = yield* Effect.tryPromise({
-      catch: (error) => error,
-      try: () => rename(claimPath, staleClaim),
-    }).pipe(Effect.result);
-    if (Result.isFailure(moved)) {
-      return null;
-    }
-    const stolenClaim = yield* statOptional(staleClaim);
-    const stolenText = yield* readTextOptional(staleClaim);
-    // Path rename is not atomic with the dead-PID check. If another recoverer
-    // already replaced this claim, put their live inode back and back off.
-    if (!sameDeadInode(claimInfo, trimmed, stolenClaim, stolenText)) {
-      yield* restoreStolenInode(claimPath, staleClaim);
-      return null;
-    }
-    yield* unlinkOptional(staleClaim);
-    const retried = yield* writeClaimPid(claimPath).pipe(Effect.result);
-    return Result.isSuccess(retried) ? claimPath : null;
+    return null;
   });
 
   const observeDeadLock = Effect.fn("CliIdentity.observeDeadLock")(
@@ -450,8 +413,9 @@ export const createCliIdentityStore = (
         return yield* opened.failure;
       }
       const recovered = yield* recoverStaleLock();
-      // Only the recoverer that claimed the observed dead inode may create.
-      // Losers (live lock, lost claim) conflict.
+      // Only the recoverer that exclusively created the inode claim may wx.
+      // Live lock, existing recover claim (including abandoned), and lost
+      // claim all conflict — leftover claims are not taken over.
       if (recovered.kind !== "stolen") {
         return yield* storeError("conflict");
       }
