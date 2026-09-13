@@ -24,6 +24,7 @@ import {
   createCliPairingSession,
   PairingSessionError,
 } from "./pairing-session.ts";
+import { loadOccupyingApproval } from "./pending-approval.ts";
 
 const randomHex32 = Effect.fn("cli.randomHex32")(function* () {
   const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -121,6 +122,11 @@ export const runLink = Effect.fn("qop.link")(function* (
   } else if (isTerminalDeviceActionStatus(prior.apiStatus)) {
     yield* store.clearApproval();
   }
+  yield* loadOccupyingApproval({
+    apiUrl,
+    latestTimestamp: () => reader.latestTimestamp(),
+    store,
+  });
 
   const secretKey = yield* store.loadSecret();
   const relays = cliRelays();
@@ -181,7 +187,12 @@ export const runLink = Effect.fn("qop.link")(function* (
       )
     );
     const session = createCliPairingSession({
-      loadApproval: () => store.loadApproval(),
+      loadApproval: () =>
+        loadOccupyingApproval({
+          apiUrl,
+          latestTimestamp: () => reader.latestTimestamp(),
+          store,
+        }),
       offer,
       saveApproval: (record) => store.saveApproval(record),
     });

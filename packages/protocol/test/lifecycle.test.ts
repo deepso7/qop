@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createLifecycleAdapter } from "../src/lifecycle.ts";
 import {
   enrollmentMembership,
+  enrollmentPollComplete,
   occupiesApprovalSlot,
 } from "../src/membership.ts";
 
@@ -135,5 +136,79 @@ describe("enrollment membership", () => {
         operation: "remove",
       })
     ).toBe(false);
+  });
+
+  it("releases a never-submitted missing digest after the deadline", () => {
+    expect(
+      occupiesApprovalSlot({
+        apiRecord: "missing",
+        apiStatus: null,
+        chainTime: 1_700_003_700n,
+        deadline: 1_700_003_600n,
+        membership: "pending",
+        operation: "add",
+      })
+    ).toBe(false);
+    expect(
+      occupiesApprovalSlot({
+        apiRecord: "missing",
+        apiStatus: null,
+        chainTime: 1_700_003_000n,
+        deadline: 1_700_003_600n,
+        membership: "pending",
+        operation: "add",
+      })
+    ).toBe(true);
+    expect(
+      occupiesApprovalSlot({
+        apiRecord: "missing",
+        apiStatus: "submitted",
+        chainTime: 1_700_003_700n,
+        deadline: 1_700_003_600n,
+        membership: "pending",
+        operation: "add",
+      })
+    ).toBe(true);
+    expect(
+      occupiesApprovalSlot({
+        apiRecord: "unknown",
+        apiStatus: null,
+        chainTime: 1_700_003_700n,
+        deadline: 1_700_003_600n,
+        membership: "pending",
+        operation: "add",
+      })
+    ).toBe(true);
+  });
+
+  it("keeps polling a submitted remove until the roster is removed", () => {
+    expect(
+      enrollmentPollComplete({
+        apiStatus: "submitted",
+        membership: "linked",
+        operation: "remove",
+      })
+    ).toBe(false);
+    expect(
+      enrollmentPollComplete({
+        apiStatus: "confirmed",
+        membership: "linked",
+        operation: "remove",
+      })
+    ).toBe(false);
+    expect(
+      enrollmentPollComplete({
+        apiStatus: "confirmed",
+        membership: "removed",
+        operation: "remove",
+      })
+    ).toBe(true);
+    expect(
+      enrollmentPollComplete({
+        apiStatus: "submitted",
+        membership: "linked",
+        operation: "add",
+      })
+    ).toBe(true);
   });
 });

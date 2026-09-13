@@ -6,9 +6,11 @@ import {
   decodeDeviceActionApprovalV1,
   encodeDeviceActionApprovalV1,
   enrollmentMembership,
+  enrollmentPollComplete,
   occupiesApprovalSlot,
 } from "@qop/protocol";
 import type {
+  DeviceActionApiRecord,
   DeviceActionApiStatus,
   DeviceActionApprovalV1Encoded,
 } from "@qop/protocol";
@@ -70,7 +72,7 @@ export interface LocalDeviceActionDependencies {
   >;
   readonly registry: Pick<
     ReturnType<typeof createRegistryReader>,
-    "lookupDeviceKey"
+    "latestTimestamp" | "lookupDeviceKey"
   >;
   readonly secureStore: {
     readonly get: (key: string) => Promise<string | null>;
@@ -78,15 +80,35 @@ export interface LocalDeviceActionDependencies {
   };
 }
 
-const occupiesStored = (existing: LocalDeviceAction) =>
+const DeviceActionGetFailure = Schema.Struct({
+  operation: Schema.optionalKey(Schema.String),
+  status: Schema.optionalKey(Schema.NullOr(Schema.Number)),
+});
+
+const apiRecordFromGetFailure = (
+  failure: typeof DeviceActionGetFailure.Type
+): DeviceActionApiRecord => {
+  if (failure.status === 404 || failure.operation === "missing") {
+    return "missing";
+  }
+  return "unknown";
+};
+
+const occupiesStored = (
+  existing: LocalDeviceAction,
+  extras: {
+    readonly apiRecord: DeviceActionApiRecord;
+    readonly chainTime: bigint | undefined;
+  }
+) =>
   occupiesApprovalSlot({
+    apiRecord: extras.apiRecord,
     apiStatus: existing.apiStatus,
+    chainTime: extras.chainTime,
+    deadline: BigInt(existing.record.intent.deadline),
     membership: existing.membership,
     operation: existing.record.operation,
   });
-
-const slotRecord = (existing: LocalDeviceAction | null) =>
-  existing && occupiesStored(existing) ? existing.record : null;
 
 const storedFromIncoming = (
   existing: LocalDeviceAction | null,
@@ -144,6 +166,66 @@ export const createLocalDeviceAction = ({
     });
   });
 
+  const refreshStored = Effect.fn("LocalDeviceAction.refreshStored")(
+    function* () {
+      const existing = yield* readStored();
+      if (!existing) {
+        return {
+          apiRecord: "missing" as const,
+          chainTime: undefined,
+          stored: null,
+        };
+      }
+      const encoded = yield* Schema.encodeEffect(DeviceActionApprovalV1)(
+        existing.record
+      ).pipe(Effect.mapError(() => localError("decode")));
+      const api = yield* deviceActionClient
+        .get(encoded.digest)
+        .pipe(Effect.result);
+      let apiRecord: DeviceActionApiRecord = "unknown";
+      let apiStatus: DeviceActionApiStatus | null = existing.apiStatus;
+      if (Result.isSuccess(api)) {
+        apiRecord = "present";
+        apiStatus = api.success.status;
+      } else {
+        const parsed = Schema.decodeUnknownOption(DeviceActionGetFailure)(
+          api.failure
+        );
+        apiRecord =
+          parsed._tag === "Some"
+            ? apiRecordFromGetFailure(parsed.value)
+            : "unknown";
+      }
+      const chainTimeResult = yield* registry
+        .latestTimestamp()
+        .pipe(Effect.result);
+      const chainTime = Result.isSuccess(chainTimeResult)
+        ? chainTimeResult.success
+        : undefined;
+      const historicallyAdded =
+        existing.historicallyAdded || apiStatus === "confirmed";
+      const account = yield* registry.lookupDeviceKey(encoded.intent.deviceKey);
+      const membership = enrollmentMembership({
+        activeQid: account?.qid ?? null,
+        expectedQid: BigInt(existing.record.intent.qid),
+        historicallyAdded:
+          historicallyAdded ||
+          account?.qid === BigInt(existing.record.intent.qid),
+      });
+      const stored: LocalDeviceAction = {
+        ...existing,
+        apiStatus,
+        historicallyAdded: historicallyAdded || membership === "linked",
+        membership,
+        transactionHash: Result.isSuccess(api)
+          ? (api.success.transactionHash ?? existing.transactionHash)
+          : existing.transactionHash,
+      };
+      yield* writeStored(stored);
+      return { apiRecord, chainTime, stored };
+    }
+  );
+
   const persistApproval = Effect.fn("LocalDeviceAction.persistApproval")(
     (
       record: DeviceActionApprovalV1Encoded,
@@ -154,13 +236,20 @@ export const createLocalDeviceAction = ({
           const decoded = yield* decodeDeviceActionApprovalV1(record).pipe(
             Effect.mapError(() => localError("decode"))
           );
-          const existing = yield* readStored();
-          const pending = slotRecord(existing);
+          const refreshed = yield* refreshStored();
+          const pending =
+            refreshed.stored &&
+            occupiesStored(refreshed.stored, {
+              apiRecord: refreshed.apiRecord,
+              chainTime: refreshed.chainTime,
+            })
+              ? refreshed.stored.record
+              : null;
           const ack = acknowledgeApproval(pending, decoded);
           if (ack.kind === "conflict") {
             return yield* localError("conflict");
           }
-          const stored = storedFromIncoming(existing, decoded, options);
+          const stored = storedFromIncoming(refreshed.stored, decoded, options);
           // Persist before the approval can reach the CLI or API.
           yield* writeStored(stored);
           return stored;
@@ -237,42 +326,8 @@ export const createLocalDeviceAction = ({
   )(() =>
     lock.withPermit(
       Effect.gen(function* () {
-        const existing = yield* readStored();
-        if (!existing) {
-          return null;
-        }
-        const encoded = yield* Schema.encodeEffect(DeviceActionApprovalV1)(
-          existing.record
-        ).pipe(Effect.mapError(() => localError("decode")));
-        const api = yield* deviceActionClient
-          .get(encoded.digest)
-          .pipe(Effect.result);
-        const apiStatus: DeviceActionApiStatus | null = Result.isSuccess(api)
-          ? api.success.status
-          : existing.apiStatus;
-        const historicallyAdded =
-          existing.historicallyAdded || apiStatus === "confirmed";
-        const account = yield* registry.lookupDeviceKey(
-          encoded.intent.deviceKey
-        );
-        const membership = enrollmentMembership({
-          activeQid: account?.qid ?? null,
-          expectedQid: BigInt(existing.record.intent.qid),
-          historicallyAdded:
-            historicallyAdded ||
-            account?.qid === BigInt(existing.record.intent.qid),
-        });
-        const stored: LocalDeviceAction = {
-          ...existing,
-          apiStatus,
-          historicallyAdded: historicallyAdded || membership === "linked",
-          membership,
-          transactionHash: Result.isSuccess(api)
-            ? (api.success.transactionHash ?? existing.transactionHash)
-            : existing.transactionHash,
-        };
-        yield* writeStored(stored);
-        return stored;
+        const refreshed = yield* refreshStored();
+        return refreshed.stored;
       })
     )
   );
@@ -285,10 +340,13 @@ export const createLocalDeviceAction = ({
           if (!stored) {
             return null;
           }
-          if (stored.membership !== "pending") {
-            return stored;
-          }
-          if (!occupiesStored(stored)) {
+          if (
+            enrollmentPollComplete({
+              apiStatus: stored.apiStatus,
+              membership: stored.membership,
+              operation: stored.record.operation,
+            })
+          ) {
             return stored;
           }
           yield* Effect.sleep(delayMs);
@@ -301,19 +359,27 @@ export const createLocalDeviceAction = ({
     (operation: LocalDeviceAction["record"]["operation"], deviceKey: string) =>
       lock.withPermit(
         Effect.gen(function* () {
-          const existing = yield* readStored();
-          if (!existing || !occupiesStored(existing)) {
+          const refreshed = yield* refreshStored();
+          if (
+            !refreshed.stored ||
+            !occupiesStored(refreshed.stored, {
+              apiRecord: refreshed.apiRecord,
+              chainTime: refreshed.chainTime,
+            })
+          ) {
             return null;
           }
-          if (existing.record.operation !== operation) {
+          if (refreshed.stored.record.operation !== operation) {
             return null;
           }
-          if (asHex(existing.record.intent.deviceKey) !== asHex(deviceKey)) {
+          if (
+            asHex(refreshed.stored.record.intent.deviceKey) !== asHex(deviceKey)
+          ) {
             return null;
           }
-          return yield* encodeDeviceActionApprovalV1(existing.record).pipe(
-            Effect.mapError(() => localError("decode"))
-          );
+          return yield* encodeDeviceActionApprovalV1(
+            refreshed.stored.record
+          ).pipe(Effect.mapError(() => localError("decode")));
         })
       )
   );

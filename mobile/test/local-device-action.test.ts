@@ -84,26 +84,33 @@ const signedRemove = async () => {
 };
 
 const createHarness = ({
+  chainTime = 1n,
+  get,
   getStatus = "submitted",
   lookupQid,
   submitFails = false,
 }: {
+  readonly chainTime?: bigint;
+  readonly get?: (
+    digest: string
+  ) => Effect.Effect<ReconciledDeviceAction, DeviceActionClientError>;
   readonly getStatus?: ReconciledDeviceAction["status"];
-  readonly lookupQid?: bigint | null;
+  readonly lookupQid?: () => bigint | null;
   readonly submitFails?: boolean;
 } = {}) => {
   const items = new Map<string, string>();
   const submitted: string[] = [];
-  const activeQid = lookupQid ?? null;
   const action = createLocalDeviceAction({
     deviceActionClient: {
-      get: (digest) =>
-        Effect.succeed({
-          digest,
-          failureCode: null,
-          status: getStatus,
-          transactionHash: `0x${"ab".repeat(32)}`,
-        } satisfies ReconciledDeviceAction),
+      get:
+        get ??
+        ((digest) =>
+          Effect.succeed({
+            digest,
+            failureCode: null,
+            status: getStatus,
+            transactionHash: `0x${"ab".repeat(32)}`,
+          } satisfies ReconciledDeviceAction)),
       submit: (input) => {
         submitted.push(input.operation);
         if (submitFails) {
@@ -119,8 +126,10 @@ const createHarness = ({
       },
     },
     registry: {
-      lookupDeviceKey: () =>
-        activeQid === null
+      latestTimestamp: () => Effect.succeed(chainTime),
+      lookupDeviceKey: () => {
+        const activeQid = lookupQid?.() ?? null;
+        return activeQid === null
           ? Effect.succeed(null)
           : Effect.succeed({
               blockNumber: 1n,
@@ -134,7 +143,8 @@ const createHarness = ({
               peerId: "12D3KooWaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
               qid: activeQid,
               registeredAt: 1n,
-            }),
+            });
+      },
     },
     secureStore: {
       get: (key) => Promise.resolve(items.get(key) ?? null),
@@ -177,7 +187,7 @@ describe("local device action", () => {
       markAcknowledged,
       submitAcknowledged,
       reconcileMembership,
-    } = createHarness({ getStatus: "submitted", lookupQid: null });
+    } = createHarness({ getStatus: "submitted" });
     const record = await signedAdd();
     await Effect.runPromise(persistApproval(record));
     await Effect.runPromise(markAcknowledged(record.digest));
@@ -190,7 +200,7 @@ describe("local device action", () => {
   it("releases the slot after confirmed membership so a remove can persist", async () => {
     const addHarness = createHarness({
       getStatus: "confirmed",
-      lookupQid: 42n,
+      lookupQid: () => 42n,
     });
     const addRecord = await signedAdd();
     await Effect.runPromise(addHarness.persistApproval(addRecord));
@@ -209,7 +219,7 @@ describe("local device action", () => {
   });
 
   it("resumes the same in-flight add digest without treating it as removed", async () => {
-    const harness = createHarness({ getStatus: "submitted", lookupQid: null });
+    const harness = createHarness({ getStatus: "submitted" });
     const record = await signedAdd();
     await Effect.runPromise(harness.persistApproval(record));
     const resumed = await Effect.runPromise(
@@ -248,7 +258,7 @@ describe("local device action", () => {
   it("keeps the slot for a submitted remove while the device is still active", async () => {
     const harness = createHarness({
       getStatus: "submitted",
-      lookupQid: 42n,
+      lookupQid: () => 42n,
     });
     const record = await signedRemove();
     await Effect.runPromise(
@@ -277,7 +287,7 @@ describe("local device action", () => {
   });
 
   it("times out enrollment polling instead of waiting forever", async () => {
-    const harness = createHarness({ getStatus: "submitted", lookupQid: null });
+    const harness = createHarness({ getStatus: "submitted" });
     const record = await signedAdd();
     await Effect.runPromise(harness.persistApproval(record));
     await Effect.runPromise(harness.markAcknowledged(record.digest));
@@ -291,7 +301,7 @@ describe("local device action", () => {
   });
 
   it("releases an expired digest so a later approval can persist", async () => {
-    const harness = createHarness({ getStatus: "expired", lookupQid: null });
+    const harness = createHarness({ getStatus: "expired" });
     const record = await signedAdd();
     await Effect.runPromise(harness.persistApproval(record));
     await Effect.runPromise(harness.markAcknowledged(record.digest));
@@ -303,6 +313,101 @@ describe("local device action", () => {
     const next = await signedAdd();
     const saved = await Effect.runPromise(
       harness.persistApproval(next).pipe(Effect.result)
+    );
+    expect(Result.isSuccess(saved)).toBe(true);
+  });
+
+  it("releases a never-submitted digest when GET is 404 and the deadline has passed", async () => {
+    const harness = createHarness({
+      chainTime: 1_700_003_600n,
+      get: () =>
+        Effect.fail(new DeviceActionClientError({ kind: null, status: 404 })),
+    });
+    const record = await signedAdd();
+    await Effect.runPromise(harness.persistApproval(record));
+    const resumed = await Effect.runPromise(
+      harness.resumeInFlight("add", record.intent.deviceKey)
+    );
+    expect(resumed).toBeNull();
+
+    const saved = await Effect.runPromise(
+      harness
+        .persistApproval({
+          ...record,
+          digest: `0x${"cd".repeat(32)}`,
+        })
+        .pipe(Effect.result)
+    );
+    expect(Result.isSuccess(saved)).toBe(true);
+  });
+
+  it("does not free a submitted digest on GET 404 after the deadline", async () => {
+    const harness = createHarness({
+      chainTime: 1_700_003_600n,
+      get: () =>
+        Effect.fail(new DeviceActionClientError({ kind: null, status: 404 })),
+    });
+    const record = await signedAdd();
+    await Effect.runPromise(harness.persistApproval(record));
+    await Effect.runPromise(harness.markAcknowledged(record.digest));
+    await Effect.runPromise(harness.submitAcknowledged());
+    const resumed = await Effect.runPromise(
+      harness.resumeInFlight("add", record.intent.deviceKey)
+    );
+    expect(resumed?.digest).toBe(record.digest);
+    const conflict = await Effect.runPromise(
+      harness
+        .persistApproval({
+          ...record,
+          digest: `0x${"cd".repeat(32)}`,
+        })
+        .pipe(Effect.result)
+    );
+    expect(Result.isFailure(conflict) && conflict.failure.operation).toBe(
+      "conflict"
+    );
+  });
+
+  it("keeps polling a submitted remove until the roster is removed", async () => {
+    let attempts = 0;
+    const harness = createHarness({
+      get: (digest) => {
+        attempts += 1;
+        return Effect.succeed({
+          digest,
+          failureCode: null,
+          status: attempts >= 3 ? "confirmed" : "submitted",
+          transactionHash: `0x${"ab".repeat(32)}`,
+        });
+      },
+      lookupQid: () => (attempts >= 3 ? null : 42n),
+    });
+    const record = await signedRemove();
+    await Effect.runPromise(
+      harness.persistApproval(record, { acknowledged: true })
+    );
+    await Effect.runPromise(harness.submitAcknowledged());
+    const polled = await Effect.runPromise(harness.pollEnrollment(0, 10));
+    expect(polled?.membership).toBe("removed");
+    expect(attempts).toBeGreaterThan(1);
+  });
+
+  it("frees the slot after a confirmed remove so a later add can persist", async () => {
+    const harness = createHarness({
+      getStatus: "confirmed",
+    });
+    const record = await signedRemove();
+    await Effect.runPromise(
+      harness.persistApproval(record, { acknowledged: true })
+    );
+    await Effect.runPromise(harness.submitAcknowledged());
+    const stored = await Effect.runPromise(harness.reconcileMembership());
+    expect(stored?.membership).toBe("removed");
+    expect(stored?.apiStatus).toBe("confirmed");
+
+    const addRecord = await signedAdd();
+    const saved = await Effect.runPromise(
+      harness.persistApproval(addRecord).pipe(Effect.result)
     );
     expect(Result.isSuccess(saved)).toBe(true);
   });

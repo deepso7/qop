@@ -2,7 +2,7 @@ import * as SecureStore from "expo-secure-store";
 
 import { getDeviceAction, submitDeviceAction } from "./device-action-client";
 import { createLocalDeviceAction } from "./local-device-action-core";
-import { lookupDeviceKey } from "./registry";
+import { latestTimestamp, lookupDeviceKey } from "./registry";
 
 export {
   createLocalDeviceAction,
@@ -24,7 +24,7 @@ export const {
   submitAcknowledged,
 } = createLocalDeviceAction({
   deviceActionClient: { get: getDeviceAction, submit: submitDeviceAction },
-  registry: { lookupDeviceKey },
+  registry: { latestTimestamp, lookupDeviceKey },
   secureStore: {
     get: (key) => SecureStore.getItemAsync(key, secureStoreOptions),
     set: (key, value) =>

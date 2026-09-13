@@ -2,8 +2,13 @@ import { setTimeout as delay } from "node:timers/promises";
 
 import { describe, expect, it } from "@effect/vitest";
 import { createLifecycleAdapter } from "@qop/protocol";
+import { Effect } from "effect";
 
-import { createProcessLifecycle } from "../src/process-lifecycle.ts";
+import {
+  createProcessLifecycle,
+  isUnprovenLifecycleOverride,
+  withProcessLifecycle,
+} from "../src/process-lifecycle.ts";
 
 const noop = () => {
   /* no-op */
@@ -35,7 +40,7 @@ describe("CLI process lifecycle", () => {
     lifecycle.dispose();
   });
 
-  it("self-check receives SIGCONT and reports invalidation", async () => {
+  it("SIGCONT delivery still invalidates at the verify boundary", async () => {
     const adapter = createLifecycleAdapter({
       monotonicNow: () => performance.now(),
       wallNow: () => Date.now(),
@@ -51,4 +56,37 @@ describe("CLI process lifecycle", () => {
     expect(adapter.takeInvalidation()).toBe(true);
     lifecycle.dispose();
   });
+
+  it("does not treat SIGCONT-to-self as lid-sleep proof", () => {
+    expect(isUnprovenLifecycleOverride({})).toBe(false);
+    expect(
+      isUnprovenLifecycleOverride({ QOP_ALLOW_UNPROVEN_LIFECYCLE: "1" })
+    ).toBe(true);
+  });
+
+  it.effect("disposes the observe interval when startup work fails", () =>
+    Effect.gen(function* () {
+      const adapter = createLifecycleAdapter({
+        monotonicNow: () => 0,
+        wallNow: () => 0,
+      });
+      let intervalRunning = false;
+      const result = yield* withProcessLifecycle(
+        {
+          adapter,
+          onInterrupt: noop,
+          onSigcont: () => noop,
+          setObserveInterval: () => {
+            intervalRunning = true;
+            return () => {
+              intervalRunning = false;
+            };
+          },
+        },
+        () => Effect.fail("loadSecret")
+      ).pipe(Effect.result);
+      expect(result._tag).toBe("Failure");
+      expect(intervalRunning).toBe(false);
+    })
+  );
 });

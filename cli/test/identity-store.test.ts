@@ -1,6 +1,8 @@
+import { spawn } from "node:child_process";
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
@@ -148,5 +150,87 @@ describe("CLI identity store", () => {
         rm(root, { force: true, recursive: true })
       );
     })
+  );
+
+  it.effect(
+    "admits only one writer when two processes race stale-lock recovery",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* Effect.tryPromise(() =>
+          mkdtemp(path.join(tmpdir(), "qop-cli-"))
+        );
+        const lockPath = path.join(root, "lock");
+        yield* Effect.tryPromise(() =>
+          writeFile(lockPath, "2147483647\n", { mode: 0o600 })
+        );
+        yield* Effect.tryPromise(() => chmod(lockPath, 0o600));
+        yield* Effect.tryPromise(() => chmod(root, 0o700));
+        const worker = fileURLToPath(
+          new URL("lock-recover-worker.ts", import.meta.url)
+        );
+        const spawnRecoverer = () =>
+          Effect.callback<
+            { child: ReturnType<typeof spawn>; output: string },
+            Error
+          >((resume) => {
+            const child = spawn(
+              process.execPath,
+              ["--experimental-strip-types", worker, root, "200"],
+              {
+                cwd: fileURLToPath(new URL("..", import.meta.url)),
+                stdio: ["ignore", "pipe", "pipe"],
+              }
+            );
+            let output = "";
+            let settled = false;
+            const finish = (
+              effect: Effect.Effect<
+                { child: ReturnType<typeof spawn>; output: string },
+                Error
+              >
+            ) => {
+              if (settled) {
+                return;
+              }
+              settled = true;
+              resume(effect);
+            };
+            child.stdout?.on("data", (chunk: Buffer | string) => {
+              output += chunk.toString();
+              if (/SUCCESS|FAILURE/u.test(output)) {
+                finish(Effect.succeed({ child, output }));
+              }
+            });
+            child.stderr?.on("data", (chunk: Buffer | string) => {
+              output += chunk.toString();
+            });
+            child.once("error", (error: Error) => {
+              finish(Effect.fail(error));
+            });
+            child.once("exit", (code) => {
+              if (/SUCCESS|FAILURE/u.test(output)) {
+                finish(Effect.succeed({ child, output }));
+                return;
+              }
+              finish(
+                Effect.fail(new Error(`worker exited ${code}: ${output}`))
+              );
+            });
+          });
+        const [first, second] = yield* Effect.all(
+          [spawnRecoverer(), spawnRecoverer()],
+          { concurrency: "unbounded" }
+        );
+        const lines = `${first.output}\n${second.output}`;
+        const successes = (lines.match(/SUCCESS/gu) ?? []).length;
+        const failures = (lines.match(/FAILURE/gu) ?? []).length;
+        expect(successes).toBe(1);
+        expect(failures).toBe(1);
+        first.child.kill("SIGTERM");
+        second.child.kill("SIGTERM");
+        yield* Effect.tryPromise(() =>
+          rm(root, { force: true, recursive: true })
+        );
+      })
   );
 });

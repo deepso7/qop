@@ -157,7 +157,13 @@ const unlinkOptional = (filePath: string) =>
     })
   );
 
-export const createCliIdentityStore = (root: string) => {
+export const createCliIdentityStore = (
+  root: string,
+  options?: {
+    /** Test hook: run after a dead PID is confirmed, before the exclusive steal. */
+    readonly beforeRecoverSteal?: () => Effect.Effect<void>;
+  }
+) => {
   const identityPath = path.join(root, "identity.json");
   const secretPath = path.join(root, "device.key");
   const approvalPath = path.join(root, "pending-approval.json");
@@ -178,29 +184,41 @@ export const createCliIdentityStore = (root: string) => {
     function* () {
       const encoded = yield* readTextOptional(lockPath);
       if (encoded === null) {
-        return;
+        return "held" as const;
       }
       const trimmed = encoded.trim();
       // Empty/partial lock means another process won exclusive create and has
-      // not written its PID yet. Do not unlink it.
+      // not written its PID yet. Do not steal it.
       if (!trimmed) {
-        return yield* storeError("conflict");
+        return "held" as const;
       }
       const pid = Number(trimmed);
       if (!Number.isInteger(pid) || pid <= 0) {
-        return yield* storeError("conflict");
+        return "held" as const;
       }
       if (processExists(pid)) {
-        return yield* storeError("conflict");
+        return "held" as const;
+      }
+      if (options?.beforeRecoverSteal) {
+        yield* options.beforeRecoverSteal();
       }
       const again = yield* readTextOptional(lockPath);
       if (again === null) {
-        return;
+        return "held" as const;
       }
       if (again.trim() !== trimmed) {
-        return yield* storeError("conflict");
+        return "held" as const;
       }
-      yield* unlinkOptional(lockPath);
+      const stalePath = `${lockPath}.stale.${process.pid}.${crypto.randomUUID()}`;
+      const renamed = yield* Effect.tryPromise({
+        catch: (error) => error,
+        try: () => rename(lockPath, stalePath),
+      }).pipe(Effect.result);
+      if (Result.isFailure(renamed)) {
+        return "held" as const;
+      }
+      yield* unlinkOptional(stalePath);
+      return "stolen" as const;
     }
   );
 
@@ -256,7 +274,12 @@ export const createCliIdentityStore = (root: string) => {
       if (opened.failure.operation !== "conflict") {
         return yield* opened.failure;
       }
-      yield* recoverStaleLock();
+      const recovered = yield* recoverStaleLock();
+      // Only the rename winner may create. Losers must not wx until they
+      // observe a live owner (held → conflict).
+      if (recovered !== "stolen") {
+        return yield* storeError("conflict");
+      }
     }
     return yield* lastConflict;
   });

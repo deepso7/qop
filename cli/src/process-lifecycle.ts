@@ -4,6 +4,13 @@ import { Effect } from "effect";
 
 export const LIFECYCLE_OBSERVE_MS = 1000;
 
+/** Operator override: enable diagnostic chat without a captured lid-sleep demo. */
+export const UNPROVEN_LIFECYCLE_OVERRIDE_ENV = "QOP_ALLOW_UNPROVEN_LIFECYCLE";
+
+export const isUnprovenLifecycleOverride = (
+  env: NodeJS.ProcessEnv = process.env
+) => env[UNPROVEN_LIFECYCLE_OVERRIDE_ENV] === "1";
+
 export const createProcessLifecycle = ({
   adapter,
   observeMs = LIFECYCLE_OBSERVE_MS,
@@ -49,19 +56,34 @@ export const createProcessLifecycle = ({
   };
 };
 
-/** Deliver SIGCONT to this process and require the adapter to invalidate. */
-export const proveWakeInvalidation = Effect.fn("cli.proveWakeInvalidation")(
-  function* (adapter: LifecycleAdapter, waitMs = 50) {
-    process.kill(process.pid, "SIGCONT");
-    yield* Effect.sleep(waitMs);
-    return adapter.takeInvalidation();
-  }
-);
+export type ArmedProcessLifecycle = ReturnType<typeof createProcessLifecycle>;
 
-export const armMessagingLifecycle = (onInterrupt: () => void) => {
-  const adapter = createLifecycleAdapter({
-    monotonicNow: () => performance.now(),
-    wallNow: () => Date.now(),
-  });
-  return createProcessLifecycle({ adapter, onInterrupt });
-};
+/** Arm SIGCONT + stall observe, and dispose on every exit including startup failure. */
+export const withProcessLifecycle = <A, E, R>(
+  options: Parameters<typeof createProcessLifecycle>[0],
+  use: (lifecycle: ArmedProcessLifecycle) => Effect.Effect<A, E, R>
+) =>
+  Effect.scoped(
+    Effect.gen(function* () {
+      const lifecycle = yield* Effect.acquireRelease(
+        Effect.sync(() => createProcessLifecycle(options)),
+        (armed) => Effect.sync(() => armed.dispose())
+      );
+      return yield* use(lifecycle);
+    })
+  );
+
+export const withMessagingLifecycle = <A, E, R>(
+  onInterrupt: () => void,
+  use: (lifecycle: ArmedProcessLifecycle) => Effect.Effect<A, E, R>
+) =>
+  withProcessLifecycle(
+    {
+      adapter: createLifecycleAdapter({
+        monotonicNow: () => performance.now(),
+        wallNow: () => Date.now(),
+      }),
+      onInterrupt,
+    },
+    use
+  );

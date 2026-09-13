@@ -40,10 +40,13 @@ export { createLifecycleAdapter } from "./lifecycle.ts";
 export type { LifecycleAdapter } from "./lifecycle.ts";
 export {
   enrollmentMembership,
+  enrollmentPollComplete,
   isTerminalDeviceActionStatus,
+  neverSubmittedDigestMissing,
   occupiesApprovalSlot,
 } from "./membership.ts";
 export type {
+  DeviceActionApiRecord,
   DeviceActionApiStatus,
   DeviceActionOperation,
   EnrollmentMembership,
