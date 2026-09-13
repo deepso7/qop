@@ -163,9 +163,9 @@ const withTempRoot = Effect.acquireRelease(
   Effect.tryPromise(() => mkdtemp(path.join(tmpdir(), "qop-cli-"))),
   (root) =>
     Effect.tryPromise({
-      catch: () => {},
+      catch: () => new Error("cleanup failed"),
       try: () => rm(root, { force: true, recursive: true }),
-    }).pipe(Effect.asVoid)
+    }).pipe(Effect.ignore)
 );
 
 describe("CLI identity store", () => {
@@ -352,38 +352,36 @@ describe("CLI identity store", () => {
   it.live(
     "admits only one writer when two processes race stale-lock recovery",
     () =>
-      Effect.scoped(
-        Effect.gen(function* () {
-          const root = yield* withTempRoot;
-          const observedPath = path.join(root, "observed");
-          const releasePath = path.join(root, "release");
-          yield* seedDeadLock(root);
-          const worker = fileURLToPath(
-            new URL("lock-recover-worker.ts", import.meta.url)
-          );
-          // Slow recoverer observes the dead lock, then waits. Fast recoverer
-          // steals and wx in that window — the old rename-without-inode-check
-          // would rename the fresh lock away and admit two writers.
-          const slow = yield* startRecoverer(root, worker, [
-            "0",
-            observedPath,
-            releasePath,
-          ]);
-          const slowFiber = yield* Effect.forkChild(slow.outcome);
-          yield* waitForPath(observedPath);
-          const fastResult = yield* spawnRecoverer(root, worker);
-          yield* Effect.tryPromise(() => writeFile(releasePath, "go"));
-          const slowResult = yield* Fiber.join(slowFiber);
-          const lines = `${fastResult.output}\n${slowResult.output}`;
-          const successes = (lines.match(/SUCCESS/gu) ?? []).length;
-          const failures = (lines.match(/FAILURE/gu) ?? []).length;
-          expect(successes).toBe(1);
-          expect(failures).toBe(1);
-          expect(fastResult.output).toContain("SUCCESS");
-          expect(slowResult.output).toContain("FAILURE");
-          expect(fastResult.child.exitCode).toBeNull();
-        })
-      ),
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        const observedPath = path.join(root, "observed");
+        const releasePath = path.join(root, "release");
+        yield* seedDeadLock(root);
+        const worker = fileURLToPath(
+          new URL("lock-recover-worker.ts", import.meta.url)
+        );
+        // Slow recoverer observes the dead lock, then waits. Fast recoverer
+        // steals and wx in that window — the old rename-without-inode-check
+        // would rename the fresh lock away and admit two writers.
+        const slow = yield* startRecoverer(root, worker, [
+          "0",
+          observedPath,
+          releasePath,
+        ]);
+        const slowFiber = yield* Effect.forkChild(slow.outcome);
+        yield* waitForPath(observedPath);
+        const fastResult = yield* spawnRecoverer(root, worker);
+        yield* Effect.tryPromise(() => writeFile(releasePath, "go"));
+        const slowResult = yield* Fiber.join(slowFiber);
+        const lines = `${fastResult.output}\n${slowResult.output}`;
+        const successes = (lines.match(/SUCCESS/gu) ?? []).length;
+        const failures = (lines.match(/FAILURE/gu) ?? []).length;
+        expect(successes).toBe(1);
+        expect(failures).toBe(1);
+        expect(fastResult.output).toContain("SUCCESS");
+        expect(slowResult.output).toContain("FAILURE");
+        expect(fastResult.child.exitCode).toBeNull();
+      }),
     15_000
   );
 
@@ -462,61 +460,56 @@ describe("CLI identity store", () => {
   it.live(
     "admits only one writer when three processes race stale-lock recovery",
     () =>
-      Effect.scoped(
-        Effect.gen(function* () {
-          const root = yield* withTempRoot;
-          const observedPath = path.join(root, "observed");
-          const releasePath = path.join(root, "release");
-          const renamedPath = path.join(root, "renamed");
-          const releaseAfterRenamePath = path.join(
-            root,
-            "release-after-rename"
-          );
-          yield* seedDeadLock(root);
-          const worker = fileURLToPath(
-            new URL("lock-recover-worker.ts", import.meta.url)
-          );
-          // Slow observes the dead lock and waits. Fast steals and holds. On the
-          // old rename-without-claim path Slow then moves Fast's live lock, a
-          // third process wx's the empty path, and restore fails — two writers.
-          const slow = yield* startRecoverer(root, worker, [
-            "0",
-            observedPath,
-            releasePath,
-            renamedPath,
-            releaseAfterRenamePath,
-          ]);
-          const slowFiber = yield* Effect.forkChild(slow.outcome);
-          yield* waitForPath(observedPath);
-          const fastResult = yield* spawnRecoverer(root, worker);
-          yield* Effect.tryPromise(() => writeFile(releasePath, "go"));
-          const gap = yield* Effect.race(
-            waitForPath(renamedPath).pipe(Effect.as("renamed" as const)),
-            Fiber.join(slowFiber).pipe(
-              Effect.map((slowResult) => ({ slowResult }))
-            )
-          );
-          const thirdResult = yield* spawnRecoverer(root, worker);
-          const slowResult =
-            gap === "renamed"
-              ? yield* Effect.gen(function* () {
-                  yield* Effect.tryPromise(() =>
-                    writeFile(releaseAfterRenamePath, "go")
-                  );
-                  return yield* Fiber.join(slowFiber);
-                })
-              : gap.slowResult;
-          const lines = `${fastResult.output}\n${slowResult.output}\n${thirdResult.output}`;
-          const successes = (lines.match(/SUCCESS/gu) ?? []).length;
-          const failures = (lines.match(/FAILURE/gu) ?? []).length;
-          expect(successes).toBe(1);
-          expect(failures).toBe(2);
-          expect(fastResult.output).toContain("SUCCESS");
-          expect(slowResult.output).toContain("FAILURE");
-          expect(thirdResult.output).toContain("FAILURE");
-          expect(fastResult.child.exitCode).toBeNull();
-        })
-      ),
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        const observedPath = path.join(root, "observed");
+        const releasePath = path.join(root, "release");
+        const renamedPath = path.join(root, "renamed");
+        const releaseAfterRenamePath = path.join(root, "release-after-rename");
+        yield* seedDeadLock(root);
+        const worker = fileURLToPath(
+          new URL("lock-recover-worker.ts", import.meta.url)
+        );
+        // Slow observes the dead lock and waits. Fast steals and holds. On the
+        // old rename-without-claim path Slow then moves Fast's live lock, a
+        // third process wx's the empty path, and restore fails — two writers.
+        const slow = yield* startRecoverer(root, worker, [
+          "0",
+          observedPath,
+          releasePath,
+          renamedPath,
+          releaseAfterRenamePath,
+        ]);
+        const slowFiber = yield* Effect.forkChild(slow.outcome);
+        yield* waitForPath(observedPath);
+        const fastResult = yield* spawnRecoverer(root, worker);
+        yield* Effect.tryPromise(() => writeFile(releasePath, "go"));
+        const gap = yield* Effect.race(
+          waitForPath(renamedPath).pipe(Effect.as("renamed" as const)),
+          Fiber.join(slowFiber).pipe(
+            Effect.map((slowResult) => ({ slowResult }))
+          )
+        );
+        const thirdResult = yield* spawnRecoverer(root, worker);
+        const slowResult =
+          gap === "renamed"
+            ? yield* Effect.gen(function* () {
+                yield* Effect.tryPromise(() =>
+                  writeFile(releaseAfterRenamePath, "go")
+                );
+                return yield* Fiber.join(slowFiber);
+              })
+            : gap.slowResult;
+        const lines = `${fastResult.output}\n${slowResult.output}\n${thirdResult.output}`;
+        const successes = (lines.match(/SUCCESS/gu) ?? []).length;
+        const failures = (lines.match(/FAILURE/gu) ?? []).length;
+        expect(successes).toBe(1);
+        expect(failures).toBe(2);
+        expect(fastResult.output).toContain("SUCCESS");
+        expect(slowResult.output).toContain("FAILURE");
+        expect(thirdResult.output).toContain("FAILURE");
+        expect(fastResult.child.exitCode).toBeNull();
+      }),
     20_000
   );
 
@@ -571,45 +564,43 @@ describe("CLI identity store", () => {
   it.live(
     "admits only one writer when a stale recover-claim is taken over",
     () =>
-      Effect.scoped(
-        Effect.gen(function* () {
-          const root = yield* withTempRoot;
-          const claimObservedPath = path.join(root, "claim-observed");
-          const claimReleasePath = path.join(root, "claim-release");
-          yield* seedDeadLockWithAbandonedClaim(root);
-          const worker = fileURLToPath(
-            new URL("lock-recover-worker.ts", import.meta.url)
-          );
-          // B validates the abandoned claim then waits. A replaces it and
-          // acquires. Path-based claim rename would let B steal A's claim,
-          // move A's live lock, and let C wx — A+C success. Inode-checked
-          // takeover restores A's claim; only A writes.
-          const slow = yield* startRecoverer(root, worker, [
-            "0",
-            "",
-            "",
-            "",
-            "",
-            claimObservedPath,
-            claimReleasePath,
-          ]);
-          const slowFiber = yield* Effect.forkChild(slow.outcome);
-          yield* waitForPath(claimObservedPath);
-          const fastResult = yield* spawnRecoverer(root, worker);
-          yield* Effect.tryPromise(() => writeFile(claimReleasePath, "go"));
-          const slowResult = yield* Fiber.join(slowFiber);
-          const thirdResult = yield* spawnRecoverer(root, worker);
-          const lines = `${fastResult.output}\n${slowResult.output}\n${thirdResult.output}`;
-          const successes = (lines.match(/SUCCESS/gu) ?? []).length;
-          const failures = (lines.match(/FAILURE/gu) ?? []).length;
-          expect(successes).toBe(1);
-          expect(failures).toBe(2);
-          expect(fastResult.output).toContain("SUCCESS");
-          expect(slowResult.output).toContain("FAILURE");
-          expect(thirdResult.output).toContain("FAILURE");
-          expect(fastResult.child.exitCode).toBeNull();
-        })
-      ),
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        const claimObservedPath = path.join(root, "claim-observed");
+        const claimReleasePath = path.join(root, "claim-release");
+        yield* seedDeadLockWithAbandonedClaim(root);
+        const worker = fileURLToPath(
+          new URL("lock-recover-worker.ts", import.meta.url)
+        );
+        // B validates the abandoned claim then waits. A replaces it and
+        // acquires. Path-based claim rename would let B steal A's claim,
+        // move A's live lock, and let C wx — A+C success. Inode-checked
+        // takeover restores A's claim; only A writes.
+        const slow = yield* startRecoverer(root, worker, [
+          "0",
+          "",
+          "",
+          "",
+          "",
+          claimObservedPath,
+          claimReleasePath,
+        ]);
+        const slowFiber = yield* Effect.forkChild(slow.outcome);
+        yield* waitForPath(claimObservedPath);
+        const fastResult = yield* spawnRecoverer(root, worker);
+        yield* Effect.tryPromise(() => writeFile(claimReleasePath, "go"));
+        const slowResult = yield* Fiber.join(slowFiber);
+        const thirdResult = yield* spawnRecoverer(root, worker);
+        const lines = `${fastResult.output}\n${slowResult.output}\n${thirdResult.output}`;
+        const successes = (lines.match(/SUCCESS/gu) ?? []).length;
+        const failures = (lines.match(/FAILURE/gu) ?? []).length;
+        expect(successes).toBe(1);
+        expect(failures).toBe(2);
+        expect(fastResult.output).toContain("SUCCESS");
+        expect(slowResult.output).toContain("FAILURE");
+        expect(thirdResult.output).toContain("FAILURE");
+        expect(fastResult.child.exitCode).toBeNull();
+      }),
     20_000
   );
 });
