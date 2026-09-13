@@ -197,6 +197,37 @@ describe("local device action", () => {
     expect(stored?.historicallyAdded).toBe(false);
   });
 
+  it("keeps polling a confirmed add until the roster agrees", async () => {
+    let lookups = 0;
+    const harness = createHarness({
+      getStatus: "confirmed",
+      lookupQid: () => {
+        lookups += 1;
+        return lookups >= 3 ? 42n : null;
+      },
+    });
+    const record = await signedAdd();
+    await Effect.runPromise(harness.persistApproval(record));
+    await Effect.runPromise(harness.markAcknowledged(record.digest));
+    await Effect.runPromise(harness.submitAcknowledged());
+    const polled = await Effect.runPromise(harness.pollEnrollment(0, 10));
+    expect(polled?.membership).toBe("linked");
+    expect(polled?.historicallyAdded).toBe(true);
+    expect(lookups).toBeGreaterThan(1);
+  });
+
+  it("does not treat API confirmed without a roster as removed", async () => {
+    const harness = createHarness({ getStatus: "confirmed" });
+    const record = await signedAdd();
+    await Effect.runPromise(harness.persistApproval(record));
+    await Effect.runPromise(harness.markAcknowledged(record.digest));
+    await Effect.runPromise(harness.submitAcknowledged());
+    const stored = await Effect.runPromise(harness.reconcileMembership());
+    expect(stored?.membership).toBe("pending");
+    expect(stored?.historicallyAdded).toBe(false);
+    expect(stored?.apiStatus).toBe("confirmed");
+  });
+
   it("releases the slot after confirmed membership so a remove can persist", async () => {
     const addHarness = createHarness({
       getStatus: "confirmed",
@@ -418,14 +449,20 @@ describe("local device action", () => {
   });
 
   it("frees the slot after a confirmed remove so a later add can persist", async () => {
+    let onRoster = true;
     const harness = createHarness({
       getStatus: "confirmed",
+      lookupQid: () => (onRoster ? 42n : null),
     });
     const record = await signedRemove();
     await Effect.runPromise(
       harness.persistApproval(record, { acknowledged: true })
     );
     await Effect.runPromise(harness.submitAcknowledged());
+    const linked = await Effect.runPromise(harness.reconcileMembership());
+    expect(linked?.membership).toBe("linked");
+    expect(linked?.historicallyAdded).toBe(true);
+    onRoster = false;
     const stored = await Effect.runPromise(harness.reconcileMembership());
     expect(stored?.membership).toBe("removed");
     expect(stored?.apiStatus).toBe("confirmed");

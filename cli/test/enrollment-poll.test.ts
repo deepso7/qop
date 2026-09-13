@@ -4,24 +4,38 @@ import { Effect } from "effect";
 import { pollEnrollmentState } from "../src/enrollment-poll.ts";
 
 describe("CLI enrollment poll", () => {
-  it.effect("does not treat a submitted digest as historically added", () =>
+  it.effect("keeps polling after API confirmed until the roster agrees", () =>
     Effect.gen(function* () {
-      let gets = 0;
+      let lookups = 0;
       const snapshot = yield* pollEnrollmentState({
         delayMs: 0,
         expectedQid: 42n,
-        getStatus: () => {
-          gets += 1;
-          if (gets === 1) {
-            return Effect.succeed("submitted" as const);
-          }
-          return Effect.succeed("confirmed" as const);
+        getStatus: () => Effect.succeed("confirmed" as const),
+        lookup: () => {
+          lookups += 1;
+          return Effect.succeed(lookups >= 3 ? { qid: 42n } : null);
         },
-        lookup: () => Effect.succeed(null),
+        maxAttempts: 10,
       });
-      expect(gets).toBeGreaterThan(1);
-      expect(snapshot.state).toBe("removed");
+      expect(lookups).toBeGreaterThan(1);
+      expect(snapshot.state).toBe("linked");
       expect(snapshot.historicallyAdded).toBe(true);
+      expect(snapshot.apiStatus).toBe("confirmed");
+    })
+  );
+
+  it.effect("does not treat API confirmed without a roster as removed", () =>
+    Effect.gen(function* () {
+      const snapshot = yield* pollEnrollmentState({
+        delayMs: 0,
+        expectedQid: 42n,
+        getStatus: () => Effect.succeed("confirmed" as const),
+        lookup: () => Effect.succeed(null),
+        maxAttempts: 3,
+      });
+      expect(snapshot.state).toBe("pending");
+      expect(snapshot.historicallyAdded).toBe(false);
+      expect(snapshot.apiStatus).toBe("confirmed");
     })
   );
 

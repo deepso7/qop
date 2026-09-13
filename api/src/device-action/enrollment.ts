@@ -291,7 +291,9 @@ export class DeviceActionEnrollment extends Context.Service<
             : submitted;
         }
         const chainTime = yield* chain.blockTimestamp;
-        if (stored.status === "ready" && stored.deadline <= chainTime) {
+        // Contract ExpiredIntent is `block.timestamp > deadline`. Equality is
+        // still executable — clients trust this terminal status.
+        if (stored.status === "ready" && chainTime > stored.deadline) {
           return yield* store.markTerminal(
             stored.digest,
             "expired",
@@ -373,7 +375,7 @@ export class DeviceActionEnrollment extends Context.Service<
 
         const chainTime = yield* chain.blockTimestamp;
         if (
-          intent.deadline <= chainTime ||
+          chainTime > intent.deadline ||
           intent.deadline > chainTime + deviceActionMaxDeadlineSeconds
         ) {
           return yield* new DeviceActionDeadlineInvalid({

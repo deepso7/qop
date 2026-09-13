@@ -303,4 +303,146 @@ describe("CLI identity store", () => {
       }),
     15_000
   );
+
+  it.effect(
+    "does not admit a third writer after recovery moves a live lock",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* Effect.tryPromise(() =>
+          mkdtemp(path.join(tmpdir(), "qop-cli-"))
+        );
+        const lockPath = path.join(root, "lock");
+        yield* Effect.tryPromise(() =>
+          writeFile(lockPath, "2147483647\n", { mode: 0o600 })
+        );
+        yield* Effect.tryPromise(() => chmod(lockPath, 0o600));
+        yield* Effect.tryPromise(() => chmod(root, 0o700));
+        const observed = yield* Deferred.make<boolean>();
+        const releaseSlow = yield* Deferred.make<boolean>();
+        const renamed = yield* Deferred.make<boolean>();
+        const releaseAfterRename = yield* Deferred.make<boolean>();
+        const slow = createCliIdentityStore(root, {
+          afterRecoverRename: () =>
+            Effect.gen(function* () {
+              yield* Deferred.succeed(renamed, true);
+              yield* Deferred.await(releaseAfterRename);
+            }),
+          beforeRecoverSteal: () =>
+            Effect.gen(function* () {
+              yield* Deferred.succeed(observed, true);
+              yield* Deferred.await(releaseSlow);
+            }),
+        });
+        const slowFiber = yield* Effect.forkChild(
+          slow.acquireLock().pipe(Effect.result)
+        );
+        yield* Deferred.await(observed);
+        const fastResult = yield* createCliIdentityStore(root)
+          .acquireLock()
+          .pipe(Effect.result);
+        yield* Deferred.succeed(releaseSlow, true);
+        const gap = yield* Effect.race(
+          Deferred.await(renamed).pipe(Effect.as("renamed" as const)),
+          Fiber.join(slowFiber).pipe(
+            Effect.map((slowResult) => ({ slowResult }))
+          )
+        );
+        const thirdResult = yield* createCliIdentityStore(root)
+          .acquireLock()
+          .pipe(Effect.result);
+        const slowResult =
+          gap === "renamed"
+            ? yield* Effect.gen(function* () {
+                yield* Deferred.succeed(releaseAfterRename, true);
+                return yield* Fiber.join(slowFiber);
+              })
+            : gap.slowResult;
+        const successes = [fastResult, slowResult, thirdResult].filter(
+          (result) => result._tag === "Success"
+        );
+        expect(successes.length).toBe(1);
+        expect(fastResult._tag).toBe("Success");
+        expect(slowResult._tag).toBe("Failure");
+        expect(thirdResult._tag).toBe("Failure");
+        if (fastResult._tag === "Success") {
+          yield* fastResult.success.release;
+        }
+        if (thirdResult._tag === "Success") {
+          yield* thirdResult.success.release;
+        }
+        yield* Effect.tryPromise(() =>
+          rm(root, { force: true, recursive: true })
+        );
+      })
+  );
+
+  it.live(
+    "admits only one writer when three processes race stale-lock recovery",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* Effect.tryPromise(() =>
+          mkdtemp(path.join(tmpdir(), "qop-cli-"))
+        );
+        const lockPath = path.join(root, "lock");
+        const observedPath = path.join(root, "observed");
+        const releasePath = path.join(root, "release");
+        const renamedPath = path.join(root, "renamed");
+        const releaseAfterRenamePath = path.join(root, "release-after-rename");
+        yield* Effect.tryPromise(() =>
+          writeFile(lockPath, "2147483647\n", { mode: 0o600 })
+        );
+        yield* Effect.tryPromise(() => chmod(lockPath, 0o600));
+        yield* Effect.tryPromise(() => chmod(root, 0o700));
+        const worker = fileURLToPath(
+          new URL("lock-recover-worker.ts", import.meta.url)
+        );
+        // Slow observes the dead lock and waits. Fast steals and holds. On the
+        // old rename-without-claim path Slow then moves Fast's live lock, a
+        // third process wx's the empty path, and restore fails — two writers.
+        const slowFiber = yield* Effect.forkChild(
+          spawnRecoverer(root, worker, [
+            "0",
+            observedPath,
+            releasePath,
+            renamedPath,
+            releaseAfterRenamePath,
+          ])
+        );
+        yield* waitForPath(observedPath);
+        const fastResult = yield* spawnRecoverer(root, worker);
+        yield* Effect.tryPromise(() => writeFile(releasePath, "go"));
+        const gap = yield* Effect.race(
+          waitForPath(renamedPath).pipe(Effect.as("renamed" as const)),
+          Fiber.join(slowFiber).pipe(
+            Effect.map((slowResult) => ({ slowResult }))
+          )
+        );
+        const thirdResult = yield* spawnRecoverer(root, worker);
+        const slowResult =
+          gap === "renamed"
+            ? yield* Effect.gen(function* () {
+                yield* Effect.tryPromise(() =>
+                  writeFile(releaseAfterRenamePath, "go")
+                );
+                return yield* Fiber.join(slowFiber);
+              })
+            : gap.slowResult;
+        const lines = `${fastResult.output}\n${slowResult.output}\n${thirdResult.output}`;
+        const successes = (lines.match(/SUCCESS/gu) ?? []).length;
+        const failures = (lines.match(/FAILURE/gu) ?? []).length;
+        expect(successes).toBe(1);
+        expect(failures).toBe(2);
+        expect(fastResult.output).toContain("SUCCESS");
+        expect(slowResult.output).toContain("FAILURE");
+        expect(thirdResult.output).toContain("FAILURE");
+        expect(fastResult.child.exitCode).toBeNull();
+        fastResult.child.kill("SIGTERM");
+        slowResult.child.kill("SIGTERM");
+        thirdResult.child.kill("SIGTERM");
+        yield* Effect.tryPromise(() =>
+          rm(root, { force: true, recursive: true })
+        );
+      }),
+    20_000
+  );
 });

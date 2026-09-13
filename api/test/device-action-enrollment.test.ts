@@ -238,4 +238,67 @@ layer(EnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       }
     })
   );
+
+  it.effect("submits when the deadline equals chain time", () =>
+    Effect.gen(function* () {
+      receipts.clear();
+      const enrollment = yield* DeviceActionEnrollment;
+      const encodedIntent = encodedIntentFor("45", "1700000000");
+      const intent = yield* decodeAddDeviceIntentV1(encodedIntent);
+      const digest = yield* hashAddDeviceIntentV1(domain, intent);
+      const ownerSignature = yield* Effect.promise(() =>
+        ownerAccount.signTypedData(
+          makeAddDeviceIntentTypedDataV1(domain, intent)
+        )
+      );
+      const encoded = yield* encodeAddDeviceIntentV1(intent);
+      receipts.set(transactionHash, {
+        blockNumber: 100n,
+        logs: [addEventLog(45n, DEVICE_KEY, 9n)],
+        status: "success",
+      });
+      const submitted = yield* enrollment.submit({
+        intent: encoded,
+        operation: "add",
+        ownerSignature,
+      });
+      assert.strictEqual(submitted.digest, digest);
+      assert.strictEqual(submitted.status, "confirmed");
+    })
+  );
+
+  it.effect(
+    "does not expire a ready intent when deadline equals chain time",
+    () =>
+      Effect.gen(function* () {
+        receipts.clear();
+        const enrollment = yield* DeviceActionEnrollment;
+        const store = yield* DeviceActionStore;
+        const encodedIntent = encodedIntentFor("46", "1700000000");
+        const intent = yield* decodeAddDeviceIntentV1(encodedIntent);
+        const digest = yield* hashAddDeviceIntentV1(domain, intent);
+        const ownerSignature = yield* Effect.promise(() =>
+          ownerAccount.signTypedData(
+            makeAddDeviceIntentTypedDataV1(domain, intent)
+          )
+        );
+        yield* store.create({
+          accountNonce: intent.nonce,
+          deadline: intent.deadline,
+          deviceKey: DEVICE_KEY,
+          digest,
+          operation: "add",
+          owner,
+          ownerSignature,
+          qid: intent.qid,
+        });
+        receipts.set(transactionHash, {
+          blockNumber: 100n,
+          logs: [addEventLog(46n, DEVICE_KEY, 9n)],
+          status: "success",
+        });
+        const reconciled = yield* enrollment.reconcile(digest);
+        assert.strictEqual(reconciled.status, "confirmed");
+      })
+  );
 });

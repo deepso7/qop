@@ -179,12 +179,33 @@ const restoreStolenLock = (lockPath: string, stalePath: string) =>
     })
   );
 
+const sameDeadLock = (
+  observed: Stats,
+  trimmed: string,
+  info: Stats | null,
+  text: string | null
+) =>
+  info !== null &&
+  info.dev === observed.dev &&
+  info.ino === observed.ino &&
+  text !== null &&
+  text.trim() === trimmed;
+
+type RecoverOutcome =
+  | { readonly claimPath: string; readonly kind: "stolen" }
+  | { readonly kind: "held" };
+
 export const createCliIdentityStore = (
   root: string,
   options?: {
     /**
+     * Test hook: run after `lock` is renamed away, before the inode check.
+     * Widens the empty-path window for the three-process race test.
+     */
+    readonly afterRecoverRename?: () => Effect.Effect<void, never>;
+    /**
      * Test hook: run after a dead lock is observed (PID + inode), before the
-     * exclusive steal rename. Used to inject the TOCTOU window.
+     * exclusive recover claim. Used to inject the TOCTOU window.
      */
     readonly beforeRecoverSteal?: () => Effect.Effect<void, never>;
   }
@@ -194,7 +215,7 @@ export const createCliIdentityStore = (
   const approvalPath = path.join(root, "pending-approval.json");
   const lockPath = path.join(root, "lock");
 
-  const openExclusiveLock = () =>
+  const openExclusive = (filePath: string) =>
     Effect.tryPromise({
       catch: (error) => {
         const parsed = errnoCode(error);
@@ -202,38 +223,120 @@ export const createCliIdentityStore = (
           ? storeError("conflict")
           : storeError("lock");
       },
-      try: () => open(lockPath, "wx"),
+      try: () => open(filePath, "wx"),
     });
 
-  const recoverStaleLock = Effect.fn("CliIdentity.recoverStaleLock")(
+  const recoverClaimPathFor = (info: Stats) =>
+    `${lockPath}.recover.${info.dev}.${info.ino}`;
+
+  const writeClaimPid = (filePath: string) =>
+    Effect.gen(function* () {
+      const handle = yield* openExclusive(filePath);
+      yield* Effect.tryPromise({
+        catch: () => storeError("lock"),
+        try: async () => {
+          try {
+            await handle.writeFile(String(process.pid));
+          } finally {
+            await handle.close();
+          }
+        },
+      }).pipe(Effect.tapError(() => unlinkOptional(filePath)));
+      return filePath;
+    });
+
+  /**
+   * Exclusive permission to rename this dead inode. Held until lock release
+   * so a later recoverer cannot rename away the live lock we then wx.
+   */
+  const claimDeadInode = Effect.fn("CliIdentity.claimDeadInode")(function* (
+    observed: Stats
+  ) {
+    const claimPath = recoverClaimPathFor(observed);
+    const created = yield* writeClaimPid(claimPath).pipe(Effect.result);
+    if (Result.isSuccess(created)) {
+      return claimPath;
+    }
+    if (created.failure.operation !== "conflict") {
+      return yield* created.failure;
+    }
+    const encoded = yield* readTextOptional(claimPath);
+    if (encoded === null) {
+      return null;
+    }
+    const trimmed = encoded.trim();
+    const pid = Number(trimmed);
+    if (!trimmed || !Number.isInteger(pid) || pid <= 0 || processExists(pid)) {
+      return null;
+    }
+    const lockNow = yield* statOptional(lockPath);
+    // Only take over a dead claim if `lock` is still the inode it was claiming.
+    if (
+      lockNow === null ||
+      lockNow.dev !== observed.dev ||
+      lockNow.ino !== observed.ino
+    ) {
+      return null;
+    }
+    const staleClaim = `${claimPath}.stale.${process.pid}.${crypto.randomUUID()}`;
+    const moved = yield* Effect.tryPromise({
+      catch: (error) => error,
+      try: () => rename(claimPath, staleClaim),
+    }).pipe(Effect.result);
+    if (Result.isFailure(moved)) {
+      return null;
+    }
+    yield* unlinkOptional(staleClaim);
+    const retried = yield* writeClaimPid(claimPath).pipe(Effect.result);
+    return Result.isSuccess(retried) ? claimPath : null;
+  });
+
+  const observeDeadLock = Effect.fn("CliIdentity.observeDeadLock")(
     function* () {
       const encoded = yield* readTextOptional(lockPath);
       if (encoded === null) {
-        return "held" as const;
+        return null;
       }
       const trimmed = encoded.trim();
       // Empty/partial lock means another process won exclusive create and has
       // not written its PID yet. Do not steal it.
       if (!trimmed) {
-        return "held" as const;
+        return null;
       }
       const pid = Number(trimmed);
-      if (!Number.isInteger(pid) || pid <= 0) {
-        return "held" as const;
-      }
-      if (processExists(pid)) {
-        return "held" as const;
+      if (!Number.isInteger(pid) || pid <= 0 || processExists(pid)) {
+        return null;
       }
       const again = yield* readTextOptional(lockPath);
       if (again === null || again.trim() !== trimmed) {
-        return "held" as const;
+        return null;
       }
       const observed = yield* statOptional(lockPath);
       if (observed === null) {
-        return "held" as const;
+        return null;
+      }
+      return { observed, trimmed };
+    }
+  );
+
+  const recoverStaleLock = Effect.fn("CliIdentity.recoverStaleLock")(
+    function* () {
+      const dead = yield* observeDeadLock();
+      if (!dead) {
+        return { kind: "held" } satisfies RecoverOutcome;
       }
       if (options?.beforeRecoverSteal) {
         yield* options.beforeRecoverSteal();
+      }
+      const claimPath = yield* claimDeadInode(dead.observed);
+      if (claimPath === null) {
+        return { kind: "held" } satisfies RecoverOutcome;
+      }
+      const still = yield* statOptional(lockPath);
+      const stillText = yield* readTextOptional(lockPath);
+      if (!sameDeadLock(dead.observed, dead.trimmed, still, stillText)) {
+        yield* unlinkOptional(claimPath);
+        return { kind: "held" } satisfies RecoverOutcome;
       }
       const stalePath = `${lockPath}.stale.${process.pid}.${crypto.randomUUID()}`;
       const renamed = yield* Effect.tryPromise({
@@ -241,25 +344,23 @@ export const createCliIdentityStore = (
         try: () => rename(lockPath, stalePath),
       }).pipe(Effect.result);
       if (Result.isFailure(renamed)) {
-        return "held" as const;
+        yield* unlinkOptional(claimPath);
+        return { kind: "held" } satisfies RecoverOutcome;
+      }
+      if (options?.afterRecoverRename) {
+        yield* options.afterRecoverRename();
       }
       const stolen = yield* statOptional(stalePath);
       const stolenText = yield* readTextOptional(stalePath);
-      // Rename is path-based. If another process created a fresh lock in the
-      // window after we observed the dead inode, we just moved *that* file.
-      // Restore it (link does not overwrite) and do not wx.
-      if (
-        stolen === null ||
-        stolen.dev !== observed.dev ||
-        stolen.ino !== observed.ino ||
-        stolenText === null ||
-        stolenText.trim() !== trimmed
-      ) {
+      // With the inode claim held, this mismatch is leftover defense: restore
+      // (link does not overwrite) and drop the claim. Do not wx.
+      if (!sameDeadLock(dead.observed, dead.trimmed, stolen, stolenText)) {
         yield* restoreStolenLock(lockPath, stalePath);
-        return "held" as const;
+        yield* unlinkOptional(claimPath);
+        return { kind: "held" } satisfies RecoverOutcome;
       }
       yield* unlinkOptional(stalePath);
-      return "stolen" as const;
+      return { claimPath, kind: "stolen" } satisfies RecoverOutcome;
     }
   );
 
@@ -274,8 +375,9 @@ export const createCliIdentityStore = (
     });
     yield* assertPrivateMode(root, true);
     let lastConflict = storeError("conflict");
+    let recoverClaimPath: string | null = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      const opened = yield* openExclusiveLock().pipe(Effect.result);
+      const opened = yield* openExclusive(lockPath).pipe(Effect.result);
       if (Result.isSuccess(opened)) {
         const handle = opened.success;
         yield* Effect.tryPromise({
@@ -283,6 +385,7 @@ export const createCliIdentityStore = (
           try: () => handle.writeFile(String(process.pid)),
         });
         const ownerPid = process.pid;
+        const claimPath = recoverClaimPath;
         const release = Effect.tryPromise({
           catch: () => storeError("lock"),
           try: async () => {
@@ -305,6 +408,13 @@ export const createCliIdentityStore = (
                 }
               }
             } finally {
+              if (claimPath) {
+                try {
+                  await unlink(claimPath);
+                } catch {
+                  // Claim already gone.
+                }
+              }
               await handle.close();
             }
           },
@@ -312,15 +422,23 @@ export const createCliIdentityStore = (
         return { lockPath, release };
       }
       lastConflict = opened.failure;
+      if (recoverClaimPath) {
+        yield* unlinkOptional(recoverClaimPath);
+        recoverClaimPath = null;
+      }
       if (opened.failure.operation !== "conflict") {
         return yield* opened.failure;
       }
       const recovered = yield* recoverStaleLock();
-      // Only the recoverer that renamed the observed dead inode may create.
-      // Losers (including anyone who renamed a later live lock) conflict.
-      if (recovered !== "stolen") {
+      // Only the recoverer that claimed the observed dead inode may create.
+      // Losers (live lock, lost claim) conflict.
+      if (recovered.kind !== "stolen") {
         return yield* storeError("conflict");
       }
+      recoverClaimPath = recovered.claimPath;
+    }
+    if (recoverClaimPath) {
+      yield* unlinkOptional(recoverClaimPath);
     }
     return yield* lastConflict;
   });

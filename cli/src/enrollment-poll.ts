@@ -1,7 +1,4 @@
-import {
-  enrollmentMembership,
-  isTerminalDeviceActionStatus,
-} from "@qop/protocol";
+import { enrollmentMembership, enrollmentPollComplete } from "@qop/protocol";
 import type {
   DeviceActionApiStatus,
   EnrollmentMembership,
@@ -37,12 +34,12 @@ export const readEnrollmentState = Effect.fn("cli.readEnrollmentState")(
       const status = yield* getStatus().pipe(Effect.result);
       if (Result.isSuccess(status)) {
         apiStatus = status.success;
-        if (status.success === "confirmed") {
-          added = true;
-        }
       }
     }
     const current = yield* lookup();
+    // Roster observation is the only historical-add signal. API `confirmed`
+    // can lead the CLI's RPC head, so treating it as added would look like
+    // `removed` and rotate a still-valid pending key.
     if (current?.qid === expectedQid) {
       added = true;
     }
@@ -88,10 +85,13 @@ export const pollEnrollmentState = Effect.fn("cli.pollEnrollmentState")(
         lookup,
       });
       observedAdd = snapshot.historicallyAdded;
-      if (snapshot.state !== "pending") {
-        return snapshot;
-      }
-      if (isTerminalDeviceActionStatus(snapshot.apiStatus)) {
+      if (
+        enrollmentPollComplete({
+          apiStatus: snapshot.apiStatus,
+          membership: snapshot.state,
+          operation: "add",
+        })
+      ) {
         return snapshot;
       }
       yield* Effect.sleep(delayMs);

@@ -8,9 +8,11 @@ const root = process.argv.at(2);
 const delayMs = Number(process.argv.at(3) ?? "0");
 const observedPath = process.argv.at(4);
 const releasePath = process.argv.at(5);
+const renamedPath = process.argv.at(6);
+const releaseAfterRenamePath = process.argv.at(7);
 if (!root) {
   console.error(
-    "usage: lock-recover-worker <root> [delayMs] [observedPath] [releasePath]"
+    "usage: lock-recover-worker <root> [delayMs] [observedPath] [releasePath] [renamedPath] [releaseAfterRenamePath]"
   );
   process.exit(2);
 }
@@ -33,6 +35,15 @@ const waitForPath = (filePath: string) =>
   });
 
 const store = createCliIdentityStore(root, {
+  afterRecoverRename: () =>
+    Effect.gen(function* () {
+      if (renamedPath) {
+        yield* Effect.promise(() => writeFile(renamedPath, "1"));
+      }
+      if (releaseAfterRenamePath) {
+        yield* waitForPath(releaseAfterRenamePath);
+      }
+    }),
   beforeRecoverSteal: () =>
     Effect.gen(function* () {
       if (observedPath) {
@@ -50,8 +61,13 @@ const store = createCliIdentityStore(root, {
 
 const result = await Effect.runPromise(store.acquireLock().pipe(Effect.result));
 if (result._tag === "Success") {
+  const lock = result.success;
   process.stdout.write("SUCCESS\n");
-  await Effect.runPromise(Effect.never);
+  // Keep the event loop (and this live lock) until the test SIGTERMs. Node 24
+  // exits on an unsettled `Effect.never` top-level await (exit 13).
+  setInterval(() => {
+    void lock.lockPath;
+  }, 60_000);
 } else {
   process.stdout.write("FAILURE\n");
 }

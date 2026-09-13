@@ -3,7 +3,6 @@ import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
 import {
   asHex,
   encodePairingOfferV1,
-  isTerminalDeviceActionStatus,
   PAIR_PROTOCOL,
   PAIRING_MAX_ADDRESSES,
   PAIRING_TTL_SECONDS,
@@ -119,7 +118,7 @@ export const runLink = Effect.fn("qop.link")(function* (
     console.log(
       "Previous pending key was added and later removed. Generated a new key."
     );
-  } else if (isTerminalDeviceActionStatus(prior.apiStatus)) {
+  } else if (prior.apiStatus === "expired" || prior.apiStatus === "reverted") {
     yield* store.clearApproval();
   }
   yield* loadOccupyingApproval({
@@ -311,7 +310,7 @@ export const runLink = Effect.fn("qop.link")(function* (
       );
       return;
     }
-    if (isTerminalDeviceActionStatus(snapshot.apiStatus)) {
+    if (snapshot.apiStatus === "expired" || snapshot.apiStatus === "reverted") {
       yield* store.clearApproval();
       console.log(
         "The approval expired or reverted. Run qop link to try a new enrollment."

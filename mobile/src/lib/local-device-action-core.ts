@@ -202,20 +202,19 @@ export const createLocalDeviceAction = ({
       const chainTime = Result.isSuccess(chainTimeResult)
         ? chainTimeResult.success
         : undefined;
-      const historicallyAdded =
-        existing.historicallyAdded || apiStatus === "confirmed";
       const account = yield* registry.lookupDeviceKey(encoded.intent.deviceKey);
       const membership = enrollmentMembership({
         activeQid: account?.qid ?? null,
         expectedQid: BigInt(existing.record.intent.qid),
         historicallyAdded:
-          historicallyAdded ||
+          existing.historicallyAdded ||
           account?.qid === BigInt(existing.record.intent.qid),
       });
       const stored: LocalDeviceAction = {
         ...existing,
         apiStatus,
-        historicallyAdded: historicallyAdded || membership === "linked",
+        historicallyAdded:
+          existing.historicallyAdded || membership === "linked",
         membership,
         transactionHash: Result.isSuccess(api)
           ? (api.success.transactionHash ?? existing.transactionHash)
@@ -309,9 +308,6 @@ export const createLocalDeviceAction = ({
           const refreshed: LocalDeviceAction = {
             ...existing,
             apiStatus: status.success.status,
-            historicallyAdded:
-              existing.historicallyAdded ||
-              status.success.status === "confirmed",
             transactionHash:
               status.success.transactionHash ?? existing.transactionHash,
           };

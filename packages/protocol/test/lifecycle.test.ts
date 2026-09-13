@@ -227,5 +227,19 @@ describe("enrollment membership", () => {
         operation: "add",
       })
     ).toBe(true);
+    expect(
+      enrollmentPollComplete({
+        apiStatus: "confirmed",
+        membership: "pending",
+        operation: "add",
+      })
+    ).toBe(false);
+    expect(
+      enrollmentPollComplete({
+        apiStatus: "confirmed",
+        membership: "linked",
+        operation: "add",
+      })
+    ).toBe(true);
   });
 });
