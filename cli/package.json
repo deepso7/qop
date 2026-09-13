@@ -12,6 +12,7 @@
     "qop": "node src/main.ts"
   },
   "dependencies": {
+    "@effect/platform-node": "4.0.0-rc.112",
     "@minip2p/node": "0.5.3",
     "@qop/identity": "workspace:*",
     "@qop/protocol": "workspace:*",

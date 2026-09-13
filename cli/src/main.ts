@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-import { Handle } from "@qop/identity";
+import { NodeServices } from "@effect/platform-node";
 import { pairingFingerprint } from "@qop/protocol";
-import { Cause, Effect, Exit, Schema } from "effect";
+import { Cause, Effect, Exit } from "effect";
 
 import { runStart } from "./chat.ts";
+import { createQopCommand, runQopCli } from "./cli.ts";
 import { configuredRegistry } from "./config.ts";
 import {
   CliIdentityStoreError,
@@ -13,23 +14,6 @@ import {
 } from "./identity-store.ts";
 import { runLink } from "./pairing-link.ts";
 
-const usage = `qop <link|status|start> [--account HANDLE] [--to HANDLE] [--message TEXT]
-
-Link a CLI device to an existing account, then start diagnostic chat.`;
-
-const flagValue = (argv: string[], name: string) => {
-  const index = argv.indexOf(name);
-  if (index === -1) {
-    return;
-  }
-  return argv[index + 1];
-};
-
-const argv = process.argv.slice(2);
-const [command] = argv;
-const account = flagValue(argv, "--account");
-const to = flagValue(argv, "--to");
-const message = flagValue(argv, "--message");
 const store = createCliIdentityStore(
   process.env.QOP_DATA_DIR ?? defaultDataDirectory()
 );
@@ -61,22 +45,10 @@ const runStatus = Effect.fn("qop.status")(function* () {
   );
 });
 
-const program = Effect.fn("qop")(function* () {
-  if (command === "status") {
-    return yield* withLock(runStatus());
-  }
-  if (command === "link") {
-    if (!account) {
-      console.error(usage);
-      return;
-    }
-    const handle = yield* Schema.decodeUnknownEffect(Handle)(account);
-    return yield* withLock(runLink(store, handle));
-  }
-  if (command === "start") {
-    return yield* withLock(runStart(store, { message, to }));
-  }
-  console.error(usage);
+const command = createQopCommand({
+  runLink: (handle) => withLock(runLink(store, handle)),
+  runStart: (options) => withLock(runStart(store, options)),
+  runStatus: () => withLock(runStatus()),
 });
 
 const operatorMessage = (error: CliIdentityStoreError) => {
@@ -91,7 +63,9 @@ const operatorMessage = (error: CliIdentityStoreError) => {
   }
 };
 
-const exit = await Effect.runPromiseExit(program());
+const exit = await Effect.runPromiseExit(
+  runQopCli(command).pipe(Effect.provide(NodeServices.layer))
+);
 if (Exit.isFailure(exit)) {
   const squashed = Cause.squash(exit.cause);
   console.error(

@@ -191,6 +191,9 @@ importers:
 
   cli:
     dependencies:
+      '@effect/platform-node':
+        specifier: 4.0.0-rc.112
+        version: 4.0.0-rc.112(effect@4.0.0-rc.112)(redis@6.2.1)
       '@minip2p/node':
         specifier: 0.5.3
         version: 0.5.3
