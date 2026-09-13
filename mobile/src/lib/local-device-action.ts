@@ -20,7 +20,7 @@ export const {
   pollEnrollment,
   readStored: loadLocalDeviceAction,
   reconcileMembership,
-  resumeInFlightAdd,
+  resumeInFlight,
   submitAcknowledged,
 } = createLocalDeviceAction({
   deviceActionClient: { get: getDeviceAction, submit: submitDeviceAction },

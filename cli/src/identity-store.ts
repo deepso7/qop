@@ -18,7 +18,7 @@ import {
   peerIdFromEd25519SecretKey,
 } from "@qop/identity";
 import { DeviceActionApprovalV1 } from "@qop/protocol";
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 
 const IDENTITY_VERSION = 1 as const;
 
@@ -180,12 +180,24 @@ export const createCliIdentityStore = (root: string) => {
       if (encoded === null) {
         return;
       }
-      const pid = Number(encoded.trim());
+      const trimmed = encoded.trim();
+      // Empty/partial lock means another process won exclusive create and has
+      // not written its PID yet. Do not unlink it.
+      if (!trimmed) {
+        return yield* storeError("conflict");
+      }
+      const pid = Number(trimmed);
       if (!Number.isInteger(pid) || pid <= 0) {
-        yield* unlinkOptional(lockPath);
-        return;
+        return yield* storeError("conflict");
       }
       if (processExists(pid)) {
+        return yield* storeError("conflict");
+      }
+      const again = yield* readTextOptional(lockPath);
+      if (again === null) {
+        return;
+      }
+      if (again.trim() !== trimmed) {
         return yield* storeError("conflict");
       }
       yield* unlinkOptional(lockPath);
@@ -202,24 +214,51 @@ export const createCliIdentityStore = (root: string) => {
       try: () => chmod(root, MODE_DIR),
     });
     yield* assertPrivateMode(root, true);
-    const handle = yield* openExclusiveLock().pipe(
-      Effect.catchIf(
-        (error) => error.operation === "conflict",
-        () => recoverStaleLock().pipe(Effect.andThen(openExclusiveLock()))
-      )
-    );
-    yield* Effect.tryPromise({
-      catch: () => storeError("write"),
-      try: () => handle.writeFile(String(process.pid)),
-    });
-    const release = Effect.tryPromise({
-      catch: () => storeError("lock"),
-      try: async () => {
-        await handle.close();
-        await unlink(lockPath);
-      },
-    });
-    return { lockPath, release };
+    let lastConflict = storeError("conflict");
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const opened = yield* openExclusiveLock().pipe(Effect.result);
+      if (Result.isSuccess(opened)) {
+        const handle = opened.success;
+        yield* Effect.tryPromise({
+          catch: () => storeError("write"),
+          try: () => handle.writeFile(String(process.pid)),
+        });
+        const ownerPid = process.pid;
+        const release = Effect.tryPromise({
+          catch: () => storeError("lock"),
+          try: async () => {
+            try {
+              const ours = await handle.stat();
+              let current: Stats | null = null;
+              try {
+                current = await stat(lockPath);
+              } catch {
+                current = null;
+              }
+              if (
+                current &&
+                current.dev === ours.dev &&
+                current.ino === ours.ino
+              ) {
+                const encoded = await readFile(lockPath, "utf-8");
+                if (encoded.trim() === String(ownerPid)) {
+                  await unlink(lockPath);
+                }
+              }
+            } finally {
+              await handle.close();
+            }
+          },
+        });
+        return { lockPath, release };
+      }
+      lastConflict = opened.failure;
+      if (opened.failure.operation !== "conflict") {
+        return yield* opened.failure;
+      }
+      yield* recoverStaleLock();
+    }
+    return yield* lastConflict;
   });
 
   const loadIdentity = Effect.fn("CliIdentity.loadIdentity")(function* () {
@@ -333,8 +372,13 @@ export const createCliIdentityStore = (root: string) => {
     yield* writeAtomic(approvalPath, JSON.stringify(encoded));
   });
 
+  const clearApproval = Effect.fn("CliIdentity.clearApproval")(function* () {
+    yield* unlinkOptional(approvalPath);
+  });
+
   return {
     acquireLock,
+    clearApproval,
     createPendingKey,
     loadApproval,
     loadIdentity,

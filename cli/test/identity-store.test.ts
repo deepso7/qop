@@ -96,4 +96,57 @@ describe("CLI identity store", () => {
       );
     })
   );
+
+  it.effect("recovers a dead-pid lock without admitting two writers", () =>
+    Effect.gen(function* () {
+      const root = yield* Effect.tryPromise(() =>
+        mkdtemp(path.join(tmpdir(), "qop-cli-"))
+      );
+      const lockPath = path.join(root, "lock");
+      yield* Effect.tryPromise(() =>
+        writeFile(lockPath, "2147483647\n", { mode: 0o600 })
+      );
+      yield* Effect.tryPromise(() => chmod(lockPath, 0o600));
+      yield* Effect.tryPromise(() => chmod(root, 0o700));
+      const results = yield* Effect.all(
+        [
+          createCliIdentityStore(root).acquireLock().pipe(Effect.result),
+          createCliIdentityStore(root).acquireLock().pipe(Effect.result),
+        ],
+        { concurrency: "unbounded" }
+      );
+      const successes = results.filter((result) => result._tag === "Success");
+      expect(successes.length).toBe(1);
+      if (successes[0]?._tag === "Success") {
+        yield* successes[0].success.release;
+      }
+      yield* Effect.tryPromise(() =>
+        rm(root, { force: true, recursive: true })
+      );
+    })
+  );
+
+  it.effect("does not steal an exclusive lock that has no PID yet", () =>
+    Effect.gen(function* () {
+      const root = yield* Effect.tryPromise(() =>
+        mkdtemp(path.join(tmpdir(), "qop-cli-"))
+      );
+      const lockPath = path.join(root, "lock");
+      yield* Effect.tryPromise(() =>
+        writeFile(lockPath, "", { flag: "wx", mode: 0o600 })
+      );
+      yield* Effect.tryPromise(() => chmod(lockPath, 0o600));
+      yield* Effect.tryPromise(() => chmod(root, 0o700));
+      const stolen = yield* createCliIdentityStore(root)
+        .acquireLock()
+        .pipe(Effect.result);
+      expect(stolen._tag).toBe("Failure");
+      if (stolen._tag === "Failure") {
+        expect(stolen.failure.operation).toBe("conflict");
+      }
+      yield* Effect.tryPromise(() =>
+        rm(root, { force: true, recursive: true })
+      );
+    })
+  );
 });

@@ -40,9 +40,7 @@ export const createQopCommand = ({
     Effect.fn("qop.status")(function* () {
       return yield* runStatus();
     })
-  ).pipe(
-    Command.withDescription("Show this CLI identity and membership")
-  );
+  ).pipe(Command.withDescription("Show this CLI identity and membership"));
 
   const start = Command.make(
     "start",

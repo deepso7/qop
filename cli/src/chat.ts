@@ -1,7 +1,6 @@
 import { Minip2p } from "@minip2p/node";
 import {
   CHAT_PROTOCOL,
-  createLifecycleAdapter,
   createPeerSessions,
   decodeAck,
   decodeFrame,
@@ -14,10 +13,13 @@ import { Effect } from "effect";
 
 import { CliConfigError, cliRelays, configuredRegistry } from "./config.ts";
 import type { createCliIdentityStore } from "./identity-store.ts";
+import {
+  armMessagingLifecycle,
+  proveWakeInvalidation,
+} from "./process-lifecycle.ts";
 
 const MAX_INBOUND_STREAMS = 8;
 const INBOUND_READ_TIMEOUT_MS = 15_000;
-const LIFECYCLE_OBSERVE_MS = 1000;
 
 const concatChunks = (chunks: readonly Uint8Array[], byteLength: number) => {
   const bytes = new Uint8Array(byteLength);
@@ -68,10 +70,6 @@ export const runStart = Effect.fn("qop.start")(function* (
     return;
   }
 
-  const lifecycle = createLifecycleAdapter({
-    monotonicNow: () => performance.now(),
-    wallNow: () => Date.now(),
-  });
   const contacts = new Map<string, SessionContact>();
   const sessions = createPeerSessions({
     getContactByQid: (qid) => Promise.resolve(contacts.get(qid) ?? null),
@@ -87,10 +85,21 @@ export const runStart = Effect.fn("qop.start")(function* (
       return Promise.resolve();
     },
   });
-  // Invalidate at the sensitive-op boundary and bump verifyEpoch so an
-  // in-flight verify cannot commit after suspend/stall/SIGCONT.
+  // SIGCONT always invalidates; stall interval observes clocks; takeInvalidation
+  // at the verify/send boundary cancels in-flight verify via verifyEpoch.
+  const lifecycle = armMessagingLifecycle(() => {
+    sessions.invalidateAuthorization();
+  });
+  const proved = yield* proveWakeInvalidation(lifecycle.adapter);
+  if (!proved) {
+    lifecycle.dispose();
+    console.error(
+      "Lifecycle adapter self-check failed (SIGCONT did not invalidate). Messaging is disabled."
+    );
+    return;
+  }
   const guardSensitive = () => {
-    if (lifecycle.takeInvalidation()) {
+    if (lifecycle.adapter.takeInvalidation()) {
       sessions.invalidateAuthorization();
       return true;
     }
@@ -108,20 +117,13 @@ export const runStart = Effect.fn("qop.start")(function* (
     relays.length > 0 ? { ...chatConfig, relays } : chatConfig
   );
   let inbound = 0;
-  const onWake = () => {
-    lifecycle.observe();
-    guardSensitive();
-  };
-  const observeTimer = setInterval(onWake, LIFECYCLE_OBSERVE_MS);
-  process.on("SIGCONT", onWake);
   const closeEndpoint = Effect.sync(() => {
-    clearInterval(observeTimer);
-    process.off("SIGCONT", onWake);
+    lifecycle.dispose();
     endpoint.close();
   });
 
   const program = Effect.gen(function* () {
-    lifecycle.observe();
+    lifecycle.adapter.observe();
     endpoint.on("connectionEstablished", (connection) => {
       sessions.opened(connection);
     });
@@ -186,7 +188,7 @@ export const runStart = Effect.fn("qop.start")(function* (
       `CLI messaging ready for @${identity.handle} (${identity.peerId}).`
     );
     console.log(
-      "Lifecycle invalidation is armed (SIGCONT, stall interval, verify boundary)."
+      "Lifecycle invalidation is armed (SIGCONT self-check passed; stall interval; verify boundary)."
     );
 
     if (options.to && options.message) {

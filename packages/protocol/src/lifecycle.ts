@@ -37,6 +37,13 @@ export const createLifecycleAdapter = ({
     return generation;
   };
 
+  /** Platform resume (SIGCONT) always invalidates, even without a clock gap. */
+  const markInterrupted = () => {
+    generation += 1;
+    pendingInvalidation = true;
+    return generation;
+  };
+
   const takeInvalidation = () => {
     observe();
     const shouldInvalidate = pendingInvalidation;
@@ -46,6 +53,7 @@ export const createLifecycleAdapter = ({
 
   return {
     currentGeneration: () => observe(),
+    markInterrupted,
     observe,
     takeInvalidation,
   };

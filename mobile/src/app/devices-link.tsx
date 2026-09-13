@@ -150,6 +150,15 @@ const DevicesLinkScreen = () => {
         setMessage("Could not submit to the API. Try again.");
         return;
       }
+      if (
+        failure instanceof LocalDeviceActionError &&
+        failure.operation === "timeout"
+      ) {
+        setMessage(
+          "Still waiting on the API. Try again to resume the same approval."
+        );
+        return;
+      }
       setMessage(
         "Could not finish linking. Re-pair to retry the same approval."
       );
@@ -171,8 +180,8 @@ const DevicesLinkScreen = () => {
       <View className="gap-1">
         <Text variant="title">Link device</Text>
         <Text className="text-foreground-secondary" variant="caption">
-          Paste the CLI pairing payload. Camera scanning is available in a
-          development build after adding camera permission.
+          Paste the CLI pairing payload. Camera scanning is deferred; paste is
+          the supported path for this milestone.
         </Text>
       </View>
       <Input

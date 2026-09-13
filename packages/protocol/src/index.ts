@@ -38,9 +38,14 @@ export {
 } from "./limits.ts";
 export { createLifecycleAdapter } from "./lifecycle.ts";
 export type { LifecycleAdapter } from "./lifecycle.ts";
-export { enrollmentMembership, occupiesApprovalSlot } from "./membership.ts";
+export {
+  enrollmentMembership,
+  isTerminalDeviceActionStatus,
+  occupiesApprovalSlot,
+} from "./membership.ts";
 export type {
   DeviceActionApiStatus,
+  DeviceActionOperation,
   EnrollmentMembership,
 } from "./membership.ts";
 export {

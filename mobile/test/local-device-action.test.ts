@@ -213,7 +213,7 @@ describe("local device action", () => {
     const record = await signedAdd();
     await Effect.runPromise(harness.persistApproval(record));
     const resumed = await Effect.runPromise(
-      harness.resumeInFlightAdd(record.intent.deviceKey)
+      harness.resumeInFlight("add", record.intent.deviceKey)
     );
     expect(resumed?.digest).toBe(record.digest);
     await Effect.runPromise(harness.persistApproval(resumed ?? record));
@@ -243,5 +243,67 @@ describe("local device action", () => {
     );
     await Effect.runPromise(harness.submitAcknowledged());
     expect(harness.submitted).toEqual(["remove"]);
+  });
+
+  it("keeps the slot for a submitted remove while the device is still active", async () => {
+    const harness = createHarness({
+      getStatus: "submitted",
+      lookupQid: 42n,
+    });
+    const record = await signedRemove();
+    await Effect.runPromise(
+      harness.persistApproval(record, { acknowledged: true })
+    );
+    await Effect.runPromise(harness.submitAcknowledged());
+    const stored = await Effect.runPromise(harness.reconcileMembership());
+    expect(stored?.membership).toBe("linked");
+
+    const conflict = await Effect.runPromise(
+      harness
+        .persistApproval({
+          ...record,
+          digest: `0x${"cd".repeat(32)}`,
+        })
+        .pipe(Effect.result)
+    );
+    expect(Result.isFailure(conflict) && conflict.failure.operation).toBe(
+      "conflict"
+    );
+
+    const resumed = await Effect.runPromise(
+      harness.resumeInFlight("remove", record.intent.deviceKey)
+    );
+    expect(resumed?.digest).toBe(record.digest);
+  });
+
+  it("times out enrollment polling instead of waiting forever", async () => {
+    const harness = createHarness({ getStatus: "submitted", lookupQid: null });
+    const record = await signedAdd();
+    await Effect.runPromise(harness.persistApproval(record));
+    await Effect.runPromise(harness.markAcknowledged(record.digest));
+    await Effect.runPromise(harness.submitAcknowledged());
+    const polled = await Effect.runPromise(
+      harness.pollEnrollment(0, 2).pipe(Effect.result)
+    );
+    expect(Result.isFailure(polled) && polled.failure.operation).toBe(
+      "timeout"
+    );
+  });
+
+  it("releases an expired digest so a later approval can persist", async () => {
+    const harness = createHarness({ getStatus: "expired", lookupQid: null });
+    const record = await signedAdd();
+    await Effect.runPromise(harness.persistApproval(record));
+    await Effect.runPromise(harness.markAcknowledged(record.digest));
+    await Effect.runPromise(harness.submitAcknowledged());
+    const stored = await Effect.runPromise(harness.reconcileMembership());
+    expect(stored?.membership).toBe("pending");
+    expect(stored?.apiStatus).toBe("expired");
+
+    const next = await signedAdd();
+    const saved = await Effect.runPromise(
+      harness.persistApproval(next).pipe(Effect.result)
+    );
+    expect(Result.isSuccess(saved)).toBe(true);
   });
 });

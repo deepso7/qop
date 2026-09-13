@@ -36,6 +36,21 @@ describe("lifecycle adapter", () => {
     wall += 5000;
     expect(adapter.takeInvalidation()).toBe(true);
   });
+
+  it("invalidates on an explicit resume even when clocks did not jump", () => {
+    const monotonic = 0;
+    const wall = 0;
+    const adapter = createLifecycleAdapter({
+      monotonicNow: () => monotonic,
+      stallThresholdMs: 1000,
+      wallNow: () => wall,
+    });
+
+    expect(adapter.takeInvalidation()).toBe(false);
+    adapter.markInterrupted();
+    expect(adapter.takeInvalidation()).toBe(true);
+    expect(adapter.takeInvalidation()).toBe(false);
+  });
 });
 
 describe("enrollment membership", () => {
@@ -72,22 +87,53 @@ describe("enrollment membership", () => {
 
   it("releases the local slot after a terminal digest or settled roster", () => {
     expect(
-      occupiesApprovalSlot({ apiStatus: "submitted", membership: "pending" })
+      occupiesApprovalSlot({
+        apiStatus: "submitted",
+        membership: "pending",
+        operation: "add",
+      })
     ).toBe(true);
     expect(
-      occupiesApprovalSlot({ apiStatus: null, membership: "pending" })
+      occupiesApprovalSlot({
+        apiStatus: null,
+        membership: "pending",
+        operation: "add",
+      })
     ).toBe(true);
     expect(
-      occupiesApprovalSlot({ apiStatus: "confirmed", membership: "pending" })
+      occupiesApprovalSlot({
+        apiStatus: "confirmed",
+        membership: "pending",
+        operation: "add",
+      })
     ).toBe(false);
     expect(
-      occupiesApprovalSlot({ apiStatus: "reverted", membership: "pending" })
+      occupiesApprovalSlot({
+        apiStatus: "reverted",
+        membership: "pending",
+        operation: "add",
+      })
     ).toBe(false);
     expect(
-      occupiesApprovalSlot({ apiStatus: "submitted", membership: "linked" })
+      occupiesApprovalSlot({
+        apiStatus: "submitted",
+        membership: "linked",
+        operation: "add",
+      })
     ).toBe(false);
     expect(
-      occupiesApprovalSlot({ apiStatus: null, membership: "removed" })
+      occupiesApprovalSlot({
+        apiStatus: "submitted",
+        membership: "linked",
+        operation: "remove",
+      })
+    ).toBe(true);
+    expect(
+      occupiesApprovalSlot({
+        apiStatus: null,
+        membership: "removed",
+        operation: "remove",
+      })
     ).toBe(false);
   });
 });

@@ -10,7 +10,7 @@ import {
   markAcknowledged,
   persistApproval,
   pollEnrollment,
-  resumeInFlightAdd,
+  resumeInFlight,
   submitAcknowledged,
 } from "./local-device-action";
 import { sendPairingApproval } from "./pairing-client-core";
@@ -32,7 +32,7 @@ export const completeDeviceLink = Effect.fn("completeDeviceLink")(function* ({
   readonly qid: bigint;
   readonly transport: PairingTransport;
 }) {
-  const resumed = yield* resumeInFlightAdd(deviceKey);
+  const resumed = yield* resumeInFlight("add", deviceKey);
   const record =
     resumed ??
     (yield* signDeviceActionRecord({
@@ -61,13 +61,19 @@ export const completeDeviceRemove = Effect.fn("completeDeviceRemove")(
     readonly expectedOwner: string;
     readonly qid: bigint;
   }) {
-    const signed = yield* signDeviceActionRecord({
-      deviceKey,
-      expectedOwner,
-      operation: "remove",
-      qid,
-    });
-    yield* persistApproval(signed.record, { acknowledged: true });
+    const resumed = yield* resumeInFlight("remove", deviceKey);
+    const record =
+      resumed ??
+      (yield* signDeviceActionRecord({
+        deviceKey,
+        expectedOwner,
+        operation: "remove",
+        qid,
+      })).record;
+    if (asHex(record.intent.deviceKey) !== asHex(deviceKey)) {
+      return yield* new DeviceActionApprovalError({ operation: "sign" });
+    }
+    yield* persistApproval(record, { acknowledged: true });
     yield* submitAcknowledged();
     return yield* pollEnrollment();
   }

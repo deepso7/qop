@@ -56,6 +56,7 @@ export class LocalDeviceActionError extends Data.TaggedError(
     | "decode"
     | "read"
     | "submit"
+    | "timeout"
     | "write";
 }> {}
 
@@ -77,8 +78,15 @@ export interface LocalDeviceActionDependencies {
   };
 }
 
+const occupiesStored = (existing: LocalDeviceAction) =>
+  occupiesApprovalSlot({
+    apiStatus: existing.apiStatus,
+    membership: existing.membership,
+    operation: existing.record.operation,
+  });
+
 const slotRecord = (existing: LocalDeviceAction | null) =>
-  existing && occupiesApprovalSlot(existing) ? existing.record : null;
+  existing && occupiesStored(existing) ? existing.record : null;
 
 const storedFromIncoming = (
   existing: LocalDeviceAction | null,
@@ -270,9 +278,9 @@ export const createLocalDeviceAction = ({
   );
 
   const pollEnrollment = Effect.fn("LocalDeviceAction.pollEnrollment")(
-    (delayMs = 2000) =>
+    (delayMs = 2000, maxAttempts = 150) =>
       Effect.gen(function* () {
-        while (true) {
+        for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
           const stored = yield* reconcileMembership();
           if (!stored) {
             return null;
@@ -280,23 +288,24 @@ export const createLocalDeviceAction = ({
           if (stored.membership !== "pending") {
             return stored;
           }
-          if (!occupiesApprovalSlot(stored)) {
+          if (!occupiesStored(stored)) {
             return stored;
           }
           yield* Effect.sleep(delayMs);
         }
+        return yield* localError("timeout");
       })
   );
 
-  const resumeInFlightAdd = Effect.fn("LocalDeviceAction.resumeInFlightAdd")(
-    (deviceKey: string) =>
+  const resumeInFlight = Effect.fn("LocalDeviceAction.resumeInFlight")(
+    (operation: LocalDeviceAction["record"]["operation"], deviceKey: string) =>
       lock.withPermit(
         Effect.gen(function* () {
           const existing = yield* readStored();
-          if (!existing || !occupiesApprovalSlot(existing)) {
+          if (!existing || !occupiesStored(existing)) {
             return null;
           }
-          if (existing.record.operation !== "add") {
+          if (existing.record.operation !== operation) {
             return null;
           }
           if (asHex(existing.record.intent.deviceKey) !== asHex(deviceKey)) {
@@ -316,7 +325,7 @@ export const createLocalDeviceAction = ({
     pollEnrollment,
     readStored,
     reconcileMembership,
-    resumeInFlightAdd,
+    resumeInFlight,
     submitAcknowledged,
   };
 };

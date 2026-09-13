@@ -3,6 +3,7 @@ import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
 import {
   asHex,
   encodePairingOfferV1,
+  isTerminalDeviceActionStatus,
   PAIR_PROTOCOL,
   PAIRING_MAX_ADDRESSES,
   PAIRING_TTL_SECONDS,
@@ -117,6 +118,8 @@ export const runLink = Effect.fn("qop.link")(function* (
     console.log(
       "Previous pending key was added and later removed. Generated a new key."
     );
+  } else if (isTerminalDeviceActionStatus(prior.apiStatus)) {
+    yield* store.clearApproval();
   }
 
   const secretKey = yield* store.loadSecret();
@@ -281,19 +284,26 @@ export const runLink = Effect.fn("qop.link")(function* (
     console.log(
       "Waiting for phone approval. Ctrl+C cancels pairing, not a signed intent."
     );
-    const state = yield* pollEnrollmentState({
+    const snapshot = yield* pollEnrollmentState({
       expectedQid: BigInt(identity.qid),
       getStatus,
       lookup: lookupSelf,
     });
-    if (state === "linked") {
+    if (snapshot.state === "linked") {
       console.log(`Linked as @${handle}. Run qop start.`);
       return;
     }
-    if (state === "removed") {
+    if (snapshot.state === "removed") {
       yield* store.rotatePendingKey(publicIdentity);
       console.log(
         "This key was added and later removed. A new pending key was generated. Run qop link again."
+      );
+      return;
+    }
+    if (isTerminalDeviceActionStatus(snapshot.apiStatus)) {
+      yield* store.clearApproval();
+      console.log(
+        "The approval expired or reverted. Run qop link to try a new enrollment."
       );
       return;
     }

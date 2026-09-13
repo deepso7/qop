@@ -106,6 +106,15 @@ const DevicesScreen = () => {
           setMessage("Could not submit the removal. Try again.");
           return;
         }
+        if (
+          failure instanceof LocalDeviceActionError &&
+          failure.operation === "timeout"
+        ) {
+          setMessage(
+            "Still waiting on the API. Try again to resume the same removal."
+          );
+          return;
+        }
         setMessage("Could not save the removal.");
         return;
       }
