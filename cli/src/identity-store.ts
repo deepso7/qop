@@ -199,6 +199,12 @@ export const createCliIdentityStore = (
   root: string,
   options?: {
     /**
+     * Test hook: run after `wx` of the recover claim hits EEXIST, before
+     * refusing. Injects the window that used to rename-and-restore a live
+     * claim (a third recoverer could `wx` the empty path).
+     */
+    readonly afterExistingRecoverClaim?: () => Effect.Effect<void, never>;
+    /**
      * Test hook: run after `lock` is renamed away, before the inode check.
      * Widens the empty-path window for the three-process race test.
      */
@@ -208,12 +214,6 @@ export const createCliIdentityStore = (
      * exclusive recover claim. Used to inject the TOCTOU window.
      */
     readonly beforeRecoverSteal?: () => Effect.Effect<void, never>;
-    /**
-     * Test hook: run after `wx` of the recover claim hits EEXIST, before
-     * refusing. Injects the window that used to rename-and-restore a live
-     * claim (a third recoverer could `wx` the empty path).
-     */
-    readonly afterExistingRecoverClaim?: () => Effect.Effect<void, never>;
   }
 ) => {
   const identityPath = path.join(root, "identity.json");

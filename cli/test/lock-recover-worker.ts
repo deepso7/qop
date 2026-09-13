@@ -37,15 +37,6 @@ const waitForPath = (filePath: string) =>
   });
 
 const store = createCliIdentityStore(root, {
-  afterRecoverRename: () =>
-    Effect.gen(function* () {
-      if (renamedPath) {
-        yield* Effect.promise(() => writeFile(renamedPath, "1"));
-      }
-      if (releaseAfterRenamePath) {
-        yield* waitForPath(releaseAfterRenamePath);
-      }
-    }),
   afterExistingRecoverClaim: () =>
     Effect.gen(function* () {
       if (claimTakeoverPath) {
@@ -53,6 +44,15 @@ const store = createCliIdentityStore(root, {
       }
       if (releaseClaimTakeoverPath) {
         yield* waitForPath(releaseClaimTakeoverPath);
+      }
+    }),
+  afterRecoverRename: () =>
+    Effect.gen(function* () {
+      if (renamedPath) {
+        yield* Effect.promise(() => writeFile(renamedPath, "1"));
+      }
+      if (releaseAfterRenamePath) {
+        yield* waitForPath(releaseAfterRenamePath);
       }
     }),
   beforeRecoverSteal: () =>
