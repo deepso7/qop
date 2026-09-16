@@ -7,6 +7,7 @@ import {
   encodeAck,
   encodeFrame,
   MAX_CHAT_PAYLOAD_BYTES,
+  PeerVerificationError,
 } from "@qop/protocol";
 import type {
   PeerConnection,
@@ -92,7 +93,7 @@ export const openAuthorizedChatStream = Effect.fn(
   transport: ChatTransport,
   sessions: ReturnType<typeof createPeerSessions>,
   peerId: string,
-  handle: string
+  recipient: { readonly handle: string; readonly qid: string }
 ) {
   if (!transport.connectedPeers().includes(peerId)) {
     yield* Effect.tryPromise({
@@ -116,9 +117,16 @@ export const openAuthorizedChatStream = Effect.fn(
   });
   // Bind before verify: connectionEstablished can lag connect/openStream.
   sessions.opened(stream);
-  return yield* sessions.verify(stream, handle).pipe(
+  return yield* sessions.verify(stream, recipient.handle).pipe(
     Effect.flatMap((contact) => {
-      if (!sessions.isVerified(stream, contact.qid)) {
+      // Chat frames have no recipient field — bind to the QID the user selected,
+      // not whichever account currently owns the connected device.
+      if (contact.qid !== recipient.qid) {
+        return Effect.fail(
+          new PeerVerificationError({ operation: "identity" })
+        );
+      }
+      if (!sessions.isVerified(stream, recipient.qid)) {
         return Effect.fail(
           new Error("Chat connection is no longer authorized")
         );
@@ -311,7 +319,10 @@ export const runStart = Effect.fn("qop.start")(function* (
               endpoint,
               sessions,
               peerId,
-              recipient.handle
+              {
+                handle: recipient.handle,
+                qid: recipient.qid.toString(),
+              }
             );
             if (guardSensitive()) {
               stream.reset();

@@ -46,6 +46,8 @@ const makeStream = () => ({
   write: vi.fn(),
 });
 
+const bobRecipient = { handle: "bob", qid: "1" } as const;
+
 describe("openAuthorizedChatStream", () => {
   it("waits for Identify before opening /qop/chat/1", async () => {
     const sessions = makeSessions();
@@ -68,7 +70,7 @@ describe("openAuthorizedChatStream", () => {
     };
 
     await Effect.runPromise(
-      openAuthorizedChatStream(transport, sessions, PEER_BOB, "bob")
+      openAuthorizedChatStream(transport, sessions, PEER_BOB, bobRecipient)
     );
     expect(order).toEqual(["connect", "ready", "open"]);
     expect(transport.openStream).toHaveBeenCalledWith(PEER_BOB, CHAT_PROTOCOL, {
@@ -99,7 +101,7 @@ describe("openAuthorizedChatStream", () => {
       }),
     };
     await Effect.runPromise(
-      openAuthorizedChatStream(transport, sessions, PEER_BOB, "bob")
+      openAuthorizedChatStream(transport, sessions, PEER_BOB, bobRecipient)
     );
     expect(transport.connect).not.toHaveBeenCalled();
     expect(sessions.isVerified(stream, "1")).toBe(true);
@@ -121,7 +123,7 @@ describe("openAuthorizedChatStream", () => {
 
     await expect(
       Effect.runPromise(
-        openAuthorizedChatStream(transport, sessions, PEER_BOB, "bob")
+        openAuthorizedChatStream(transport, sessions, PEER_BOB, bobRecipient)
       )
     ).rejects.toThrow("Timed out");
     expect(transport.openStream).not.toHaveBeenCalled();
@@ -148,7 +150,7 @@ describe("openAuthorizedChatStream", () => {
 
     await expect(
       Effect.runPromise(
-        openAuthorizedChatStream(transport, sessions, PEER_BOB, "bob")
+        openAuthorizedChatStream(transport, sessions, PEER_BOB, bobRecipient)
       )
     ).rejects.toMatchObject({ operation: "rpc" });
     expect(stream.reset).toHaveBeenCalledOnce();
@@ -171,10 +173,39 @@ describe("openAuthorizedChatStream", () => {
 
     await expect(
       Effect.runPromise(
-        openAuthorizedChatStream(transport, sessions, PEER_BOB, "bob")
+        openAuthorizedChatStream(transport, sessions, PEER_BOB, bobRecipient)
       )
     ).rejects.toThrow("no longer authorized");
     expect(stream.reset).toHaveBeenCalledOnce();
     expect(stream.write).not.toHaveBeenCalled();
+  });
+
+  it("rejects when verify authorizes a different QID than the selected recipient", async () => {
+    const reassigned: RegistryAccount = { ...account, qid: 2n };
+    const sessions = createPeerSessions({
+      getContactByQid: () => Promise.resolve(null),
+      lookupDeviceKey: () => Effect.succeed(reassigned),
+      lookupHandle: () => Effect.succeed(account),
+      upsertContact: () => Promise.resolve(),
+    });
+    const stream = makeStream();
+    const transport = {
+      connect: vi.fn(),
+      connectedPeers: vi.fn((): string[] => [PEER_BOB]),
+      openStream: vi.fn().mockResolvedValue(stream),
+      waitPeerReady: vi.fn(async () => {
+        await Promise.resolve();
+        return {};
+      }),
+    };
+
+    await expect(
+      Effect.runPromise(
+        openAuthorizedChatStream(transport, sessions, PEER_BOB, bobRecipient)
+      )
+    ).rejects.toMatchObject({ operation: "identity" });
+    expect(stream.reset).toHaveBeenCalledOnce();
+    expect(stream.write).not.toHaveBeenCalled();
+    expect(sessions.isVerified(stream, "1")).toBe(false);
   });
 });
