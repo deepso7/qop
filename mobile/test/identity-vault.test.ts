@@ -3,8 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createIdentityVault } from "@/lib/identity-vault-core";
 
-const IDENTITY_STORAGE_KEY = "qop.identity.v2";
-const LEGACY_IDENTITY_STORAGE_KEY = "qop.identity.v1";
+const IDENTITY_STORAGE_KEY = "qop.identity.v1";
 const INSTALL_MARKER_FILENAME = ".qop-install-v1";
 const INSTALL_STORAGE_KEY = "qop.install.v1";
 
@@ -274,15 +273,14 @@ describe("identity vault", () => {
     );
   });
 
-  it("treats a v1 identity as a decode failure", async () => {
-    secureStoreMock.items.set(LEGACY_IDENTITY_STORAGE_KEY, "{}");
+  it("ignores a leftover unpublished identity key", async () => {
+    secureStoreMock.items.set("qop.identity.v2", "{}");
     const { loadLocalIdentity } = await loadVault();
 
-    const result = await Effect.runPromise(
-      loadLocalIdentity().pipe(Effect.result)
-    );
-
-    expect(Result.isFailure(result) && result.failure.operation).toBe("decode");
+    await expect(
+      Effect.runPromise(loadLocalIdentity())
+    ).resolves.toBeNull();
+    expect(secureStoreMock.items.has(IDENTITY_STORAGE_KEY)).toBe(false);
   });
 
   it("rejects malformed, excess, and inconsistent stored data", async () => {

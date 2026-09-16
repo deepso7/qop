@@ -38,8 +38,7 @@ import { Data, Effect, Result, Schema, Semaphore } from "effect";
 
 const INSTALL_STORAGE_KEY = "qop.install.v1";
 const INSTALL_STORAGE_VALUE = "1";
-const LEGACY_IDENTITY_STORAGE_KEY = "qop.identity.v1";
-const IDENTITY_STORAGE_KEY = "qop.identity.v2";
+const IDENTITY_STORAGE_KEY = "qop.identity.v1";
 const strictParseOptions = {
   errors: "all",
   onExcessProperty: "error",
@@ -56,22 +55,22 @@ const RecoveryKeyV1String = Schema.String.check(
   })
 );
 
-const StoredLocalIdentityV2 = Schema.Struct({
+const StoredLocalIdentityV1 = Schema.Struct({
   backupState: Schema.Literals(["copied", "pending", "skipped"]),
   deviceSecretKey: CanonicalBase64Url32,
   handle: Handle,
   ownerAddress: EthereumAddress,
   peerId: CanonicalPeerId,
   recoveryKey: RecoveryKeyV1String,
-  version: Schema.Literal(2),
+  version: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected local identity field",
   parseOptions: strictParseOptions,
 });
 
-const StoredLocalIdentityJson = Schema.fromJsonString(StoredLocalIdentityV2);
+const StoredLocalIdentityJson = Schema.fromJsonString(StoredLocalIdentityV1);
 
-type StoredLocalIdentity = typeof StoredLocalIdentityV2.Type;
+type StoredLocalIdentity = typeof StoredLocalIdentityV1.Type;
 
 export type LocalIdentity = Pick<
   StoredLocalIdentity,
@@ -266,24 +265,17 @@ export const createIdentityVault = ({
     "IdentityVault.loadStoredLocalIdentity"
   )(function* () {
     yield* ensureSecureStore();
-    const [encoded, legacyEncoded, installState] = yield* Effect.all(
+    const [encoded, installState] = yield* Effect.all(
       [
         Effect.tryPromise({
           catch: () => vaultError("read"),
           try: () => secureStore.get(IDENTITY_STORAGE_KEY),
-        }),
-        Effect.tryPromise({
-          catch: () => vaultError("read"),
-          try: () => secureStore.get(LEGACY_IDENTITY_STORAGE_KEY),
         }),
         readInstallState(),
       ] as const,
       { concurrency: "unbounded" }
     );
     if (encoded === null) {
-      if (legacyEncoded !== null) {
-        return yield* vaultError("decode");
-      }
       if (installState === "reinstalled") {
         yield* writeSandboxInstallMarker();
       }
@@ -333,7 +325,7 @@ export const createIdentityVault = ({
       ownerAddress,
       peerId,
       recoveryKey,
-      version: 2,
+      version: 1,
     };
     yield* writeLocalIdentity(identity);
     return yield* publicIdentity(identity);
@@ -352,10 +344,6 @@ export const createIdentityVault = ({
           yield* Effect.tryPromise({
             catch: () => vaultError("delete"),
             try: () => secureStore.delete(IDENTITY_STORAGE_KEY),
-          });
-          yield* Effect.tryPromise({
-            catch: () => vaultError("delete"),
-            try: () => secureStore.delete(LEGACY_IDENTITY_STORAGE_KEY),
           });
           yield* writeSandboxInstallMarker();
         })
