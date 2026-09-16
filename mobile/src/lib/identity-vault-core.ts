@@ -5,6 +5,8 @@ import {
   decodeRegisterIntentV1,
   decodeRecoverOwnerIntentV1,
   decodeWipeDevicesIntentV1,
+  decodeAddDeviceIntentV1,
+  decodeRemoveDeviceIntentV1,
   deviceKeyFromEd25519SecretKey,
   encodeRecoveryKeyV1,
   EcdsaSignature,
@@ -16,6 +18,8 @@ import {
   peerIdFromEd25519SecretKey,
   signRegisterIntentV1,
   signRecoverOwnerIntentV1,
+  signRemoveDeviceIntentV1,
+  signAddDeviceIntentV1,
   signWipeDevicesIntentV1,
 } from "@qop/identity";
 import type {
@@ -24,12 +28,17 @@ import type {
   RecoverOwnerIntentV1Encoded,
   WipeDevicesIntentV1Encoded,
 } from "@qop/identity";
+import {
+  approvalsMatch,
+  decodeDeviceActionApprovalV1,
+  verifyApprovalDigest,
+} from "@qop/protocol";
+import type { DeviceActionApprovalV1Encoded } from "@qop/protocol";
 import { Data, Effect, Result, Schema, Semaphore } from "effect";
 
 const INSTALL_STORAGE_KEY = "qop.install.v1";
 const INSTALL_STORAGE_VALUE = "1";
-const LEGACY_IDENTITY_STORAGE_KEY = "qop.identity.v1";
-const IDENTITY_STORAGE_KEY = "qop.identity.v2";
+const IDENTITY_STORAGE_KEY = "qop.identity.v1";
 const strictParseOptions = {
   errors: "all",
   onExcessProperty: "error",
@@ -46,22 +55,22 @@ const RecoveryKeyV1String = Schema.String.check(
   })
 );
 
-const StoredLocalIdentityV2 = Schema.Struct({
+const StoredLocalIdentityV1 = Schema.Struct({
   backupState: Schema.Literals(["copied", "pending", "skipped"]),
   deviceSecretKey: CanonicalBase64Url32,
   handle: Handle,
   ownerAddress: EthereumAddress,
   peerId: CanonicalPeerId,
   recoveryKey: RecoveryKeyV1String,
-  version: Schema.Literal(2),
+  version: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected local identity field",
   parseOptions: strictParseOptions,
 });
 
-const StoredLocalIdentityJson = Schema.fromJsonString(StoredLocalIdentityV2);
+const StoredLocalIdentityJson = Schema.fromJsonString(StoredLocalIdentityV1);
 
-type StoredLocalIdentity = typeof StoredLocalIdentityV2.Type;
+type StoredLocalIdentity = typeof StoredLocalIdentityV1.Type;
 
 export type LocalIdentity = Pick<
   StoredLocalIdentity,
@@ -256,24 +265,17 @@ export const createIdentityVault = ({
     "IdentityVault.loadStoredLocalIdentity"
   )(function* () {
     yield* ensureSecureStore();
-    const [encoded, legacyEncoded, installState] = yield* Effect.all(
+    const [encoded, installState] = yield* Effect.all(
       [
         Effect.tryPromise({
           catch: () => vaultError("read"),
           try: () => secureStore.get(IDENTITY_STORAGE_KEY),
-        }),
-        Effect.tryPromise({
-          catch: () => vaultError("read"),
-          try: () => secureStore.get(LEGACY_IDENTITY_STORAGE_KEY),
         }),
         readInstallState(),
       ] as const,
       { concurrency: "unbounded" }
     );
     if (encoded === null) {
-      if (legacyEncoded !== null) {
-        return yield* vaultError("decode");
-      }
       if (installState === "reinstalled") {
         yield* writeSandboxInstallMarker();
       }
@@ -323,7 +325,7 @@ export const createIdentityVault = ({
       ownerAddress,
       peerId,
       recoveryKey,
-      version: 2,
+      version: 1,
     };
     yield* writeLocalIdentity(identity);
     return yield* publicIdentity(identity);
@@ -342,10 +344,6 @@ export const createIdentityVault = ({
           yield* Effect.tryPromise({
             catch: () => vaultError("delete"),
             try: () => secureStore.delete(IDENTITY_STORAGE_KEY),
-          });
-          yield* Effect.tryPromise({
-            catch: () => vaultError("delete"),
-            try: () => secureStore.delete(LEGACY_IDENTITY_STORAGE_KEY),
           });
           yield* writeSandboxInstallMarker();
         })
@@ -445,6 +443,79 @@ export const createIdentityVault = ({
     );
   });
 
+  const signApprovedDeviceAction = Effect.fn(
+    "IdentityVault.signApprovedDeviceAction"
+  )(function* ({
+    displayed,
+    requested,
+    snapshot,
+    trustedDomain,
+  }: {
+    readonly displayed: DeviceActionApprovalV1Encoded;
+    readonly requested: DeviceActionApprovalV1Encoded;
+    readonly snapshot: {
+      readonly nonce: string;
+      readonly owner: string;
+      readonly qid: string;
+    };
+    readonly trustedDomain: IdentityEip712DomainV1Encoded;
+  }) {
+    const identity = yield* loadStoredLocalIdentity();
+    if (!identity) {
+      return yield* vaultError("missing-identity");
+    }
+    const displayedRecord = yield* decodeDeviceActionApprovalV1(displayed).pipe(
+      Effect.mapError(() => vaultError("sign"))
+    );
+    const requestedRecord = yield* decodeDeviceActionApprovalV1(requested).pipe(
+      Effect.mapError(() => vaultError("sign"))
+    );
+    if (!approvalsMatch(displayedRecord, requestedRecord)) {
+      return yield* vaultError("sign");
+    }
+    if (
+      requestedRecord.domain.chainId.toString() !== trustedDomain.chainId ||
+      requestedRecord.domain.verifyingContract !==
+        trustedDomain.verifyingContract
+    ) {
+      return yield* vaultError("sign");
+    }
+    if (
+      requestedRecord.expectedOwner !== identity.ownerAddress ||
+      requestedRecord.expectedOwner !== snapshot.owner ||
+      requestedRecord.intent.qid.toString() !== snapshot.qid ||
+      requestedRecord.intent.nonce.toString() !== snapshot.nonce
+    ) {
+      return yield* vaultError("sign");
+    }
+    yield* verifyApprovalDigest(requestedRecord).pipe(
+      Effect.mapError(() => vaultError("sign"))
+    );
+    const [domain, privateKey] = yield* Effect.all(
+      [
+        decodeIdentityEip712DomainV1(trustedDomain),
+        decodeRecoveryKeyV1(identity.recoveryKey),
+      ] as const,
+      { concurrency: "unbounded" }
+    ).pipe(Effect.mapError(() => vaultError("sign")));
+    const signature = yield* (
+      requestedRecord.operation === "add"
+        ? decodeAddDeviceIntentV1(requestedRecord.intent).pipe(
+            Effect.flatMap((decodedIntent) =>
+              signAddDeviceIntentV1(domain, decodedIntent, privateKey)
+            )
+          )
+        : decodeRemoveDeviceIntentV1(requestedRecord.intent).pipe(
+            Effect.flatMap((decodedIntent) =>
+              signRemoveDeviceIntentV1(domain, decodedIntent, privateKey)
+            )
+          )
+    ).pipe(Effect.mapError(() => vaultError("sign")));
+    return yield* Schema.encodeEffect(EcdsaSignature)(signature).pipe(
+      Effect.mapError(() => vaultError("sign"))
+    );
+  });
+
   const updateLocalIdentityBackupState = Effect.fn(
     "IdentityVault.updateLocalIdentityBackupState"
   )((backupState: Exclude<IdentityBackupState, "pending">) =>
@@ -481,6 +552,7 @@ export const createIdentityVault = ({
     loadDeviceSecretKey,
     loadLocalIdentity,
     revealLocalIdentityRecoveryKey,
+    signApprovedDeviceAction,
     signRecoverOwnerIntent,
     signRegisterIntent,
     signWipeDevicesIntent,

@@ -2,6 +2,8 @@ import { assert, describe, it } from "@effect/vitest";
 import { Effect, Layer, Schema, SchemaIssue } from "effect";
 import { HttpRouter, HttpServer } from "effect/unstable/http";
 
+import { DeviceActionEnrollment } from "../src/device-action/enrollment.ts";
+import { DeviceActionIntentNotFound } from "../src/device-action/store.ts";
 import {
   ReconciledRegistrationResponse,
   RegisteredRegistrationResponse,
@@ -78,9 +80,24 @@ const RegistrationEnrollmentTestLive = Layer.succeed(
   })
 );
 
+const DeviceActionEnrollmentTestLive = Layer.succeed(
+  DeviceActionEnrollment,
+  DeviceActionEnrollment.of({
+    reconcile: (digest) =>
+      Effect.fail(new DeviceActionIntentNotFound({ digest })),
+    submit: () =>
+      Effect.succeed({
+        digest: DIGEST,
+        status: "submitted" as const,
+        transactionHash: TRANSACTION_HASH,
+      }),
+  })
+);
+
 const { handler } = HttpRouter.toWebHandler(
   QopHttpApiRoutes.pipe(
     Layer.provide(RegistrationEnrollmentTestLive),
+    Layer.provide(DeviceActionEnrollmentTestLive),
     Layer.provide(HttpServer.layerServices)
   ),
   { disableLogger: true }
@@ -146,6 +163,8 @@ describe("registration HTTP API", () => {
       );
       const document = yield* json<{ paths: object }>(response);
       assert.sameMembers(Object.keys(document.paths), [
+        "/v1/device-actions",
+        "/v1/device-actions/{digest}",
         "/v1/registrations",
         "/v1/registrations/{digest}",
       ]);

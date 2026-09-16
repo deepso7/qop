@@ -14,6 +14,7 @@ import {
 } from "drizzle-orm/pg-core";
 import type { Address, Hash, Hex } from "viem";
 
+import type { DeviceActionIntentStatus } from "../device-action/types.ts";
 import type { RegistrationIntentStatus } from "../registration/types.ts";
 
 const uint256 = (name: string) =>
@@ -145,6 +146,81 @@ export const registrationAdmissionCodes = pgTable(
     check(
       "registration_admission_codes_consumed_check",
       sql`${table.consumedAt} is null or ${table.claimedByDigest} is not null`
+    ),
+  ]
+);
+
+export const deviceActionIntents = pgTable(
+  "device_action_intents",
+  {
+    accountNonce: uint256("account_nonce").notNull(),
+    confirmedAt: timestamp("confirmed_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    createdAt: timestamp("created_at", {
+      mode: "date",
+      withTimezone: true,
+    })
+      .defaultNow()
+      .notNull(),
+    deadline: uint64("deadline").notNull(),
+    deviceKey: hash32("device_key").notNull(),
+    digest: hash32("digest").notNull(),
+    failureCode: varchar("failure_code", { length: 64 }),
+    operation: varchar("operation", { length: 16 })
+      .$type<"add" | "remove">()
+      .notNull(),
+    owner: address("owner").notNull(),
+    ownerSignature: signature("owner_signature").notNull(),
+    qid: uint256("qid").notNull(),
+    serializedTransaction: text("serialized_transaction").$type<Hex>(),
+    status: varchar("status", { length: 32 })
+      .$type<DeviceActionIntentStatus>()
+      .notNull(),
+    submittedAt: timestamp("submitted_at", {
+      mode: "date",
+      withTimezone: true,
+    }),
+    transactionHash: hash32("transaction_hash"),
+    updatedAt: timestamp("updated_at", {
+      mode: "date",
+      withTimezone: true,
+    })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({
+      columns: [table.digest],
+      name: "device_action_intents_pk",
+    }),
+    uniqueIndex("device_action_intents_active_qid_unique")
+      .on(table.qid)
+      .where(sql`${table.status} in ('ready', 'submitted')`),
+    index("device_action_intents_status_deadline_idx").on(
+      table.status,
+      table.deadline
+    ),
+    check(
+      "device_action_intents_status_check",
+      sql`${table.status} in ('ready', 'submitted', 'confirmed', 'reverted', 'expired')`
+    ),
+    check(
+      "device_action_intents_operation_check",
+      sql`${table.operation} in ('add', 'remove')`
+    ),
+    check(
+      "device_action_intents_submission_check",
+      sql`${table.status} <> 'submitted' or (${table.submittedAt} is not null and ${table.transactionHash} is not null and ${table.serializedTransaction} is not null)`
+    ),
+    check(
+      "device_action_intents_confirmation_check",
+      sql`${table.status} <> 'confirmed' or ${table.confirmedAt} is not null`
+    ),
+    check(
+      "device_action_intents_failure_check",
+      sql`${table.status} not in ('reverted', 'expired') or ${table.failureCode} is not null`
     ),
   ]
 );

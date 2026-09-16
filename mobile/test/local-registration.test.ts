@@ -9,7 +9,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createLocalRegistration } from "@/lib/local-registration-core";
 import { RegistrationClientError } from "@/lib/registration-client-core";
 
-const REGISTRATION_STORAGE_KEY = "qop.registration.v2";
+const REGISTRATION_STORAGE_KEY =
+  "qop.registration.v2.31337.0x1111111111111111111111111111111111111111";
 const OWNER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf";
 const OTHER_OWNER = "0x0000000000000000000000000000000000000002";
 const DEVICE_KEY = `0x${"22".repeat(32)}`;
@@ -49,9 +50,11 @@ const account = (owner = OWNER, handle = "alice") => ({
   registeredAt: 1_700_000_100n,
 });
 
-const loadRegistration = () =>
+const loadRegistration = (
+  domain: { chainId: string; verifyingContract: string } = DOMAIN
+) =>
   createLocalRegistration({
-    domain: DOMAIN,
+    domain,
     now: () => now,
     randomBytes: () => {
       const bytes = new Uint8Array(32);
@@ -118,6 +121,25 @@ beforeEach(() => {
 });
 
 describe("local registration", () => {
+  it.each([
+    { ...DOMAIN, chainId: "11155111" },
+    {
+      ...DOMAIN,
+      verifyingContract: "0x2222222222222222222222222222222222222222",
+    },
+  ])("does not reuse registrations for %o", async (domain) => {
+    const original = loadRegistration();
+    await Effect.runPromise(original.startLocalRegistration("ABC-123"));
+    const stored = await Effect.runPromise(original.loadLocalRegistration());
+    expect(stored).not.toBeNull();
+    const other = loadRegistration(domain);
+    expect(await Effect.runPromise(other.loadLocalRegistration())).toBeNull();
+    await Effect.runPromise(other.deleteLocalRegistration());
+    expect(await Effect.runPromise(original.loadLocalRegistration())).toEqual(
+      stored
+    );
+  });
+
   it("persists before POST and reuses the request after a lost response and restart", async () => {
     clientMock.register.mockImplementationOnce(() =>
       Effect.sync(() => {
@@ -363,13 +385,19 @@ describe("local registration", () => {
     expect(clientMock.register).toHaveBeenCalledOnce();
   });
 
-  it("treats v1 registration state as absent", async () => {
+  it("treats unscoped registration state as absent", async () => {
+    const original = loadRegistration();
+    await Effect.runPromise(original.startLocalRegistration("ABC-123"));
+    const encoded = secureStoreMock.items.get(REGISTRATION_STORAGE_KEY);
+    expect(encoded).toBeDefined();
+    secureStoreMock.items.clear();
     secureStoreMock.items.set("qop.registration.v1", "{}");
-    const { loadLocalRegistration } = loadRegistration();
+    secureStoreMock.items.set("qop.registration.v2", encoded ?? "");
 
     await expect(
-      Effect.runPromise(loadLocalRegistration())
+      Effect.runPromise(loadRegistration().loadLocalRegistration())
     ).resolves.toBeNull();
+    expect(secureStoreMock.items.has(REGISTRATION_STORAGE_KEY)).toBe(false);
   });
 
   it("fails verification when the server returns another digest", async () => {

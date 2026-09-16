@@ -24,7 +24,7 @@ const identity = {
   handle: "alice",
   ownerAddress: "0x0000000000000000000000000000000000000001",
   peerId: "peer-id",
-  version: 2,
+  version: 1,
 };
 
 const confirmedRegistration = {

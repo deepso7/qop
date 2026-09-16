@@ -23,6 +23,7 @@ export const {
   revealLocalIdentityRecoveryKey,
   signRegisterIntent,
   signRecoverOwnerIntent,
+  signApprovedDeviceAction,
   signWipeDevicesIntent,
   updateLocalIdentityBackupState,
 } = createIdentityVault({

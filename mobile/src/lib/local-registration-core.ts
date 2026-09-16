@@ -18,7 +18,6 @@ import type { createIdentityVault } from "./identity-vault-core";
 import type { createRegistrationClient } from "./registration-client-core";
 import type { createRegistryReader } from "./registry-core";
 
-const REGISTRATION_STORAGE_KEY = "qop.registration.v2";
 const REGISTRATION_DEADLINE_SECONDS = 1800n;
 const strictParseOptions = {
   errors: "all",
@@ -108,22 +107,19 @@ export const createLocalRegistration = ({
   secureStore,
   vault,
 }: LocalRegistrationDependencies) => {
+  const storageKey = `qop.registration.v2.${domainInput.chainId}.${domainInput.verifyingContract.toLowerCase()}`;
   const registrationSemaphore = Semaphore.makeUnsafe(1);
 
-  const readStoredRegistration = Effect.fn(
-    "LocalRegistration.readStoredRegistration"
-  )(function* () {
-    const encoded = yield* Effect.tryPromise({
+  const readStore = (key: string) =>
+    Effect.tryPromise({
       catch: () => localError("read"),
-      try: () => secureStore.get(REGISTRATION_STORAGE_KEY),
+      try: () => secureStore.get(key),
     });
-    if (encoded === null) {
-      return null;
-    }
-    return yield* Schema.decodeUnknownEffect(StoredLocalRegistrationJson)(
-      encoded
-    ).pipe(Effect.mapError(() => localError("decode")));
-  });
+
+  const decodeStoredRegistration = (encoded: string) =>
+    Schema.decodeUnknownEffect(StoredLocalRegistrationJson)(encoded).pipe(
+      Effect.mapError(() => localError("decode"))
+    );
 
   const writeStoredRegistration = Effect.fn(
     "LocalRegistration.writeStoredRegistration"
@@ -133,7 +129,7 @@ export const createLocalRegistration = ({
     ).pipe(Effect.mapError(() => localError("write")));
     yield* Effect.tryPromise({
       catch: () => localError("write"),
-      try: () => secureStore.set(REGISTRATION_STORAGE_KEY, encoded),
+      try: () => secureStore.set(storageKey, encoded),
     });
   });
 
@@ -160,6 +156,16 @@ export const createLocalRegistration = ({
       return yield* localError("verify");
     }
     return identity;
+  });
+
+  const readStoredRegistration = Effect.fn(
+    "LocalRegistration.readStoredRegistration"
+  )(function* () {
+    const encoded = yield* readStore(storageKey);
+    if (encoded === null) {
+      return null;
+    }
+    return yield* decodeStoredRegistration(encoded);
   });
 
   const makeNonce = Effect.fn("LocalRegistration.makeNonce")(function* () {
@@ -398,12 +404,12 @@ export const createLocalRegistration = ({
 
   const deleteLocalRegistration = Effect.fn(
     "LocalRegistration.deleteLocalRegistration"
-  )(() =>
-    Effect.tryPromise({
+  )(function* () {
+    yield* Effect.tryPromise({
       catch: () => localError("delete"),
-      try: () => secureStore.delete(REGISTRATION_STORAGE_KEY),
-    })
-  );
+      try: () => secureStore.delete(storageKey),
+    });
+  });
 
   return {
     checkLocalRegistration,
