@@ -277,9 +277,7 @@ describe("identity vault", () => {
     secureStoreMock.items.set("qop.identity.v2", "{}");
     const { loadLocalIdentity } = await loadVault();
 
-    await expect(
-      Effect.runPromise(loadLocalIdentity())
-    ).resolves.toBeNull();
+    await expect(Effect.runPromise(loadLocalIdentity())).resolves.toBeNull();
     expect(secureStoreMock.items.has(IDENTITY_STORAGE_KEY)).toBe(false);
   });
 
