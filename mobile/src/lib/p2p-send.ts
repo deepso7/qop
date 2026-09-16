@@ -29,7 +29,7 @@ interface SendEndpoint {
     protocolId: string,
     options?: { readonly timeoutMs?: number }
   ) => Promise<SendStream>;
-  readonly waitPeerReady?: (
+  readonly waitPeerReady: (
     peerId: string,
     options?: { readonly timeoutMs?: number }
   ) => Promise<{ readonly peerId?: string }>;
@@ -118,14 +118,12 @@ export const performSend = async ({
             try: () => endpoint.connect(peerId, { timeoutMs }),
           });
         }
-        const { waitPeerReady } = endpoint;
-        if (waitPeerReady) {
-          yield* Effect.tryPromise({
-            catch: (error) =>
-              error instanceof Error ? error : new Error(String(error)),
-            try: () => waitPeerReady(peerId, { timeoutMs }),
-          });
-        }
+        // Path-up is not Identify. Opening chat before peerReady yields StreamClosedError.
+        yield* Effect.tryPromise({
+          catch: (error) =>
+            error instanceof Error ? error : new Error(String(error)),
+          try: () => endpoint.waitPeerReady(peerId, { timeoutMs }),
+        });
         const opened = yield* Effect.tryPromise({
           catch: (error) =>
             error instanceof Error ? error : new Error(String(error)),

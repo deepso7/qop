@@ -134,6 +134,17 @@ describe("performSend", () => {
     expect(order).toEqual(["connect", "ready", "open"]);
   });
 
+  it("waits for Identify even when the peer is already connected", async () => {
+    const { endpoint, sessions } = makeEndpoint(ackReader(id));
+    endpoint.connectedPeers.mockReturnValue([PEER_BOB]);
+
+    await performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 });
+    expect(endpoint.connect).not.toHaveBeenCalled();
+    expect(endpoint.waitPeerReady).toHaveBeenCalledWith(PEER_BOB, {
+      timeoutMs: 50,
+    });
+  });
+
   it("does not open a stream when Identify never completes", async () => {
     const { endpoint, sessions, stream } = makeEndpoint(ackReader(id));
     endpoint.waitPeerReady = vi

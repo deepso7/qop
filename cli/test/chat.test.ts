@@ -8,7 +8,7 @@ import type { RegistryAccount } from "@qop/protocol";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import { bindLiveConnection, openAuthorizedChatStream } from "../src/chat.ts";
+import { openAuthorizedChatStream } from "../src/chat.ts";
 
 const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
 const bobDeviceKey = `0x${"22".repeat(32)}`;
@@ -136,7 +136,6 @@ describe("openAuthorizedChatStream", () => {
       upsertContact: () => Promise.resolve(),
     });
     const stream = makeStream();
-    bindLiveConnection(sessions, stream);
     const transport = {
       connect: vi.fn(),
       connectedPeers: vi.fn((): string[] => [PEER_BOB]),
@@ -152,7 +151,30 @@ describe("openAuthorizedChatStream", () => {
         openAuthorizedChatStream(transport, sessions, PEER_BOB, "bob")
       )
     ).rejects.toMatchObject({ operation: "rpc" });
-    expect(stream.reset).toHaveBeenCalled();
+    expect(stream.reset).toHaveBeenCalledOnce();
+    expect(stream.write).not.toHaveBeenCalled();
+  });
+
+  it("resets once when verify succeeds but authorization is already gone", async () => {
+    const sessions = makeSessions();
+    const stream = makeStream();
+    vi.spyOn(sessions, "isVerified").mockReturnValue(false);
+    const transport = {
+      connect: vi.fn(),
+      connectedPeers: vi.fn((): string[] => [PEER_BOB]),
+      openStream: vi.fn().mockResolvedValue(stream),
+      waitPeerReady: vi.fn(async () => {
+        await Promise.resolve();
+        return {};
+      }),
+    };
+
+    await expect(
+      Effect.runPromise(
+        openAuthorizedChatStream(transport, sessions, PEER_BOB, "bob")
+      )
+    ).rejects.toThrow("no longer authorized");
+    expect(stream.reset).toHaveBeenCalledOnce();
     expect(stream.write).not.toHaveBeenCalled();
   });
 });

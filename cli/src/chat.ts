@@ -7,7 +7,6 @@ import {
   encodeAck,
   encodeFrame,
   MAX_CHAT_PAYLOAD_BYTES,
-  PeerVerificationError,
 } from "@qop/protocol";
 import type {
   PeerConnection,
@@ -86,14 +85,6 @@ const readUntilEof = async (
 const transportError = (cause: unknown) =>
   cause instanceof Error ? cause : new Error(String(cause));
 
-/** Bind a live stream before verify. connectionEstablished can lag connect/openStream. */
-export const bindLiveConnection = (
-  sessions: ReturnType<typeof createPeerSessions>,
-  connection: PeerConnection
-) => {
-  sessions.opened(connection);
-};
-
 /** Connect, wait for Identify, open `/qop/chat/1`, then authorize the live stream. */
 export const openAuthorizedChatStream = Effect.fn(
   "qop.openAuthorizedChatStream"
@@ -123,12 +114,14 @@ export const openAuthorizedChatStream = Effect.fn(
         timeoutMs: CHAT_CONNECT_TIMEOUT_MS,
       }),
   });
-  bindLiveConnection(sessions, stream);
+  // Bind before verify: connectionEstablished can lag connect/openStream.
+  sessions.opened(stream);
   return yield* sessions.verify(stream, handle).pipe(
     Effect.flatMap((contact) => {
       if (!sessions.isVerified(stream, contact.qid)) {
-        stream.reset();
-        return Effect.fail(new PeerVerificationError({ operation: "closed" }));
+        return Effect.fail(
+          new Error("Chat connection is no longer authorized")
+        );
       }
       return Effect.succeed(stream);
     }),
@@ -252,7 +245,7 @@ export const runStart = Effect.fn("qop.start")(function* (
                   stream.reset();
                   return;
                 }
-                bindLiveConnection(sessions, stream);
+                sessions.opened(stream);
                 const contact = yield* sessions.verify(
                   stream,
                   frame.fromHandle
