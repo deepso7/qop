@@ -29,6 +29,10 @@ interface SendEndpoint {
     protocolId: string,
     options?: { readonly timeoutMs?: number }
   ) => Promise<SendStream>;
+  readonly waitPeerReady?: (
+    peerId: string,
+    options?: { readonly timeoutMs?: number }
+  ) => Promise<{ readonly peerId?: string }>;
 }
 
 export interface PerformSendInput {
@@ -114,6 +118,14 @@ export const performSend = async ({
             try: () => endpoint.connect(peerId, { timeoutMs }),
           });
         }
+        const { waitPeerReady } = endpoint;
+        if (waitPeerReady) {
+          yield* Effect.tryPromise({
+            catch: (error) =>
+              error instanceof Error ? error : new Error(String(error)),
+            try: () => waitPeerReady(peerId, { timeoutMs }),
+          });
+        }
         const opened = yield* Effect.tryPromise({
           catch: (error) =>
             error instanceof Error ? error : new Error(String(error)),
@@ -133,6 +145,7 @@ export const performSend = async ({
           },
         });
         stream = opened;
+        sessions.opened(opened);
         yield* sessions.verify(opened, contact.handle);
         if (!sessions.isVerified(opened, contact.qid)) {
           return yield* Effect.fail(

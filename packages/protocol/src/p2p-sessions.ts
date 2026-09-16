@@ -68,7 +68,14 @@ export const createPeerSessions = ({
   // Resume invalidation must cancel in-flight verify writers.
   let verifyEpoch = 0;
 
+  // Safe to call from a live stream when connectionEstablished has not arrived
+  // yet. Same connId+peerId keeps cached authorization; a reused connId with a
+  // different peer replaces the session.
   const opened = (connection: PeerConnection) => {
+    const existing = sessions.get(connection.connId);
+    if (existing?.peerId === connection.peerId) {
+      return;
+    }
     sessions.set(connection.connId, {
       ...connection,
       semaphore: Semaphore.makeUnsafe(1),

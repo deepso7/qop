@@ -7,8 +7,13 @@ import {
   encodeAck,
   encodeFrame,
   MAX_CHAT_PAYLOAD_BYTES,
+  PeerVerificationError,
 } from "@qop/protocol";
-import type { SessionContact, SessionContactInput } from "@qop/protocol";
+import type {
+  PeerConnection,
+  SessionContact,
+  SessionContactInput,
+} from "@qop/protocol";
 import { Effect } from "effect";
 
 import { CliConfigError, cliRelays, configuredRegistry } from "./config.ts";
@@ -21,6 +26,35 @@ import {
 
 const MAX_INBOUND_STREAMS = 8;
 const INBOUND_READ_TIMEOUT_MS = 15_000;
+export const CHAT_CONNECT_TIMEOUT_MS = 15_000;
+
+export interface ChatStream extends PeerConnection {
+  readonly closeWrite: () => void;
+  readonly read: () => Promise<Uint8Array | undefined>;
+  readonly reset: () => void;
+  readonly write: (data: Uint8Array) => void;
+}
+
+export interface ChatDialResult {
+  readonly peerId?: string;
+}
+
+export interface ChatTransport {
+  readonly connectedPeers: () => readonly string[];
+  readonly connect: (
+    peerId: string,
+    options?: { readonly timeoutMs?: number }
+  ) => Promise<ChatDialResult>;
+  readonly openStream: (
+    peerId: string,
+    protocolId: string,
+    options?: { readonly timeoutMs?: number }
+  ) => Promise<ChatStream>;
+  readonly waitPeerReady: (
+    peerId: string,
+    options?: { readonly timeoutMs?: number }
+  ) => Promise<ChatDialResult>;
+}
 
 const concatChunks = (chunks: readonly Uint8Array[], byteLength: number) => {
   const bytes = new Uint8Array(byteLength);
@@ -48,6 +82,63 @@ const readUntilEof = async (
   chunks.push(chunk);
   return readUntilEof(read, chunks, nextLength);
 };
+
+const transportError = (cause: unknown) =>
+  cause instanceof Error ? cause : new Error(String(cause));
+
+/** Bind a live stream before verify. connectionEstablished can lag connect/openStream. */
+export const bindLiveConnection = (
+  sessions: ReturnType<typeof createPeerSessions>,
+  connection: PeerConnection
+) => {
+  sessions.opened(connection);
+};
+
+/** Connect, wait for Identify, open `/qop/chat/1`, then authorize the live stream. */
+export const openAuthorizedChatStream = Effect.fn(
+  "qop.openAuthorizedChatStream"
+)(function* (
+  transport: ChatTransport,
+  sessions: ReturnType<typeof createPeerSessions>,
+  peerId: string,
+  handle: string
+) {
+  if (!transport.connectedPeers().includes(peerId)) {
+    yield* Effect.tryPromise({
+      catch: transportError,
+      try: () =>
+        transport.connect(peerId, { timeoutMs: CHAT_CONNECT_TIMEOUT_MS }),
+    });
+  }
+  // Path-up is not Identify. Opening chat before peerReady yields StreamClosedError.
+  yield* Effect.tryPromise({
+    catch: transportError,
+    try: () =>
+      transport.waitPeerReady(peerId, { timeoutMs: CHAT_CONNECT_TIMEOUT_MS }),
+  });
+  const stream = yield* Effect.tryPromise({
+    catch: transportError,
+    try: () =>
+      transport.openStream(peerId, CHAT_PROTOCOL, {
+        timeoutMs: CHAT_CONNECT_TIMEOUT_MS,
+      }),
+  });
+  bindLiveConnection(sessions, stream);
+  return yield* sessions.verify(stream, handle).pipe(
+    Effect.flatMap((contact) => {
+      if (!sessions.isVerified(stream, contact.qid)) {
+        stream.reset();
+        return Effect.fail(new PeerVerificationError({ operation: "closed" }));
+      }
+      return Effect.succeed(stream);
+    }),
+    Effect.tapError(() =>
+      Effect.sync(() => {
+        stream.reset();
+      })
+    )
+  );
+});
 
 export const runStart = Effect.fn("qop.start")(function* (
   store: ReturnType<typeof createCliIdentityStore>,
@@ -161,6 +252,7 @@ export const runStart = Effect.fn("qop.start")(function* (
                   stream.reset();
                   return;
                 }
+                bindLiveConnection(sessions, stream);
                 const contact = yield* sessions.verify(
                   stream,
                   frame.fromHandle
@@ -222,35 +314,17 @@ export const runStart = Effect.fn("qop.start")(function* (
               handle: recipient.handle,
               qid: recipient.qid.toString(),
             });
-            if (!endpoint.connectedPeers().includes(peerId)) {
-              yield* Effect.tryPromise({
-                catch: (cause) =>
-                  cause instanceof Error ? cause : new Error(String(cause)),
-                try: () => endpoint.connect(peerId, { timeoutMs: 15_000 }),
-              });
-            }
-            const stream = yield* Effect.tryPromise({
-              catch: (cause) =>
-                cause instanceof Error ? cause : new Error(String(cause)),
-              try: () =>
-                endpoint.openStream(peerId, CHAT_PROTOCOL, {
-                  timeoutMs: 15_000,
-                }),
-            });
+            const stream = yield* openAuthorizedChatStream(
+              endpoint,
+              sessions,
+              peerId,
+              recipient.handle
+            );
             if (guardSensitive()) {
               stream.reset();
               console.error(
                 "Authorization was invalidated. Try sending again."
               );
-              return;
-            }
-            yield* sessions.verify(stream, recipient.handle);
-            if (
-              guardSensitive() ||
-              !sessions.isVerified(stream, recipient.qid.toString())
-            ) {
-              stream.reset();
-              console.error("Could not authorize a chat connection.");
               return;
             }
             stream.write(encodeFrame(frame));

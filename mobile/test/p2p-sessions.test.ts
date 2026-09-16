@@ -114,6 +114,17 @@ describe("multi-device connection authorization", () => {
     expect(sessions.isVerified(cliConnection, "1")).toBe(true);
   });
 
+  it("keeps cached authorization when opened is repeated for the same connection", async () => {
+    const { lookupDeviceKey, sessions } = fixture();
+    await Effect.runPromise(sessions.verify(phoneConnection, "alice"));
+    sessions.opened(phoneConnection);
+    lookupDeviceKey.mockClear();
+    await expect(
+      Effect.runPromise(sessions.verify(phoneConnection, "alice"))
+    ).resolves.toMatchObject({ peerId: PEER_ALICE });
+    expect(lookupDeviceKey).not.toHaveBeenCalled();
+  });
+
   it("reuses verification within the max auth age even when RPC goes offline", async () => {
     const { advance, lookupDeviceKey, sessions } = fixture();
     await Effect.runPromise(sessions.verify(phoneConnection, "alice"));
