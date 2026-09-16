@@ -9,18 +9,15 @@ import {
 } from "@qop/identity";
 import type { DeviceActionApprovalV1Encoded } from "@qop/protocol";
 import { DEVICE_ACTION_DEADLINE_SECONDS } from "@qop/protocol";
-import { Data, Effect } from "effect";
+import { Effect } from "effect";
 
+import { DeviceActionApprovalError } from "./device-action-approval-error";
 import { signApprovedDeviceAction } from "./identity-vault";
 import { latestTimestamp, lookupQid } from "./registry";
 
-const PLACEHOLDER_SIGNATURE = `0x${"01".repeat(32)}${"01".repeat(32)}00`;
+export { DeviceActionApprovalError } from "./device-action-approval-error";
 
-export class DeviceActionApprovalError extends Data.TaggedError(
-  "DeviceActionApprovalError"
-)<{
-  readonly operation: "sign" | "snapshot";
-}> {}
+const PLACEHOLDER_SIGNATURE = `0x${"01".repeat(32)}${"01".repeat(32)}00`;
 
 export const trustedIdentityDomain = () => ({
   chainId: process.env.EXPO_PUBLIC_REGISTRY_CHAIN_ID ?? "",

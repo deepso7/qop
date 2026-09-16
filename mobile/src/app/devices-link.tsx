@@ -23,7 +23,11 @@ import {
 const DevicesLinkScreen = () => {
   const identity = useIdentityStore((state) => state.identity);
   const registration = useIdentityStore((state) => state.registration);
+  const pairConnect = useP2pStore((state) => state.pairConnect);
   const pairConnectAddr = useP2pStore((state) => state.pairConnectAddr);
+  const pairConnectWithAddrs = useP2pStore(
+    (state) => state.pairConnectWithAddrs
+  );
   const pairWaitPeerReady = useP2pStore((state) => state.pairWaitPeerReady);
   const openPairingStream = useP2pStore((state) => state.openPairingStream);
   const p2pStatus = useP2pStore((state) => state.status);
@@ -35,8 +39,22 @@ const DevicesLinkScreen = () => {
 
   const transport = React.useMemo(
     () => ({
+      connect: async (id: string) => {
+        const connected = await pairConnect(id);
+        if (!connected) {
+          throw new Error("Could not connect");
+        }
+        return connected;
+      },
       connectAddr: async (address: string) => {
         const connected = await pairConnectAddr(address);
+        if (!connected) {
+          throw new Error("Could not connect");
+        }
+        return connected;
+      },
+      connectWithAddrs: async (id: string, addresses: readonly string[]) => {
+        const connected = await pairConnectWithAddrs(id, addresses);
         if (!connected) {
           throw new Error("Could not connect");
         }
@@ -51,7 +69,13 @@ const DevicesLinkScreen = () => {
       },
       waitPeerReady: pairWaitPeerReady,
     }),
-    [openPairingStream, pairConnectAddr, pairWaitPeerReady]
+    [
+      openPairingStream,
+      pairConnect,
+      pairConnectAddr,
+      pairConnectWithAddrs,
+      pairWaitPeerReady,
+    ]
   );
 
   const paste = React.useCallback(async () => {

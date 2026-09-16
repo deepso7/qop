@@ -11,6 +11,7 @@ import { RegistrationClientError } from "@/lib/registration-client-core";
 
 const REGISTRATION_STORAGE_KEY =
   "qop.registration.v2.31337.0x1111111111111111111111111111111111111111";
+const LEGACY_REGISTRATION_STORAGE_KEY = "qop.registration.v2";
 const OWNER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf";
 const OTHER_OWNER = "0x0000000000000000000000000000000000000002";
 const DEVICE_KEY = `0x${"22".repeat(32)}`;
@@ -392,6 +393,79 @@ describe("local registration", () => {
     await expect(
       Effect.runPromise(loadLocalRegistration())
     ).resolves.toBeNull();
+  });
+
+  it("hydrates a legacy unscoped v2 registration into the current domain key", async () => {
+    const original = loadRegistration();
+    await Effect.runPromise(original.startLocalRegistration("ABC-123"));
+    registryMock.lookupOwner.mockReturnValue(Effect.succeed(account()));
+    const stored = await Effect.runPromise(original.checkLocalRegistration());
+    expect(stored.status).toBe("confirmed");
+    const encoded = secureStoreMock.items.get(REGISTRATION_STORAGE_KEY);
+    expect(encoded).toBeDefined();
+    secureStoreMock.items.clear();
+    secureStoreMock.items.set(LEGACY_REGISTRATION_STORAGE_KEY, encoded ?? "");
+
+    const migrated = loadRegistration();
+    const loaded = await Effect.runPromise(migrated.loadLocalRegistration());
+    expect(loaded).toEqual(stored);
+    expect(secureStoreMock.items.get(REGISTRATION_STORAGE_KEY)).toBe(encoded);
+    expect(secureStoreMock.items.has(LEGACY_REGISTRATION_STORAGE_KEY)).toBe(
+      false
+    );
+
+    const reused = await Effect.runPromise(
+      migrated.startLocalRegistration("XYZ-789")
+    );
+    expect(reused).toEqual(stored);
+    expect(clientMock.register).toHaveBeenCalledOnce();
+  });
+
+  it("does not copy a migrated legacy registration onto another domain", async () => {
+    const original = loadRegistration();
+    await Effect.runPromise(original.startLocalRegistration("ABC-123"));
+    const encoded = secureStoreMock.items.get(REGISTRATION_STORAGE_KEY);
+    secureStoreMock.items.clear();
+    secureStoreMock.items.set(LEGACY_REGISTRATION_STORAGE_KEY, encoded ?? "");
+
+    await Effect.runPromise(loadRegistration().loadLocalRegistration());
+    const other = loadRegistration({
+      ...DOMAIN,
+      chainId: "11155111",
+    });
+    expect(await Effect.runPromise(other.loadLocalRegistration())).toBeNull();
+    expect(
+      secureStoreMock.items.has(
+        "qop.registration.v2.11155111.0x1111111111111111111111111111111111111111"
+      )
+    ).toBe(false);
+  });
+
+  it("does not adopt a legacy v2 registration for another owner", async () => {
+    const original = loadRegistration();
+    await Effect.runPromise(original.startLocalRegistration("ABC-123"));
+    const encoded = secureStoreMock.items.get(REGISTRATION_STORAGE_KEY);
+    secureStoreMock.items.clear();
+    secureStoreMock.items.set(LEGACY_REGISTRATION_STORAGE_KEY, encoded ?? "");
+    vaultMock.loadLocalIdentity.mockReturnValue(
+      Effect.succeed({
+        backupState: "copied",
+        deviceKey: DEVICE_KEY,
+        handle: "alice",
+        ownerAddress: OTHER_OWNER,
+        peerId: PEER_ID,
+        version: 2,
+      })
+    );
+
+    const result = await Effect.runPromise(
+      loadRegistration().loadLocalRegistration().pipe(Effect.result)
+    );
+    expect(Result.isFailure(result) && result.failure.operation).toBe("verify");
+    expect(secureStoreMock.items.has(REGISTRATION_STORAGE_KEY)).toBe(false);
+    expect(secureStoreMock.items.get(LEGACY_REGISTRATION_STORAGE_KEY)).toBe(
+      encoded
+    );
   });
 
   it("fails verification when the server returns another digest", async () => {

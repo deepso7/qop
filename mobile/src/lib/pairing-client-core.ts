@@ -12,7 +12,7 @@ import type {
   DeviceActionApprovalV1Encoded,
   PairingOfferV1,
 } from "@qop/protocol";
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Result, Schema } from "effect";
 
 export class PhonePairingError extends Data.TaggedError("PhonePairingError")<{
   readonly operation:
@@ -35,8 +35,13 @@ export interface PairingStream {
 }
 
 export interface PairingTransport {
+  readonly connect?: (peerId: string) => Promise<{ readonly peerId: string }>;
   readonly connectAddr: (
     address: string
+  ) => Promise<{ readonly peerId: string }>;
+  readonly connectWithAddrs?: (
+    peerId: string,
+    addresses: readonly string[]
   ) => Promise<{ readonly peerId: string }>;
   readonly openPairingStream: (peerId: string) => Promise<PairingStream>;
   readonly waitPeerReady: (peerId: string) => Promise<void>;
@@ -104,26 +109,53 @@ const dialOffer = Effect.fn("PhonePairing.dialOffer")(function* (
   offer: PairingOfferV1,
   peerId: string
 ) {
+  const waitReady = Effect.tryPromise({
+    catch: () => pairingError("connect"),
+    try: () => transport.waitPeerReady(peerId),
+  }).pipe(Effect.as(peerId));
+
+  const acceptPeer = (connected: { readonly peerId: string }) =>
+    connected.peerId === peerId
+      ? waitReady
+      : Effect.fail(pairingError("connect"));
+
+  const tryHinted = () => {
+    const { connect, connectWithAddrs } = transport;
+    if (connectWithAddrs !== undefined) {
+      return Effect.tryPromise({
+        catch: () => pairingError("connect"),
+        try: () => connectWithAddrs(peerId, offer.addrs),
+      }).pipe(Effect.flatMap(acceptPeer));
+    }
+    if (connect !== undefined) {
+      return Effect.tryPromise({
+        catch: () => pairingError("connect"),
+        try: () => connect(peerId),
+      }).pipe(Effect.flatMap(acceptPeer));
+    }
+    return Effect.fail(pairingError("connect"));
+  };
+
   const tryAddr = (index: number): Effect.Effect<string, PhonePairingError> =>
     Effect.gen(function* () {
       const address = offer.addrs[index];
-      if (!address) {
+      if (address === undefined) {
         return yield* pairingError("connect");
+      }
+      if (address.includes("/p2p-circuit/")) {
+        return yield* tryAddr(index + 1);
       }
       const connected = yield* Effect.tryPromise({
         catch: () => pairingError("connect"),
         try: () => transport.connectAddr(address),
-      });
-      if (connected.peerId !== peerId) {
+      }).pipe(Effect.result);
+      if (Result.isFailure(connected) || connected.success.peerId !== peerId) {
         return yield* tryAddr(index + 1);
       }
-      yield* Effect.tryPromise({
-        catch: () => pairingError("connect"),
-        try: () => transport.waitPeerReady(peerId),
-      });
-      return peerId;
+      return yield* waitReady;
     });
-  return yield* tryAddr(0);
+
+  return yield* tryHinted().pipe(Effect.catch(() => tryAddr(0)));
 });
 
 export const handshakePairing = Effect.fn("PhonePairing.handshake")(function* (

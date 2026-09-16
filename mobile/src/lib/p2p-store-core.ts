@@ -48,8 +48,15 @@ interface P2pActions {
       }
     | undefined
   >;
+  readonly pairConnect: (
+    peerId: string
+  ) => Promise<{ readonly peerId: string } | undefined>;
   readonly pairConnectAddr: (
     address: string
+  ) => Promise<{ readonly peerId: string } | undefined>;
+  readonly pairConnectWithAddrs: (
+    peerId: string,
+    addresses: readonly string[]
   ) => Promise<{ readonly peerId: string } | undefined>;
   readonly pairWaitPeerReady: (peerId: string) => Promise<void>;
   readonly retryMessage: (id: string) => Promise<void>;
@@ -74,6 +81,7 @@ export type P2pEndpoint = Pick<
   | "connectedPeers"
   | "connect"
   | "connectAddr"
+  | "connectWithAddrs"
   | "disconnect"
   | "on"
   | "onClose"
@@ -340,12 +348,30 @@ export const createP2pStore = ({
       return stream;
     },
 
+    pairConnect: async (peerId) => {
+      const activeEndpoint = endpoint;
+      if (!activeEndpoint) {
+        return;
+      }
+      return await activeEndpoint.connect(peerId, { timeoutMs: 15_000 });
+    },
+
     pairConnectAddr: async (address) => {
       const activeEndpoint = endpoint;
       if (!activeEndpoint) {
         return;
       }
       return await activeEndpoint.connectAddr(address, { timeoutMs: 15_000 });
+    },
+
+    pairConnectWithAddrs: async (peerId, addresses) => {
+      const activeEndpoint = endpoint;
+      if (!activeEndpoint) {
+        return;
+      }
+      return await activeEndpoint.connectWithAddrs(peerId, addresses, {
+        timeoutMs: 15_000,
+      });
     },
 
     pairWaitPeerReady: async (peerId) => {

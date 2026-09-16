@@ -19,6 +19,7 @@ import type { createRegistrationClient } from "./registration-client-core";
 import type { createRegistryReader } from "./registry-core";
 
 const REGISTRATION_DEADLINE_SECONDS = 1800n;
+const LEGACY_REGISTRATION_STORAGE_KEY = "qop.registration.v2";
 const strictParseOptions = {
   errors: "all",
   onExcessProperty: "error",
@@ -110,20 +111,16 @@ export const createLocalRegistration = ({
   const storageKey = `qop.registration.v2.${domainInput.chainId}.${domainInput.verifyingContract.toLowerCase()}`;
   const registrationSemaphore = Semaphore.makeUnsafe(1);
 
-  const readStoredRegistration = Effect.fn(
-    "LocalRegistration.readStoredRegistration"
-  )(function* () {
-    const encoded = yield* Effect.tryPromise({
+  const readStore = (key: string) =>
+    Effect.tryPromise({
       catch: () => localError("read"),
-      try: () => secureStore.get(storageKey),
+      try: () => secureStore.get(key),
     });
-    if (encoded === null) {
-      return null;
-    }
-    return yield* Schema.decodeUnknownEffect(StoredLocalRegistrationJson)(
-      encoded
-    ).pipe(Effect.mapError(() => localError("decode")));
-  });
+
+  const decodeStoredRegistration = (encoded: string) =>
+    Schema.decodeUnknownEffect(StoredLocalRegistrationJson)(encoded).pipe(
+      Effect.mapError(() => localError("decode"))
+    );
 
   const writeStoredRegistration = Effect.fn(
     "LocalRegistration.writeStoredRegistration"
@@ -160,6 +157,38 @@ export const createLocalRegistration = ({
       return yield* localError("verify");
     }
     return identity;
+  });
+
+  const migrateLegacyRegistration = Effect.fn(
+    "LocalRegistration.migrateLegacyRegistration"
+  )(function* (encoded: string) {
+    const decoded = yield* decodeStoredRegistration(encoded).pipe(
+      Effect.result
+    );
+    if (Result.isFailure(decoded)) {
+      return null;
+    }
+    yield* verifyOwner(decoded.success);
+    yield* writeStoredRegistration(decoded.success);
+    yield* Effect.tryPromise({
+      catch: () => localError("write"),
+      try: () => secureStore.delete(LEGACY_REGISTRATION_STORAGE_KEY),
+    }).pipe(Effect.catch(() => Effect.void));
+    return decoded.success;
+  });
+
+  const readStoredRegistration = Effect.fn(
+    "LocalRegistration.readStoredRegistration"
+  )(function* () {
+    const encoded = yield* readStore(storageKey);
+    if (encoded !== null) {
+      return yield* decodeStoredRegistration(encoded);
+    }
+    const legacyEncoded = yield* readStore(LEGACY_REGISTRATION_STORAGE_KEY);
+    if (legacyEncoded === null) {
+      return null;
+    }
+    return yield* migrateLegacyRegistration(legacyEncoded);
   });
 
   const makeNonce = Effect.fn("LocalRegistration.makeNonce")(function* () {
@@ -398,12 +427,16 @@ export const createLocalRegistration = ({
 
   const deleteLocalRegistration = Effect.fn(
     "LocalRegistration.deleteLocalRegistration"
-  )(() =>
-    Effect.tryPromise({
+  )(function* () {
+    yield* Effect.tryPromise({
       catch: () => localError("delete"),
       try: () => secureStore.delete(storageKey),
-    })
-  );
+    });
+    yield* Effect.tryPromise({
+      catch: () => localError("delete"),
+      try: () => secureStore.delete(LEGACY_REGISTRATION_STORAGE_KEY),
+    }).pipe(Effect.catch(() => Effect.void));
+  });
 
   return {
     checkLocalRegistration,

@@ -43,26 +43,97 @@ const secretBytes = (value: string | Uint8Array) => {
   return Effect.succeed(hexToBytes(hex));
 };
 
+const isIpv6Host = (host: string) => host.includes(":");
+
+const expandListenAddress = (
+  address: string,
+  localAddresses: readonly string[]
+) => {
+  if (address.startsWith("/ip4/0.0.0.0/")) {
+    return localAddresses
+      .filter((host) => !isIpv6Host(host))
+      .map((host) => address.replace("/ip4/0.0.0.0/", `/ip4/${host}/`));
+  }
+  if (address.startsWith("/ip6/::/")) {
+    return localAddresses
+      .filter((host) => isIpv6Host(host))
+      .map((host) => address.replace("/ip6/::/", `/ip6/${host}/`));
+  }
+  return [address];
+};
+
+const hostAfter = (address: string, marker: string) => {
+  const index = address.indexOf(marker);
+  if (index === -1) {
+    return;
+  }
+  const rest = address.slice(index + marker.length);
+  const slash = rest.indexOf("/");
+  return slash === -1 ? rest : rest.slice(0, slash);
+};
+
+const isRfc1918Block16 = (host: string) => {
+  if (!host.startsWith("172.")) {
+    return false;
+  }
+  const [, second] = host.split(".");
+  const octet = Number(second);
+  return octet >= 16 && octet <= 31;
+};
+
+const pairingAddrRank = (address: string) => {
+  if (address.includes("/p2p-circuit/")) {
+    return 0;
+  }
+  if (
+    address.includes("/dns/") ||
+    address.includes("/dns4/") ||
+    address.includes("/dns6/")
+  ) {
+    return 1;
+  }
+  const ip4 = hostAfter(address, "/ip4/");
+  if (ip4 === "127.0.0.1") {
+    return 90;
+  }
+  if (ip4?.startsWith("192.168.")) {
+    return 10;
+  }
+  if (ip4?.startsWith("10.")) {
+    return 11;
+  }
+  if (ip4 !== undefined && isRfc1918Block16(ip4)) {
+    return 30;
+  }
+  const ip6 = hostAfter(address, "/ip6/")?.toLowerCase();
+  if (ip6 === "::1") {
+    return 90;
+  }
+  if (ip6?.startsWith("fe80:")) {
+    return 80;
+  }
+  if (ip6 !== undefined) {
+    return 20;
+  }
+  if (ip4 !== undefined) {
+    return 25;
+  }
+  return 40;
+};
+
 export const selectPairingAddrs = (
   listen: readonly string[],
   circuit: string | undefined,
   localAddresses: readonly string[]
 ) => {
-  const dialable = listen.flatMap((address) => {
-    if (address.startsWith("/ip4/0.0.0.0/")) {
-      return localAddresses.map((ip) =>
-        address.replace("/ip4/0.0.0.0/", `/ip4/${ip}/`)
-      );
-    }
-    return address.startsWith("/ip6/::/") ? [] : [address];
-  });
+  const dialable = listen.flatMap((address) =>
+    expandListenAddress(address, localAddresses)
+  );
   const preferred = [
-    ...(circuit ? [circuit] : []),
-    ...dialable.filter(
-      (address) =>
-        !address.includes("127.0.0.1") && !address.includes("/ip6/::1/")
+    ...(circuit === undefined ? [] : [circuit]),
+    ...dialable.toSorted(
+      (left, right) => pairingAddrRank(left) - pairingAddrRank(right)
     ),
-    ...dialable,
   ];
   const unique: string[] = [];
   for (const address of preferred) {
@@ -142,14 +213,10 @@ export const runLink = Effect.fn("qop.link")(function* (
 
   const secretKey = yield* store.loadSecret();
   const relays = cliRelays();
-  const pairingListen: [string] = ["/ip4/0.0.0.0/udp/0/quic-v1"];
   const pairingConfig = {
     agentVersion: "qop-cli/0.1.0",
     protocols: [PAIR_PROTOCOL],
     secretKey,
-    transports: {
-      quic: { listen: pairingListen },
-    },
   };
   const endpoint = Minip2p.create(
     relays.length > 0 ? { ...pairingConfig, relays } : pairingConfig
@@ -175,8 +242,24 @@ export const runLink = Effect.fn("qop.link")(function* (
     const localAddresses = Object.values(networkInterfaces()).flatMap(
       (interfaces) =>
         (interfaces ?? [])
-          .filter((address) => address.family === "IPv4" && !address.internal)
-          .map((address) => address.address)
+          .filter((address) => !address.internal)
+          .flatMap((address) => {
+            const family = String(address.family);
+            const [host] = address.address.split("%");
+            if (host === undefined) {
+              return [];
+            }
+            if (family === "IPv4" || family === "4") {
+              return [host];
+            }
+            if (
+              (family === "IPv6" || family === "6") &&
+              !host.toLowerCase().startsWith("fe80:")
+            ) {
+              return [host];
+            }
+            return [];
+          })
     );
     const addrs = selectPairingAddrs(
       endpoint.listenAddrs(),
