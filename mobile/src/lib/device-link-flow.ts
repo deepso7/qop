@@ -10,6 +10,7 @@ import {
   markAcknowledged,
   persistApproval,
   pollEnrollment,
+  reconcileMembership,
   resumeInFlight,
   submitAcknowledged,
 } from "./local-device-action";
@@ -32,6 +33,14 @@ export const completeDeviceLink = Effect.fn("completeDeviceLink")(function* ({
   readonly qid: bigint;
   readonly transport: PairingTransport;
 }) {
+  const current = yield* reconcileMembership();
+  if (
+    current?.record.operation === "add" &&
+    asHex(current.record.intent.deviceKey) === asHex(deviceKey) &&
+    current.membership === "linked"
+  ) {
+    return yield* pollEnrollment();
+  }
   const resumed = yield* resumeInFlight("add", deviceKey);
   const record =
     resumed ??

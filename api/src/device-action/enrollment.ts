@@ -385,7 +385,7 @@ export class DeviceActionEnrollment extends Context.Service<
 
         yield* validateFresh(input.operation, intent, ownerSignature);
 
-        const stored = yield* store.create({
+        const create = store.create({
           accountNonce: intent.nonce,
           deadline: intent.deadline,
           deviceKey: toHex(intent.deviceKey),
@@ -400,6 +400,24 @@ export class DeviceActionEnrollment extends Context.Service<
           ownerSignature,
           qid: intent.qid,
         });
+        const stored = yield* create.pipe(
+          Effect.catchTag("DeviceActionInFlightConflict", (conflict) =>
+            Effect.gen(function* () {
+              const previous = yield* store.get(conflict.digest);
+              if (Option.isNone(previous)) {
+                return yield* conflict;
+              }
+              const reconciled = yield* reconcileActive(previous.value);
+              if (
+                reconciled.status === "ready" ||
+                reconciled.status === "submitted"
+              ) {
+                return yield* conflict;
+              }
+              return yield* create;
+            })
+          )
+        );
         return yield* toSubmitted(yield* reconcileActive(stored));
       });
 

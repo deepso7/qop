@@ -21,6 +21,7 @@ export class PhonePairingError extends Data.TaggedError("PhonePairingError")<{
     | "mismatch"
     | "offer"
     | "peer"
+    | "random"
     | "stream";
 }> {}
 
@@ -57,9 +58,16 @@ const deviceKeyBytes = (value: string | Uint8Array) =>
         Effect.mapError(() => pairingError("offer"))
       );
 
-const randomChallenge = Effect.fn("PhonePairing.randomChallenge")(function* () {
-  const bytes = crypto.getRandomValues(new Uint8Array(32));
-  return yield* Schema.encodeEffect(Hex32)(bytes);
+const randomChallenge = Effect.fn("PhonePairing.randomChallenge")(function* (
+  randomBytes: () => Promise<Uint8Array>
+) {
+  const bytes = yield* Effect.tryPromise({
+    catch: () => pairingError("random"),
+    try: randomBytes,
+  });
+  return yield* Schema.encodeEffect(Hex32)(bytes).pipe(
+    Effect.mapError(() => pairingError("random"))
+  );
 });
 
 export const decodePairingPayload = (payload: string, nowSeconds: bigint) =>
@@ -121,7 +129,8 @@ const dialOffer = Effect.fn("PhonePairing.dialOffer")(function* (
 export const handshakePairing = Effect.fn("PhonePairing.handshake")(function* (
   transport: PairingTransport,
   offer: PairingOfferV1,
-  local: LocalPairingConfig
+  local: LocalPairingConfig,
+  randomBytes: () => Promise<Uint8Array>
 ) {
   yield* assertOfferMatchesAccount(offer, local);
   const peerId = yield* expectedPeerId(offer);
@@ -134,7 +143,7 @@ export const handshakePairing = Effect.fn("PhonePairing.handshake")(function* (
     stream.reset();
     return yield* pairingError("peer");
   }
-  const challenge = yield* randomChallenge();
+  const challenge = yield* randomChallenge(randomBytes);
   yield* writePairingFrame(
     (data) => stream.write(data),
     () => stream.closeWrite(),

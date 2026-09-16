@@ -2,6 +2,7 @@ import { asHex, pairingFingerprint } from "@qop/protocol";
 import type { PairingOfferV1 } from "@qop/protocol";
 import { Effect, Result } from "effect";
 import * as Clipboard from "expo-clipboard";
+import * as Crypto from "expo-crypto";
 import * as React from "react";
 import { View } from "react-native";
 
@@ -78,6 +79,7 @@ const DevicesLinkScreen = () => {
       decoded.success.qid.toString() !== registration?.qid
     ) {
       setOffer(undefined);
+      setPeerId(undefined);
       setMessage("This pairing is for a different account or registry.");
       return;
     }
@@ -98,11 +100,16 @@ const DevicesLinkScreen = () => {
     }
     setBusy(true);
     const result = await Effect.runPromise(
-      handshakePairing(transport, offer, {
-        chainId: trustedIdentityDomain().chainId,
-        qid: registration.qid,
-        registry: trustedIdentityDomain().verifyingContract,
-      }).pipe(Effect.result)
+      handshakePairing(
+        transport,
+        offer,
+        {
+          chainId: trustedIdentityDomain().chainId,
+          qid: registration.qid,
+          registry: trustedIdentityDomain().verifyingContract,
+        },
+        () => Crypto.getRandomBytesAsync(32)
+      ).pipe(Effect.result)
     );
     setBusy(false);
     if (Result.isFailure(result)) {

@@ -1,3 +1,5 @@
+import { networkInterfaces } from "node:os";
+
 import { Minip2p } from "@minip2p/node";
 import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
 import {
@@ -41,17 +43,26 @@ const secretBytes = (value: string | Uint8Array) => {
   return Effect.succeed(hexToBytes(hex));
 };
 
-const selectPairingAddrs = (
+export const selectPairingAddrs = (
   listen: readonly string[],
-  circuit: string | undefined
+  circuit: string | undefined,
+  localAddresses: readonly string[]
 ) => {
+  const dialable = listen.flatMap((address) => {
+    if (address.startsWith("/ip4/0.0.0.0/")) {
+      return localAddresses.map((ip) =>
+        address.replace("/ip4/0.0.0.0/", `/ip4/${ip}/`)
+      );
+    }
+    return address.startsWith("/ip6/::/") ? [] : [address];
+  });
   const preferred = [
     ...(circuit ? [circuit] : []),
-    ...listen.filter(
+    ...dialable.filter(
       (address) =>
         !address.includes("127.0.0.1") && !address.includes("/ip6/::1/")
     ),
-    ...listen,
+    ...dialable,
   ];
   const unique: string[] = [];
   for (const address of preferred) {
@@ -149,10 +160,28 @@ export const runLink = Effect.fn("qop.link")(function* (
   });
 
   const program = Effect.gen(function* () {
-    yield* Effect.sleep(500);
+    if (relays.length > 0 && !endpoint.circuitAddress) {
+      console.log("Waiting for a relay reservation…");
+      yield* Effect.tryPromise((signal) =>
+        endpoint.waitFor("relayReserved", { signal, timeoutMs: 15_000 })
+      ).pipe(
+        Effect.catch(() =>
+          Effect.logWarning(
+            "Relay reservation unavailable; trying direct pairing addresses."
+          )
+        )
+      );
+    }
+    const localAddresses = Object.values(networkInterfaces()).flatMap(
+      (interfaces) =>
+        (interfaces ?? [])
+          .filter((address) => address.family === "IPv4" && !address.internal)
+          .map((address) => address.address)
+    );
     const addrs = selectPairingAddrs(
       endpoint.listenAddrs(),
-      endpoint.circuitAddress
+      endpoint.circuitAddress,
+      localAddresses
     );
     if (addrs.length === 0) {
       console.error("No listen addresses were available for pairing.");

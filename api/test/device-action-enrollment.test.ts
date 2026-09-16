@@ -66,11 +66,12 @@ const account: RegistryAccount = {
 };
 
 let receipts = new Map<Hash, DeviceActionReceipt>();
+const accounts = new Map<bigint, RegistryAccount>();
 
 const DeviceActionChainTestLive = Layer.sync(DeviceActionChain, () => {
   receipts = new Map();
   return DeviceActionChain.of({
-    account: () => Effect.succeed(account),
+    account: (qid) => Effect.sync(() => accounts.get(qid) ?? account),
     blockTimestamp: Effect.succeed(1_700_000_000n),
     deviceKeyRemoved: () => Effect.succeed(false),
     latestBlock: Effect.succeed(100n),
@@ -85,10 +86,13 @@ const RelayerTestLive = Layer.succeed(
   DeviceActionRelayer.of({
     broadcast: (prepared) => Effect.succeed(prepared.transactionHash),
     pendingNonce: Effect.succeed(0n),
-    prepare: () =>
+    prepare: (_operation, intent) =>
       Effect.succeed({
         serializedTransaction: "0x02aa",
-        transactionHash,
+        transactionHash:
+          intent.nonce === 9n
+            ? transactionHash
+            : testHash(`device-action-${intent.nonce}`),
       }),
   })
 );
@@ -193,6 +197,62 @@ layer(EnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         });
         assert.strictEqual(replay.status, "confirmed");
         assert.strictEqual(replay.digest, digest);
+      })
+  );
+
+  it.effect(
+    "reconciles a mined prior action before rejecting the next digest",
+    () =>
+      Effect.gen(function* () {
+        receipts.clear();
+        const enrollment = yield* DeviceActionEnrollment;
+        const first = yield* decodeAddDeviceIntentV1(
+          encodedIntentFor("77", "1700000600")
+        );
+        const firstSignature = yield* Effect.promise(() =>
+          ownerAccount.signTypedData(
+            makeAddDeviceIntentTypedDataV1(domain, first)
+          )
+        );
+        const submitted = yield* enrollment.submit({
+          intent: yield* encodeAddDeviceIntentV1(first),
+          operation: "add",
+          ownerSignature: firstSignature,
+        });
+        assert.strictEqual(submitted.status, "submitted");
+        receipts.set(transactionHash, {
+          blockNumber: 100n,
+          logs: [addEventLog(77n, DEVICE_KEY, 9n)],
+          status: "success",
+        });
+        accounts.set(77n, {
+          ...account,
+          devices: [DEVICE_KEY],
+          nonce: 10n,
+          qid: 77n,
+        });
+        const next = yield* decodeAddDeviceIntentV1({
+          ...encodedIntentFor("77", "1700000599"),
+          deviceKey: testHash("next-device"),
+          nonce: "10",
+        });
+        const nextSignature = yield* Effect.promise(() =>
+          ownerAccount.signTypedData(
+            makeAddDeviceIntentTypedDataV1(domain, next)
+          )
+        );
+        const result = yield* enrollment.submit({
+          intent: yield* encodeAddDeviceIntentV1(next),
+          operation: "add",
+          ownerSignature: nextSignature,
+        });
+        assert.notStrictEqual(result.digest, submitted.digest);
+        const store = yield* DeviceActionStore;
+        const previous = yield* store.get(submitted.digest);
+        assert.strictEqual(
+          Option.isSome(previous) && previous.value.status,
+          "confirmed"
+        );
       })
   );
 

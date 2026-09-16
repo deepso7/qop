@@ -23,6 +23,7 @@ const DevicesScreen = () => {
     readonly { deviceKey: string; peerId: string }[]
   >([]);
   const [loading, setLoading] = React.useState(true);
+  const [loadError, setLoadError] = React.useState(false);
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState<string>();
   const [removeKey, setRemoveKey] = React.useState<string>();
@@ -34,11 +35,14 @@ const DevicesScreen = () => {
       return;
     }
     setLoading(true);
+    setLoadError(false);
     const account = await Effect.runPromise(
       lookupQid(BigInt(registration.qid)).pipe(Effect.result)
     );
     if (Result.isSuccess(account) && account.success) {
       setDevices(account.success.devices);
+    } else {
+      setLoadError(true);
     }
     setLoading(false);
   }, [registration]);
@@ -56,6 +60,7 @@ const DevicesScreen = () => {
         }
         if (active) {
           setLoading(true);
+          setLoadError(false);
         }
         const account = await Effect.runPromise(
           lookupQid(BigInt(registration.qid)).pipe(Effect.result)
@@ -65,6 +70,8 @@ const DevicesScreen = () => {
         }
         if (Result.isSuccess(account) && account.success) {
           setDevices(account.success.devices);
+        } else {
+          setLoadError(true);
         }
         setLoading(false);
       };
@@ -140,42 +147,51 @@ const DevicesScreen = () => {
 
       <View className="gap-2">
         <SectionLabel>On-chain roster</SectionLabel>
-        {loading ? (
-          <ActivityIndicator />
-        ) : (
-          devices.map((device) => {
-            const isThis = device.deviceKey === identity?.deviceKey;
-            return (
-              <Surface
-                className="border-background-selected gap-2 rounded-xl border p-4"
-                key={device.deviceKey}
-                tone="element"
-              >
-                <Text variant="label">
-                  {isThis
-                    ? "This device"
-                    : pairingFingerprint(device.deviceKey)}
-                </Text>
-                <Text
-                  className="text-foreground-secondary font-mono"
-                  selectable
-                  variant="caption"
+        {loading ? <ActivityIndicator /> : null}
+        {!loading && loadError ? (
+          <View className="gap-2">
+            <Text variant="caption">
+              Could not load devices. Check your connection and try again.
+            </Text>
+            <Button onPress={refresh} variant="outline">
+              <Text>Retry</Text>
+            </Button>
+          </View>
+        ) : null}
+        {!loading && !loadError
+          ? devices.map((device) => {
+              const isThis = device.deviceKey === identity?.deviceKey;
+              return (
+                <Surface
+                  className="border-background-selected gap-2 rounded-xl border p-4"
+                  key={device.deviceKey}
+                  tone="element"
                 >
-                  {device.peerId}
-                </Text>
-                {isThis ? null : (
-                  <Button
-                    disabled={busy}
-                    onPress={() => setRemoveKey(device.deviceKey)}
-                    variant="outline"
+                  <Text variant="label">
+                    {isThis
+                      ? "This device"
+                      : pairingFingerprint(device.deviceKey)}
+                  </Text>
+                  <Text
+                    className="text-foreground-secondary font-mono"
+                    selectable
+                    variant="caption"
                   >
-                    <Text className="text-destructive">Remove</Text>
-                  </Button>
-                )}
-              </Surface>
-            );
-          })
-        )}
+                    {device.peerId}
+                  </Text>
+                  {isThis ? null : (
+                    <Button
+                      disabled={busy}
+                      onPress={() => setRemoveKey(device.deviceKey)}
+                      variant="outline"
+                    >
+                      <Text className="text-destructive">Remove</Text>
+                    </Button>
+                  )}
+                </Surface>
+              );
+            })
+          : null}
       </View>
 
       <Button className="h-12 rounded-xl" onPress={() => push("/devices-link")}>

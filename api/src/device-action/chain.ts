@@ -157,10 +157,10 @@ export class DeviceActionChain extends Context.Service<
 
       const blockTimestamp = Effect.fn("DeviceActionChain.blockTimestamp")(
         function* () {
-          const blockNumber = yield* pinnedHead();
           const block = yield* Effect.tryPromise({
             catch: () => new DeviceActionChainError({ operation: "timestamp" }),
-            try: () => client.getBlock({ blockNumber }),
+            // Deadline windows use current chain time, not the older roster snapshot.
+            try: () => client.getBlock({ blockTag: "latest" }),
           });
           return block.timestamp;
         }
