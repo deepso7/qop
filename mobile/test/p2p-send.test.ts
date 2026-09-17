@@ -65,6 +65,7 @@ const makeEndpoint = (read: () => Promise<Uint8Array | undefined>) => {
     connect: vi.fn().mockImplementation(() => Promise.resolve()),
     connectedPeers: vi.fn((): string[] => []),
     openStream: vi.fn().mockResolvedValue(stream),
+    waitPeerReady: vi.fn(() => Promise.resolve({ peerId: PEER_BOB })),
   };
   return { endpoint, lookupDeviceKey, lookupHandle, sessions, stream };
 };
@@ -99,6 +100,62 @@ describe("performSend", () => {
     expect(stream.write).toHaveBeenCalledOnce();
     expect(stream.closeWrite).toHaveBeenCalledOnce();
     expect(stream.reset).not.toHaveBeenCalled();
+  });
+
+  it("authorizes a stream when connectionEstablished was missed", async () => {
+    const { endpoint, stream, sessions } = makeEndpoint(ackReader(id));
+    sessions.closed(stream);
+
+    await expect(
+      performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 })
+    ).resolves.toBeUndefined();
+
+    expect(stream.write).toHaveBeenCalledOnce();
+    expect(stream.reset).not.toHaveBeenCalled();
+  });
+
+  it("waits for Identify before opening a chat stream", async () => {
+    const { endpoint, stream, sessions } = makeEndpoint(ackReader(id));
+    const order: string[] = [];
+    endpoint.connect.mockImplementation(() => {
+      order.push("connect");
+      return Promise.resolve({ peerId: PEER_BOB });
+    });
+    endpoint.waitPeerReady = vi.fn(() => {
+      order.push("ready");
+      return Promise.resolve({ peerId: PEER_BOB });
+    });
+    endpoint.openStream.mockImplementation(() => {
+      order.push("open");
+      return Promise.resolve(stream);
+    });
+
+    await performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 });
+    expect(order).toEqual(["connect", "ready", "open"]);
+  });
+
+  it("waits for Identify even when the peer is already connected", async () => {
+    const { endpoint, sessions } = makeEndpoint(ackReader(id));
+    endpoint.connectedPeers.mockReturnValue([PEER_BOB]);
+
+    await performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 });
+    expect(endpoint.connect).not.toHaveBeenCalled();
+    expect(endpoint.waitPeerReady).toHaveBeenCalledWith(PEER_BOB, {
+      timeoutMs: 50,
+    });
+  });
+
+  it("does not open a stream when Identify never completes", async () => {
+    const { endpoint, sessions, stream } = makeEndpoint(ackReader(id));
+    endpoint.waitPeerReady = vi
+      .fn()
+      .mockRejectedValue(new Error("Timed out after 50 ms"));
+
+    await expect(
+      performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 })
+    ).rejects.toThrow("Timed out");
+    expect(endpoint.openStream).not.toHaveBeenCalled();
+    expect(stream.write).not.toHaveBeenCalled();
   });
 
   it("keeps sending on a verified connection during an RPC outage", async () => {

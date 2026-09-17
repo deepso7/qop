@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
-import { NodeServices } from "@effect/platform-node";
+import { NodeRuntime, NodeServices } from "@effect/platform-node";
 import { pairingFingerprint } from "@qop/protocol";
-import { Cause, Effect, Exit } from "effect";
+import { Cause, Effect } from "effect";
 
 import { runStart } from "./chat.ts";
 import { createQopCommand, runQopCli } from "./cli.ts";
@@ -63,15 +63,22 @@ const operatorMessage = (error: CliIdentityStoreError) => {
   }
 };
 
-const exit = await Effect.runPromiseExit(
-  runQopCli(command).pipe(Effect.provide(NodeServices.layer))
+NodeRuntime.runMain(
+  runQopCli(command).pipe(
+    Effect.provide(NodeServices.layer),
+    Effect.tapCause((cause) =>
+      Effect.sync(() => {
+        if (Cause.hasInterruptsOnly(cause)) {
+          return;
+        }
+        const squashed = Cause.squash(cause);
+        console.error(
+          squashed instanceof CliIdentityStoreError
+            ? (operatorMessage(squashed) ?? Cause.pretty(cause))
+            : Cause.pretty(cause)
+        );
+      })
+    )
+  ),
+  { disableErrorReporting: true }
 );
-if (Exit.isFailure(exit)) {
-  const squashed = Cause.squash(exit.cause);
-  console.error(
-    squashed instanceof CliIdentityStoreError
-      ? (operatorMessage(squashed) ?? Cause.pretty(exit.cause))
-      : Cause.pretty(exit.cause)
-  );
-  process.exitCode = 1;
-}

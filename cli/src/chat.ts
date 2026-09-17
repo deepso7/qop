@@ -1,4 +1,4 @@
-import { Minip2p } from "@minip2p/node";
+import { Minip2p, PeerDisconnectedError } from "@minip2p/node";
 import {
   CHAT_PROTOCOL,
   createPeerSessions,
@@ -7,8 +7,13 @@ import {
   encodeAck,
   encodeFrame,
   MAX_CHAT_PAYLOAD_BYTES,
+  PeerVerificationError,
 } from "@qop/protocol";
-import type { SessionContact, SessionContactInput } from "@qop/protocol";
+import type {
+  PeerConnection,
+  SessionContact,
+  SessionContactInput,
+} from "@qop/protocol";
 import { Effect } from "effect";
 
 import { CliConfigError, cliRelays, configuredRegistry } from "./config.ts";
@@ -21,6 +26,35 @@ import {
 
 const MAX_INBOUND_STREAMS = 8;
 const INBOUND_READ_TIMEOUT_MS = 15_000;
+export const CHAT_CONNECT_TIMEOUT_MS = 15_000;
+
+export interface ChatStream extends PeerConnection {
+  readonly closeWrite: () => void;
+  readonly read: () => Promise<Uint8Array | undefined>;
+  readonly reset: () => void;
+  readonly write: (data: Uint8Array) => void;
+}
+
+export interface ChatDialResult {
+  readonly peerId?: string;
+}
+
+export interface ChatTransport {
+  readonly connectedPeers: () => readonly string[];
+  readonly connect: (
+    peerId: string,
+    options?: { readonly timeoutMs?: number }
+  ) => Promise<ChatDialResult>;
+  readonly openStream: (
+    peerId: string,
+    protocolId: string,
+    options?: { readonly timeoutMs?: number }
+  ) => Promise<ChatStream>;
+  readonly waitPeerReady: (
+    peerId: string,
+    options?: { readonly timeoutMs?: number }
+  ) => Promise<ChatDialResult>;
+}
 
 const concatChunks = (chunks: readonly Uint8Array[], byteLength: number) => {
   const bytes = new Uint8Array(byteLength);
@@ -48,6 +82,73 @@ const readUntilEof = async (
   chunks.push(chunk);
   return readUntilEof(read, chunks, nextLength);
 };
+
+const transportError = (cause: unknown) =>
+  cause instanceof Error ? cause : new Error(String(cause));
+
+/** Connect, wait for Identify, open `/qop/chat/1`, then authorize the live stream. */
+export const openAuthorizedChatStream = Effect.fn(
+  "qop.openAuthorizedChatStream"
+)(function* (
+  transport: ChatTransport,
+  sessions: ReturnType<typeof createPeerSessions>,
+  peerId: string,
+  recipient: { readonly handle: string; readonly qid: string }
+) {
+  const stream = yield* Effect.gen(function* () {
+    if (!transport.connectedPeers().includes(peerId)) {
+      yield* Effect.tryPromise({
+        catch: transportError,
+        try: () =>
+          transport.connect(peerId, { timeoutMs: CHAT_CONNECT_TIMEOUT_MS }),
+      });
+    }
+    // Path-up is not Identify. Wait again if a replacement connection wins.
+    yield* Effect.tryPromise({
+      catch: transportError,
+      try: () =>
+        transport.waitPeerReady(peerId, { timeoutMs: CHAT_CONNECT_TIMEOUT_MS }),
+    });
+    return yield* Effect.tryPromise({
+      catch: transportError,
+      try: () =>
+        transport.openStream(peerId, CHAT_PROTOCOL, {
+          timeoutMs: CHAT_CONNECT_TIMEOUT_MS,
+        }),
+    });
+  }).pipe(
+    // Relay-to-direct upgrades can close the initial connection during setup.
+    // Retry only before a stream is returned; never replay a sent chat frame.
+    Effect.retry({
+      times: 1,
+      while: (error) => error instanceof PeerDisconnectedError,
+    })
+  );
+  // Bind before verify: connectionEstablished can lag connect/openStream.
+  sessions.opened(stream);
+  return yield* sessions.verify(stream, recipient.handle).pipe(
+    Effect.flatMap((contact) => {
+      // Chat frames have no recipient field — bind to the QID the user selected,
+      // not whichever account currently owns the connected device.
+      if (contact.qid !== recipient.qid) {
+        return Effect.fail(
+          new PeerVerificationError({ operation: "identity" })
+        );
+      }
+      if (!sessions.isVerified(stream, recipient.qid)) {
+        return Effect.fail(
+          new Error("Chat connection is no longer authorized")
+        );
+      }
+      return Effect.succeed(stream);
+    }),
+    Effect.tapError(() =>
+      Effect.sync(() => {
+        stream.reset();
+      })
+    )
+  );
+});
 
 export const runStart = Effect.fn("qop.start")(function* (
   store: ReturnType<typeof createCliIdentityStore>,
@@ -161,6 +262,7 @@ export const runStart = Effect.fn("qop.start")(function* (
                   stream.reset();
                   return;
                 }
+                sessions.opened(stream);
                 const contact = yield* sessions.verify(
                   stream,
                   frame.fromHandle
@@ -222,35 +324,20 @@ export const runStart = Effect.fn("qop.start")(function* (
               handle: recipient.handle,
               qid: recipient.qid.toString(),
             });
-            if (!endpoint.connectedPeers().includes(peerId)) {
-              yield* Effect.tryPromise({
-                catch: (cause) =>
-                  cause instanceof Error ? cause : new Error(String(cause)),
-                try: () => endpoint.connect(peerId, { timeoutMs: 15_000 }),
-              });
-            }
-            const stream = yield* Effect.tryPromise({
-              catch: (cause) =>
-                cause instanceof Error ? cause : new Error(String(cause)),
-              try: () =>
-                endpoint.openStream(peerId, CHAT_PROTOCOL, {
-                  timeoutMs: 15_000,
-                }),
-            });
+            const stream = yield* openAuthorizedChatStream(
+              endpoint,
+              sessions,
+              peerId,
+              {
+                handle: recipient.handle,
+                qid: recipient.qid.toString(),
+              }
+            );
             if (guardSensitive()) {
               stream.reset();
               console.error(
                 "Authorization was invalidated. Try sending again."
               );
-              return;
-            }
-            yield* sessions.verify(stream, recipient.handle);
-            if (
-              guardSensitive() ||
-              !sessions.isVerified(stream, recipient.qid.toString())
-            ) {
-              stream.reset();
-              console.error("Could not authorize a chat connection.");
               return;
             }
             stream.write(encodeFrame(frame));

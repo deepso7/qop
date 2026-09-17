@@ -392,6 +392,24 @@ describe("inbound chat streams", () => {
     expect(stream.reset).not.toHaveBeenCalled();
   });
 
+  it("acks an inbound frame even if connectionEstablished was missed", async () => {
+    await useP2pStore.getState().start();
+    const stream = makeInboundStream(inboundFrame(messageId));
+    onStream?.(stream);
+    await vi.waitFor(async () =>
+      expect(await getMessageById(messageId)).toMatchObject({
+        contactQid: "1",
+        direction: "in",
+        status: "received",
+        text: "hello inbound",
+      })
+    );
+    expect(stream.write).toHaveBeenCalledWith(
+      encodeAck({ ack: messageId, v: 1 })
+    );
+    expect(stream.reset).not.toHaveBeenCalled();
+  });
+
   it("invalidates authorization on app resume so the next verify hits the registry", async () => {
     await useP2pStore.getState().start();
     connectionEstablished?.({ connId: 7, peerId: PEER_BOB });

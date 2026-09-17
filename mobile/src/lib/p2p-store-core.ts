@@ -213,6 +213,9 @@ export const createP2pStore = ({
     jobGeneration: number
   ): Promise<void> => {
     try {
+      if (isCurrentGeneration(jobGeneration)) {
+        sessions.opened(stream);
+      }
       const received = await readVerifiedChat(
         stream,
         (connection, fromHandle) =>
