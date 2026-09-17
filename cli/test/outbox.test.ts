@@ -15,7 +15,9 @@ import {
 } from "../src/outbox.ts";
 
 const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
+const PEER_CAROL = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
 const bobDeviceKey = `0x${"22".repeat(32)}`;
+const carolDeviceKey = `0x${"33".repeat(32)}`;
 const id = "c56a4180-65aa-42ec-a945-5fd21dec0538";
 
 const account: RegistryAccount = {
@@ -30,6 +32,15 @@ const account: RegistryAccount = {
   peerId: PEER_BOB,
   qid: 1n,
   registeredAt: 1n,
+};
+
+const carolAccount: RegistryAccount = {
+  ...account,
+  deviceKey: carolDeviceKey,
+  devices: [{ deviceKey: carolDeviceKey, peerId: PEER_CAROL }],
+  handle: "carol",
+  peerId: PEER_CAROL,
+  qid: 2n,
 };
 
 const frame = {
@@ -207,7 +218,7 @@ describe("CLI outbox retry", () => {
       now += 1;
       yield* outbox.flushDue();
       expect(attempts).toEqual([1000]);
-      yield* outbox.flushDue({ ignoreBackoff: true });
+      yield* outbox.flushDue({ ignoreBackoffForQid: "1" });
       expect(attempts).toEqual([1000, now]);
       const waiting = yield* store.queued();
       expect(waiting[0]?.status).toBe("queued");
@@ -223,6 +234,7 @@ describe("CLI outbox retry", () => {
         const store = createCliOutboxStore(root);
         const firstStarted = yield* Deferred.make<boolean>();
         const releaseFirst = yield* Deferred.make<boolean>();
+        const otherDelivered = yield* Deferred.make<boolean>();
         const delivered: string[] = [];
         const otherId = "c56a4180-65aa-42ec-a945-5fd21dec0539";
         const outbox = createOutboxRuntime({
@@ -234,8 +246,10 @@ describe("CLI outbox retry", () => {
                 delivered.push(record.frame.id);
               });
             }
-            delivered.push(record.frame.id);
-            return Effect.void;
+            return Effect.gen(function* () {
+              delivered.push(record.frame.id);
+              yield* Deferred.succeed(otherDelivered, true);
+            });
           },
           lookupHandle: () => Effect.succeed(account),
           now: () => 1000,
@@ -250,11 +264,86 @@ describe("CLI outbox retry", () => {
         const firstFlush = yield* Effect.forkChild(outbox.flushDue());
         yield* Deferred.await(firstStarted);
         yield* outbox.flushDue();
+        yield* Deferred.await(otherDelivered);
         expect(delivered).toEqual([otherId]);
         yield* Deferred.succeed(releaseFirst, true);
         yield* Fiber.join(firstFlush);
         expect(delivered).toEqual([otherId, id]);
         expect(yield* store.queued()).toEqual([]);
       })
+  );
+
+  it.effect(
+    "delivers a reachable recipient while another delivery is still in flight",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        const store = createCliOutboxStore(root);
+        const carolStarted = yield* Deferred.make<boolean>();
+        const bobDelivered = yield* Deferred.make<boolean>();
+        const releaseCarol = yield* Deferred.make<boolean>();
+        const delivered: string[] = [];
+        const carolId = "c56a4180-65aa-42ec-a945-5fd21dec0539";
+        const outbox = createOutboxRuntime({
+          deliver: (record) => {
+            if (record.toHandle === "carol") {
+              return Effect.gen(function* () {
+                yield* Deferred.succeed(carolStarted, true);
+                yield* Deferred.await(releaseCarol);
+                delivered.push(record.frame.id);
+              });
+            }
+            return Effect.gen(function* () {
+              delivered.push(record.frame.id);
+              yield* Deferred.succeed(bobDelivered, true);
+            });
+          },
+          lookupHandle: (handle) =>
+            Effect.succeed(handle === "carol" ? carolAccount : account),
+          now: () => 1000,
+          store,
+        });
+        yield* outbox.enqueue({
+          frame: { ...frame, id: carolId, text: "offline" },
+          toHandle: "carol",
+          toQid: "2",
+        });
+        yield* outbox.enqueue({ frame, toHandle: "bob", toQid: "1" });
+        const flush = yield* Effect.forkChild(outbox.flushDue());
+        yield* Deferred.await(carolStarted);
+        yield* Deferred.await(bobDelivered);
+        expect(delivered).toEqual([id]);
+        yield* Deferred.succeed(releaseCarol, true);
+        yield* Fiber.join(flush);
+        expect(delivered).toEqual([id, carolId]);
+        expect(yield* store.queued()).toEqual([]);
+      })
+  );
+
+  it.effect("keeps backoff for records unrelated to a connection flush", () =>
+    Effect.gen(function* () {
+      const root = yield* withTempRoot;
+      const store = createCliOutboxStore(root);
+      const attempts: string[] = [];
+      let now = 1000;
+      const outbox = createOutboxRuntime({
+        deliver: (record) => {
+          attempts.push(record.toHandle);
+          return Effect.fail(new Error("connect deadline elapsed"));
+        },
+        lookupHandle: (handle) =>
+          Effect.succeed(handle === "carol" ? carolAccount : account),
+        now: () => now,
+        store,
+      });
+      yield* outbox.enqueue({ frame, toHandle: "bob", toQid: "1" });
+      yield* outbox.flushDue();
+      expect(attempts).toEqual(["bob"]);
+      now += 1;
+      yield* outbox.flushDue({ ignoreBackoffForQid: "2" });
+      expect(attempts).toEqual(["bob"]);
+      yield* outbox.flushDue({ ignoreBackoffForQid: "1" });
+      expect(attempts).toEqual(["bob", "bob"]);
+    })
   );
 });

@@ -311,6 +311,34 @@ describe("deliverChatFrame", () => {
     })
   );
 
+  it("does not write when authorization is invalidated after verify", async () => {
+    const sessions = makeSessions();
+    const stream = makeStream();
+    const originalIsVerified = sessions.isVerified.bind(sessions);
+    vi.spyOn(sessions, "isVerified").mockImplementation((connection, qid) => {
+      const authorized = originalIsVerified(connection, qid);
+      sessions.invalidateAuthorization();
+      return authorized;
+    });
+    const transport = {
+      connect: vi.fn(),
+      connectedPeers: vi.fn((): string[] => [PEER_BOB]),
+      openStream: vi.fn().mockResolvedValue(stream),
+      waitPeerReady: vi.fn(async () => {
+        await Promise.resolve();
+        return {};
+      }),
+    };
+
+    await expect(
+      Effect.runPromise(
+        deliverChatFrame(transport, sessions, bobRecipient, chatFrame)
+      )
+    ).rejects.toThrow("no longer authorized");
+    expect(stream.write).not.toHaveBeenCalled();
+    expect(stream.reset).toHaveBeenCalledOnce();
+  });
+
   it("does not reset after a matching ack", async () => {
     const sessions = makeSessions();
     const stream = makeStream();

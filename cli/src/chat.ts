@@ -1,4 +1,5 @@
 import { Minip2p, PeerDisconnectedError } from "@minip2p/node";
+import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
 import {
   assertAckMatches,
   CHAT_PROTOCOL,
@@ -16,7 +17,7 @@ import type {
   SessionContact,
   SessionContactInput,
 } from "@qop/protocol";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
 
 import { CliConfigError, cliRelays, configuredRegistry } from "./config.ts";
 import type { createCliIdentityStore } from "./identity-store.ts";
@@ -170,6 +171,12 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
     recipient
   );
   return yield* Effect.gen(function* () {
+    // Recheck immediately before write: SIGCONT/stall can invalidate after verify.
+    if (!sessions.isVerified(stream, recipient.qid)) {
+      return yield* Effect.fail(
+        new Error("Chat connection is no longer authorized")
+      );
+    }
     yield* Effect.try({
       catch: transportError,
       try: () => {
@@ -309,7 +316,22 @@ export const runStart = Effect.fn("qop.start")(function* (
           endpoint.on("connectionEstablished", (connection) => {
             sessions.opened(connection);
             Effect.runFork(
-              outbox.flushDue({ ignoreBackoff: true }).pipe(Effect.ignore)
+              Effect.gen(function* () {
+                const qid = yield* Schema.decodeUnknownEffect(PeerId)(
+                  connection.peerId
+                ).pipe(
+                  Effect.flatMap(deviceKeyFromPeerId),
+                  Effect.flatMap((deviceKey) =>
+                    Schema.encodeEffect(Hex32)(deviceKey)
+                  ),
+                  Effect.flatMap(reader.lookupDeviceKey),
+                  Effect.map((account) => account?.qid.toString()),
+                  Effect.orElseSucceed((): string | undefined => undefined)
+                );
+                yield* outbox.flushDue(
+                  qid ? { ignoreBackoffForQid: qid } : undefined
+                );
+              }).pipe(Effect.ignore)
             );
           });
           endpoint.on("connectionClosed", (connection) => {

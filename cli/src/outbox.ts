@@ -11,6 +11,8 @@ import type { createCliOutboxStore } from "./outbox-store.ts";
 export const OUTBOX_INITIAL_BACKOFF_MS = 2000;
 export const OUTBOX_MAX_BACKOFF_MS = 60_000;
 export const OUTBOX_POLL_MS = 2000;
+/** Cap concurrent deliveries so one hung peer cannot open unbounded streams. */
+export const OUTBOX_FLUSH_CONCURRENCY = 8;
 
 /** Jitter-free exponential backoff, capped at one minute. */
 export const nextAttemptDelayMs = (attempts: number) => {
@@ -181,15 +183,18 @@ export const createOutboxRuntime = ({
   });
 
   const flushDue = Effect.fn("qop.outbox.flushDue")(function* (options?: {
-    readonly ignoreBackoff?: boolean;
+    readonly ignoreBackoffForQid?: string;
   }) {
     const pending = yield* store.queued();
     const at = now();
-    for (const record of pending) {
-      if (options?.ignoreBackoff || record.nextAttemptAt <= at) {
-        yield* deliverOne(record);
-      }
-    }
+    const due = pending.filter(
+      (record) =>
+        record.nextAttemptAt <= at ||
+        record.toQid === options?.ignoreBackoffForQid
+    );
+    yield* Effect.forEach(due, (record) => deliverOne(record), {
+      concurrency: OUTBOX_FLUSH_CONCURRENCY,
+    });
   });
 
   const resume = Effect.fn("qop.outbox.resume")(function* () {
