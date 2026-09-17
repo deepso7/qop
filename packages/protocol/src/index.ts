@@ -40,6 +40,41 @@ export type {
   OutboxStatus,
 } from "./outbox.ts";
 export {
+  SYNC_PROTOCOL,
+  MAX_SYNC_PAYLOAD_BYTES,
+  SYNC_POLL_MAX_IDS,
+  SyncHandoffV1,
+  SyncPollV1,
+  SyncRequestV1,
+  SyncHeldV1,
+  SyncReceiptV1,
+  SyncReceiptsV1,
+  SyncErrorV1,
+  SyncResponseV1,
+  SyncCodecError,
+  encodeSyncRequestV1,
+  encodeSyncResponseV1,
+  decodeSyncRequestV1,
+  decodeSyncResponseV1,
+  assertHeldMatches,
+} from "./sync.ts";
+export type {
+  SyncHandoffV1 as SyncHandoff,
+  SyncPollV1 as SyncPoll,
+  SyncRequestV1 as SyncRequest,
+  SyncHeldV1 as SyncHeld,
+  SyncReceiptV1 as SyncReceipt,
+  SyncReceiptsV1 as SyncReceipts,
+  SyncErrorV1 as SyncError,
+  SyncResponseV1 as SyncResponse,
+} from "./sync.ts";
+export {
+  readSyncRequest,
+  readSyncResponse,
+  writeSyncRequest,
+  writeSyncResponse,
+} from "./sync-io.ts";
+export {
   DEVICE_ACTION_DEADLINE_SECONDS,
   MAX_ACTIVE_DEVICES,
   PAIR_PROTOCOL,

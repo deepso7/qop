@@ -147,6 +147,18 @@ const ChatCatalog = () => {
 
           <Message align="end">
             <MessageContent>
+              <MessageBubble tone="pending">
+                <Text selectable>held by the CLI until Bob is back</Text>
+                <MessageMeta status="sending" time="8:14" />
+              </MessageBubble>
+              <MessageFooter>
+                <MessageStatus disabled label="Waiting on your CLI" />
+              </MessageFooter>
+            </MessageContent>
+          </Message>
+
+          <Message align="end">
+            <MessageContent>
               <MessageBubble tone="failed">
                 <Text selectable>couldn’t reach peer</Text>
               </MessageBubble>

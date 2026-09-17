@@ -273,6 +273,21 @@ export const createCliOutboxStore = (root: string) => {
     return (yield* queued()).length;
   });
 
+  const getByIds = Effect.fn("CliOutbox.getByIds")(function* (
+    ids: readonly string[]
+  ) {
+    if (ids.length === 0) {
+      return emptyOutbox;
+    }
+    const wanted = new Set(ids);
+    return yield* outboxLock.withPermit(
+      Effect.gen(function* () {
+        const records = yield* loadRecordsUnlocked();
+        return records.filter((record) => wanted.has(record.frame.id));
+      })
+    );
+  });
+
   const loadInbox = Effect.fn("CliOutbox.loadInbox")(function* () {
     return yield* inboxLock.withPermit(loadInboxUnlocked());
   });
@@ -300,6 +315,7 @@ export const createCliOutboxStore = (root: string) => {
 
   return {
     enqueue,
+    getByIds,
     loadInbox,
     loadRecords,
     put,

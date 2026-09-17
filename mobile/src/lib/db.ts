@@ -21,7 +21,7 @@ export interface ContactInput {
 }
 
 export type MessageDirection = "in" | "out";
-export type MessageStatus = "failed" | "received" | "sending" | "sent";
+export type MessageStatus = "failed" | "held" | "received" | "sending" | "sent";
 
 export interface StoredMessage {
   readonly contactQid: string;
@@ -73,6 +73,38 @@ let databasePromise: Promise<SQLite.SQLiteDatabase> | undefined;
 const failInterruptedMessagesSql = `UPDATE messages SET status = 'failed'
   WHERE direction = 'out' AND status = 'sending'`;
 
+const MESSAGES_SCHEMA_VERSION = 2;
+const messagesStatusCheck =
+  "status IN ('sending','sent','failed','received','held')";
+
+const migrateMessagesSchema = async (database: SQLite.SQLiteDatabase) => {
+  const rows = await database.getAllAsync<{ user_version: number }>(
+    "PRAGMA user_version"
+  );
+  if ((rows[0]?.user_version ?? 0) >= MESSAGES_SCHEMA_VERSION) {
+    return;
+  }
+  await database.execAsync(`
+    CREATE TABLE messages_v2 (
+      id TEXT PRIMARY KEY,
+      contact_qid TEXT NOT NULL REFERENCES contacts(qid) ON DELETE CASCADE,
+      direction TEXT NOT NULL CHECK (direction IN ('in','out')),
+      text TEXT NOT NULL,
+      sent_at INTEGER NOT NULL,
+      received_at INTEGER NOT NULL,
+      status TEXT NOT NULL CHECK (${messagesStatusCheck})
+    );
+    INSERT INTO messages_v2
+      SELECT id, contact_qid, direction, text, sent_at, received_at, status
+      FROM messages;
+    DROP TABLE messages;
+    ALTER TABLE messages_v2 RENAME TO messages;
+    CREATE INDEX IF NOT EXISTS messages_contact_received_idx
+      ON messages(contact_qid, received_at);
+    PRAGMA user_version = ${MESSAGES_SCHEMA_VERSION};
+  `);
+};
+
 const openDatabase = async () => {
   const database = await SQLite.openDatabaseAsync("qop.db");
   await database.execAsync(`
@@ -95,13 +127,14 @@ const openDatabase = async () => {
       text TEXT NOT NULL,
       sent_at INTEGER NOT NULL,
       received_at INTEGER NOT NULL,
-      status TEXT NOT NULL CHECK (status IN ('sending','sent','failed','received'))
+      status TEXT NOT NULL CHECK (${messagesStatusCheck})
     );
     DROP INDEX IF EXISTS messages_contact_sent_idx;
     CREATE INDEX IF NOT EXISTS messages_contact_received_idx
       ON messages(contact_qid, received_at);
-    ${failInterruptedMessagesSql};
   `);
+  await migrateMessagesSchema(database);
+  await database.execAsync(failInterruptedMessagesSql);
   return database;
 };
 
@@ -280,6 +313,35 @@ export const updateMessageStatus = async (
   );
 };
 
+const ADVANCE_FROM: Record<MessageStatus, readonly MessageStatus[]> = {
+  failed: ["sending"],
+  held: ["failed", "sending"],
+  received: [],
+  sending: ["failed"],
+  sent: ["failed", "held", "sending"],
+};
+
+/** Apply a delivery-status transition without clobbering a later terminal state. */
+export const advanceMessageStatus = async (
+  id: string,
+  status: MessageStatus
+): Promise<boolean> => {
+  const allowedFrom = ADVANCE_FROM[status];
+  if (allowedFrom.length === 0) {
+    return false;
+  }
+  const database = await getDatabase();
+  const result = await database.runAsync(
+    `UPDATE messages SET status = ? WHERE id = ? AND status IN (${allowedFrom
+      .map(() => "?")
+      .join(",")})`,
+    status,
+    id,
+    ...allowedFrom
+  );
+  return result.changes > 0;
+};
+
 // Endpoint shutdown and app startup make interrupted sends manually retryable.
 export const failInterruptedMessages = async (): Promise<void> => {
   const database = await getDatabase();
@@ -313,6 +375,14 @@ export const listMessages = async (
   return database.getAllAsync<MessageRow>(
     `${messageSelect} WHERE contact_qid = ? ORDER BY received_at, rowid`,
     contactQid
+  );
+};
+
+export const listOutgoingPending = async (): Promise<StoredMessage[]> => {
+  const database = await getDatabase();
+  return database.getAllAsync<MessageRow>(
+    `${messageSelect} WHERE direction = 'out' AND status IN ('failed','held','sending')
+     ORDER BY received_at, rowid`
   );
 };
 

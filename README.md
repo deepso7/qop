@@ -12,7 +12,7 @@ Messages travel peer to peer. Identity lives on chain. A small API sponsors invi
 1. **Identity registry** (`contracts/`). A Solidity contract maps a permanent handle to an owner address and raw Ed25519 device keys. It is the single source of truth for who owns which handle. Registration starts invitation gated and can be opened permanently by the registration admin.
 2. **API** (`api/`). Verifies owner-signed EIP-712 intents and relays gas for registration and add/remove device actions. Clients still confirm account and device membership over RPC.
 3. **Mobile app** (`mobile/`). An Expo app that generates keys on device, registers through the API, links additional devices, resolves peers from the chain, and chats over minip2p. Each transport connection is verified against the registry with a bounded authorization cache.
-4. **CLI** (`cli/`). Links a separate device key with phone approval, then runs diagnostic chat as the same account. Durable outbox handoff is a later milestone.
+4. **CLI** (`cli/`). Links a separate device key with phone approval, then runs as the same account. Phone-composed text can be handed off to a reachable CLI over `/qop/sync/1`; the CLI persists it in `outbox.json` and retries while it runs.
 5. **Identity library** (`packages/identity/`). Shared key derivation, EIP-712 domains and intents, recovery key encoding, and wire codecs.
 6. **Protocol library** (`packages/protocol/`). Pairing codecs and the shared registry/session/chat pieces used by phone and CLI.
 

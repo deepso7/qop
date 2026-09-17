@@ -10,6 +10,7 @@ import {
   listMessages,
   markConversationRead,
   upsertContact,
+  advanceMessageStatus,
 } from "@/lib/db";
 import type { MessageInput } from "@/lib/db";
 
@@ -212,6 +213,50 @@ describe("interrupted sends", () => {
     });
     await failInterruptedMessages();
     expect(await listMessages("1")).toEqual(after);
+  });
+
+  it("keeps held messages pending across restart", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "held",
+      sentAt: 100,
+      status: "held",
+      text: "waiting on CLI",
+    });
+    await failInterruptedMessages();
+    expect(await getMessageById("held")).toMatchObject({ status: "held" });
+  });
+});
+
+describe("delivery status transitions", () => {
+  it("does not let a late held clobber sent", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "race",
+      sentAt: 100,
+      status: "sending",
+      text: "hello",
+    });
+    expect(await advanceMessageStatus("race", "sent")).toBe(true);
+    expect(await advanceMessageStatus("race", "held")).toBe(false);
+    expect(await getMessageById("race")).toMatchObject({ status: "sent" });
+  });
+
+  it("promotes held to sent on a receipt", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "held-receipt",
+      sentAt: 100,
+      status: "held",
+      text: "hello",
+    });
+    expect(await advanceMessageStatus("held-receipt", "sent")).toBe(true);
+    expect(await getMessageById("held-receipt")).toMatchObject({
+      status: "sent",
+    });
   });
 });
 

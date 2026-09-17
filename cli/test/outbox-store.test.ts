@@ -48,6 +48,9 @@ describe("CLI outbox store", () => {
       const pending = yield* reloaded.queued();
       expect(pending).toEqual([queuedRecord]);
       expect(yield* reloaded.queuedCount()).toBe(1);
+      expect(yield* reloaded.getByIds([queuedRecord.frame.id])).toEqual([
+        queuedRecord,
+      ]);
       const info = yield* Effect.tryPromise(() =>
         stat(path.join(root, "outbox.json"))
       );

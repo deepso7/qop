@@ -1,5 +1,5 @@
 import type { Minip2p, Stream, Unsubscribe } from "@minip2p/react-native";
-import { PAIR_PROTOCOL } from "@qop/protocol";
+import { PAIR_PROTOCOL, SYNC_PROTOCOL } from "@qop/protocol";
 import { Effect } from "effect";
 import { create } from "zustand";
 import type { StoreApi } from "zustand";
@@ -7,19 +7,27 @@ import type { StoreApi } from "zustand";
 import { CHAT_PROTOCOL, encodeAck } from "./chat-wire";
 import type { ChatFrame } from "./chat-wire";
 import {
+  advanceMessageStatus,
   failInterruptedMessages,
   getContactByQid,
   getMessageById,
   insertMessage,
+  listOutgoingPending,
   updateMessageStatus,
   upsertContact,
 } from "./db";
-import type { Contact, MessageInput } from "./db";
+import type { Contact, MessageInput, StoredMessage } from "./db";
 import type { loadDeviceSecretKey } from "./identity-vault";
 import { readVerifiedChat } from "./p2p-receive";
 import { withTimeout } from "./p2p-send";
 import type { performSend } from "./p2p-send";
 import { createPeerSessions } from "./p2p-sessions";
+import {
+  otherOwnDevicePeerIds,
+  outgoingHandoffRecord,
+  pickHolderPeerId,
+} from "./p2p-sync";
+import type { OwnDevice, performHandoff, performPoll } from "./p2p-sync";
 import type { lookupDeviceKey, lookupHandle } from "./registry";
 
 type P2pStatus = "failed" | "running" | "starting" | "stopped";
@@ -98,7 +106,10 @@ interface P2pDependencies {
   readonly loadDeviceSecretKey: typeof loadDeviceSecretKey;
   readonly lookupDeviceKey: typeof lookupDeviceKey;
   readonly lookupHandle: typeof lookupHandle;
+  readonly performHandoff?: typeof performHandoff;
+  readonly performPoll?: typeof performPoll;
   readonly performSend: typeof performSend;
+  readonly getOwnDevice?: () => OwnDevice | undefined;
   readonly randomUUID: () => string;
   /** Called when the app resumes from background/suspend; invalidate live auth. */
   readonly subscribeAppResume?: (onResume: () => void) => Unsubscribe;
@@ -114,9 +125,12 @@ const uninitializedSetState: StoreApi<P2pStore>["setState"] = () => {
 export const createP2pStore = ({
   createEndpoint,
   getIdentityHandle,
+  getOwnDevice,
   loadDeviceSecretKey,
   lookupDeviceKey,
   lookupHandle,
+  performHandoff,
+  performPoll,
   performSend,
   randomUUID,
   subscribeAppResume,
@@ -255,6 +269,141 @@ export const createP2pStore = ({
     }
   };
 
+  const handoffJobs = new Map<string, Promise<boolean>>();
+
+  const resolveHolderPeerId = async (activeEndpoint: P2pEndpoint) => {
+    const own = getOwnDevice?.();
+    if (!own) {
+      return;
+    }
+    const account = await Effect.runPromise(lookupHandle(own.handle));
+    if (!account || account.qid.toString() !== own.qid) {
+      return;
+    }
+    return pickHolderPeerId(
+      otherOwnDevicePeerIds(own.peerId, account.devices),
+      activeEndpoint.connectedPeers()
+    );
+  };
+
+  const handoffToHolder = (
+    message: Pick<StoredMessage, "id" | "sentAt" | "text">,
+    contact: Contact,
+    jobGeneration: number,
+    signal?: AbortSignal
+  ) => {
+    const existing = handoffJobs.get(message.id);
+    if (existing) {
+      return existing;
+    }
+    const job = (async () => {
+      const own = getOwnDevice?.();
+      const activeEndpoint = endpoint;
+      if (!own || !performHandoff || !activeEndpoint) {
+        return false;
+      }
+      const holderPeerId = await resolveHolderPeerId(activeEndpoint);
+      if (!holderPeerId || !isCurrentGeneration(jobGeneration)) {
+        return false;
+      }
+      await performHandoff({
+        composedBy: own.deviceKey,
+        endpoint: activeEndpoint,
+        holderPeerId,
+        own,
+        record: outgoingHandoffRecord({
+          contact,
+          fromHandle: own.handle,
+          id: message.id,
+          now: Date.now(),
+          sentAt: message.sentAt,
+          text: message.text,
+        }),
+        sessions,
+        signal,
+        timeoutMs: 10_000,
+      });
+      return true;
+    })();
+    handoffJobs.set(message.id, job);
+    const removeWhenDone = async () => {
+      await Promise.allSettled([job]);
+      if (handoffJobs.get(message.id) === job) {
+        handoffJobs.delete(message.id);
+      }
+    };
+    void removeWhenDone();
+    return job;
+  };
+
+  const applyReceipts = async (
+    ids: readonly string[],
+    jobGeneration: number
+  ) => {
+    const own = getOwnDevice?.();
+    const activeEndpoint = endpoint;
+    if (!own || !performPoll || !activeEndpoint || ids.length === 0) {
+      return;
+    }
+    const holderPeerId = await resolveHolderPeerId(activeEndpoint);
+    if (!holderPeerId || !isCurrentGeneration(jobGeneration)) {
+      return;
+    }
+    const receipts = await performPoll({
+      endpoint: activeEndpoint,
+      holderPeerId,
+      ids,
+      own,
+      sessions,
+      timeoutMs: 10_000,
+    });
+    if (!isCurrentGeneration(jobGeneration)) {
+      return;
+    }
+    await Promise.all(
+      receipts.map((receipt) => advanceMessageStatus(receipt.id, "sent"))
+    );
+  };
+
+  const reconcileOwnHolders = async (jobGeneration: number) => {
+    try {
+      if (!getOwnDevice?.() || !isCurrentGeneration(jobGeneration)) {
+        return;
+      }
+      const pending = await listOutgoingPending();
+      await applyReceipts(
+        pending
+          .filter((message) => message.status === "held")
+          .map((message) => message.id),
+        jobGeneration
+      );
+      const remaining = await listOutgoingPending();
+      await Promise.all(
+        remaining.map(async (message) => {
+          if (!isCurrentGeneration(jobGeneration)) {
+            return;
+          }
+          const contact = await getContactByQid(message.contactQid);
+          if (!contact) {
+            return;
+          }
+          try {
+            if (await handoffToHolder(message, contact, jobGeneration)) {
+              await advanceMessageStatus(message.id, "held");
+            }
+          } catch {
+            // Handoff is opportunistic; local status stays pending until a holder accepts.
+          }
+        })
+      );
+      if (isCurrentGeneration(jobGeneration)) {
+        storeBridge.setState((state) => ({ revision: state.revision + 1 }));
+      }
+    } catch {
+      // Reconcile is best-effort; live chat must keep running.
+    }
+  };
+
   const sendStoredMessage = async (
     message: MessageInput,
     contact: Contact,
@@ -271,7 +420,7 @@ export const createP2pStore = ({
         if (!isCurrentGeneration(jobGeneration)) {
           return;
         }
-        await updateMessageStatus(message.id, "failed");
+        await advanceMessageStatus(message.id, "failed");
         return;
       }
 
@@ -282,24 +431,45 @@ export const createP2pStore = ({
         text: message.text,
         v: 1,
       };
-      await performSend({
-        contact,
-        endpoint: activeEndpoint,
-        frame,
-        sessions,
-        signal,
-        timeoutMs: 10_000,
-      });
+      const delivered = (async () => {
+        try {
+          await performSend({
+            contact,
+            endpoint: activeEndpoint,
+            frame,
+            sessions,
+            signal,
+            timeoutMs: 10_000,
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+      const handedOff = (async () => {
+        try {
+          return await handoffToHolder(message, contact, jobGeneration, signal);
+        } catch {
+          return false;
+        }
+      })();
+      const [bobAcked, cliHeld] = await Promise.all([delivered, handedOff]);
       if (!isCurrentGeneration(jobGeneration)) {
         return;
       }
-      await updateMessageStatus(message.id, "sent");
+      if (bobAcked) {
+        await advanceMessageStatus(message.id, "sent");
+      } else if (cliHeld) {
+        await advanceMessageStatus(message.id, "held");
+      } else {
+        await advanceMessageStatus(message.id, "failed");
+      }
     } catch {
       try {
         if (!isCurrentGeneration(jobGeneration)) {
           return;
         }
-        await updateMessageStatus(message.id, "failed");
+        await advanceMessageStatus(message.id, "failed");
       } catch {
         // A storage failure is reflected in the store without leaking a rejection.
       }
@@ -545,7 +715,7 @@ export const createP2pStore = ({
         }
         const binding = createEndpoint({
           agentVersion: "qop/0.1.0",
-          protocols: [CHAT_PROTOCOL, PAIR_PROTOCOL],
+          protocols: [CHAT_PROTOCOL, PAIR_PROTOCOL, SYNC_PROTOCOL],
           relays,
           secretKey,
         });
@@ -619,6 +789,7 @@ export const createP2pStore = ({
           created.on("connectionEstablished", (connection) => {
             if (generation === startGeneration) {
               sessions.opened(connection);
+              void trackJob(reconcileOwnHolders(startGeneration));
             }
           }),
           created.on("peerReady", refreshPeers),
@@ -656,6 +827,7 @@ export const createP2pStore = ({
           relayReserved: created.activeReservation() !== undefined,
           status: "running",
         });
+        void trackJob(reconcileOwnHolders(startGeneration));
       } catch (error) {
         if (generation === startGeneration) {
           set({

@@ -10,6 +10,7 @@ import {
   encodeFrame,
   MAX_CHAT_PAYLOAD_BYTES,
   PeerVerificationError,
+  SYNC_PROTOCOL,
 } from "@qop/protocol";
 import type {
   ChatFrame,
@@ -38,6 +39,7 @@ import {
   UNPROVEN_LIFECYCLE_OVERRIDE_ENV,
   withMessagingLifecycle,
 } from "./process-lifecycle.ts";
+import { handleInboundSyncStream } from "./sync.ts";
 
 const MAX_INBOUND_STREAMS = 8;
 const INBOUND_READ_TIMEOUT_MS = 15_000;
@@ -313,7 +315,7 @@ export const runStart = Effect.fn("qop.start")(function* (
         const relays = cliRelays();
         const chatConfig = {
           agentVersion: "qop-cli/0.1.0",
-          protocols: [CHAT_PROTOCOL],
+          protocols: [CHAT_PROTOCOL, SYNC_PROTOCOL],
           secretKey,
         };
         const endpoint = Minip2p.create(
@@ -386,7 +388,10 @@ export const runStart = Effect.fn("qop.start")(function* (
             sessions.closed(connection);
           });
           endpoint.on("stream", (stream) => {
-            if (stream.protocolId !== CHAT_PROTOCOL) {
+            if (
+              stream.protocolId !== CHAT_PROTOCOL &&
+              stream.protocolId !== SYNC_PROTOCOL
+            ) {
               stream.reset();
               return;
             }
@@ -395,51 +400,80 @@ export const runStart = Effect.fn("qop.start")(function* (
               return;
             }
             inbound += 1;
-            Effect.runFork(
-              Effect.gen(function* () {
-                guardSensitive();
-                const bytes = yield* Effect.tryPromise({
-                  catch: (cause) =>
-                    cause instanceof Error ? cause : new Error(String(cause)),
-                  try: () => readUntilEof(() => stream.read()),
-                }).pipe(
-                  Effect.timeoutOrElse({
-                    duration: INBOUND_READ_TIMEOUT_MS,
-                    orElse: () =>
-                      Effect.fail(new Error("Inbound chat read timed out")),
+            const inboundProgram =
+              stream.protocolId === SYNC_PROTOCOL
+                ? Effect.gen(function* () {
+                    if (guardSensitive()) {
+                      stream.reset();
+                      return;
+                    }
+                    const response = yield* handleInboundSyncStream(
+                      stream,
+                      sessions,
+                      {
+                        handle: identity.handle,
+                        qid: identity.qid,
+                      },
+                      messages
+                    ).pipe(
+                      Effect.timeoutOrElse({
+                        duration: INBOUND_READ_TIMEOUT_MS,
+                        orElse: () =>
+                          Effect.fail(new Error("Inbound sync timed out")),
+                      })
+                    );
+                    if (response.type === "held") {
+                      console.log(`Holding ${response.id} from own device.`);
+                    }
                   })
-                );
-                const frame = decodeFrame(bytes);
-                if (guardSensitive()) {
-                  stream.reset();
-                  return;
-                }
-                sessions.opened(stream);
-                const contact = yield* sessions.verify(
-                  stream,
-                  frame.fromHandle
-                );
-                if (
-                  guardSensitive() ||
-                  !sessions.isVerified(stream, contact.qid)
-                ) {
-                  stream.reset();
-                  return;
-                }
-                const saved = yield* ackInboundChatFrame(
-                  stream,
-                  {
-                    frame,
-                    fromQid: contact.qid,
-                    receivedAt: Date.now(),
-                    v: 1,
-                  },
-                  messages.putInbox
-                );
-                if (saved.inserted) {
-                  console.log(`@${frame.fromHandle}: ${frame.text}`);
-                }
-              }).pipe(
+                : Effect.gen(function* () {
+                    guardSensitive();
+                    const bytes = yield* Effect.tryPromise({
+                      catch: (cause) =>
+                        cause instanceof Error
+                          ? cause
+                          : new Error(String(cause)),
+                      try: () => readUntilEof(() => stream.read()),
+                    }).pipe(
+                      Effect.timeoutOrElse({
+                        duration: INBOUND_READ_TIMEOUT_MS,
+                        orElse: () =>
+                          Effect.fail(new Error("Inbound chat read timed out")),
+                      })
+                    );
+                    const frame = decodeFrame(bytes);
+                    if (guardSensitive()) {
+                      stream.reset();
+                      return;
+                    }
+                    sessions.opened(stream);
+                    const contact = yield* sessions.verify(
+                      stream,
+                      frame.fromHandle
+                    );
+                    if (
+                      guardSensitive() ||
+                      !sessions.isVerified(stream, contact.qid)
+                    ) {
+                      stream.reset();
+                      return;
+                    }
+                    const saved = yield* ackInboundChatFrame(
+                      stream,
+                      {
+                        frame,
+                        fromQid: contact.qid,
+                        receivedAt: Date.now(),
+                        v: 1,
+                      },
+                      messages.putInbox
+                    );
+                    if (saved.inserted) {
+                      console.log(`@${frame.fromHandle}: ${frame.text}`);
+                    }
+                  });
+            Effect.runFork(
+              inboundProgram.pipe(
                 Effect.ensuring(
                   Effect.sync(() => {
                     inbound -= 1;
