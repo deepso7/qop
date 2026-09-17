@@ -4,6 +4,7 @@ import {
   readFile,
   rename,
   stat,
+  unlink,
   writeFile,
 } from "node:fs/promises";
 import path from "node:path";
@@ -14,7 +15,7 @@ import {
   inboxRecordsConflict,
   outboxRecordsConflict,
 } from "@qop/protocol";
-import { Data, Effect, Schema } from "effect";
+import { Data, Effect, Schema, Semaphore } from "effect";
 
 const MODE_DIR = 0o700;
 const MODE_FILE = 0o600;
@@ -60,19 +61,28 @@ const writeAtomic = Effect.fn("CliOutbox.writeAtomic")(function* (
     try: () =>
       mkdir(path.dirname(filePath), { mode: MODE_DIR, recursive: true }),
   });
-  const temporary = `${filePath}.tmp`;
-  yield* Effect.tryPromise({
-    catch: () => storeError("write"),
-    try: () => writeFile(temporary, contents, { mode: MODE_FILE }),
-  });
-  yield* Effect.tryPromise({
-    catch: () => storeError("write"),
-    try: () => chmod(temporary, MODE_FILE),
-  });
-  yield* Effect.tryPromise({
-    catch: () => storeError("write"),
-    try: () => rename(temporary, filePath),
-  });
+  const temporary = `${filePath}.${crypto.randomUUID()}.tmp`;
+  yield* Effect.gen(function* () {
+    yield* Effect.tryPromise({
+      catch: () => storeError("write"),
+      try: () => writeFile(temporary, contents, { mode: MODE_FILE }),
+    });
+    yield* Effect.tryPromise({
+      catch: () => storeError("write"),
+      try: () => chmod(temporary, MODE_FILE),
+    });
+    yield* Effect.tryPromise({
+      catch: () => storeError("write"),
+      try: () => rename(temporary, filePath),
+    });
+  }).pipe(
+    Effect.tapError(() =>
+      Effect.tryPromise({
+        catch: () => storeError("write"),
+        try: () => unlink(temporary),
+      }).pipe(Effect.ignore)
+    )
+  );
 });
 
 const readTextOptional = (filePath: string) =>
@@ -117,45 +127,51 @@ const emptyInbox: InboxRecordV1[] = [];
 export const createCliOutboxStore = (root: string) => {
   const outboxPath = path.join(root, "outbox.json");
   const inboxPath = path.join(root, "inbox.json");
+  const outboxLock = Semaphore.makeUnsafe(1);
+  const inboxLock = Semaphore.makeUnsafe(1);
 
-  const loadRecords = Effect.fn("CliOutbox.loadRecords")(function* () {
-    const encoded = yield* readTextOptional(outboxPath);
-    if (!encoded) {
-      return emptyOutbox;
+  const loadRecordsUnlocked = Effect.fn("CliOutbox.loadRecordsUnlocked")(
+    function* () {
+      const encoded = yield* readTextOptional(outboxPath);
+      if (!encoded) {
+        return emptyOutbox;
+      }
+      yield* assertPrivateFile(outboxPath);
+      const parsed = yield* parseJson(encoded);
+      const file = yield* Schema.decodeUnknownEffect(StoredOutboxFile)(
+        parsed
+      ).pipe(Effect.mapError(() => storeError("decode")));
+      return file.records;
     }
-    yield* assertPrivateFile(outboxPath);
-    const parsed = yield* parseJson(encoded);
-    const file = yield* Schema.decodeUnknownEffect(StoredOutboxFile)(
-      parsed
-    ).pipe(Effect.mapError(() => storeError("decode")));
-    return file.records;
-  });
+  );
 
-  const saveRecords = Effect.fn("CliOutbox.saveRecords")(function* (
-    records: readonly OutboxRecordV1[]
-  ) {
-    const encoded = yield* Schema.encodeEffect(StoredOutboxFile)({
-      records,
-      version: OUTBOX_VERSION,
-    }).pipe(Effect.mapError(() => storeError("write")));
-    yield* writeAtomic(outboxPath, JSON.stringify(encoded));
-    yield* assertPrivateFile(outboxPath);
-  });
-
-  const loadInbox = Effect.fn("CliOutbox.loadInbox")(function* () {
-    const encoded = yield* readTextOptional(inboxPath);
-    if (!encoded) {
-      return emptyInbox;
+  const saveRecordsUnlocked = Effect.fn("CliOutbox.saveRecordsUnlocked")(
+    function* (records: readonly OutboxRecordV1[]) {
+      const encoded = yield* Schema.encodeEffect(StoredOutboxFile)({
+        records,
+        version: OUTBOX_VERSION,
+      }).pipe(Effect.mapError(() => storeError("write")));
+      yield* writeAtomic(outboxPath, JSON.stringify(encoded));
+      yield* assertPrivateFile(outboxPath);
     }
-    yield* assertPrivateFile(inboxPath);
-    const parsed = yield* parseJson(encoded);
-    const file = yield* Schema.decodeUnknownEffect(StoredInboxFile)(
-      parsed
-    ).pipe(Effect.mapError(() => storeError("decode")));
-    return file.messages;
-  });
+  );
 
-  const saveInbox = Effect.fn("CliOutbox.saveInbox")(function* (
+  const loadInboxUnlocked = Effect.fn("CliOutbox.loadInboxUnlocked")(
+    function* () {
+      const encoded = yield* readTextOptional(inboxPath);
+      if (!encoded) {
+        return emptyInbox;
+      }
+      yield* assertPrivateFile(inboxPath);
+      const parsed = yield* parseJson(encoded);
+      const file = yield* Schema.decodeUnknownEffect(StoredInboxFile)(
+        parsed
+      ).pipe(Effect.mapError(() => storeError("decode")));
+      return file.messages;
+    }
+  );
+
+  const saveInboxUnlocked = Effect.fn("CliOutbox.saveInboxUnlocked")(function* (
     messages: readonly InboxRecordV1[]
   ) {
     const encoded = yield* Schema.encodeEffect(StoredInboxFile)({
@@ -169,61 +185,87 @@ export const createCliOutboxStore = (root: string) => {
   const enqueue = Effect.fn("CliOutbox.enqueue")(function* (
     record: OutboxRecordV1
   ) {
-    const records = yield* loadRecords();
-    const existing = records.find((item) => item.frame.id === record.frame.id);
-    if (existing) {
-      if (outboxRecordsConflict(existing, record)) {
-        return yield* storeError("conflict");
-      }
-      return existing;
-    }
-    const next = [...records, record];
-    yield* saveRecords(next);
-    return record;
+    return yield* outboxLock.withPermit(
+      Effect.gen(function* () {
+        const records = yield* loadRecordsUnlocked();
+        const existing = records.find(
+          (item) => item.frame.id === record.frame.id
+        );
+        if (existing) {
+          if (outboxRecordsConflict(existing, record)) {
+            return yield* storeError("conflict");
+          }
+          return existing;
+        }
+        yield* saveRecordsUnlocked([...records, record]);
+        return record;
+      })
+    );
   });
 
   const put = Effect.fn("CliOutbox.put")(function* (record: OutboxRecordV1) {
-    const records = yield* loadRecords();
-    const index = records.findIndex(
-      (item) => item.frame.id === record.frame.id
+    return yield* outboxLock.withPermit(
+      Effect.gen(function* () {
+        const records = yield* loadRecordsUnlocked();
+        const index = records.findIndex(
+          (item) => item.frame.id === record.frame.id
+        );
+        if (index === -1) {
+          yield* saveRecordsUnlocked([...records, record]);
+          return record;
+        }
+        const current = records[index];
+        if (current && outboxRecordsConflict(current, record)) {
+          return yield* storeError("conflict");
+        }
+        const next = [...records];
+        next[index] = record;
+        yield* saveRecordsUnlocked(next);
+        return record;
+      })
     );
-    if (index === -1) {
-      yield* saveRecords([...records, record]);
-      return record;
-    }
-    const current = records[index];
-    if (current && outboxRecordsConflict(current, record)) {
-      return yield* storeError("conflict");
-    }
-    const next = [...records];
-    next[index] = record;
-    yield* saveRecords(next);
-    return record;
+  });
+
+  const loadRecords = Effect.fn("CliOutbox.loadRecords")(function* () {
+    return yield* outboxLock.withPermit(loadRecordsUnlocked());
   });
 
   const queued = Effect.fn("CliOutbox.queued")(function* () {
-    const records = yield* loadRecords();
-    return records.filter((record) => record.status === "queued");
+    return yield* outboxLock.withPermit(
+      Effect.gen(function* () {
+        const records = yield* loadRecordsUnlocked();
+        return records.filter((record) => record.status === "queued");
+      })
+    );
   });
 
   const queuedCount = Effect.fn("CliOutbox.queuedCount")(function* () {
     return (yield* queued()).length;
   });
 
+  const loadInbox = Effect.fn("CliOutbox.loadInbox")(function* () {
+    return yield* inboxLock.withPermit(loadInboxUnlocked());
+  });
+
   const putInbox = Effect.fn("CliOutbox.putInbox")(function* (
     record: InboxRecordV1
   ) {
-    const messages = yield* loadInbox();
-    const existing = messages.find((item) => item.frame.id === record.frame.id);
-    if (existing) {
-      if (inboxRecordsConflict(existing, record)) {
-        return yield* storeError("conflict");
-      }
-      return existing;
-    }
-    const next = [...messages, record];
-    yield* saveInbox(next);
-    return record;
+    return yield* inboxLock.withPermit(
+      Effect.gen(function* () {
+        const messages = yield* loadInboxUnlocked();
+        const existing = messages.find(
+          (item) => item.frame.id === record.frame.id
+        );
+        if (existing) {
+          if (inboxRecordsConflict(existing, record)) {
+            return yield* storeError("conflict");
+          }
+          return existing;
+        }
+        yield* saveInboxUnlocked([...messages, record]);
+        return record;
+      })
+    );
   });
 
   return {

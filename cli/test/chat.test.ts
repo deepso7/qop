@@ -1,15 +1,22 @@
+import { it as itEffect } from "@effect/vitest";
 import { PeerDisconnectedError } from "@minip2p/node";
 import {
   CHAT_PROTOCOL,
   createPeerSessions,
+  encodeAck,
   PeerVerificationError,
   RegistryReaderError,
 } from "@qop/protocol";
-import type { RegistryAccount } from "@qop/protocol";
-import { Effect } from "effect";
+import type { ChatFrame, RegistryAccount } from "@qop/protocol";
+import { Deferred, Duration, Effect, Fiber } from "effect";
+import { TestClock } from "effect/testing";
 import { describe, expect, it, vi } from "vitest";
 
-import { openAuthorizedChatStream } from "../src/chat.ts";
+import {
+  deliverChatFrame,
+  OUTBOUND_ACK_TIMEOUT_MS,
+  openAuthorizedChatStream,
+} from "../src/chat.ts";
 
 const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
 const bobDeviceKey = `0x${"22".repeat(32)}`;
@@ -36,16 +43,20 @@ const makeSessions = () =>
     upsertContact: () => Promise.resolve(),
   });
 
-const makeStream = () => ({
-  closeWrite: vi.fn(),
-  connId: 3,
-  peerId: PEER_BOB,
-  read: vi.fn(async (): Promise<undefined> => {
-    await Promise.resolve();
-  }),
-  reset: vi.fn(),
-  write: vi.fn(),
-});
+const makeStream = () => {
+  const unread: (Uint8Array | undefined)[] = [];
+  return {
+    closeWrite: vi.fn(),
+    connId: 3,
+    peerId: PEER_BOB,
+    read: vi.fn(async () => {
+      await Promise.resolve();
+      return unread.shift();
+    }),
+    reset: vi.fn(),
+    write: vi.fn(),
+  };
+};
 
 const bobRecipient = { handle: "bob", qid: "1" } as const;
 
@@ -254,5 +265,74 @@ describe("openAuthorizedChatStream", () => {
     expect(stream.reset).toHaveBeenCalledOnce();
     expect(stream.write).not.toHaveBeenCalled();
     expect(sessions.isVerified(stream, "1")).toBe(false);
+  });
+});
+
+const chatFrame: ChatFrame = {
+  fromHandle: "alice",
+  id: "c56a4180-65aa-42ec-a945-5fd21dec0538",
+  sentAt: 1_700_000_000_000,
+  text: "hello",
+  v: 1,
+};
+
+describe("deliverChatFrame", () => {
+  itEffect.effect("times out a hung outbound ack and resets the stream", () =>
+    Effect.gen(function* () {
+      const sessions = makeSessions();
+      const stream = makeStream();
+      const hang = yield* Deferred.make<Uint8Array>();
+      stream.read.mockImplementation(() =>
+        Effect.runPromise(Deferred.await(hang))
+      );
+      const transport = {
+        connect: vi.fn(),
+        connectedPeers: vi.fn((): string[] => [PEER_BOB]),
+        openStream: vi.fn().mockResolvedValue(stream),
+        waitPeerReady: vi.fn(async () => {
+          await Promise.resolve();
+          return {};
+        }),
+      };
+      const fiber = yield* Effect.forkChild(
+        deliverChatFrame(transport, sessions, bobRecipient, chatFrame)
+      );
+      yield* TestClock.adjust(Duration.millis(OUTBOUND_ACK_TIMEOUT_MS + 1));
+      const result = yield* Fiber.join(fiber).pipe(Effect.result);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        expect(result.failure).toMatchObject({
+          message: "Outbound chat ack timed out",
+        });
+      }
+      expect(stream.write).toHaveBeenCalledOnce();
+      expect(stream.closeWrite).toHaveBeenCalledOnce();
+      expect(stream.reset).toHaveBeenCalledOnce();
+    })
+  );
+
+  it("does not reset after a matching ack", async () => {
+    const sessions = makeSessions();
+    const stream = makeStream();
+    const unread = [encodeAck({ ack: chatFrame.id, v: 1 })];
+    stream.read.mockImplementation(async () => {
+      await Promise.resolve();
+      return unread.shift();
+    });
+    const transport = {
+      connect: vi.fn(),
+      connectedPeers: vi.fn((): string[] => [PEER_BOB]),
+      openStream: vi.fn().mockResolvedValue(stream),
+      waitPeerReady: vi.fn(async () => {
+        await Promise.resolve();
+        return {};
+      }),
+    };
+    await Effect.runPromise(
+      deliverChatFrame(transport, sessions, bobRecipient, chatFrame)
+    );
+    expect(stream.write).toHaveBeenCalledOnce();
+    expect(stream.closeWrite).toHaveBeenCalledOnce();
+    expect(stream.reset).not.toHaveBeenCalled();
   });
 });

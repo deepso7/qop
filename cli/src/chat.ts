@@ -30,6 +30,7 @@ import {
 
 const MAX_INBOUND_STREAMS = 8;
 const INBOUND_READ_TIMEOUT_MS = 15_000;
+export const OUTBOUND_ACK_TIMEOUT_MS = 15_000;
 export const CHAT_CONNECT_TIMEOUT_MS = 15_000;
 
 export interface ChatStream extends PeerConnection {
@@ -168,22 +169,40 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
     peerId,
     recipient
   );
-  stream.write(encodeFrame(frame));
-  stream.closeWrite();
-  const ackBytes = yield* Effect.tryPromise({
-    catch: transportError,
-    try: () => readUntilEof(() => stream.read()),
-  });
-  const ack = yield* Effect.try({
-    catch: transportError,
-    try: () => decodeAck(ackBytes),
-  });
-  yield* Effect.try({
-    catch: transportError,
-    try: () => {
-      assertAckMatches(ack, frame.id);
-    },
-  });
+  return yield* Effect.gen(function* () {
+    yield* Effect.try({
+      catch: transportError,
+      try: () => {
+        stream.write(encodeFrame(frame));
+        stream.closeWrite();
+      },
+    });
+    const ackBytes = yield* Effect.tryPromise({
+      catch: transportError,
+      try: () => readUntilEof(() => stream.read()),
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: OUTBOUND_ACK_TIMEOUT_MS,
+        orElse: () => Effect.fail(new Error("Outbound chat ack timed out")),
+      })
+    );
+    const ack = yield* Effect.try({
+      catch: transportError,
+      try: () => decodeAck(ackBytes),
+    });
+    yield* Effect.try({
+      catch: transportError,
+      try: () => {
+        assertAckMatches(ack, frame.id);
+      },
+    });
+  }).pipe(
+    Effect.tapError(() =>
+      Effect.sync(() => {
+        stream.reset();
+      })
+    )
+  );
 });
 
 export const runStart = Effect.fn("qop.start")(function* (
@@ -289,7 +308,9 @@ export const runStart = Effect.fn("qop.start")(function* (
           lifecycle.adapter.observe();
           endpoint.on("connectionEstablished", (connection) => {
             sessions.opened(connection);
-            Effect.runFork(outbox.flushDue().pipe(Effect.ignore));
+            Effect.runFork(
+              outbox.flushDue({ ignoreBackoff: true }).pipe(Effect.ignore)
+            );
           });
           endpoint.on("connectionClosed", (connection) => {
             sessions.closed(connection);

@@ -72,7 +72,6 @@ export const createOutboxRuntime = ({
   readonly store: ReturnType<typeof createCliOutboxStore>;
 }) => {
   const inFlight = new Set<string>();
-  let flushing = false;
 
   const enqueue = Effect.fn("qop.outbox.enqueue")(function* ({
     frame,
@@ -139,62 +138,58 @@ export const createOutboxRuntime = ({
   const deliverOne = Effect.fn("qop.outbox.deliverOne")(function* (
     record: OutboxRecordV1
   ) {
-    if (record.status !== "queued" || inFlight.has(record.frame.id)) {
+    if (inFlight.has(record.frame.id)) {
       return;
     }
     inFlight.add(record.frame.id);
     yield* Effect.gen(function* () {
-      const account = yield* lookupHandle(record.toHandle).pipe(Effect.result);
+      const latest = (yield* store.loadRecords()).find(
+        (item) => item.frame.id === record.frame.id
+      );
+      if (!latest || latest.status !== "queued") {
+        return;
+      }
+      const account = yield* lookupHandle(latest.toHandle).pipe(Effect.result);
       if (account._tag === "Failure") {
-        yield* markWaiting(record, account.failure);
+        yield* markWaiting(latest, account.failure);
         return;
       }
       if (!account.success) {
-        yield* markWaiting(record, "Account was not found.");
+        yield* markWaiting(latest, "Account was not found.");
         return;
       }
-      if (!sameRecipient(account.success, record)) {
-        yield* markFailed(record, "Handle now belongs to a different account.");
+      if (!sameRecipient(account.success, latest)) {
+        yield* markFailed(latest, "Handle now belongs to a different account.");
         return;
       }
-      const outcome = yield* deliver(record).pipe(Effect.result);
+      const outcome = yield* deliver(latest).pipe(Effect.result);
       if (outcome._tag === "Failure") {
-        yield* markWaiting(record, outcome.failure);
+        yield* markWaiting(latest, outcome.failure);
         return;
       }
       const at = now();
       yield* store.put({
-        ...record,
+        ...latest,
         lastError: null,
         status: "sent",
         updatedAt: at,
       });
-      announce(onEvent, { handle: record.toHandle, kind: "sent" });
+      announce(onEvent, { handle: latest.toHandle, kind: "sent" });
     }).pipe(
       Effect.ensuring(Effect.sync(() => inFlight.delete(record.frame.id)))
     );
   });
 
-  const flushDue = Effect.fn("qop.outbox.flushDue")(function* () {
-    if (flushing) {
-      return;
-    }
-    flushing = true;
-    yield* Effect.gen(function* () {
-      const pending = yield* store.queued();
-      const at = now();
-      for (const record of pending) {
-        if (record.nextAttemptAt <= at) {
-          yield* deliverOne(record);
-        }
+  const flushDue = Effect.fn("qop.outbox.flushDue")(function* (options?: {
+    readonly ignoreBackoff?: boolean;
+  }) {
+    const pending = yield* store.queued();
+    const at = now();
+    for (const record of pending) {
+      if (options?.ignoreBackoff || record.nextAttemptAt <= at) {
+        yield* deliverOne(record);
       }
-    }).pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          flushing = false;
-        })
-      )
-    );
+    }
   });
 
   const resume = Effect.fn("qop.outbox.resume")(function* () {

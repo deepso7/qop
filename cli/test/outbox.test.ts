@@ -4,7 +4,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "@effect/vitest";
 import type { RegistryAccount } from "@qop/protocol";
-import { Effect } from "effect";
+import { Deferred, Effect, Fiber } from "effect";
 
 import { createCliOutboxStore } from "../src/outbox-store.ts";
 import {
@@ -184,5 +184,77 @@ describe("CLI outbox retry", () => {
       expect(yield* restarted.resume()).toBe(1);
       expect(kinds).toEqual(["resumed"]);
     })
+  );
+
+  it.effect("retries immediately on a connection flush during backoff", () =>
+    Effect.gen(function* () {
+      const root = yield* withTempRoot;
+      const store = createCliOutboxStore(root);
+      const attempts: number[] = [];
+      let now = 1000;
+      const outbox = createOutboxRuntime({
+        deliver: () => {
+          attempts.push(now);
+          return Effect.fail(new Error("connect deadline elapsed"));
+        },
+        lookupHandle: () => Effect.succeed(account),
+        now: () => now,
+        store,
+      });
+      yield* outbox.enqueue({ frame, toHandle: "bob", toQid: "1" });
+      yield* outbox.flushDue();
+      expect(attempts).toEqual([1000]);
+      now += 1;
+      yield* outbox.flushDue();
+      expect(attempts).toEqual([1000]);
+      yield* outbox.flushDue({ ignoreBackoff: true });
+      expect(attempts).toEqual([1000, now]);
+      const waiting = yield* store.queued();
+      expect(waiting[0]?.status).toBe("queued");
+      expect(waiting[0]?.attempts).toBe(2);
+    })
+  );
+
+  it.effect(
+    "lets a later flush proceed while one delivery is still in flight",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        const store = createCliOutboxStore(root);
+        const firstStarted = yield* Deferred.make<boolean>();
+        const releaseFirst = yield* Deferred.make<boolean>();
+        const delivered: string[] = [];
+        const otherId = "c56a4180-65aa-42ec-a945-5fd21dec0539";
+        const outbox = createOutboxRuntime({
+          deliver: (record) => {
+            if (record.frame.id === id) {
+              return Effect.gen(function* () {
+                yield* Deferred.succeed(firstStarted, true);
+                yield* Deferred.await(releaseFirst);
+                delivered.push(record.frame.id);
+              });
+            }
+            delivered.push(record.frame.id);
+            return Effect.void;
+          },
+          lookupHandle: () => Effect.succeed(account),
+          now: () => 1000,
+          store,
+        });
+        yield* outbox.enqueue({ frame, toHandle: "bob", toQid: "1" });
+        yield* outbox.enqueue({
+          frame: { ...frame, id: otherId, text: "second" },
+          toHandle: "bob",
+          toQid: "1",
+        });
+        const firstFlush = yield* Effect.forkChild(outbox.flushDue());
+        yield* Deferred.await(firstStarted);
+        yield* outbox.flushDue();
+        expect(delivered).toEqual([otherId]);
+        yield* Deferred.succeed(releaseFirst, true);
+        yield* Fiber.join(firstFlush);
+        expect(delivered).toEqual([otherId, id]);
+        expect(yield* store.queued()).toEqual([]);
+      })
   );
 });

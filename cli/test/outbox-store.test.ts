@@ -99,12 +99,95 @@ describe("CLI outbox store", () => {
         v: 1 as const,
       };
       yield* store.putInbox(inbound);
+      expect(yield* store.loadInbox()).toEqual([inbound]);
       const again = yield* store.putInbox({ ...inbound, receivedAt: 9 });
       expect(again.receivedAt).toBe(1_700_000_000_001);
       const conflicted = yield* store
         .putInbox({ ...inbound, fromQid: "3" })
         .pipe(Effect.result);
       expect(conflicted._tag).toBe("Failure");
+    })
+  );
+
+  it.effect("keeps concurrent enqueue and sent marks from dropping rows", () =>
+    Effect.gen(function* () {
+      const root = yield* withTempRoot;
+      const store = createCliOutboxStore(root);
+      const extraId = "c56a4180-65aa-42ec-a945-5fd21dec0539";
+      const extra = {
+        ...queuedRecord,
+        frame: { ...queuedRecord.frame, id: extraId, text: "later" },
+      };
+      yield* store.enqueue(queuedRecord);
+      yield* Effect.all(
+        [
+          store.enqueue(extra),
+          store.put({ ...queuedRecord, status: "sent", updatedAt: 9 }),
+        ],
+        { concurrency: 2 }
+      );
+      const records = yield* store.loadRecords();
+      expect(records.map((record) => record.frame.id).toSorted()).toEqual([
+        queuedRecord.frame.id,
+        extraId,
+      ]);
+      expect(
+        records.find((record) => record.frame.id === queuedRecord.frame.id)
+          ?.status
+      ).toBe("sent");
+    })
+  );
+
+  it.effect("persists every concurrent enqueue", () =>
+    Effect.gen(function* () {
+      const root = yield* withTempRoot;
+      const store = createCliOutboxStore(root);
+      const batch = Array.from({ length: 20 }, (_, index) => ({
+        ...queuedRecord,
+        frame: {
+          ...queuedRecord.frame,
+          id: crypto.randomUUID(),
+          text: `hello-${index}`,
+        },
+      }));
+      yield* Effect.all(
+        batch.map((record) => store.enqueue(record)),
+        { concurrency: "unbounded" }
+      );
+      const records = yield* store.loadRecords();
+      expect(records).toHaveLength(20);
+      expect(new Set(records.map((record) => record.frame.id)).size).toBe(20);
+    })
+  );
+
+  it.effect("persists concurrent inbox inserts before ack", () =>
+    Effect.gen(function* () {
+      const root = yield* withTempRoot;
+      const store = createCliOutboxStore(root);
+      const first = {
+        frame: queuedRecord.frame,
+        fromQid: "2",
+        receivedAt: 1,
+        v: 1 as const,
+      };
+      const second = {
+        frame: {
+          ...queuedRecord.frame,
+          id: "c56a4180-65aa-42ec-a945-5fd21dec0539",
+          text: "other",
+        },
+        fromQid: "3",
+        receivedAt: 2,
+        v: 1 as const,
+      };
+      yield* Effect.all([store.putInbox(first), store.putInbox(second)], {
+        concurrency: 2,
+      });
+      const messages = yield* store.loadInbox();
+      expect(messages.map((item) => item.frame.id).toSorted()).toEqual([
+        first.frame.id,
+        second.frame.id,
+      ]);
     })
   );
 });
