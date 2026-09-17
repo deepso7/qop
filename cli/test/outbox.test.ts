@@ -8,6 +8,7 @@ import { Deferred, Effect, Fiber } from "effect";
 
 import { createCliOutboxStore } from "../src/outbox-store.ts";
 import {
+  CliOutboxDeliverError,
   createOutboxRuntime,
   nextAttemptDelayMs,
   OUTBOX_INITIAL_BACKOFF_MS,
@@ -114,7 +115,7 @@ describe("CLI outbox retry", () => {
         deliver: () => {
           attempts.push(now);
           return fail
-            ? Effect.fail(new Error("connect deadline elapsed"))
+            ? Effect.fail(new CliOutboxDeliverError({ operation: "transport" }))
             : Effect.void;
         },
         lookupHandle: () => Effect.succeed(account),
@@ -131,7 +132,7 @@ describe("CLI outbox retry", () => {
       const waiting = yield* store.queued();
       expect(waiting[0]?.status).toBe("queued");
       expect(waiting[0]?.attempts).toBe(1);
-      expect(waiting[0]?.lastError).toContain("connect deadline");
+      expect(waiting[0]?.lastError).toBe("transport");
       now += OUTBOX_INITIAL_BACKOFF_MS - 1;
       yield* outbox.flushDue();
       expect(attempts).toEqual([1000]);
@@ -176,7 +177,8 @@ describe("CLI outbox retry", () => {
       const store = createCliOutboxStore(root);
       const kinds: string[] = [];
       const first = createOutboxRuntime({
-        deliver: () => Effect.fail(new Error("offline")),
+        deliver: () =>
+          Effect.fail(new CliOutboxDeliverError({ operation: "transport" })),
         lookupHandle: () => Effect.succeed(account),
         now: () => 1000,
         store,
@@ -206,7 +208,9 @@ describe("CLI outbox retry", () => {
       const outbox = createOutboxRuntime({
         deliver: () => {
           attempts.push(now);
-          return Effect.fail(new Error("connect deadline elapsed"));
+          return Effect.fail(
+            new CliOutboxDeliverError({ operation: "transport" })
+          );
         },
         lookupHandle: () => Effect.succeed(account),
         now: () => now,
@@ -329,7 +333,9 @@ describe("CLI outbox retry", () => {
       const outbox = createOutboxRuntime({
         deliver: (record) => {
           attempts.push(record.toHandle);
-          return Effect.fail(new Error("connect deadline elapsed"));
+          return Effect.fail(
+            new CliOutboxDeliverError({ operation: "transport" })
+          );
         },
         lookupHandle: (handle) =>
           Effect.succeed(handle === "carol" ? carolAccount : account),

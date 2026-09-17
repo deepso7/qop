@@ -183,7 +183,10 @@ describe("openAuthorizedChatStream", () => {
       Effect.runPromise(
         openAuthorizedChatStream(transport, sessions, PEER_BOB, bobRecipient)
       )
-    ).rejects.toThrow("Timed out");
+    ).rejects.toMatchObject({
+      _tag: "CliOutboxDeliverError",
+      operation: "transport",
+    });
     expect(transport.openStream).not.toHaveBeenCalled();
   });
 
@@ -233,7 +236,10 @@ describe("openAuthorizedChatStream", () => {
       Effect.runPromise(
         openAuthorizedChatStream(transport, sessions, PEER_BOB, bobRecipient)
       )
-    ).rejects.toThrow("no longer authorized");
+    ).rejects.toMatchObject({
+      _tag: "CliOutboxDeliverError",
+      operation: "unauthorized",
+    });
     expect(stream.reset).toHaveBeenCalledOnce();
     expect(stream.write).not.toHaveBeenCalled();
   });
@@ -302,7 +308,8 @@ describe("deliverChatFrame", () => {
       expect(result._tag).toBe("Failure");
       if (result._tag === "Failure") {
         expect(result.failure).toMatchObject({
-          message: "Outbound chat ack timed out",
+          _tag: "CliOutboxDeliverError",
+          operation: "timeout",
         });
       }
       expect(stream.write).toHaveBeenCalledOnce();
@@ -334,7 +341,10 @@ describe("deliverChatFrame", () => {
       Effect.runPromise(
         deliverChatFrame(transport, sessions, bobRecipient, chatFrame)
       )
-    ).rejects.toThrow("no longer authorized");
+    ).rejects.toMatchObject({
+      _tag: "CliOutboxDeliverError",
+      operation: "unauthorized",
+    });
     expect(stream.write).not.toHaveBeenCalled();
     expect(stream.reset).toHaveBeenCalledOnce();
   });

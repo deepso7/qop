@@ -4,9 +4,15 @@ import type {
   RegistryAccount,
   RegistryReaderError,
 } from "@qop/protocol";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 
 import type { createCliOutboxStore } from "./outbox-store.ts";
+
+export class CliOutboxDeliverError extends Data.TaggedError(
+  "CliOutboxDeliverError"
+)<{
+  readonly operation: "timeout" | "transport" | "unauthorized";
+}> {}
 
 export const OUTBOX_INITIAL_BACKOFF_MS = 2000;
 export const OUTBOX_MAX_BACKOFF_MS = 60_000;
@@ -27,7 +33,14 @@ export const nextAttemptDelayMs = (attempts: number) => {
 };
 
 const noteFromError = (cause: unknown) => {
-  const text = cause instanceof Error ? cause.message : String(cause);
+  let text: string;
+  if (cause instanceof CliOutboxDeliverError) {
+    text = cause.operation;
+  } else if (cause instanceof Error) {
+    text = cause.message;
+  } else {
+    text = String(cause);
+  }
   const trimmed = text.trim() || "delivery failed";
   return trimmed.length > 400 ? trimmed.slice(0, 400) : trimmed;
 };
@@ -65,7 +78,9 @@ export const createOutboxRuntime = ({
   onEvent,
   store,
 }: {
-  readonly deliver: (record: OutboxRecordV1) => Effect.Effect<void, unknown>;
+  readonly deliver: (
+    record: OutboxRecordV1
+  ) => Effect.Effect<void, CliOutboxDeliverError>;
   readonly lookupHandle: (
     handle: string
   ) => Effect.Effect<RegistryAccount | null, RegistryReaderError>;

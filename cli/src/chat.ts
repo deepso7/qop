@@ -22,7 +22,11 @@ import { Effect, Schema } from "effect";
 import { CliConfigError, cliRelays, configuredRegistry } from "./config.ts";
 import type { createCliIdentityStore } from "./identity-store.ts";
 import { createCliOutboxStore } from "./outbox-store.ts";
-import { createOutboxRuntime, describeOutboxEvent } from "./outbox.ts";
+import {
+  CliOutboxDeliverError,
+  createOutboxRuntime,
+  describeOutboxEvent,
+} from "./outbox.ts";
 import {
   isUnprovenLifecycleOverride,
   UNPROVEN_LIFECYCLE_OVERRIDE_ENV,
@@ -89,8 +93,16 @@ const readUntilEof = async (
   return readUntilEof(read, chunks, nextLength);
 };
 
-const transportError = (cause: unknown) =>
-  cause instanceof Error ? cause : new Error(String(cause));
+/** Preserve disconnect so setup can retry once; map other transport failures. */
+const catchOpenStreamError = (cause: unknown) =>
+  cause instanceof PeerDisconnectedError
+    ? cause
+    : new CliOutboxDeliverError({ operation: "transport" });
+
+const asDeliverError = (cause: unknown) =>
+  cause instanceof CliOutboxDeliverError
+    ? cause
+    : new CliOutboxDeliverError({ operation: "transport" });
 
 /** Connect, wait for Identify, open `/qop/chat/1`, then authorize the live stream. */
 export const openAuthorizedChatStream = Effect.fn(
@@ -104,19 +116,19 @@ export const openAuthorizedChatStream = Effect.fn(
   const stream = yield* Effect.gen(function* () {
     if (!transport.connectedPeers().includes(peerId)) {
       yield* Effect.tryPromise({
-        catch: transportError,
+        catch: catchOpenStreamError,
         try: () =>
           transport.connect(peerId, { timeoutMs: CHAT_CONNECT_TIMEOUT_MS }),
       });
     }
     // Path-up is not Identify. Wait again if a replacement connection wins.
     yield* Effect.tryPromise({
-      catch: transportError,
+      catch: catchOpenStreamError,
       try: () =>
         transport.waitPeerReady(peerId, { timeoutMs: CHAT_CONNECT_TIMEOUT_MS }),
     });
     return yield* Effect.tryPromise({
-      catch: transportError,
+      catch: catchOpenStreamError,
       try: () =>
         transport.openStream(peerId, CHAT_PROTOCOL, {
           timeoutMs: CHAT_CONNECT_TIMEOUT_MS,
@@ -132,22 +144,18 @@ export const openAuthorizedChatStream = Effect.fn(
   );
   // Bind before verify: connectionEstablished can lag connect/openStream.
   sessions.opened(stream);
-  return yield* sessions.verify(stream, recipient.handle).pipe(
-    Effect.flatMap((contact) => {
-      // Chat frames have no recipient field — bind to the QID the user selected,
-      // not whichever account currently owns the connected device.
-      if (contact.qid !== recipient.qid) {
-        return Effect.fail(
-          new PeerVerificationError({ operation: "identity" })
-        );
-      }
-      if (!sessions.isVerified(stream, recipient.qid)) {
-        return Effect.fail(
-          new Error("Chat connection is no longer authorized")
-        );
-      }
-      return Effect.succeed(stream);
-    }),
+  return yield* Effect.gen(function* () {
+    const contact = yield* sessions.verify(stream, recipient.handle);
+    // Chat frames have no recipient field — bind to the QID the user selected,
+    // not whichever account currently owns the connected device.
+    if (contact.qid !== recipient.qid) {
+      return yield* new PeerVerificationError({ operation: "identity" });
+    }
+    if (!sessions.isVerified(stream, recipient.qid)) {
+      return yield* new CliOutboxDeliverError({ operation: "unauthorized" });
+    }
+    return stream;
+  }).pipe(
     Effect.tapError(() =>
       Effect.sync(() => {
         stream.reset();
@@ -163,42 +171,45 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
   recipient: { readonly handle: string; readonly qid: string },
   frame: ChatFrame
 ) {
-  const peerId = yield* sessions.recipientPeerId(recipient);
+  const peerId = yield* sessions
+    .recipientPeerId(recipient)
+    .pipe(Effect.mapError(asDeliverError));
   const stream = yield* openAuthorizedChatStream(
     transport,
     sessions,
     peerId,
     recipient
-  );
+  ).pipe(Effect.mapError(asDeliverError));
   return yield* Effect.gen(function* () {
     // Recheck immediately before write: SIGCONT/stall can invalidate after verify.
     if (!sessions.isVerified(stream, recipient.qid)) {
       return yield* Effect.fail(
-        new Error("Chat connection is no longer authorized")
+        new CliOutboxDeliverError({ operation: "unauthorized" })
       );
     }
     yield* Effect.try({
-      catch: transportError,
+      catch: asDeliverError,
       try: () => {
         stream.write(encodeFrame(frame));
         stream.closeWrite();
       },
     });
     const ackBytes = yield* Effect.tryPromise({
-      catch: transportError,
+      catch: asDeliverError,
       try: () => readUntilEof(() => stream.read()),
     }).pipe(
       Effect.timeoutOrElse({
         duration: OUTBOUND_ACK_TIMEOUT_MS,
-        orElse: () => Effect.fail(new Error("Outbound chat ack timed out")),
+        orElse: () =>
+          Effect.fail(new CliOutboxDeliverError({ operation: "timeout" })),
       })
     );
     const ack = yield* Effect.try({
-      catch: transportError,
+      catch: asDeliverError,
       try: () => decodeAck(ackBytes),
     });
     yield* Effect.try({
-      catch: transportError,
+      catch: asDeliverError,
       try: () => {
         assertAckMatches(ack, frame.id);
       },
@@ -290,7 +301,9 @@ export const runStart = Effect.fn("qop.start")(function* (
         const outbox = createOutboxRuntime({
           deliver: (record) => {
             if (guardSensitive()) {
-              return Effect.fail(new Error("Authorization was invalidated"));
+              return Effect.fail(
+                new CliOutboxDeliverError({ operation: "unauthorized" })
+              );
             }
             return deliverChatFrame(
               endpoint,
