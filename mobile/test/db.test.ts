@@ -258,6 +258,21 @@ describe("delivery status transitions", () => {
       status: "sent",
     });
   });
+
+  it("promotes held to failed when the CLI permanently rejects the id", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "held-fail",
+      sentAt: 100,
+      status: "held",
+      text: "hello",
+    });
+    expect(await advanceMessageStatus("held-fail", "failed")).toBe(true);
+    expect(await getMessageById("held-fail")).toMatchObject({
+      status: "failed",
+    });
+  });
 });
 
 describe("contact device roster", () => {

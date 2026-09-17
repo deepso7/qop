@@ -314,7 +314,8 @@ export const updateMessageStatus = async (
 };
 
 const ADVANCE_FROM: Record<MessageStatus, readonly MessageStatus[]> = {
-  failed: ["sending"],
+  // held: CLI accepted then permanently failed (re-handoff → invalid).
+  failed: ["held", "sending"],
   held: ["failed", "sending"],
   received: [],
   sending: ["failed"],

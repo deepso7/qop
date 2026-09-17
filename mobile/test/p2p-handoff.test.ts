@@ -237,4 +237,24 @@ describe("phone to CLI handoff", () => {
       ).toMatchObject({ status: "sent" })
     );
   });
+
+  it("marks held failed when CLI later reports the id invalid", async () => {
+    const id = "c56a4180-65aa-42ec-a945-5fd21dec0539";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id,
+      sentAt: 1,
+      status: "held",
+      text: "hello",
+    });
+    poll.mockResolvedValue([]);
+    handoff.mockRejectedValue(new Error("CLI did not accept the handoff"));
+    await useP2pStore.getState().start();
+    connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({ status: "failed" })
+    );
+    expect(handoff).toHaveBeenCalled();
+  });
 });
