@@ -4,7 +4,7 @@ import type {
   RegistryAccount,
   RegistryReaderError,
 } from "@qop/protocol";
-import { Data, Effect, Semaphore } from "effect";
+import { Data, Effect } from "effect";
 
 import { describeCliOutboxStoreError } from "./outbox-store.ts";
 import type {
@@ -109,28 +109,21 @@ export const createOutboxRuntime = ({
   readonly onEvent?: (event: OutboxEvent) => void;
   readonly store: ReturnType<typeof createCliOutboxStore>;
 }) => {
-  const inFlight = new Set<string>();
-  const recipientLocks = new Map<
-    string,
-    ReturnType<typeof Semaphore.makeUnsafe>
-  >();
-
-  const withRecipientLock = <A, E, R>(
-    qid: string,
-    effect: Effect.Effect<A, E, R>
-  ) => {
-    let lock = recipientLocks.get(qid);
-    if (!lock) {
-      lock = Semaphore.makeUnsafe(1);
-      recipientLocks.set(qid, lock);
-    }
-    return lock.withPermit(effect);
-  };
+  /** One owner per recipient so overlapping poll/connection flushes cannot reorder. */
+  const flushingRecipients = new Set<string>();
+  let storeErrorReason: string | undefined;
+  let storeErrorSeq = 0;
 
   const announceStoreError = (error: CliOutboxStoreError) => {
+    const reason = describeCliOutboxStoreError(error);
+    storeErrorSeq += 1;
+    if (storeErrorReason === reason) {
+      return;
+    }
+    storeErrorReason = reason;
     announce(onEvent, {
       kind: "store-error",
-      reason: describeCliOutboxStoreError(error),
+      reason,
     });
   };
 
@@ -199,54 +192,38 @@ export const createOutboxRuntime = ({
   const deliverOne = Effect.fn("qop.outbox.deliverOne")(function* (
     record: OutboxRecordV1
   ) {
-    if (inFlight.has(record.frame.id)) {
+    const latest = (yield* store.loadRecords()).find(
+      (item) => item.frame.id === record.frame.id
+    );
+    if (!latest || latest.status !== "queued") {
       return;
     }
-    inFlight.add(record.frame.id);
-    yield* withRecipientLock(
-      record.toQid,
-      Effect.gen(function* () {
-        const latest = (yield* store.loadRecords()).find(
-          (item) => item.frame.id === record.frame.id
-        );
-        if (!latest || latest.status !== "queued") {
-          return;
-        }
-        const account = yield* lookupHandle(latest.toHandle).pipe(
-          Effect.result
-        );
-        if (account._tag === "Failure") {
-          yield* markWaiting(latest, account.failure);
-          return;
-        }
-        if (!account.success) {
-          yield* markWaiting(latest, "Account was not found.");
-          return;
-        }
-        if (!sameRecipient(account.success, latest)) {
-          yield* markFailed(
-            latest,
-            "Handle now belongs to a different account."
-          );
-          return;
-        }
-        const outcome = yield* deliver(latest).pipe(Effect.result);
-        if (outcome._tag === "Failure") {
-          yield* markWaiting(latest, outcome.failure);
-          return;
-        }
-        const at = now();
-        yield* store.put({
-          ...latest,
-          lastError: null,
-          status: "sent",
-          updatedAt: at,
-        });
-        announce(onEvent, { handle: latest.toHandle, kind: "sent" });
-      })
-    ).pipe(
-      Effect.ensuring(Effect.sync(() => inFlight.delete(record.frame.id)))
-    );
+    const account = yield* lookupHandle(latest.toHandle).pipe(Effect.result);
+    if (account._tag === "Failure") {
+      yield* markWaiting(latest, account.failure);
+      return;
+    }
+    if (!account.success) {
+      yield* markWaiting(latest, "Account was not found.");
+      return;
+    }
+    if (!sameRecipient(account.success, latest)) {
+      yield* markFailed(latest, "Handle now belongs to a different account.");
+      return;
+    }
+    const outcome = yield* deliver(latest).pipe(Effect.result);
+    if (outcome._tag === "Failure") {
+      yield* markWaiting(latest, outcome.failure);
+      return;
+    }
+    const at = now();
+    yield* store.put({
+      ...latest,
+      lastError: null,
+      status: "sent",
+      updatedAt: at,
+    });
+    announce(onEvent, { handle: latest.toHandle, kind: "sent" });
   });
 
   const deliverDue = (record: OutboxRecordV1) =>
@@ -258,21 +235,39 @@ export const createOutboxRuntime = ({
       )
     );
 
+  const deliverRecipient = (records: readonly OutboxRecordV1[]) =>
+    Effect.suspend(() => {
+      const qid = records[0]?.toQid;
+      if (qid === undefined || flushingRecipients.has(qid)) {
+        return Effect.void;
+      }
+      flushingRecipients.add(qid);
+      return Effect.forEach(records, deliverDue, { concurrency: 1 }).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            flushingRecipients.delete(qid);
+          })
+        )
+      );
+    });
+
   const flushDue = Effect.fn("qop.outbox.flushDue")(function* (options?: {
     readonly ignoreBackoffForQid?: string;
   }) {
     const pending = yield* store.queued();
+    const errorSeq = storeErrorSeq;
     const at = now();
     const due = pending.filter(
       (record) =>
         record.nextAttemptAt <= at ||
         record.toQid === options?.ignoreBackoffForQid
     );
-    yield* Effect.forEach(
-      groupByRecipient(due),
-      (records) => Effect.forEach(records, deliverDue, { concurrency: 1 }),
-      { concurrency: OUTBOX_FLUSH_CONCURRENCY }
-    );
+    yield* Effect.forEach(groupByRecipient(due), deliverRecipient, {
+      concurrency: OUTBOX_FLUSH_CONCURRENCY,
+    });
+    if (storeErrorSeq === errorSeq) {
+      storeErrorReason = undefined;
+    }
   });
 
   const flushDueOrAnnounce = (options?: {

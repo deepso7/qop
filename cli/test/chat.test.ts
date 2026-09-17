@@ -274,6 +274,35 @@ describe("openAuthorizedChatStream", () => {
     expect(stream.write).not.toHaveBeenCalled();
     expect(sessions.isVerified(stream, "1")).toBe(false);
   });
+
+  itEffect.effect("resets the stream when authorization is interrupted", () =>
+    Effect.gen(function* () {
+      const sessions = makeSessions();
+      const stream = makeStream();
+      const started = yield* Deferred.make<boolean>();
+      const hang = yield* Deferred.make<never>();
+      vi.spyOn(sessions, "verify").mockImplementation(() => {
+        Effect.runSync(Deferred.succeed(started, true));
+        return Deferred.await(hang);
+      });
+      const transport = {
+        connect: vi.fn(),
+        connectedPeers: vi.fn((): string[] => [PEER_BOB]),
+        openStream: vi.fn().mockResolvedValue(stream),
+        waitPeerReady: vi.fn(async () => {
+          await Promise.resolve();
+          return {};
+        }),
+      };
+      const fiber = yield* Effect.forkChild(
+        openAuthorizedChatStream(transport, sessions, PEER_BOB, bobRecipient)
+      );
+      yield* Deferred.await(started);
+      yield* Fiber.interrupt(fiber);
+      expect(stream.reset).toHaveBeenCalledOnce();
+      expect(stream.write).not.toHaveBeenCalled();
+    })
+  );
 });
 
 const chatFrame: ChatFrame = {

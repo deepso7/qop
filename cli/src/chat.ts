@@ -22,8 +22,12 @@ import { Effect, Schema } from "effect";
 
 import { CliConfigError, cliRelays, configuredRegistry } from "./config.ts";
 import type { createCliIdentityStore } from "./identity-store.ts";
-import { createCliOutboxStore } from "./outbox-store.ts";
-import type { CliOutboxStoreError, PutInboxResult } from "./outbox-store.ts";
+import {
+  CliOutboxStoreError,
+  createCliOutboxStore,
+  describeCliOutboxStoreError,
+  type PutInboxResult,
+} from "./outbox-store.ts";
 import {
   CliOutboxDeliverError,
   createOutboxRuntime,
@@ -158,10 +162,12 @@ export const openAuthorizedChatStream = Effect.fn(
     }
     return stream;
   }).pipe(
-    Effect.tapError(() =>
-      Effect.sync(() => {
-        stream.reset();
-      })
+    Effect.onExit((exit) =>
+      exit._tag === "Success"
+        ? Effect.void
+        : Effect.sync(() => {
+            stream.reset();
+          })
     )
   );
 });
@@ -372,8 +378,7 @@ export const runStart = Effect.fn("qop.start")(function* (
                     Effect.sync(() => {
                       connectionFlushInFlight.delete(peerId);
                     })
-                  ),
-                  Effect.ignore
+                  )
                 )
             );
           });
@@ -441,8 +446,11 @@ export const runStart = Effect.fn("qop.start")(function* (
                   })
                 ),
                 Effect.matchEffect({
-                  onFailure: () =>
+                  onFailure: (error) =>
                     Effect.sync(() => {
+                      if (error instanceof CliOutboxStoreError) {
+                        console.error(describeCliOutboxStoreError(error));
+                      }
                       stream.reset();
                     }),
                   onSuccess: () => Effect.void,

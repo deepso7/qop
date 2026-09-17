@@ -277,6 +277,65 @@ describe("CLI outbox retry", () => {
   );
 
   it.effect(
+    "keeps same-recipient order when a poll flush overlaps a connection flush",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        const store = createCliOutboxStore(root);
+        const otherId = "c56a4180-65aa-42ec-a945-5fd21dec0539";
+        const thirdId = "c56a4180-65aa-42ec-a945-5fd21dec053a";
+        const aStarted = yield* Deferred.make<boolean>();
+        const releaseA = yield* Deferred.make<boolean>();
+        const delivered: string[] = [];
+        const outbox = createOutboxRuntime({
+          deliver: (record) =>
+            Effect.gen(function* () {
+              if (record.frame.id === id) {
+                yield* Deferred.succeed(aStarted, true);
+                yield* Deferred.await(releaseA);
+              }
+              delivered.push(record.frame.id);
+            }),
+          lookupHandle: () => Effect.succeed(account),
+          now: () => 1000,
+          store,
+        });
+        yield* outbox.enqueue({ frame, toHandle: "bob", toQid: "1" });
+        yield* outbox.enqueue({
+          frame: { ...frame, id: otherId, text: "second" },
+          toHandle: "bob",
+          toQid: "1",
+        });
+        yield* outbox.enqueue({
+          frame: { ...frame, id: thirdId, text: "third" },
+          toHandle: "bob",
+          toQid: "1",
+        });
+        const poll = yield* Effect.forkChild(outbox.flushDue());
+        yield* Deferred.await(aStarted);
+        const connection = yield* Effect.forkChild(
+          outbox.flushOnConnection(Effect.succeed("1"))
+        );
+        yield* Fiber.join(connection).pipe(
+          Effect.timeoutOrElse({
+            duration: 2000,
+            orElse: () =>
+              Effect.fail(
+                new Error(
+                  "connection flush blocked behind an in-flight recipient"
+                )
+              ),
+          })
+        );
+        expect(delivered).toEqual([]);
+        yield* Deferred.succeed(releaseA, true);
+        yield* Fiber.join(poll);
+        expect(delivered).toEqual([id, otherId, thirdId]);
+        expect(yield* store.queued()).toEqual([]);
+      })
+  );
+
+  it.effect(
     "delivers a reachable recipient while another delivery is still in flight",
     () =>
       Effect.gen(function* () {
@@ -492,6 +551,48 @@ describe("CLI outbox retry", () => {
         );
         expect(lookups).toBe(1);
         expect(attempts).toEqual([1000, now]);
+      })
+  );
+
+  it.effect(
+    "announces a repeated store error once until the store recovers",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        const inner = createCliOutboxStore(root);
+        const events: string[] = [];
+        let failQueued = true;
+        const store = {
+          ...inner,
+          queued: () =>
+            failQueued
+              ? Effect.fail(new CliOutboxStoreError({ operation: "read" }))
+              : inner.queued(),
+        };
+        const outbox = createOutboxRuntime({
+          deliver: () => Effect.void,
+          lookupHandle: () => Effect.succeed(account),
+          now: () => 1000,
+          onEvent: (event) => {
+            events.push(event.kind);
+          },
+          store,
+        });
+        yield* outbox.flushOnConnection(Effect.succeed("1"));
+        yield* outbox.flushOnConnection(Effect.succeed("1"));
+        expect(events).toEqual(["store-error"]);
+        failQueued = false;
+        yield* outbox.enqueue({ frame, toHandle: "bob", toQid: "1" });
+        yield* outbox.flushDue();
+        expect(events).toEqual(["store-error", "queued", "sent"]);
+        failQueued = true;
+        yield* outbox.flushOnConnection(Effect.succeed("1"));
+        expect(events).toEqual([
+          "store-error",
+          "queued",
+          "sent",
+          "store-error",
+        ]);
       })
   );
 
