@@ -1,15 +1,24 @@
+import { it as itEffect } from "@effect/vitest";
 import { PeerDisconnectedError } from "@minip2p/node";
 import {
   CHAT_PROTOCOL,
   createPeerSessions,
+  encodeAck,
   PeerVerificationError,
   RegistryReaderError,
 } from "@qop/protocol";
-import type { RegistryAccount } from "@qop/protocol";
-import { Effect } from "effect";
+import type { ChatFrame, InboxRecordV1, RegistryAccount } from "@qop/protocol";
+import { Deferred, Duration, Effect, Fiber } from "effect";
+import { TestClock } from "effect/testing";
 import { describe, expect, it, vi } from "vitest";
 
-import { openAuthorizedChatStream } from "../src/chat.ts";
+import {
+  ackInboundChatFrame,
+  deliverChatFrame,
+  OUTBOUND_ACK_TIMEOUT_MS,
+  openAuthorizedChatStream,
+} from "../src/chat.ts";
+import { CliOutboxStoreError } from "../src/outbox-store.ts";
 
 const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
 const bobDeviceKey = `0x${"22".repeat(32)}`;
@@ -36,16 +45,20 @@ const makeSessions = () =>
     upsertContact: () => Promise.resolve(),
   });
 
-const makeStream = () => ({
-  closeWrite: vi.fn(),
-  connId: 3,
-  peerId: PEER_BOB,
-  read: vi.fn(async (): Promise<undefined> => {
-    await Promise.resolve();
-  }),
-  reset: vi.fn(),
-  write: vi.fn(),
-});
+const makeStream = () => {
+  const unread: (Uint8Array | undefined)[] = [];
+  return {
+    closeWrite: vi.fn(),
+    connId: 3,
+    peerId: PEER_BOB,
+    read: vi.fn(async () => {
+      await Promise.resolve();
+      return unread.shift();
+    }),
+    reset: vi.fn(),
+    write: vi.fn(),
+  };
+};
 
 const bobRecipient = { handle: "bob", qid: "1" } as const;
 
@@ -172,7 +185,10 @@ describe("openAuthorizedChatStream", () => {
       Effect.runPromise(
         openAuthorizedChatStream(transport, sessions, PEER_BOB, bobRecipient)
       )
-    ).rejects.toThrow("Timed out");
+    ).rejects.toMatchObject({
+      _tag: "CliOutboxDeliverError",
+      operation: "transport",
+    });
     expect(transport.openStream).not.toHaveBeenCalled();
   });
 
@@ -222,7 +238,10 @@ describe("openAuthorizedChatStream", () => {
       Effect.runPromise(
         openAuthorizedChatStream(transport, sessions, PEER_BOB, bobRecipient)
       )
-    ).rejects.toThrow("no longer authorized");
+    ).rejects.toMatchObject({
+      _tag: "CliOutboxDeliverError",
+      operation: "unauthorized",
+    });
     expect(stream.reset).toHaveBeenCalledOnce();
     expect(stream.write).not.toHaveBeenCalled();
   });
@@ -255,4 +274,246 @@ describe("openAuthorizedChatStream", () => {
     expect(stream.write).not.toHaveBeenCalled();
     expect(sessions.isVerified(stream, "1")).toBe(false);
   });
+
+  itEffect.effect("resets the stream when authorization is interrupted", () =>
+    Effect.gen(function* () {
+      const sessions = makeSessions();
+      const stream = makeStream();
+      const started = yield* Deferred.make<boolean>();
+      const hang = yield* Deferred.make<never>();
+      vi.spyOn(sessions, "verify").mockImplementation(() => {
+        Effect.runSync(Deferred.succeed(started, true));
+        return Deferred.await(hang);
+      });
+      const transport = {
+        connect: vi.fn(),
+        connectedPeers: vi.fn((): string[] => [PEER_BOB]),
+        openStream: vi.fn().mockResolvedValue(stream),
+        waitPeerReady: vi.fn(async () => {
+          await Promise.resolve();
+          return {};
+        }),
+      };
+      const fiber = yield* Effect.forkChild(
+        openAuthorizedChatStream(transport, sessions, PEER_BOB, bobRecipient)
+      );
+      yield* Deferred.await(started);
+      yield* Fiber.interrupt(fiber);
+      expect(stream.reset).toHaveBeenCalledOnce();
+      expect(stream.write).not.toHaveBeenCalled();
+    })
+  );
+});
+
+const chatFrame: ChatFrame = {
+  fromHandle: "alice",
+  id: "c56a4180-65aa-42ec-a945-5fd21dec0538",
+  sentAt: 1_700_000_000_000,
+  text: "hello",
+  v: 1,
+};
+
+describe("deliverChatFrame", () => {
+  itEffect.effect("times out a hung outbound ack and resets the stream", () =>
+    Effect.gen(function* () {
+      const sessions = makeSessions();
+      const stream = makeStream();
+      const hang = yield* Deferred.make<Uint8Array>();
+      stream.read.mockImplementation(() =>
+        Effect.runPromise(Deferred.await(hang))
+      );
+      const transport = {
+        connect: vi.fn(),
+        connectedPeers: vi.fn((): string[] => [PEER_BOB]),
+        openStream: vi.fn().mockResolvedValue(stream),
+        waitPeerReady: vi.fn(async () => {
+          await Promise.resolve();
+          return {};
+        }),
+      };
+      const fiber = yield* Effect.forkChild(
+        deliverChatFrame(transport, sessions, bobRecipient, chatFrame)
+      );
+      yield* TestClock.adjust(Duration.millis(OUTBOUND_ACK_TIMEOUT_MS + 1));
+      const result = yield* Fiber.join(fiber).pipe(Effect.result);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        expect(result.failure).toMatchObject({
+          _tag: "CliOutboxDeliverError",
+          operation: "timeout",
+        });
+      }
+      expect(stream.write).toHaveBeenCalledOnce();
+      expect(stream.closeWrite).toHaveBeenCalledOnce();
+      expect(stream.reset).toHaveBeenCalledOnce();
+    })
+  );
+
+  it("does not write when authorization is invalidated after verify", async () => {
+    const sessions = makeSessions();
+    const stream = makeStream();
+    const originalIsVerified = sessions.isVerified.bind(sessions);
+    vi.spyOn(sessions, "isVerified").mockImplementation((connection, qid) => {
+      const authorized = originalIsVerified(connection, qid);
+      sessions.invalidateAuthorization();
+      return authorized;
+    });
+    const transport = {
+      connect: vi.fn(),
+      connectedPeers: vi.fn((): string[] => [PEER_BOB]),
+      openStream: vi.fn().mockResolvedValue(stream),
+      waitPeerReady: vi.fn(async () => {
+        await Promise.resolve();
+        return {};
+      }),
+    };
+
+    await expect(
+      Effect.runPromise(
+        deliverChatFrame(transport, sessions, bobRecipient, chatFrame)
+      )
+    ).rejects.toMatchObject({
+      _tag: "CliOutboxDeliverError",
+      operation: "unauthorized",
+    });
+    expect(stream.write).not.toHaveBeenCalled();
+    expect(stream.reset).toHaveBeenCalledOnce();
+  });
+
+  it("does not reset after a matching ack", async () => {
+    const sessions = makeSessions();
+    const stream = makeStream();
+    const unread = [encodeAck({ ack: chatFrame.id, v: 1 })];
+    stream.read.mockImplementation(async () => {
+      await Promise.resolve();
+      return unread.shift();
+    });
+    const transport = {
+      connect: vi.fn(),
+      connectedPeers: vi.fn((): string[] => [PEER_BOB]),
+      openStream: vi.fn().mockResolvedValue(stream),
+      waitPeerReady: vi.fn(async () => {
+        await Promise.resolve();
+        return {};
+      }),
+    };
+    await Effect.runPromise(
+      deliverChatFrame(transport, sessions, bobRecipient, chatFrame)
+    );
+    expect(stream.write).toHaveBeenCalledOnce();
+    expect(stream.closeWrite).toHaveBeenCalledOnce();
+    expect(stream.reset).not.toHaveBeenCalled();
+  });
+
+  it("resets the stream when the ack id does not match", async () => {
+    const sessions = makeSessions();
+    const stream = makeStream();
+    const unread = [
+      encodeAck({ ack: "d56a4180-65aa-42ec-a945-5fd21dec0538", v: 1 }),
+    ];
+    stream.read.mockImplementation(async () => {
+      await Promise.resolve();
+      return unread.shift();
+    });
+    const transport = {
+      connect: vi.fn(),
+      connectedPeers: vi.fn((): string[] => [PEER_BOB]),
+      openStream: vi.fn().mockResolvedValue(stream),
+      waitPeerReady: vi.fn(async () => {
+        await Promise.resolve();
+        return {};
+      }),
+    };
+    await expect(
+      Effect.runPromise(
+        deliverChatFrame(transport, sessions, bobRecipient, chatFrame)
+      )
+    ).rejects.toMatchObject({
+      _tag: "CliOutboxDeliverError",
+      operation: "transport",
+    });
+    expect(stream.write).toHaveBeenCalledOnce();
+    expect(stream.reset).toHaveBeenCalledOnce();
+  });
+
+  itEffect.effect("resets the stream when delivery is interrupted", () =>
+    Effect.gen(function* () {
+      const sessions = makeSessions();
+      const stream = makeStream();
+      const written = yield* Deferred.make<boolean>();
+      const hang = yield* Deferred.make<Uint8Array>();
+      stream.write.mockImplementation(() => {
+        Effect.runSync(Deferred.succeed(written, true));
+      });
+      stream.read.mockImplementation(() =>
+        Effect.runPromise(Deferred.await(hang))
+      );
+      const transport = {
+        connect: vi.fn(),
+        connectedPeers: vi.fn((): string[] => [PEER_BOB]),
+        openStream: vi.fn().mockResolvedValue(stream),
+        waitPeerReady: vi.fn(async () => {
+          await Promise.resolve();
+          return {};
+        }),
+      };
+      const fiber = yield* Effect.forkChild(
+        deliverChatFrame(transport, sessions, bobRecipient, chatFrame)
+      );
+      yield* Deferred.await(written);
+      yield* Fiber.interrupt(fiber);
+      expect(stream.write).toHaveBeenCalledOnce();
+      expect(stream.reset).toHaveBeenCalledOnce();
+    })
+  );
+});
+
+const inboundRecord: InboxRecordV1 = {
+  frame: chatFrame,
+  fromQid: "1",
+  receivedAt: 1_700_000_000_001,
+  v: 1,
+};
+
+describe("ackInboundChatFrame", () => {
+  itEffect.effect("does not ack when putInbox fails", () =>
+    Effect.gen(function* () {
+      const stream = makeStream();
+      const result = yield* ackInboundChatFrame(stream, inboundRecord, () =>
+        Effect.fail(new CliOutboxStoreError({ operation: "write" }))
+      ).pipe(Effect.result);
+      expect(result._tag).toBe("Failure");
+      expect(stream.write).not.toHaveBeenCalled();
+      expect(stream.closeWrite).not.toHaveBeenCalled();
+      expect(stream.reset).not.toHaveBeenCalled();
+    })
+  );
+
+  itEffect.effect("acks after persisting a new inbox record", () =>
+    Effect.gen(function* () {
+      const stream = makeStream();
+      const saved = yield* ackInboundChatFrame(
+        stream,
+        inboundRecord,
+        (record) => Effect.succeed({ inserted: true, record })
+      );
+      expect(saved.inserted).toBe(true);
+      expect(stream.write).toHaveBeenCalledOnce();
+      expect(stream.closeWrite).toHaveBeenCalledOnce();
+    })
+  );
+
+  itEffect.effect("acks a duplicate without treating it as inserted", () =>
+    Effect.gen(function* () {
+      const stream = makeStream();
+      const saved = yield* ackInboundChatFrame(
+        stream,
+        inboundRecord,
+        (record) => Effect.succeed({ inserted: false, record })
+      );
+      expect(saved.inserted).toBe(false);
+      expect(stream.write).toHaveBeenCalledOnce();
+      expect(stream.closeWrite).toHaveBeenCalledOnce();
+    })
+  );
 });
