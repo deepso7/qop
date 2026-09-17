@@ -1,3 +1,4 @@
+import { PeerDisconnectedError } from "@minip2p/node";
 import {
   CHAT_PROTOCOL,
   createPeerSessions,
@@ -49,6 +50,52 @@ const makeStream = () => ({
 const bobRecipient = { handle: "bob", qid: "1" } as const;
 
 describe("openAuthorizedChatStream", () => {
+  it("reopens and authorizes chat after a connection is replaced during setup", async () => {
+    const sessions = makeSessions();
+    const stream = makeStream();
+    const transport = {
+      connect: vi.fn().mockResolvedValue({}),
+      connectedPeers: vi.fn((): string[] => [PEER_BOB]),
+      openStream: vi
+        .fn()
+        .mockRejectedValueOnce(
+          new PeerDisconnectedError(PEER_BOB, "openStream")
+        )
+        .mockResolvedValue(stream),
+      waitPeerReady: vi.fn().mockResolvedValue({}),
+    };
+
+    const opened = await Effect.runPromise(
+      openAuthorizedChatStream(transport, sessions, PEER_BOB, bobRecipient)
+    );
+    expect(opened).toBe(stream);
+    expect(transport.waitPeerReady).toHaveBeenCalledTimes(2);
+    expect(sessions.isVerified(stream, "1")).toBe(true);
+    expect(stream.write).not.toHaveBeenCalled();
+  });
+
+  it("stops after one retry when stream setup keeps disconnecting", async () => {
+    const transport = {
+      connect: vi.fn().mockResolvedValue({}),
+      connectedPeers: vi.fn((): string[] => [PEER_BOB]),
+      openStream: vi
+        .fn()
+        .mockRejectedValue(new PeerDisconnectedError(PEER_BOB, "openStream")),
+      waitPeerReady: vi.fn().mockResolvedValue({}),
+    };
+    await expect(
+      Effect.runPromise(
+        openAuthorizedChatStream(
+          transport,
+          makeSessions(),
+          PEER_BOB,
+          bobRecipient
+        )
+      )
+    ).rejects.toBeInstanceOf(PeerDisconnectedError);
+    expect(transport.openStream).toHaveBeenCalledTimes(2);
+  });
+
   it("waits for Identify before opening /qop/chat/1", async () => {
     const sessions = makeSessions();
     const stream = makeStream();

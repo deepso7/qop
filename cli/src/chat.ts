@@ -1,4 +1,4 @@
-import { Minip2p } from "@minip2p/node";
+import { Minip2p, PeerDisconnectedError } from "@minip2p/node";
 import {
   CHAT_PROTOCOL,
   createPeerSessions,
@@ -95,26 +95,35 @@ export const openAuthorizedChatStream = Effect.fn(
   peerId: string,
   recipient: { readonly handle: string; readonly qid: string }
 ) {
-  if (!transport.connectedPeers().includes(peerId)) {
+  const stream = yield* Effect.gen(function* () {
+    if (!transport.connectedPeers().includes(peerId)) {
+      yield* Effect.tryPromise({
+        catch: transportError,
+        try: () =>
+          transport.connect(peerId, { timeoutMs: CHAT_CONNECT_TIMEOUT_MS }),
+      });
+    }
+    // Path-up is not Identify. Wait again if a replacement connection wins.
     yield* Effect.tryPromise({
       catch: transportError,
       try: () =>
-        transport.connect(peerId, { timeoutMs: CHAT_CONNECT_TIMEOUT_MS }),
+        transport.waitPeerReady(peerId, { timeoutMs: CHAT_CONNECT_TIMEOUT_MS }),
     });
-  }
-  // Path-up is not Identify. Opening chat before peerReady yields StreamClosedError.
-  yield* Effect.tryPromise({
-    catch: transportError,
-    try: () =>
-      transport.waitPeerReady(peerId, { timeoutMs: CHAT_CONNECT_TIMEOUT_MS }),
-  });
-  const stream = yield* Effect.tryPromise({
-    catch: transportError,
-    try: () =>
-      transport.openStream(peerId, CHAT_PROTOCOL, {
-        timeoutMs: CHAT_CONNECT_TIMEOUT_MS,
-      }),
-  });
+    return yield* Effect.tryPromise({
+      catch: transportError,
+      try: () =>
+        transport.openStream(peerId, CHAT_PROTOCOL, {
+          timeoutMs: CHAT_CONNECT_TIMEOUT_MS,
+        }),
+    });
+  }).pipe(
+    // Relay-to-direct upgrades can close the initial connection during setup.
+    // Retry only before a stream is returned; never replay a sent chat frame.
+    Effect.retry({
+      times: 1,
+      while: (error) => error instanceof PeerDisconnectedError,
+    })
+  );
   // Bind before verify: connectionEstablished can lag connect/openStream.
   sessions.opened(stream);
   return yield* sessions.verify(stream, recipient.handle).pipe(
