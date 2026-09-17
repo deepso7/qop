@@ -44,7 +44,11 @@ const TimestampMillis = Schema.Int.check(
 
 export const SyncHandoffV1Schema = Schema.Struct({
   composedBy: CanonicalHex32,
-  record: OutboxRecordV1Schema,
+  record: OutboxRecordV1Schema.check(
+    Schema.makeFilter((record) => record.status === "queued", {
+      expected: "a queued outbox record",
+    })
+  ),
   type: Schema.Literal("handoff"),
   v: Schema.Literal(1),
 }).annotate({

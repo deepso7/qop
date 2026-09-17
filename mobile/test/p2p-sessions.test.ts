@@ -43,7 +43,10 @@ const contact: Contact = {
 const phoneConnection = { connId: 1, peerId: PEER_ALICE };
 const cliConnection = { connId: 2, peerId: PEER_CLI };
 
-const fixture = (options?: { now?: () => number }) => {
+const fixture = (options?: {
+  now?: () => number;
+  ownQid?: () => string | undefined;
+}) => {
   let clock = 0;
   const now = options?.now ?? (() => clock);
   const lookupDeviceKey = vi.fn(
@@ -75,6 +78,7 @@ const fixture = (options?: { now?: () => number }) => {
     lookupDeviceKey,
     lookupHandle,
     now,
+    ownQid: options?.ownQid,
     upsertContact,
   });
   sessions.opened(phoneConnection);
@@ -111,6 +115,19 @@ describe("multi-device connection authorization", () => {
     expect(lookupDeviceKey).toHaveBeenCalledTimes(2);
     expect(upsertContact).toHaveBeenCalledTimes(2);
     expect(sessions.isVerified(phoneConnection, "1")).toBe(true);
+    expect(sessions.isVerified(cliConnection, "1")).toBe(true);
+  });
+
+  it("does not upsert own identity as a chat contact", async () => {
+    const { sessions, upsertContact } = fixture({ ownQid: () => "1" });
+    await expect(
+      Effect.runPromise(sessions.verify(cliConnection, "alice"))
+    ).resolves.toMatchObject({
+      handle: "alice",
+      peerId: PEER_CLI,
+      qid: "1",
+    });
+    expect(upsertContact).not.toHaveBeenCalled();
     expect(sessions.isVerified(cliConnection, "1")).toBe(true);
   });
 

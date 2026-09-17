@@ -149,6 +149,7 @@ export const createP2pStore = ({
     getContactByQid,
     lookupDeviceKey,
     lookupHandle,
+    ownQid: () => getOwnDevice?.()?.qid,
     upsertContact,
   });
 
@@ -391,8 +392,14 @@ export const createP2pStore = ({
             if (await handoffToHolder(message, contact, jobGeneration)) {
               await advanceMessageStatus(message.id, "held");
             }
-          } catch {
-            // Handoff is opportunistic; local status stays pending until a holder accepts.
+          } catch (error) {
+            if (
+              error instanceof Error &&
+              error.message === "CLI did not accept the handoff"
+            ) {
+              await advanceMessageStatus(message.id, "failed");
+            }
+            // Dial/timeout is opportunistic; local status stays pending.
           }
         })
       );
@@ -453,17 +460,21 @@ export const createP2pStore = ({
           return false;
         }
       })();
-      const [bobAcked, cliHeld] = await Promise.all([delivered, handedOff]);
+      const bobAcked = await delivered;
       if (!isCurrentGeneration(jobGeneration)) {
         return;
       }
       if (bobAcked) {
+        // Prefer sent as soon as Bob ACKs. Do not wait for CLI dial/timeout.
         await advanceMessageStatus(message.id, "sent");
-      } else if (cliHeld) {
-        await advanceMessageStatus(message.id, "held");
-      } else {
-        await advanceMessageStatus(message.id, "failed");
+        void handedOff;
+        return;
       }
+      const cliHeld = await handedOff;
+      if (!isCurrentGeneration(jobGeneration)) {
+        return;
+      }
+      await advanceMessageStatus(message.id, cliHeld ? "held" : "failed");
     } catch {
       try {
         if (!isCurrentGeneration(jobGeneration)) {

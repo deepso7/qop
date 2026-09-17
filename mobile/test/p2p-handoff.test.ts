@@ -198,6 +198,25 @@ describe("phone to CLI handoff", () => {
     expect(handoff).toHaveBeenCalled();
   });
 
+  it("marks sent when Bob acks without waiting for CLI handoff", async () => {
+    send.mockResolvedValue();
+    const deferred = Promise.withResolvers<true>();
+    handoff.mockImplementation(async () => {
+      await deferred.promise;
+    });
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+    const id = useP2pStore.getState().sendMessage(contact, "hello");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({ status: "sent" })
+    );
+    expect(handoff).toHaveBeenCalled();
+    deferred.resolve(true);
+  });
+
   it("applies a CLI receipt onto a held message", async () => {
     await insertMessage({
       contactQid: "1",

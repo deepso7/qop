@@ -74,11 +74,18 @@ const acceptHandoff = Effect.fn("qop.sync.acceptHandoff")(function* (
     return invalid;
   }
   return yield* store.enqueue(record).pipe(
-    Effect.map((saved) => ({
-      id: saved.frame.id,
-      type: "held" as const,
-      v: 1 as const,
-    })),
+    Effect.map((saved) => {
+      // Idempotent enqueue returns the existing row. Terminal `failed` must
+      // not look like a live hold — poll only receipts `sent`.
+      if (saved.status === "failed") {
+        return invalid;
+      }
+      return {
+        id: saved.frame.id,
+        type: "held" as const,
+        v: 1 as const,
+      };
+    }),
     Effect.catchTag("CliOutboxStoreError", (error) =>
       error.operation === "conflict"
         ? Effect.succeed(conflict)
@@ -93,7 +100,8 @@ export const handleInboundSyncStream = Effect.fn("qop.handleInboundSyncStream")(
     stream: SyncStream,
     sessions: SyncSessions,
     identity: CliSyncIdentity,
-    store: CliSyncStore
+    store: CliSyncStore,
+    isLive?: () => boolean
   ) {
     sessions.opened(stream);
     const contact = yield* sessions.verify(stream, identity.handle);
@@ -104,6 +112,12 @@ export const handleInboundSyncStream = Effect.fn("qop.handleInboundSyncStream")(
       return yield* new PeerVerificationError({ operation: "identity" });
     }
     const request = yield* readSyncRequest(() => stream.read());
+    // Recheck at the persist/held boundary: SIGCONT/stall can invalidate
+    // during the inbound read, same as chat send-boundary.
+    if (isLive?.() === false || !sessions.isVerified(stream, identity.qid)) {
+      stream.reset();
+      return yield* new PeerVerificationError({ operation: "identity" });
+    }
     const peerDeviceKey = yield* deviceKeyHexForPeer(stream.peerId);
     if (request.type === "handoff") {
       const response = yield* acceptHandoff(

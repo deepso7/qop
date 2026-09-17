@@ -1,3 +1,7 @@
+import { chmod, mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+
 import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
 import {
   createPeerSessions,
@@ -8,7 +12,10 @@ import type { OutboxRecordV1, RegistryAccount } from "@qop/protocol";
 import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import { CliOutboxStoreError } from "../src/outbox-store.ts";
+import {
+  CliOutboxStoreError,
+  createCliOutboxStore,
+} from "../src/outbox-store.ts";
 import { handleInboundSyncStream } from "../src/sync.ts";
 import type { CliSyncStore } from "../src/sync.ts";
 
@@ -213,5 +220,123 @@ describe("CLI inbound sync", () => {
     );
     expect(response).toEqual({ reason: "invalid", type: "error", v: 1 });
     expect(enqueue).not.toHaveBeenCalled();
+  });
+
+  it("does not persist a handoff when auth is invalidated during read", async () => {
+    const enqueue = vi.fn(() => Effect.succeed(queued));
+    const store: CliSyncStore = {
+      enqueue,
+      getByIds: () => Effect.succeed([]),
+    };
+    const sessions = makeSessions();
+    const stream = makeStream(
+      await Effect.runPromise(
+        encodeSyncRequestV1({
+          composedBy: phoneDeviceKey,
+          record: queued,
+          type: "handoff",
+          v: 1,
+        })
+      )
+    );
+    const originalRead = stream.read.getMockImplementation();
+    stream.read.mockImplementation(() => {
+      sessions.invalidateAuthorization();
+      return originalRead ? originalRead() : Promise.resolve();
+    });
+    const result = await Effect.runPromise(
+      handleInboundSyncStream(stream, sessions, identity, store).pipe(
+        Effect.result
+      )
+    );
+    expect(result._tag).toBe("Failure");
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(stream.write).not.toHaveBeenCalled();
+    expect(stream.reset).toHaveBeenCalledOnce();
+  });
+
+  it("does not persist a handoff when live-auth is revoked after read", async () => {
+    const enqueue = vi.fn(() => Effect.succeed(queued));
+    const store: CliSyncStore = {
+      enqueue,
+      getByIds: () => Effect.succeed([]),
+    };
+    const stream = makeStream(
+      await Effect.runPromise(
+        encodeSyncRequestV1({
+          composedBy: phoneDeviceKey,
+          record: queued,
+          type: "handoff",
+          v: 1,
+        })
+      )
+    );
+    const result = await Effect.runPromise(
+      handleInboundSyncStream(
+        stream,
+        makeSessions(),
+        identity,
+        store,
+        () => false
+      ).pipe(Effect.result)
+    );
+    expect(result._tag).toBe("Failure");
+    expect(enqueue).not.toHaveBeenCalled();
+    expect(stream.write).not.toHaveBeenCalled();
+    expect(stream.reset).toHaveBeenCalledOnce();
+  });
+
+  it("replies invalid instead of held for an existing failed record", async () => {
+    const enqueue = vi.fn(() =>
+      Effect.succeed({ ...queued, status: "failed" as const })
+    );
+    const store: CliSyncStore = {
+      enqueue,
+      getByIds: () => Effect.succeed([]),
+    };
+    const stream = makeStream(
+      await Effect.runPromise(
+        encodeSyncRequestV1({
+          composedBy: phoneDeviceKey,
+          record: queued,
+          type: "handoff",
+          v: 1,
+        })
+      )
+    );
+    const response = await Effect.runPromise(
+      handleInboundSyncStream(stream, makeSessions(), identity, store)
+    );
+    expect(response).toEqual({ reason: "invalid", type: "error", v: 1 });
+    expect(enqueue).toHaveBeenCalledWith(queued);
+  });
+
+  it("keeps the original disk record when a conflicting handoff is rejected", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "qop-sync-conflict-"));
+    try {
+      await chmod(root, 0o700);
+      const store = createCliOutboxStore(root);
+      await Effect.runPromise(store.enqueue(queued));
+      const stream = makeStream(
+        await Effect.runPromise(
+          encodeSyncRequestV1({
+            composedBy: phoneDeviceKey,
+            record: {
+              ...queued,
+              frame: { ...queued.frame, text: "other" },
+            },
+            type: "handoff",
+            v: 1,
+          })
+        )
+      );
+      const response = await Effect.runPromise(
+        handleInboundSyncStream(stream, makeSessions(), identity, store)
+      );
+      expect(response).toEqual({ reason: "conflict", type: "error", v: 1 });
+      expect(await Effect.runPromise(store.getByIds([id]))).toEqual([queued]);
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
   });
 });

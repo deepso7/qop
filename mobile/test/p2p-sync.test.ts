@@ -3,6 +3,12 @@ import { encodeSyncResponseV1, SYNC_PROTOCOL } from "@qop/protocol";
 import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  deleteAll,
+  getContactByQid,
+  listConversations,
+  upsertContact,
+} from "@/lib/db";
 import { createPeerSessions } from "@/lib/p2p-sessions";
 import { performHandoff, performPoll } from "@/lib/p2p-sync";
 import type { RegistryAccount, RegistryReaderError } from "@/lib/registry-core";
@@ -121,6 +127,56 @@ describe("performHandoff", () => {
     expect(stream.write).toHaveBeenCalledOnce();
     expect(stream.closeWrite).toHaveBeenCalledOnce();
     expect(stream.reset).not.toHaveBeenCalled();
+  });
+
+  it("does not insert own identity into chats when verifying the CLI", async () => {
+    await deleteAll();
+    const held = await Effect.runPromise(
+      encodeSyncResponseV1({ id, type: "held", v: 1 })
+    );
+    const lookupDeviceKey = vi.fn(
+      (): Effect.Effect<RegistryAccount | null, RegistryReaderError> =>
+        Effect.succeed(aliceAccount)
+    );
+    const lookupHandle = vi.fn(
+      (): Effect.Effect<RegistryAccount | null, RegistryReaderError> =>
+        Effect.succeed(aliceAccount)
+    );
+    const sessions = createPeerSessions({
+      getContactByQid,
+      lookupDeviceKey,
+      lookupHandle,
+      ownQid: () => own.qid,
+      upsertContact,
+    });
+    const chunks: (Uint8Array | undefined)[] = [held, undefined];
+    const stream = {
+      closeWrite: vi.fn(),
+      connId: 4,
+      peerId: PEER_CLI,
+      read: vi.fn(() => Promise.resolve(chunks.shift())),
+      reset: vi.fn(),
+      write: vi.fn(),
+    };
+    const endpoint = {
+      connect: vi.fn().mockResolvedValue({}),
+      connectedPeers: vi.fn((): string[] => []),
+      openStream: vi.fn().mockResolvedValue(stream),
+      waitPeerReady: vi.fn(() => Promise.resolve({ peerId: PEER_CLI })),
+    };
+
+    await performHandoff({
+      composedBy: own.deviceKey,
+      endpoint,
+      holderPeerId: PEER_CLI,
+      own,
+      record,
+      sessions,
+      timeoutMs: 50,
+    });
+
+    expect(await getContactByQid(own.qid)).toBeNull();
+    expect(await listConversations()).toEqual([]);
   });
 });
 

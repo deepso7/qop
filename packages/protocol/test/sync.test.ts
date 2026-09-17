@@ -91,7 +91,7 @@ describe("sync frames", () => {
     const result = await Effect.runPromise(
       Schema.decodeUnknownEffect(SyncHandoffV1)({
         ...handoff,
-        record: { ...queued, status: "held" },
+        record: { ...queued, status: "sent" },
       }).pipe(Effect.result)
     );
     expect(result._tag).toBe("Failure");

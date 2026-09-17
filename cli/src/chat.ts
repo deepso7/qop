@@ -285,6 +285,7 @@ export const runStart = Effect.fn("qop.start")(function* (
     getContactByQid: (qid) => Promise.resolve(contacts.get(qid) ?? null),
     lookupDeviceKey: reader.lookupDeviceKey,
     lookupHandle: reader.lookupHandle,
+    ownQid: () => identity.qid,
     upsertContact: (input: SessionContactInput) => {
       const known = contacts.get(input.qid);
       contacts.set(input.qid, {
@@ -414,7 +415,8 @@ export const runStart = Effect.fn("qop.start")(function* (
                         handle: identity.handle,
                         qid: identity.qid,
                       },
-                      messages
+                      messages,
+                      () => !guardSensitive()
                     ).pipe(
                       Effect.timeoutOrElse({
                         duration: INBOUND_READ_TIMEOUT_MS,
