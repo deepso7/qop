@@ -26,8 +26,8 @@ import {
   CliOutboxStoreError,
   createCliOutboxStore,
   describeCliOutboxStoreError,
-  type PutInboxResult,
 } from "./outbox-store.ts";
+import type { PutInboxResult } from "./outbox-store.ts";
 import {
   CliOutboxDeliverError,
   createOutboxRuntime,
