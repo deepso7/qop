@@ -549,6 +549,7 @@ export const createCliIdentityStore = (
     loadApproval,
     loadIdentity,
     loadSecret,
+    root,
     rotatePendingKey,
     saveApproval,
   };

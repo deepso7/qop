@@ -28,6 +28,18 @@ export {
 export type { ChatFrame, ChatAck } from "./chat-wire.ts";
 export type { SessionContact, SessionContactInput } from "./contacts.ts";
 export {
+  OutboxRecordV1,
+  InboxRecordV1,
+  OutboxStatusV1,
+  outboxRecordsConflict,
+  inboxRecordsConflict,
+} from "./outbox.ts";
+export type {
+  OutboxRecordV1 as OutboxRecord,
+  InboxRecordV1 as InboxRecord,
+  OutboxStatus,
+} from "./outbox.ts";
+export {
   DEVICE_ACTION_DEADLINE_SECONDS,
   MAX_ACTIVE_DEVICES,
   PAIR_PROTOCOL,

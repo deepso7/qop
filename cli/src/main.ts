@@ -12,6 +12,7 @@ import {
   createCliIdentityStore,
   defaultDataDirectory,
 } from "./identity-store.ts";
+import { createCliOutboxStore } from "./outbox-store.ts";
 import { runLink } from "./pairing-link.ts";
 
 const store = createCliIdentityStore(
@@ -43,6 +44,8 @@ const runStatus = Effect.fn("qop.status")(function* () {
   console.log(
     `state    ${membership?.qid.toString() === identity.qid ? "linked" : "not linked"}`
   );
+  const queued = yield* createCliOutboxStore(store.root).queuedCount();
+  console.log(`outbox   ${queued} queued`);
 });
 
 const command = createQopCommand({

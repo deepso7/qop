@@ -1,5 +1,6 @@
 import { Minip2p, PeerDisconnectedError } from "@minip2p/node";
 import {
+  assertAckMatches,
   CHAT_PROTOCOL,
   createPeerSessions,
   decodeAck,
@@ -10,6 +11,7 @@ import {
   PeerVerificationError,
 } from "@qop/protocol";
 import type {
+  ChatFrame,
   PeerConnection,
   SessionContact,
   SessionContactInput,
@@ -18,6 +20,8 @@ import { Effect } from "effect";
 
 import { CliConfigError, cliRelays, configuredRegistry } from "./config.ts";
 import type { createCliIdentityStore } from "./identity-store.ts";
+import { createCliOutboxStore } from "./outbox-store.ts";
+import { createOutboxRuntime, describeOutboxEvent } from "./outbox.ts";
 import {
   isUnprovenLifecycleOverride,
   UNPROVEN_LIFECYCLE_OVERRIDE_ENV,
@@ -150,6 +154,38 @@ export const openAuthorizedChatStream = Effect.fn(
   );
 });
 
+/** Write one chat frame and wait for a matching ack. Does not persist. */
+export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
+  transport: ChatTransport,
+  sessions: ReturnType<typeof createPeerSessions>,
+  recipient: { readonly handle: string; readonly qid: string },
+  frame: ChatFrame
+) {
+  const peerId = yield* sessions.recipientPeerId(recipient);
+  const stream = yield* openAuthorizedChatStream(
+    transport,
+    sessions,
+    peerId,
+    recipient
+  );
+  stream.write(encodeFrame(frame));
+  stream.closeWrite();
+  const ackBytes = yield* Effect.tryPromise({
+    catch: transportError,
+    try: () => readUntilEof(() => stream.read()),
+  });
+  const ack = yield* Effect.try({
+    catch: transportError,
+    try: () => decodeAck(ackBytes),
+  });
+  yield* Effect.try({
+    catch: transportError,
+    try: () => {
+      assertAckMatches(ack, frame.id);
+    },
+  });
+});
+
 export const runStart = Effect.fn("qop.start")(function* (
   store: ReturnType<typeof createCliIdentityStore>,
   options: {
@@ -224,11 +260,36 @@ export const runStart = Effect.fn("qop.start")(function* (
         const closeEndpoint = Effect.sync(() => {
           endpoint.close();
         });
+        const messages = createCliOutboxStore(store.root);
+        const outbox = createOutboxRuntime({
+          deliver: (record) => {
+            if (guardSensitive()) {
+              return Effect.fail(new Error("Authorization was invalidated"));
+            }
+            return deliverChatFrame(
+              endpoint,
+              sessions,
+              { handle: record.toHandle, qid: record.toQid },
+              record.frame
+            );
+          },
+          lookupHandle: reader.lookupHandle,
+          onEvent: (event) => {
+            const line = describeOutboxEvent(event);
+            if (event.kind === "failed") {
+              console.error(line);
+              return;
+            }
+            console.log(line);
+          },
+          store: messages,
+        });
 
         const program = Effect.gen(function* () {
           lifecycle.adapter.observe();
           endpoint.on("connectionEstablished", (connection) => {
             sessions.opened(connection);
+            Effect.runFork(outbox.flushDue().pipe(Effect.ignore));
           });
           endpoint.on("connectionClosed", (connection) => {
             sessions.closed(connection);
@@ -274,6 +335,12 @@ export const runStart = Effect.fn("qop.start")(function* (
                   stream.reset();
                   return;
                 }
+                yield* messages.putInbox({
+                  frame,
+                  fromQid: contact.qid,
+                  receivedAt: Date.now(),
+                  v: 1,
+                });
                 stream.write(encodeAck({ ack: frame.id, v: 1 }));
                 stream.closeWrite();
                 console.log(`@${frame.fromHandle}: ${frame.text}`);
@@ -301,57 +368,34 @@ export const runStart = Effect.fn("qop.start")(function* (
             `${UNPROVEN_LIFECYCLE_OVERRIDE_ENV}=1: SIGCONT, stall observe, and verify-boundary invalidation are armed. This is not proof of macOS/Linux lid sleep/wake.`
           );
 
+          yield* outbox.resume();
+
           if (options.to && options.message) {
             if (guardSensitive()) {
               console.error(
                 "Authorization was invalidated. Try sending again."
               );
-              return;
-            }
-            const recipient = yield* reader.lookupHandle(options.to);
-            if (!recipient) {
-              console.error(`Account @${options.to} was not found.`);
-              return;
-            }
-            const frame = {
-              fromHandle: identity.handle,
-              id: crypto.randomUUID(),
-              sentAt: Date.now(),
-              text: options.message,
-              v: 1 as const,
-            };
-            const peerId = yield* sessions.recipientPeerId({
-              handle: recipient.handle,
-              qid: recipient.qid.toString(),
-            });
-            const stream = yield* openAuthorizedChatStream(
-              endpoint,
-              sessions,
-              peerId,
-              {
-                handle: recipient.handle,
-                qid: recipient.qid.toString(),
+            } else {
+              const recipient = yield* reader.lookupHandle(options.to);
+              if (recipient) {
+                yield* outbox.enqueue({
+                  frame: {
+                    fromHandle: identity.handle,
+                    id: crypto.randomUUID(),
+                    sentAt: Date.now(),
+                    text: options.message,
+                    v: 1,
+                  },
+                  toHandle: recipient.handle,
+                  toQid: recipient.qid.toString(),
+                });
+              } else {
+                console.error(`Account @${options.to} was not found.`);
               }
-            );
-            if (guardSensitive()) {
-              stream.reset();
-              console.error(
-                "Authorization was invalidated. Try sending again."
-              );
-              return;
             }
-            stream.write(encodeFrame(frame));
-            stream.closeWrite();
-            const ackBytes = yield* Effect.tryPromise({
-              catch: (cause) =>
-                cause instanceof Error ? cause : new Error(String(cause)),
-              try: () => readUntilEof(() => stream.read()),
-            });
-            decodeAck(ackBytes);
-            console.log(`Sent diagnostic message to @${recipient.handle}.`);
           }
 
-          yield* Effect.never;
+          yield* outbox.run;
         });
 
         return yield* program.pipe(Effect.ensuring(closeEndpoint));
