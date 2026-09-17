@@ -4,9 +4,13 @@ import type {
   RegistryAccount,
   RegistryReaderError,
 } from "@qop/protocol";
-import { Data, Effect } from "effect";
+import { Data, Effect, Semaphore } from "effect";
 
-import type { createCliOutboxStore } from "./outbox-store.ts";
+import { describeCliOutboxStoreError } from "./outbox-store.ts";
+import type {
+  CliOutboxStoreError,
+  createCliOutboxStore,
+} from "./outbox-store.ts";
 
 export class CliOutboxDeliverError extends Data.TaggedError(
   "CliOutboxDeliverError"
@@ -58,6 +62,10 @@ export type OutboxEvent =
   | { readonly count: number; readonly kind: "resumed" }
   | { readonly handle: string; readonly kind: "sent" }
   | {
+      readonly kind: "store-error";
+      readonly reason: string;
+    }
+  | {
       readonly handle: string;
       readonly kind: "waiting";
       readonly reason: string;
@@ -68,6 +76,19 @@ const announce = (
   event: OutboxEvent
 ) => {
   onEvent?.(event);
+};
+
+const groupByRecipient = (records: readonly OutboxRecordV1[]) => {
+  const groups = new Map<string, OutboxRecordV1[]>();
+  for (const record of records) {
+    const group = groups.get(record.toQid);
+    if (group) {
+      group.push(record);
+    } else {
+      groups.set(record.toQid, [record]);
+    }
+  }
+  return [...groups.values()];
 };
 
 /** Persist-before-send outbox with bounded retry while the CLI stays running. */
@@ -89,6 +110,29 @@ export const createOutboxRuntime = ({
   readonly store: ReturnType<typeof createCliOutboxStore>;
 }) => {
   const inFlight = new Set<string>();
+  const recipientLocks = new Map<
+    string,
+    ReturnType<typeof Semaphore.makeUnsafe>
+  >();
+
+  const withRecipientLock = <A, E, R>(
+    qid: string,
+    effect: Effect.Effect<A, E, R>
+  ) => {
+    let lock = recipientLocks.get(qid);
+    if (!lock) {
+      lock = Semaphore.makeUnsafe(1);
+      recipientLocks.set(qid, lock);
+    }
+    return lock.withPermit(effect);
+  };
+
+  const announceStoreError = (error: CliOutboxStoreError) => {
+    announce(onEvent, {
+      kind: "store-error",
+      reason: describeCliOutboxStoreError(error),
+    });
+  };
 
   const enqueue = Effect.fn("qop.outbox.enqueue")(function* ({
     frame,
@@ -159,43 +203,60 @@ export const createOutboxRuntime = ({
       return;
     }
     inFlight.add(record.frame.id);
-    yield* Effect.gen(function* () {
-      const latest = (yield* store.loadRecords()).find(
-        (item) => item.frame.id === record.frame.id
-      );
-      if (!latest || latest.status !== "queued") {
-        return;
-      }
-      const account = yield* lookupHandle(latest.toHandle).pipe(Effect.result);
-      if (account._tag === "Failure") {
-        yield* markWaiting(latest, account.failure);
-        return;
-      }
-      if (!account.success) {
-        yield* markWaiting(latest, "Account was not found.");
-        return;
-      }
-      if (!sameRecipient(account.success, latest)) {
-        yield* markFailed(latest, "Handle now belongs to a different account.");
-        return;
-      }
-      const outcome = yield* deliver(latest).pipe(Effect.result);
-      if (outcome._tag === "Failure") {
-        yield* markWaiting(latest, outcome.failure);
-        return;
-      }
-      const at = now();
-      yield* store.put({
-        ...latest,
-        lastError: null,
-        status: "sent",
-        updatedAt: at,
-      });
-      announce(onEvent, { handle: latest.toHandle, kind: "sent" });
-    }).pipe(
+    yield* withRecipientLock(
+      record.toQid,
+      Effect.gen(function* () {
+        const latest = (yield* store.loadRecords()).find(
+          (item) => item.frame.id === record.frame.id
+        );
+        if (!latest || latest.status !== "queued") {
+          return;
+        }
+        const account = yield* lookupHandle(latest.toHandle).pipe(
+          Effect.result
+        );
+        if (account._tag === "Failure") {
+          yield* markWaiting(latest, account.failure);
+          return;
+        }
+        if (!account.success) {
+          yield* markWaiting(latest, "Account was not found.");
+          return;
+        }
+        if (!sameRecipient(account.success, latest)) {
+          yield* markFailed(
+            latest,
+            "Handle now belongs to a different account."
+          );
+          return;
+        }
+        const outcome = yield* deliver(latest).pipe(Effect.result);
+        if (outcome._tag === "Failure") {
+          yield* markWaiting(latest, outcome.failure);
+          return;
+        }
+        const at = now();
+        yield* store.put({
+          ...latest,
+          lastError: null,
+          status: "sent",
+          updatedAt: at,
+        });
+        announce(onEvent, { handle: latest.toHandle, kind: "sent" });
+      })
+    ).pipe(
       Effect.ensuring(Effect.sync(() => inFlight.delete(record.frame.id)))
     );
   });
+
+  const deliverDue = (record: OutboxRecordV1) =>
+    deliverOne(record).pipe(
+      Effect.catchTag("CliOutboxStoreError", (error) =>
+        Effect.sync(() => {
+          announceStoreError(error);
+        })
+      )
+    );
 
   const flushDue = Effect.fn("qop.outbox.flushDue")(function* (options?: {
     readonly ignoreBackoffForQid?: string;
@@ -207,10 +268,23 @@ export const createOutboxRuntime = ({
         record.nextAttemptAt <= at ||
         record.toQid === options?.ignoreBackoffForQid
     );
-    yield* Effect.forEach(due, (record) => deliverOne(record), {
-      concurrency: OUTBOX_FLUSH_CONCURRENCY,
-    });
+    yield* Effect.forEach(
+      groupByRecipient(due),
+      (records) => Effect.forEach(records, deliverDue, { concurrency: 1 }),
+      { concurrency: OUTBOX_FLUSH_CONCURRENCY }
+    );
   });
+
+  const flushDueOrAnnounce = (options?: {
+    readonly ignoreBackoffForQid?: string;
+  }) =>
+    flushDue(options).pipe(
+      Effect.catchTag("CliOutboxStoreError", (error) =>
+        Effect.sync(() => {
+          announceStoreError(error);
+        })
+      )
+    );
 
   const resume = Effect.fn("qop.outbox.resume")(function* () {
     const pending = yield* store.queued();
@@ -220,14 +294,38 @@ export const createOutboxRuntime = ({
     return pending.length;
   });
 
+  /** Skip registry work unless a waiting record could use this peer's qid. */
+  const flushOnConnection = Effect.fn("qop.outbox.flushOnConnection")(
+    function* (peerQid: Effect.Effect<string | undefined>) {
+      const pending = yield* store.queued().pipe(
+        Effect.catchTag("CliOutboxStoreError", (error) =>
+          Effect.sync((): OutboxRecordV1[] => {
+            announceStoreError(error);
+            return [];
+          })
+        )
+      );
+      if (pending.length === 0) {
+        return;
+      }
+      const at = now();
+      if (pending.every((record) => record.nextAttemptAt <= at)) {
+        yield* flushDueOrAnnounce();
+        return;
+      }
+      const qid = yield* peerQid;
+      yield* flushDueOrAnnounce(qid ? { ignoreBackoffForQid: qid } : undefined);
+    }
+  );
+
   const run = Effect.forever(
     Effect.gen(function* () {
-      yield* flushDue().pipe(Effect.ignore);
+      yield* flushDueOrAnnounce();
       yield* Effect.sleep(OUTBOX_POLL_MS);
     })
   );
 
-  return { enqueue, flushDue, resume, run };
+  return { enqueue, flushDue, flushOnConnection, resume, run };
 };
 
 export const describeOutboxEvent = (event: OutboxEvent) => {
@@ -244,8 +342,11 @@ export const describeOutboxEvent = (event: OutboxEvent) => {
     case "sent": {
       return `Sent to @${event.handle}.`;
     }
+    case "store-error": {
+      return event.reason;
+    }
     case "waiting": {
-      return `Waiting for @${event.handle}. Will retry when an authorized device is reachable.`;
+      return `Waiting for @${event.handle} (${event.reason}). Will retry when an authorized device is reachable.`;
     }
     default: {
       const exhaustive: never = event;

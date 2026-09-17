@@ -88,7 +88,7 @@ describe("CLI outbox store", () => {
     })
   );
 
-  it.effect("saves inbox records before they can be acked", () =>
+  it.effect("treats the same inbox id and content as idempotent", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
       const store = createCliOutboxStore(root);
@@ -98,10 +98,12 @@ describe("CLI outbox store", () => {
         receivedAt: 1_700_000_000_001,
         v: 1 as const,
       };
-      yield* store.putInbox(inbound);
+      const first = yield* store.putInbox(inbound);
+      expect(first.inserted).toBe(true);
       expect(yield* store.loadInbox()).toEqual([inbound]);
       const again = yield* store.putInbox({ ...inbound, receivedAt: 9 });
-      expect(again.receivedAt).toBe(1_700_000_000_001);
+      expect(again.inserted).toBe(false);
+      expect(again.record.receivedAt).toBe(1_700_000_000_001);
       const conflicted = yield* store
         .putInbox({ ...inbound, fromQid: "3" })
         .pipe(Effect.result);

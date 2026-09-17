@@ -12,7 +12,11 @@ import {
   createCliIdentityStore,
   defaultDataDirectory,
 } from "./identity-store.ts";
-import { createCliOutboxStore } from "./outbox-store.ts";
+import {
+  CliOutboxStoreError,
+  createCliOutboxStore,
+  describeCliOutboxStoreError,
+} from "./outbox-store.ts";
 import { runLink } from "./pairing-link.ts";
 
 const store = createCliIdentityStore(
@@ -44,8 +48,15 @@ const runStatus = Effect.fn("qop.status")(function* () {
   console.log(
     `state    ${membership?.qid.toString() === identity.qid ? "linked" : "not linked"}`
   );
-  const queued = yield* createCliOutboxStore(store.root).queuedCount();
-  console.log(`outbox   ${queued} queued`);
+  const queued = yield* createCliOutboxStore(store.root)
+    .queuedCount()
+    .pipe(
+      Effect.map((count) => `outbox   ${count} queued`),
+      Effect.catchTag("CliOutboxStoreError", () =>
+        Effect.succeed("outbox   unreadable")
+      )
+    );
+  console.log(queued);
 });
 
 const command = createQopCommand({
@@ -54,7 +65,12 @@ const command = createQopCommand({
   runStatus: () => withLock(runStatus()),
 });
 
-const operatorMessage = (error: CliIdentityStoreError) => {
+const operatorMessage = (
+  error: CliIdentityStoreError | CliOutboxStoreError
+) => {
+  if (error instanceof CliOutboxStoreError) {
+    return describeCliOutboxStoreError(error);
+  }
   if (error.operation === "permissions") {
     return "CLI identity files must be mode 600 (directory 700). Fix permissions or move the data directory aside — do not overwrite device.key.";
   }
@@ -76,7 +92,8 @@ NodeRuntime.runMain(
         }
         const squashed = Cause.squash(cause);
         console.error(
-          squashed instanceof CliIdentityStoreError
+          squashed instanceof CliIdentityStoreError ||
+            squashed instanceof CliOutboxStoreError
             ? (operatorMessage(squashed) ?? Cause.pretty(cause))
             : Cause.pretty(cause)
         );

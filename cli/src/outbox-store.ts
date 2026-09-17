@@ -33,6 +33,36 @@ export class CliOutboxStoreError extends Data.TaggedError(
   readonly operation: "conflict" | "decode" | "permissions" | "read" | "write";
 }> {}
 
+export interface PutInboxResult {
+  readonly inserted: boolean;
+  readonly record: InboxRecordV1;
+}
+
+/** Operator-facing copy for a durable outbox/inbox store failure. */
+export const describeCliOutboxStoreError = (error: CliOutboxStoreError) => {
+  switch (error.operation) {
+    case "conflict": {
+      return "CLI outbox or inbox has a conflicting record for the same message id.";
+    }
+    case "decode": {
+      return "CLI outbox or inbox is unreadable. Move the data directory aside to recover.";
+    }
+    case "permissions": {
+      return "CLI outbox files must be mode 600 (directory 700). Fix permissions or move the data directory aside.";
+    }
+    case "read": {
+      return "Could not read the CLI outbox or inbox.";
+    }
+    case "write": {
+      return "Could not write the CLI outbox or inbox.";
+    }
+    default: {
+      const exhaustive: never = error.operation;
+      return exhaustive;
+    }
+  }
+};
+
 const storeError = (operation: CliOutboxStoreError["operation"]) =>
   new CliOutboxStoreError({ operation });
 
@@ -260,10 +290,10 @@ export const createCliOutboxStore = (root: string) => {
           if (inboxRecordsConflict(existing, record)) {
             return yield* storeError("conflict");
           }
-          return existing;
+          return { inserted: false, record: existing };
         }
         yield* saveInboxUnlocked([...messages, record]);
-        return record;
+        return { inserted: true, record };
       })
     );
   });

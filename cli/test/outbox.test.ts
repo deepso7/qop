@@ -3,13 +3,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { describe, expect, it } from "@effect/vitest";
-import type { RegistryAccount } from "@qop/protocol";
+import type { OutboxRecordV1, RegistryAccount } from "@qop/protocol";
 import { Deferred, Effect, Fiber } from "effect";
 
-import { createCliOutboxStore } from "../src/outbox-store.ts";
+import {
+  CliOutboxStoreError,
+  createCliOutboxStore,
+} from "../src/outbox-store.ts";
 import {
   CliOutboxDeliverError,
   createOutboxRuntime,
+  describeOutboxEvent,
   nextAttemptDelayMs,
   OUTBOX_INITIAL_BACKOFF_MS,
   OUTBOX_MAX_BACKOFF_MS,
@@ -231,30 +235,25 @@ describe("CLI outbox retry", () => {
   );
 
   it.effect(
-    "lets a later flush proceed while one delivery is still in flight",
+    "delivers same-recipient messages in order and not concurrently",
     () =>
       Effect.gen(function* () {
         const root = yield* withTempRoot;
         const store = createCliOutboxStore(root);
-        const firstStarted = yield* Deferred.make<boolean>();
-        const releaseFirst = yield* Deferred.make<boolean>();
-        const otherDelivered = yield* Deferred.make<boolean>();
-        const delivered: string[] = [];
         const otherId = "c56a4180-65aa-42ec-a945-5fd21dec0539";
+        const thirdId = "c56a4180-65aa-42ec-a945-5fd21dec053a";
+        let active = 0;
+        let maxActive = 0;
+        const delivered: string[] = [];
         const outbox = createOutboxRuntime({
-          deliver: (record) => {
-            if (record.frame.id === id) {
-              return Effect.gen(function* () {
-                yield* Deferred.succeed(firstStarted, true);
-                yield* Deferred.await(releaseFirst);
-                delivered.push(record.frame.id);
-              });
-            }
-            return Effect.gen(function* () {
+          deliver: (record) =>
+            Effect.gen(function* () {
+              active += 1;
+              maxActive = Math.max(maxActive, active);
+              yield* Effect.yieldNow;
               delivered.push(record.frame.id);
-              yield* Deferred.succeed(otherDelivered, true);
-            });
-          },
+              active -= 1;
+            }),
           lookupHandle: () => Effect.succeed(account),
           now: () => 1000,
           store,
@@ -265,14 +264,14 @@ describe("CLI outbox retry", () => {
           toHandle: "bob",
           toQid: "1",
         });
-        const firstFlush = yield* Effect.forkChild(outbox.flushDue());
-        yield* Deferred.await(firstStarted);
+        yield* outbox.enqueue({
+          frame: { ...frame, id: thirdId, text: "third" },
+          toHandle: "bob",
+          toQid: "1",
+        });
         yield* outbox.flushDue();
-        yield* Deferred.await(otherDelivered);
-        expect(delivered).toEqual([otherId]);
-        yield* Deferred.succeed(releaseFirst, true);
-        yield* Fiber.join(firstFlush);
-        expect(delivered).toEqual([otherId, id]);
+        expect(maxActive).toBe(1);
+        expect(delivered).toEqual([id, otherId, thirdId]);
         expect(yield* store.queued()).toEqual([]);
       })
   );
@@ -352,4 +351,163 @@ describe("CLI outbox retry", () => {
       expect(attempts).toEqual(["bob", "bob"]);
     })
   );
+
+  it.effect(
+    "does not interrupt a sibling delivery when one store put fails",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        const inner = createCliOutboxStore(root);
+        const bobStarted = yield* Deferred.make<boolean>();
+        const releaseBob = yield* Deferred.make<boolean>();
+        const events: string[] = [];
+        const carolId = "c56a4180-65aa-42ec-a945-5fd21dec0539";
+        const store = {
+          ...inner,
+          put: (record: OutboxRecordV1) =>
+            record.frame.id === carolId && record.status === "sent"
+              ? Effect.fail(new CliOutboxStoreError({ operation: "write" }))
+              : inner.put(record),
+        };
+        const outbox = createOutboxRuntime({
+          deliver: (record) => {
+            if (record.toHandle === "bob") {
+              return Effect.gen(function* () {
+                yield* Deferred.succeed(bobStarted, true);
+                yield* Deferred.await(releaseBob);
+              });
+            }
+            return Effect.gen(function* () {
+              yield* Deferred.await(bobStarted);
+            });
+          },
+          lookupHandle: (handle) =>
+            Effect.succeed(handle === "carol" ? carolAccount : account),
+          now: () => 1000,
+          onEvent: (event) => {
+            events.push(event.kind);
+          },
+          store,
+        });
+        yield* outbox.enqueue({ frame, toHandle: "bob", toQid: "1" });
+        yield* outbox.enqueue({
+          frame: { ...frame, id: carolId, text: "offline" },
+          toHandle: "carol",
+          toQid: "2",
+        });
+        const flush = yield* Effect.forkChild(outbox.flushDue());
+        yield* Deferred.await(bobStarted);
+        yield* Deferred.succeed(releaseBob, true);
+        yield* Fiber.join(flush);
+        const records = yield* inner.loadRecords();
+        expect(records.find((record) => record.frame.id === id)?.status).toBe(
+          "sent"
+        );
+        expect(
+          records.find((record) => record.frame.id === carolId)?.status
+        ).toBe("queued");
+        expect(events).toContain("store-error");
+      })
+  );
+
+  it.effect("skips a connection lookup when nothing is queued", () =>
+    Effect.gen(function* () {
+      const root = yield* withTempRoot;
+      const store = createCliOutboxStore(root);
+      let lookups = 0;
+      const outbox = createOutboxRuntime({
+        deliver: () => Effect.void,
+        lookupHandle: () => Effect.succeed(account),
+        now: () => 1000,
+        store,
+      });
+      yield* outbox.flushOnConnection(
+        Effect.sync(() => {
+          lookups += 1;
+          return "1";
+        })
+      );
+      expect(lookups).toBe(0);
+    })
+  );
+
+  it.effect(
+    "skips a connection lookup when every queued record is already due",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        const store = createCliOutboxStore(root);
+        let lookups = 0;
+        const delivered: string[] = [];
+        const outbox = createOutboxRuntime({
+          deliver: (record) =>
+            Effect.sync(() => {
+              delivered.push(record.frame.id);
+            }),
+          lookupHandle: () => Effect.succeed(account),
+          now: () => 1000,
+          store,
+        });
+        yield* outbox.enqueue({ frame, toHandle: "bob", toQid: "1" });
+        yield* outbox.flushOnConnection(
+          Effect.sync(() => {
+            lookups += 1;
+            return "1";
+          })
+        );
+        expect(lookups).toBe(0);
+        expect(delivered).toEqual([id]);
+      })
+  );
+
+  it.effect(
+    "looks up a connected qid only to skip backoff for waiting records",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        const store = createCliOutboxStore(root);
+        let lookups = 0;
+        const attempts: number[] = [];
+        let now = 1000;
+        const outbox = createOutboxRuntime({
+          deliver: () => {
+            attempts.push(now);
+            return Effect.fail(
+              new CliOutboxDeliverError({ operation: "transport" })
+            );
+          },
+          lookupHandle: () => Effect.succeed(account),
+          now: () => now,
+          store,
+        });
+        yield* outbox.enqueue({ frame, toHandle: "bob", toQid: "1" });
+        yield* outbox.flushDue();
+        expect(attempts).toEqual([1000]);
+        now += 1;
+        yield* outbox.flushOnConnection(
+          Effect.sync(() => {
+            lookups += 1;
+            return "1";
+          })
+        );
+        expect(lookups).toBe(1);
+        expect(attempts).toEqual([1000, now]);
+      })
+  );
+
+  it("includes the waiting reason in operator copy", () => {
+    expect(
+      describeOutboxEvent({
+        handle: "bob",
+        kind: "waiting",
+        reason: "timeout",
+      })
+    ).toContain("timeout");
+    expect(
+      describeOutboxEvent({
+        kind: "store-error",
+        reason: "Could not write the CLI outbox or inbox.",
+      })
+    ).toBe("Could not write the CLI outbox or inbox.");
+  });
 });

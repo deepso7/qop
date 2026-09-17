@@ -13,6 +13,7 @@ import {
 } from "@qop/protocol";
 import type {
   ChatFrame,
+  InboxRecordV1,
   PeerConnection,
   SessionContact,
   SessionContactInput,
@@ -22,6 +23,7 @@ import { Effect, Schema } from "effect";
 import { CliConfigError, cliRelays, configuredRegistry } from "./config.ts";
 import type { createCliIdentityStore } from "./identity-store.ts";
 import { createCliOutboxStore } from "./outbox-store.ts";
+import type { CliOutboxStoreError, PutInboxResult } from "./outbox-store.ts";
 import {
   CliOutboxDeliverError,
   createOutboxRuntime,
@@ -215,13 +217,31 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
       },
     });
   }).pipe(
-    Effect.tapError(() =>
-      Effect.sync(() => {
-        stream.reset();
-      })
+    Effect.onExit((exit) =>
+      exit._tag === "Success"
+        ? Effect.void
+        : Effect.sync(() => {
+            stream.reset();
+          })
     )
   );
 });
+
+/** Persist inbound, then ACK. Callers print only when `inserted` is true. */
+export const ackInboundChatFrame = Effect.fn("qop.ackInboundChatFrame")(
+  function* (
+    stream: ChatStream,
+    record: InboxRecordV1,
+    putInbox: (
+      record: InboxRecordV1
+    ) => Effect.Effect<PutInboxResult, CliOutboxStoreError>
+  ) {
+    const saved = yield* putInbox(record);
+    stream.write(encodeAck({ ack: record.frame.id, v: 1 }));
+    stream.closeWrite();
+    return saved;
+  }
+);
 
 export const runStart = Effect.fn("qop.start")(function* (
   store: ReturnType<typeof createCliIdentityStore>,
@@ -315,7 +335,7 @@ export const runStart = Effect.fn("qop.start")(function* (
           lookupHandle: reader.lookupHandle,
           onEvent: (event) => {
             const line = describeOutboxEvent(event);
-            if (event.kind === "failed") {
+            if (event.kind === "failed" || event.kind === "store-error") {
               console.error(line);
               return;
             }
@@ -326,25 +346,35 @@ export const runStart = Effect.fn("qop.start")(function* (
 
         const program = Effect.gen(function* () {
           lifecycle.adapter.observe();
+          const connectionFlushInFlight = new Set<string>();
           endpoint.on("connectionEstablished", (connection) => {
             sessions.opened(connection);
+            const { peerId } = connection;
+            if (connectionFlushInFlight.has(peerId)) {
+              return;
+            }
+            connectionFlushInFlight.add(peerId);
             Effect.runFork(
-              Effect.gen(function* () {
-                const qid = yield* Schema.decodeUnknownEffect(PeerId)(
-                  connection.peerId
-                ).pipe(
-                  Effect.flatMap(deviceKeyFromPeerId),
-                  Effect.flatMap((deviceKey) =>
-                    Schema.encodeEffect(Hex32)(deviceKey)
+              outbox
+                .flushOnConnection(
+                  Schema.decodeUnknownEffect(PeerId)(peerId).pipe(
+                    Effect.flatMap(deviceKeyFromPeerId),
+                    Effect.flatMap((deviceKey) =>
+                      Schema.encodeEffect(Hex32)(deviceKey)
+                    ),
+                    Effect.flatMap(reader.lookupDeviceKey),
+                    Effect.map((account) => account?.qid.toString()),
+                    Effect.orElseSucceed((): string | undefined => undefined)
+                  )
+                )
+                .pipe(
+                  Effect.ensuring(
+                    Effect.sync(() => {
+                      connectionFlushInFlight.delete(peerId);
+                    })
                   ),
-                  Effect.flatMap(reader.lookupDeviceKey),
-                  Effect.map((account) => account?.qid.toString()),
-                  Effect.orElseSucceed((): string | undefined => undefined)
-                );
-                yield* outbox.flushDue(
-                  qid ? { ignoreBackoffForQid: qid } : undefined
-                );
-              }).pipe(Effect.ignore)
+                  Effect.ignore
+                )
             );
           });
           endpoint.on("connectionClosed", (connection) => {
@@ -391,15 +421,19 @@ export const runStart = Effect.fn("qop.start")(function* (
                   stream.reset();
                   return;
                 }
-                yield* messages.putInbox({
-                  frame,
-                  fromQid: contact.qid,
-                  receivedAt: Date.now(),
-                  v: 1,
-                });
-                stream.write(encodeAck({ ack: frame.id, v: 1 }));
-                stream.closeWrite();
-                console.log(`@${frame.fromHandle}: ${frame.text}`);
+                const saved = yield* ackInboundChatFrame(
+                  stream,
+                  {
+                    frame,
+                    fromQid: contact.qid,
+                    receivedAt: Date.now(),
+                    v: 1,
+                  },
+                  messages.putInbox
+                );
+                if (saved.inserted) {
+                  console.log(`@${frame.fromHandle}: ${frame.text}`);
+                }
               }).pipe(
                 Effect.ensuring(
                   Effect.sync(() => {
