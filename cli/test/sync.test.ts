@@ -229,20 +229,19 @@ describe("CLI inbound sync", () => {
       getByIds: () => Effect.succeed([]),
     };
     const sessions = makeSessions();
-    const stream = makeStream(
-      await Effect.runPromise(
-        encodeSyncRequestV1({
-          composedBy: phoneDeviceKey,
-          record: queued,
-          type: "handoff",
-          v: 1,
-        })
-      )
+    const bytes = await Effect.runPromise(
+      encodeSyncRequestV1({
+        composedBy: phoneDeviceKey,
+        record: queued,
+        type: "handoff",
+        v: 1,
+      })
     );
-    const originalRead = stream.read.getMockImplementation();
+    const unread: (Uint8Array | undefined)[] = [bytes, undefined];
+    const stream = makeStream(bytes);
     stream.read.mockImplementation(() => {
       sessions.invalidateAuthorization();
-      return originalRead ? originalRead() : Promise.resolve();
+      return Promise.resolve(unread.shift());
     });
     const result = await Effect.runPromise(
       handleInboundSyncStream(stream, sessions, identity, store).pipe(
