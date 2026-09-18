@@ -10,6 +10,7 @@ import {
   encodeFrame,
   MAX_CHAT_PAYLOAD_BYTES,
   PeerVerificationError,
+  SYNC_PROTOCOL,
 } from "@qop/protocol";
 import type {
   ChatFrame,
@@ -38,6 +39,8 @@ import {
   UNPROVEN_LIFECYCLE_OVERRIDE_ENV,
   withMessagingLifecycle,
 } from "./process-lifecycle.ts";
+import { handleInboundSyncStream } from "./sync.ts";
+import type { CliSyncIdentity, CliSyncStore } from "./sync.ts";
 
 const MAX_INBOUND_STREAMS = 8;
 const INBOUND_READ_TIMEOUT_MS = 15_000;
@@ -249,6 +252,35 @@ export const ackInboundChatFrame = Effect.fn("qop.ackInboundChatFrame")(
   }
 );
 
+/** Own-device `/qop/sync/1` inbound: gate, persist/held, log accepted holds. */
+const handleCliInboundSync = Effect.fn("qop.handleCliInboundSync")(function* (
+  stream: ChatStream,
+  sessions: ReturnType<typeof createPeerSessions>,
+  identity: CliSyncIdentity,
+  store: CliSyncStore,
+  guardSensitive: () => boolean
+) {
+  if (guardSensitive()) {
+    stream.reset();
+    return;
+  }
+  const response = yield* handleInboundSyncStream(
+    stream,
+    sessions,
+    identity,
+    store,
+    () => !guardSensitive()
+  ).pipe(
+    Effect.timeoutOrElse({
+      duration: INBOUND_READ_TIMEOUT_MS,
+      orElse: () => Effect.fail(new Error("Inbound sync timed out")),
+    })
+  );
+  if (response.type === "held") {
+    console.log(`Holding ${response.id} from own device.`);
+  }
+});
+
 export const runStart = Effect.fn("qop.start")(function* (
   store: ReturnType<typeof createCliIdentityStore>,
   options: {
@@ -283,6 +315,7 @@ export const runStart = Effect.fn("qop.start")(function* (
     getContactByQid: (qid) => Promise.resolve(contacts.get(qid) ?? null),
     lookupDeviceKey: reader.lookupDeviceKey,
     lookupHandle: reader.lookupHandle,
+    ownQid: () => identity.qid,
     upsertContact: (input: SessionContactInput) => {
       const known = contacts.get(input.qid);
       contacts.set(input.qid, {
@@ -313,7 +346,7 @@ export const runStart = Effect.fn("qop.start")(function* (
         const relays = cliRelays();
         const chatConfig = {
           agentVersion: "qop-cli/0.1.0",
-          protocols: [CHAT_PROTOCOL],
+          protocols: [CHAT_PROTOCOL, SYNC_PROTOCOL],
           secretKey,
         };
         const endpoint = Minip2p.create(
@@ -386,7 +419,10 @@ export const runStart = Effect.fn("qop.start")(function* (
             sessions.closed(connection);
           });
           endpoint.on("stream", (stream) => {
-            if (stream.protocolId !== CHAT_PROTOCOL) {
+            if (
+              stream.protocolId !== CHAT_PROTOCOL &&
+              stream.protocolId !== SYNC_PROTOCOL
+            ) {
               stream.reset();
               return;
             }
@@ -395,51 +431,66 @@ export const runStart = Effect.fn("qop.start")(function* (
               return;
             }
             inbound += 1;
+            const inboundProgram =
+              stream.protocolId === SYNC_PROTOCOL
+                ? handleCliInboundSync(
+                    stream,
+                    sessions,
+                    {
+                      handle: identity.handle,
+                      qid: identity.qid,
+                    },
+                    messages,
+                    guardSensitive
+                  )
+                : Effect.gen(function* () {
+                    guardSensitive();
+                    const bytes = yield* Effect.tryPromise({
+                      catch: (cause) =>
+                        cause instanceof Error
+                          ? cause
+                          : new Error(String(cause)),
+                      try: () => readUntilEof(() => stream.read()),
+                    }).pipe(
+                      Effect.timeoutOrElse({
+                        duration: INBOUND_READ_TIMEOUT_MS,
+                        orElse: () =>
+                          Effect.fail(new Error("Inbound chat read timed out")),
+                      })
+                    );
+                    const frame = decodeFrame(bytes);
+                    if (guardSensitive()) {
+                      stream.reset();
+                      return;
+                    }
+                    sessions.opened(stream);
+                    const contact = yield* sessions.verify(
+                      stream,
+                      frame.fromHandle
+                    );
+                    if (
+                      guardSensitive() ||
+                      !sessions.isVerified(stream, contact.qid)
+                    ) {
+                      stream.reset();
+                      return;
+                    }
+                    const saved = yield* ackInboundChatFrame(
+                      stream,
+                      {
+                        frame,
+                        fromQid: contact.qid,
+                        receivedAt: Date.now(),
+                        v: 1,
+                      },
+                      messages.putInbox
+                    );
+                    if (saved.inserted) {
+                      console.log(`@${frame.fromHandle}: ${frame.text}`);
+                    }
+                  });
             Effect.runFork(
-              Effect.gen(function* () {
-                guardSensitive();
-                const bytes = yield* Effect.tryPromise({
-                  catch: (cause) =>
-                    cause instanceof Error ? cause : new Error(String(cause)),
-                  try: () => readUntilEof(() => stream.read()),
-                }).pipe(
-                  Effect.timeoutOrElse({
-                    duration: INBOUND_READ_TIMEOUT_MS,
-                    orElse: () =>
-                      Effect.fail(new Error("Inbound chat read timed out")),
-                  })
-                );
-                const frame = decodeFrame(bytes);
-                if (guardSensitive()) {
-                  stream.reset();
-                  return;
-                }
-                sessions.opened(stream);
-                const contact = yield* sessions.verify(
-                  stream,
-                  frame.fromHandle
-                );
-                if (
-                  guardSensitive() ||
-                  !sessions.isVerified(stream, contact.qid)
-                ) {
-                  stream.reset();
-                  return;
-                }
-                const saved = yield* ackInboundChatFrame(
-                  stream,
-                  {
-                    frame,
-                    fromQid: contact.qid,
-                    receivedAt: Date.now(),
-                    v: 1,
-                  },
-                  messages.putInbox
-                );
-                if (saved.inserted) {
-                  console.log(`@${frame.fromHandle}: ${frame.text}`);
-                }
-              }).pipe(
+              inboundProgram.pipe(
                 Effect.ensuring(
                   Effect.sync(() => {
                     inbound -= 1;

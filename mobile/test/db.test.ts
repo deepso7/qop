@@ -3,13 +3,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deleteAll,
   failInterruptedMessages,
+  failRejectedHandoff,
   getContactByQid,
   getMessageById,
   insertMessage,
   listConversations,
   listMessages,
   markConversationRead,
+  markMessageHeld,
   upsertContact,
+  advanceMessageStatus,
 } from "@/lib/db";
 import type { MessageInput } from "@/lib/db";
 
@@ -212,6 +215,124 @@ describe("interrupted sends", () => {
     });
     await failInterruptedMessages();
     expect(await listMessages("1")).toEqual(after);
+  });
+
+  it("keeps held messages pending across restart", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "held",
+      sentAt: 100,
+      status: "held",
+      text: "waiting on CLI",
+    });
+    await failInterruptedMessages();
+    expect(await getMessageById("held")).toMatchObject({ status: "held" });
+  });
+});
+
+describe("delivery status transitions", () => {
+  it("does not let a late held clobber sent", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "race",
+      sentAt: 100,
+      status: "sending",
+      text: "hello",
+    });
+    expect(await advanceMessageStatus("race", "sent")).toBe(true);
+    expect(await advanceMessageStatus("race", "held")).toBe(false);
+    expect(await getMessageById("race")).toMatchObject({ status: "sent" });
+  });
+
+  it("promotes held to sent on a receipt", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "held-receipt",
+      sentAt: 100,
+      status: "held",
+      text: "hello",
+    });
+    expect(await advanceMessageStatus("held-receipt", "sent")).toBe(true);
+    expect(await getMessageById("held-receipt")).toMatchObject({
+      status: "sent",
+    });
+  });
+
+  it("promotes held to failed when the CLI permanently rejects the id", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "held-fail",
+      sentAt: 100,
+      status: "held",
+      text: "hello",
+    });
+    expect(await advanceMessageStatus("held-fail", "failed")).toBe(false);
+    await failRejectedHandoff("held-fail");
+    expect(await getMessageById("held-fail")).toMatchObject({
+      holderPeerId: null,
+      status: "failed",
+    });
+  });
+
+  it("records the accepting holder and does not auto-unfail", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "held-by",
+      sentAt: 100,
+      status: "sending",
+      text: "hello",
+    });
+    expect(await markMessageHeld("held-by", "cli-peer")).toBe(true);
+    expect(await getMessageById("held-by")).toMatchObject({
+      holderPeerId: "cli-peer",
+      status: "held",
+    });
+    expect(await markMessageHeld("held-by", "other-cli")).toBe(true);
+    expect(await getMessageById("held-by")).toMatchObject({
+      holderPeerId: "other-cli",
+      status: "held",
+    });
+    expect(await advanceMessageStatus("held-by", "sent")).toBe(true);
+    expect(await markMessageHeld("held-by", "cli-peer")).toBe(false);
+    expect(await getMessageById("held-by")).toMatchObject({
+      holderPeerId: null,
+      status: "sent",
+    });
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "failed-stay",
+      sentAt: 100,
+      status: "failed",
+      text: "old",
+    });
+    expect(await markMessageHeld("failed-stay", "cli-peer")).toBe(false);
+    expect(await getMessageById("failed-stay")).toMatchObject({
+      holderPeerId: null,
+      status: "failed",
+    });
+  });
+
+  it("lets a manual retry move failed back to sending", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "retry-send",
+      sentAt: 100,
+      status: "failed",
+      text: "hello",
+    });
+    expect(await advanceMessageStatus("retry-send", "sending")).toBe(true);
+    expect(await getMessageById("retry-send")).toMatchObject({
+      holderPeerId: null,
+      status: "sending",
+    });
+    expect(await advanceMessageStatus("retry-send", "sending")).toBe(false);
   });
 });
 

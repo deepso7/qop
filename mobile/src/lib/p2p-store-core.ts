@@ -1,5 +1,5 @@
 import type { Minip2p, Stream, Unsubscribe } from "@minip2p/react-native";
-import { PAIR_PROTOCOL } from "@qop/protocol";
+import { PAIR_PROTOCOL, SYNC_PROTOCOL } from "@qop/protocol";
 import { Effect } from "effect";
 import { create } from "zustand";
 import type { StoreApi } from "zustand";
@@ -7,19 +7,29 @@ import type { StoreApi } from "zustand";
 import { CHAT_PROTOCOL, encodeAck } from "./chat-wire";
 import type { ChatFrame } from "./chat-wire";
 import {
+  advanceMessageStatus,
   failInterruptedMessages,
+  failRejectedHandoff,
   getContactByQid,
   getMessageById,
   insertMessage,
-  updateMessageStatus,
+  listOutgoingPending,
+  markMessageHeld,
   upsertContact,
 } from "./db";
-import type { Contact, MessageInput } from "./db";
+import type { Contact, MessageInput, StoredMessage } from "./db";
 import type { loadDeviceSecretKey } from "./identity-vault";
 import { readVerifiedChat } from "./p2p-receive";
 import { withTimeout } from "./p2p-send";
 import type { performSend } from "./p2p-send";
 import { createPeerSessions } from "./p2p-sessions";
+import {
+  HANDOFF_REJECTED_MESSAGE,
+  otherOwnDevicePeerIds,
+  outgoingHandoffRecord,
+  pickHolderPeerId,
+} from "./p2p-sync";
+import type { OwnDevice, performHandoff, performPoll } from "./p2p-sync";
 import type { lookupDeviceKey, lookupHandle } from "./registry";
 
 type P2pStatus = "failed" | "running" | "starting" | "stopped";
@@ -37,6 +47,8 @@ interface P2pActions {
   readonly connectTo: (
     contact: Pick<Contact, "handle" | "qid">
   ) => Promise<string | undefined>;
+  /** Drop the session holder cache after own-device membership changes. */
+  readonly invalidateOwnHolders: () => void;
   readonly openPairingStream: (peerId: string) => Promise<
     | {
         readonly closeWrite: () => void;
@@ -98,7 +110,10 @@ interface P2pDependencies {
   readonly loadDeviceSecretKey: typeof loadDeviceSecretKey;
   readonly lookupDeviceKey: typeof lookupDeviceKey;
   readonly lookupHandle: typeof lookupHandle;
+  readonly performHandoff?: typeof performHandoff;
+  readonly performPoll?: typeof performPoll;
   readonly performSend: typeof performSend;
+  readonly getOwnDevice?: () => OwnDevice | undefined;
   readonly randomUUID: () => string;
   /** Called when the app resumes from background/suspend; invalidate live auth. */
   readonly subscribeAppResume?: (onResume: () => void) => Unsubscribe;
@@ -107,6 +122,14 @@ interface P2pDependencies {
 const errorMessage = (error: Error | string) =>
   error instanceof Error ? error.message : String(error);
 
+const holderRosterChanged = (
+  previous: readonly string[] | undefined,
+  next: readonly string[]
+) =>
+  previous === undefined ||
+  previous.length !== next.length ||
+  previous.some((id) => !next.includes(id));
+
 const uninitializedSetState: StoreApi<P2pStore>["setState"] = () => {
   throw new Error("P2P store used before initialization");
 };
@@ -114,9 +137,12 @@ const uninitializedSetState: StoreApi<P2pStore>["setState"] = () => {
 export const createP2pStore = ({
   createEndpoint,
   getIdentityHandle,
+  getOwnDevice,
   loadDeviceSecretKey,
   lookupDeviceKey,
   lookupHandle,
+  performHandoff,
+  performPoll,
   performSend,
   randomUUID,
   subscribeAppResume,
@@ -130,11 +156,26 @@ export const createP2pStore = ({
     string,
     { readonly controller: AbortController; readonly job: Promise<void> }
   >();
+  let cachedHolderPeerIds: readonly string[] | undefined;
+  let holderLookup: Promise<readonly string[] | undefined> | undefined;
+  let holderDiscoverLookup:
+    | {
+        readonly peerId: string;
+        readonly promise: Promise<readonly string[] | undefined>;
+      }
+    | undefined;
+  let holderCacheEpoch = 0;
+  /** Connect-path peers absent from a successful roster read this epoch. */
+  const holderDiscoverMisses = new Set<string>();
+  let scheduledReconcile: Promise<void> | undefined;
+  let queuedReconcile = false;
+  let reconcileSeq = 0;
 
   const sessions = createPeerSessions({
     getContactByQid,
     lookupDeviceKey,
     lookupHandle,
+    ownQid: () => getOwnDevice?.()?.qid,
     upsertContact,
   });
 
@@ -157,6 +198,14 @@ export const createP2pStore = ({
     }
     retryJobs.clear();
     sessions.clear();
+    holderCacheEpoch += 1;
+    cachedHolderPeerIds = undefined;
+    holderLookup = undefined;
+    holderDiscoverLookup = undefined;
+    holderDiscoverMisses.clear();
+    scheduledReconcile = undefined;
+    queuedReconcile = false;
+    reconcileSeq += 1;
     const listeners = unsubscribe;
     unsubscribe = [];
     for (const removeListener of listeners) {
@@ -255,6 +304,343 @@ export const createP2pStore = ({
     }
   };
 
+  const handoffJobs = new Map<string, Promise<string | undefined>>();
+
+  const invalidateOwnHolderPeerIds = () => {
+    holderCacheEpoch += 1;
+    cachedHolderPeerIds = undefined;
+    holderLookup = undefined;
+    holderDiscoverLookup = undefined;
+    holderDiscoverMisses.clear();
+  };
+
+  const adoptOwnHolderPeerIds = (
+    ids: readonly string[] | undefined,
+    epoch: number
+  ) => {
+    // Empty means no other own device yet. Do not cache it — a CLI
+    // linked later must be visible to handoff/reconcile without resume.
+    if (!ids || ids.length === 0 || epoch !== holderCacheEpoch) {
+      return;
+    }
+    const previous = cachedHolderPeerIds;
+    cachedHolderPeerIds = ids;
+    if (holderRosterChanged(previous, ids)) {
+      holderDiscoverMisses.clear();
+    } else {
+      for (const id of ids) {
+        holderDiscoverMisses.delete(id);
+      }
+    }
+  };
+
+  const readOwnHolderPeerIds = async (jobGeneration: number) => {
+    const own = getOwnDevice?.();
+    if (!own) {
+      return;
+    }
+    const account = await Effect.runPromise(lookupHandle(own.handle));
+    if (!isCurrentGeneration(jobGeneration)) {
+      return;
+    }
+    if (!account || account.qid.toString() !== own.qid) {
+      return;
+    }
+    return otherOwnDevicePeerIds(own.peerId, account.devices);
+  };
+
+  const loadOwnHolderPeerIds = () => {
+    if (cachedHolderPeerIds !== undefined) {
+      return Promise.resolve(cachedHolderPeerIds);
+    }
+    if (holderLookup) {
+      return holderLookup;
+    }
+    const jobGeneration = generation;
+    const epoch = holderCacheEpoch;
+    holderLookup = (async () => {
+      try {
+        const ids = await readOwnHolderPeerIds(jobGeneration);
+        adoptOwnHolderPeerIds(ids, epoch);
+        return ids;
+      } finally {
+        if (epoch === holderCacheEpoch) {
+          holderLookup = undefined;
+        }
+      }
+    })();
+    return holderLookup;
+  };
+
+  const resolveHolderPeerId = async (activeEndpoint: P2pEndpoint) => {
+    const connected = activeEndpoint.connectedPeers();
+    const pick = (ids: readonly string[] | undefined) => {
+      if (!ids || ids.length === 0) {
+        return;
+      }
+      return pickHolderPeerId(ids, connected);
+    };
+    const hadCachedRoster = cachedHolderPeerIds !== undefined;
+    const first = pick(await loadOwnHolderPeerIds());
+    if (first !== undefined && connected.includes(first)) {
+      return first;
+    }
+    // Cached roster has no connected holder — a CLI linked since the last
+    // lookup may be the only device that can take the handoff.
+    if (!hadCachedRoster) {
+      return first;
+    }
+    invalidateOwnHolderPeerIds();
+    return pick(await loadOwnHolderPeerIds());
+  };
+
+  const hasConnectedCachedHolder = () => {
+    const connected = endpoint?.connectedPeers() ?? [];
+    return cachedHolderPeerIds?.some((id) => connected.includes(id)) === true;
+  };
+
+  /**
+   * Own-device check for `connectionEstablished`. Transport connect is not
+   * auth: strangers must not clear the session cache or spam the registry.
+   * Skip lookup when a cached holder is connected. Otherwise probe this
+   * peer (in-flight coalesced only for the same peerId). Record a miss
+   * only after a successful roster read that did not include them, and
+   * drop misses when the roster changes or enrollment invalidates.
+   * Send/poll still refresh via `resolveHolderPeerId`.
+   */
+  const isOwnHolderPeer = async (peerId: string): Promise<boolean> => {
+    if (cachedHolderPeerIds?.includes(peerId) === true) {
+      return true;
+    }
+    if (hasConnectedCachedHolder() || holderDiscoverMisses.has(peerId)) {
+      return false;
+    }
+    const inflight = holderDiscoverLookup;
+    if (inflight) {
+      const ids = await inflight.promise;
+      if (inflight.peerId === peerId) {
+        return ids?.includes(peerId) === true;
+      }
+      if (ids?.includes(peerId) === true) {
+        return true;
+      }
+      return isOwnHolderPeer(peerId);
+    }
+    const jobGeneration = generation;
+    const epoch = holderCacheEpoch;
+    const runDiscover = async () => {
+      try {
+        const ids =
+          cachedHolderPeerIds === undefined
+            ? await loadOwnHolderPeerIds()
+            : await readOwnHolderPeerIds(jobGeneration);
+        if (epoch !== holderCacheEpoch) {
+          return ids;
+        }
+        adoptOwnHolderPeerIds(ids, epoch);
+        return ids;
+      } finally {
+        if (
+          epoch === holderCacheEpoch &&
+          holderDiscoverLookup?.peerId === peerId
+        ) {
+          holderDiscoverLookup = undefined;
+        }
+      }
+    };
+    const promise = runDiscover();
+    holderDiscoverLookup = { peerId, promise };
+    const ids = await promise;
+    if (ids?.includes(peerId) === true) {
+      return true;
+    }
+    if (ids !== undefined && epoch === holderCacheEpoch) {
+      holderDiscoverMisses.add(peerId);
+    }
+    return false;
+  };
+
+  const handoffToHolder = (
+    message: Pick<StoredMessage, "id" | "sentAt" | "text">,
+    contact: Contact,
+    jobGeneration: number,
+    signal?: AbortSignal
+  ) => {
+    const existing = handoffJobs.get(message.id);
+    if (existing) {
+      return existing;
+    }
+    const job = (async () => {
+      const own = getOwnDevice?.();
+      const activeEndpoint = endpoint;
+      if (!own || !performHandoff || !activeEndpoint) {
+        return;
+      }
+      const holderPeerId = await resolveHolderPeerId(activeEndpoint);
+      if (!holderPeerId || !isCurrentGeneration(jobGeneration)) {
+        return;
+      }
+      await performHandoff({
+        composedBy: own.deviceKey,
+        endpoint: activeEndpoint,
+        holderPeerId,
+        own,
+        record: outgoingHandoffRecord({
+          contact,
+          fromHandle: own.handle,
+          id: message.id,
+          now: Date.now(),
+          sentAt: message.sentAt,
+          text: message.text,
+        }),
+        sessions,
+        signal,
+        timeoutMs: 10_000,
+      });
+      return holderPeerId;
+    })();
+    handoffJobs.set(message.id, job);
+    const removeWhenDone = async () => {
+      await Promise.allSettled([job]);
+      if (handoffJobs.get(message.id) === job) {
+        handoffJobs.delete(message.id);
+      }
+    };
+    void removeWhenDone();
+    return job;
+  };
+
+  const applyReceipts = async (
+    messages: readonly Pick<StoredMessage, "holderPeerId" | "id">[],
+    jobGeneration: number
+  ) => {
+    const own = getOwnDevice?.();
+    const activeEndpoint = endpoint;
+    if (!own || !performPoll || !activeEndpoint || messages.length === 0) {
+      return;
+    }
+    const needsFallback = messages.some((message) => !message.holderPeerId);
+    const fallbackHolderPeerId = needsFallback
+      ? await resolveHolderPeerId(activeEndpoint)
+      : undefined;
+    if (!isCurrentGeneration(jobGeneration)) {
+      return;
+    }
+    const idsByHolder = new Map<string, string[]>();
+    for (const message of messages) {
+      const holderPeerId = message.holderPeerId ?? fallbackHolderPeerId;
+      if (!holderPeerId) {
+        continue;
+      }
+      const queued = idsByHolder.get(holderPeerId);
+      if (queued) {
+        queued.push(message.id);
+      } else {
+        idsByHolder.set(holderPeerId, [message.id]);
+      }
+    }
+    await Promise.all(
+      [...idsByHolder].map(async ([holderPeerId, ids]) => {
+        if (!isCurrentGeneration(jobGeneration)) {
+          return;
+        }
+        const receipts = await performPoll({
+          endpoint: activeEndpoint,
+          holderPeerId,
+          ids,
+          own,
+          sessions,
+          timeoutMs: 10_000,
+        });
+        if (!isCurrentGeneration(jobGeneration)) {
+          return;
+        }
+        await Promise.all(
+          receipts.map((receipt) => advanceMessageStatus(receipt.id, "sent"))
+        );
+      })
+    );
+  };
+
+  const reconcileOwnHolders = async (jobGeneration: number) => {
+    try {
+      if (!getOwnDevice?.() || !isCurrentGeneration(jobGeneration)) {
+        return;
+      }
+      const pending = await listOutgoingPending();
+      await applyReceipts(
+        pending.filter((message) => message.status === "held"),
+        jobGeneration
+      );
+      const remaining = await listOutgoingPending();
+      await Promise.all(
+        remaining
+          .filter(
+            (message) =>
+              message.status === "held" || message.status === "sending"
+          )
+          .map(async (message) => {
+            if (!isCurrentGeneration(jobGeneration)) {
+              return;
+            }
+            const contact = await getContactByQid(message.contactQid);
+            if (!contact) {
+              return;
+            }
+            try {
+              const holderPeerId = await handoffToHolder(
+                message,
+                contact,
+                jobGeneration
+              );
+              if (holderPeerId) {
+                await markMessageHeld(message.id, holderPeerId);
+              }
+            } catch (error) {
+              if (
+                error instanceof Error &&
+                error.message === HANDOFF_REJECTED_MESSAGE
+              ) {
+                await failRejectedHandoff(message.id);
+              }
+              // Dial/timeout is opportunistic; local status stays pending.
+            }
+          })
+      );
+      if (isCurrentGeneration(jobGeneration)) {
+        storeBridge.setState((state) => ({ revision: state.revision + 1 }));
+      }
+    } catch {
+      // Reconcile is best-effort; live chat must keep running.
+    }
+  };
+
+  const scheduleReconcile = (jobGeneration: number) => {
+    if (scheduledReconcile) {
+      queuedReconcile = true;
+      return scheduledReconcile;
+    }
+    reconcileSeq += 1;
+    const seq = reconcileSeq;
+    const job = (async () => {
+      try {
+        await Promise.resolve();
+        queuedReconcile = false;
+        await reconcileOwnHolders(jobGeneration);
+        if (queuedReconcile && isCurrentGeneration(jobGeneration)) {
+          queuedReconcile = false;
+          await reconcileOwnHolders(jobGeneration);
+        }
+      } finally {
+        if (reconcileSeq === seq) {
+          scheduledReconcile = undefined;
+        }
+      }
+    })();
+    scheduledReconcile = job;
+    return trackJob(job);
+  };
+
   const sendStoredMessage = async (
     message: MessageInput,
     contact: Contact,
@@ -271,7 +657,7 @@ export const createP2pStore = ({
         if (!isCurrentGeneration(jobGeneration)) {
           return;
         }
-        await updateMessageStatus(message.id, "failed");
+        await advanceMessageStatus(message.id, "failed");
         return;
       }
 
@@ -282,24 +668,51 @@ export const createP2pStore = ({
         text: message.text,
         v: 1,
       };
-      await performSend({
-        contact,
-        endpoint: activeEndpoint,
-        frame,
-        sessions,
-        signal,
-        timeoutMs: 10_000,
-      });
+      const delivered = (async () => {
+        try {
+          await performSend({
+            contact,
+            endpoint: activeEndpoint,
+            frame,
+            sessions,
+            signal,
+            timeoutMs: 10_000,
+          });
+          return true;
+        } catch {
+          return false;
+        }
+      })();
+      const handedOff = (async () => {
+        try {
+          return await handoffToHolder(message, contact, jobGeneration, signal);
+        } catch {
+          // Dial/timeout; the phone keeps sending/failed locally.
+        }
+      })();
+      const bobAcked = await delivered;
       if (!isCurrentGeneration(jobGeneration)) {
         return;
       }
-      await updateMessageStatus(message.id, "sent");
+      if (bobAcked) {
+        // Prefer sent as soon as Bob ACKs. Do not wait for CLI dial/timeout.
+        await advanceMessageStatus(message.id, "sent");
+        void handedOff;
+        return;
+      }
+      const holderPeerId = await handedOff;
+      if (!isCurrentGeneration(jobGeneration)) {
+        return;
+      }
+      await (holderPeerId
+        ? markMessageHeld(message.id, holderPeerId)
+        : advanceMessageStatus(message.id, "failed"));
     } catch {
       try {
         if (!isCurrentGeneration(jobGeneration)) {
           return;
         }
-        await updateMessageStatus(message.id, "failed");
+        await advanceMessageStatus(message.id, "failed");
       } catch {
         // A storage failure is reflected in the store without leaking a rejection.
       }
@@ -338,6 +751,10 @@ export const createP2pStore = ({
       } catch {
         // The screen reports reachability from authoritative connection events.
       }
+    },
+
+    invalidateOwnHolders: () => {
+      invalidateOwnHolderPeerIds();
     },
 
     openPairingStream: async (peerId) => {
@@ -434,7 +851,9 @@ export const createP2pStore = ({
             if (!contact || !isCurrentGeneration(jobGeneration)) {
               return;
             }
-            await updateMessageStatus(id, "sending");
+            if (!(await advanceMessageStatus(id, "sending"))) {
+              return;
+            }
             if (!isCurrentGeneration(jobGeneration)) {
               return;
             }
@@ -545,7 +964,7 @@ export const createP2pStore = ({
         }
         const binding = createEndpoint({
           agentVersion: "qop/0.1.0",
-          protocols: [CHAT_PROTOCOL, PAIR_PROTOCOL],
+          protocols: [CHAT_PROTOCOL, PAIR_PROTOCOL, SYNC_PROTOCOL],
           relays,
           secretKey,
         });
@@ -595,6 +1014,7 @@ export const createP2pStore = ({
                 subscribeAppResume(() => {
                   if (generation === startGeneration) {
                     sessions.invalidateAuthorization();
+                    invalidateOwnHolderPeerIds();
                   }
                 }),
               ]
@@ -619,6 +1039,13 @@ export const createP2pStore = ({
           created.on("connectionEstablished", (connection) => {
             if (generation === startGeneration) {
               sessions.opened(connection);
+              void trackJob(
+                (async () => {
+                  if (await isOwnHolderPeer(connection.peerId)) {
+                    await scheduleReconcile(startGeneration);
+                  }
+                })()
+              );
             }
           }),
           created.on("peerReady", refreshPeers),
@@ -656,6 +1083,7 @@ export const createP2pStore = ({
           relayReserved: created.activeReservation() !== undefined,
           status: "running",
         });
+        void scheduleReconcile(startGeneration);
       } catch (error) {
         if (generation === startGeneration) {
           set({

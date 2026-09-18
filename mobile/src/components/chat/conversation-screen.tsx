@@ -59,6 +59,13 @@ const getMessagePresentation = (item: StoredMessage) => {
       tone: "pending" as const,
     };
   }
+  if (item.status === "held") {
+    return {
+      metaStatus: "sending" as const,
+      outgoing,
+      tone: "pending" as const,
+    };
+  }
   return {
     metaStatus: item.status === "sent" ? ("sent" as const) : undefined,
     outgoing,
@@ -90,6 +97,9 @@ const ConversationMessageRow = ({
             onPress={() => retry(item.id)}
             tone="failed"
           />
+        ) : null}
+        {item.status === "held" ? (
+          <MessageStatus disabled label="Waiting on your CLI" />
         ) : null}
       </MessageContent>
     </Message>

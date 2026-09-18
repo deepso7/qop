@@ -47,6 +47,8 @@ interface PeerSessionDependencies {
   ) => Effect.Effect<RegistryAccount | null, RegistryReaderError>;
   /** Monotonic elapsed-time clock (e.g. performance.now). */
   readonly now?: () => number;
+  /** Own account qid. Verify must not insert this identity as a chat contact. */
+  readonly ownQid?: () => string | undefined;
   readonly upsertContact: (contact: SessionContactInput) => Promise<void>;
 }
 
@@ -61,6 +63,7 @@ export const createPeerSessions = ({
   lookupDeviceKey,
   lookupHandle,
   now = () => performance.now(),
+  ownQid,
   upsertContact,
 }: PeerSessionDependencies) => {
   const sessions = new Map<number, PeerSession>();
@@ -216,9 +219,13 @@ export const createPeerSessions = ({
             if (!isCurrent(session) || session.verifyEpoch !== epochAtStart) {
               return yield* new PeerVerificationError({ operation: "closed" });
             }
+            // Own devices share this qid. They are not chat contacts.
             yield* Effect.tryPromise({
               catch: () => new PeerVerificationError({ operation: "storage" }),
-              try: () => upsertContact(fresh),
+              try: () =>
+                ownQid?.() === fresh.qid
+                  ? Promise.resolve()
+                  : upsertContact(fresh),
             });
             if (!isCurrent(session) || session.verifyEpoch !== epochAtStart) {
               return yield* new PeerVerificationError({ operation: "closed" });

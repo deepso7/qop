@@ -7,6 +7,7 @@ import { useIdentityStore } from "./identity-store";
 import { loadDeviceSecretKey } from "./identity-vault";
 import { performSend } from "./p2p-send";
 import { createP2pStore } from "./p2p-store-core";
+import { performHandoff, performPoll } from "./p2p-sync";
 import { lookupDeviceKey, lookupHandle } from "./registry";
 
 export const useP2pStore = createP2pStore({
@@ -15,9 +16,27 @@ export const useP2pStore = createP2pStore({
     return { bindAppState: () => bindAppState(endpoint), endpoint };
   },
   getIdentityHandle: () => useIdentityStore.getState().identity?.handle,
+  getOwnDevice: () => {
+    const { identity, registration } = useIdentityStore.getState();
+    if (
+      identity === null ||
+      registration === null ||
+      registration.qid === null
+    ) {
+      return;
+    }
+    return {
+      deviceKey: identity.deviceKey,
+      handle: identity.handle,
+      peerId: identity.peerId,
+      qid: registration.qid.toString(),
+    };
+  },
   loadDeviceSecretKey,
   lookupDeviceKey,
   lookupHandle,
+  performHandoff,
+  performPoll,
   performSend,
   randomUUID,
   subscribeAppResume: (onResume) => {
