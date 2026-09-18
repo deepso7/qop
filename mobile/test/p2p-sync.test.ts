@@ -1,5 +1,10 @@
 import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
-import { encodeSyncResponseV1, SYNC_PROTOCOL } from "@qop/protocol";
+import {
+  decodeSyncRequestV1,
+  encodeSyncResponseV1,
+  SYNC_POLL_MAX_IDS,
+  SYNC_PROTOCOL,
+} from "@qop/protocol";
 import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
@@ -10,7 +15,7 @@ import {
   upsertContact,
 } from "@/lib/db";
 import { createPeerSessions } from "@/lib/p2p-sessions";
-import { performHandoff, performPoll } from "@/lib/p2p-sync";
+import { chunkSyncPollIds, performHandoff, performPoll } from "@/lib/p2p-sync";
 import type { RegistryAccount, RegistryReaderError } from "@/lib/registry-core";
 
 const PEER_CLI = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
@@ -101,6 +106,18 @@ const responseReader = (bytes: Uint8Array) => {
   const chunks: (Uint8Array | undefined)[] = [bytes, undefined];
   return () => Promise.resolve(chunks.shift());
 };
+
+const encodeReceipts = (chunk: readonly string[]) =>
+  Effect.runPromise(
+    encodeSyncResponseV1({
+      receipts: chunk.map((receiptId) => ({
+        deliveredAt: 9,
+        id: receiptId,
+      })),
+      type: "receipts",
+      v: 1,
+    })
+  );
 
 describe("performHandoff", () => {
   it("writes a handoff on /qop/sync/1 and accepts held", async () => {
@@ -200,5 +217,87 @@ describe("performPoll", () => {
         timeoutMs: 50,
       })
     ).resolves.toEqual([{ deliveredAt: 9, id }]);
+  });
+
+  it("chunks ids so later held messages are still polled", async () => {
+    expect(chunkSyncPollIds([]).length).toBe(0);
+    const ids = Array.from(
+      { length: SYNC_POLL_MAX_IDS + 1 },
+      (_, index) =>
+        `c56a4180-65aa-42ec-a945-5fd21dec${index.toString(16).padStart(4, "0")}`
+    );
+    expect(chunkSyncPollIds(ids).map((chunk) => chunk.length)).toEqual([
+      SYNC_POLL_MAX_IDS,
+      1,
+    ]);
+    expect(chunkSyncPollIds(ids)[1]).toEqual([ids[SYNC_POLL_MAX_IDS]]);
+
+    const first = await encodeReceipts(ids.slice(0, SYNC_POLL_MAX_IDS));
+    const lastId = ids[SYNC_POLL_MAX_IDS];
+    if (!lastId) {
+      throw new Error("expected a 33rd poll id");
+    }
+    const second = await encodeReceipts([lastId]);
+    const streams = [first, second].map((bytes, index) => {
+      const chunks: (Uint8Array | undefined)[] = [bytes, undefined];
+      return {
+        closeWrite: vi.fn(),
+        connId: 4 + index,
+        peerId: PEER_CLI,
+        read: vi.fn(() => Promise.resolve(chunks.shift())),
+        reset: vi.fn(),
+        write: vi.fn(),
+      };
+    });
+    let opened = 0;
+    const lookupDeviceKey = vi.fn(() => Effect.succeed(aliceAccount));
+    const lookupHandle = vi.fn(() => Effect.succeed(aliceAccount));
+    const sessions = createPeerSessions({
+      getContactByQid: () => Promise.resolve(null),
+      lookupDeviceKey,
+      lookupHandle,
+      upsertContact: () => Promise.resolve(),
+    });
+    const endpoint = {
+      connect: vi.fn().mockResolvedValue({}),
+      connectedPeers: vi.fn((): string[] => []),
+      openStream: vi.fn(() => {
+        const stream = streams[opened];
+        opened += 1;
+        if (!stream) {
+          throw new Error("unexpected extra poll stream");
+        }
+        return Promise.resolve(stream);
+      }),
+      waitPeerReady: vi.fn(() => Promise.resolve({ peerId: PEER_CLI })),
+    };
+
+    await expect(
+      performPoll({
+        endpoint,
+        holderPeerId: PEER_CLI,
+        ids,
+        own,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).resolves.toEqual(
+      ids.map((receiptId) => ({ deliveredAt: 9, id: receiptId }))
+    );
+
+    expect(endpoint.openStream).toHaveBeenCalledTimes(2);
+    const written = await Promise.all(
+      streams.map((stream) => {
+        const bytes = stream.write.mock.calls[0]?.[0];
+        if (!(bytes instanceof Uint8Array)) {
+          throw new Error("expected a poll frame");
+        }
+        return Effect.runPromise(decodeSyncRequestV1(bytes));
+      })
+    );
+    expect(written).toEqual([
+      { ids: ids.slice(0, SYNC_POLL_MAX_IDS), type: "poll", v: 1 },
+      { ids: [lastId], type: "poll", v: 1 },
+    ]);
   });
 });

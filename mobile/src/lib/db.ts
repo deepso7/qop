@@ -26,6 +26,7 @@ export type MessageStatus = "failed" | "held" | "received" | "sending" | "sent";
 export interface StoredMessage {
   readonly contactQid: string;
   readonly direction: MessageDirection;
+  readonly holderPeerId: string | null;
   readonly id: string;
   readonly receivedAt: number;
   readonly sentAt: number;
@@ -33,7 +34,12 @@ export interface StoredMessage {
   readonly text: string;
 }
 
-export type MessageInput = Omit<StoredMessage, "receivedAt">;
+export type MessageInput = Omit<
+  StoredMessage,
+  "holderPeerId" | "receivedAt"
+> & {
+  readonly holderPeerId?: string | null;
+};
 
 export interface Conversation extends Contact {
   readonly latestMessageText: string | null;
@@ -55,6 +61,7 @@ interface ContactRow {
 interface MessageRow {
   contactQid: string;
   direction: MessageDirection;
+  holderPeerId: string | null;
   id: string;
   receivedAt: number;
   sentAt: number;
@@ -73,7 +80,7 @@ let databasePromise: Promise<SQLite.SQLiteDatabase> | undefined;
 const failInterruptedMessagesSql = `UPDATE messages SET status = 'failed'
   WHERE direction = 'out' AND status = 'sending'`;
 
-const MESSAGES_SCHEMA_VERSION = 2;
+const MESSAGES_SCHEMA_VERSION = 3;
 const messagesStatusCheck =
   "status IN ('sending','sent','failed','received','held')";
 
@@ -81,28 +88,37 @@ const migrateMessagesSchema = async (database: SQLite.SQLiteDatabase) => {
   const rows = await database.getAllAsync<{ user_version: number }>(
     "PRAGMA user_version"
   );
-  if ((rows[0]?.user_version ?? 0) >= MESSAGES_SCHEMA_VERSION) {
+  const version = rows[0]?.user_version ?? 0;
+  if (version >= MESSAGES_SCHEMA_VERSION) {
     return;
   }
-  await database.execAsync(`
-    CREATE TABLE messages_v2 (
-      id TEXT PRIMARY KEY,
-      contact_qid TEXT NOT NULL REFERENCES contacts(qid) ON DELETE CASCADE,
-      direction TEXT NOT NULL CHECK (direction IN ('in','out')),
-      text TEXT NOT NULL,
-      sent_at INTEGER NOT NULL,
-      received_at INTEGER NOT NULL,
-      status TEXT NOT NULL CHECK (${messagesStatusCheck})
-    );
-    INSERT INTO messages_v2
-      SELECT id, contact_qid, direction, text, sent_at, received_at, status
-      FROM messages;
-    DROP TABLE messages;
-    ALTER TABLE messages_v2 RENAME TO messages;
-    CREATE INDEX IF NOT EXISTS messages_contact_received_idx
-      ON messages(contact_qid, received_at);
-    PRAGMA user_version = ${MESSAGES_SCHEMA_VERSION};
-  `);
+  if (version < 2) {
+    await database.execAsync(`
+      CREATE TABLE messages_v2 (
+        id TEXT PRIMARY KEY,
+        contact_qid TEXT NOT NULL REFERENCES contacts(qid) ON DELETE CASCADE,
+        direction TEXT NOT NULL CHECK (direction IN ('in','out')),
+        text TEXT NOT NULL,
+        sent_at INTEGER NOT NULL,
+        received_at INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (${messagesStatusCheck})
+      );
+      INSERT INTO messages_v2
+        SELECT id, contact_qid, direction, text, sent_at, received_at, status
+        FROM messages;
+      DROP TABLE messages;
+      ALTER TABLE messages_v2 RENAME TO messages;
+      CREATE INDEX IF NOT EXISTS messages_contact_received_idx
+        ON messages(contact_qid, received_at);
+      PRAGMA user_version = 2;
+    `);
+  }
+  if (version < 3) {
+    await database.execAsync(`
+      ALTER TABLE messages ADD COLUMN holder_peer_id TEXT;
+      PRAGMA user_version = 3;
+    `);
+  }
 };
 
 const openDatabase = async () => {
@@ -285,10 +301,10 @@ export const insertMessage = async (
   // moves backward or several messages arrive in the same millisecond.
   const result = await database.runAsync(
     `INSERT OR IGNORE INTO messages(
-      id, contact_qid, direction, text, sent_at, received_at, status
+      id, contact_qid, direction, text, sent_at, received_at, status, holder_peer_id
     ) VALUES (?, ?, ?, ?, ?, MAX(?, COALESCE(
       (SELECT MAX(received_at) + 1 FROM messages WHERE contact_qid = ?), 0
-    )), ?)`,
+    )), ?, ?)`,
     message.id,
     message.contactQid,
     message.direction,
@@ -296,7 +312,8 @@ export const insertMessage = async (
     message.sentAt,
     receivedAt,
     message.contactQid,
-    message.status
+    message.status,
+    message.holderPeerId ?? null
   );
   return result.changes > 0;
 };
@@ -307,7 +324,7 @@ export const updateMessageStatus = async (
 ): Promise<void> => {
   const database = await getDatabase();
   await database.runAsync(
-    "UPDATE messages SET status = ? WHERE id = ?",
+    "UPDATE messages SET status = ?, holder_peer_id = NULL WHERE id = ?",
     status,
     id
   );
@@ -333,12 +350,28 @@ export const advanceMessageStatus = async (
   }
   const database = await getDatabase();
   const result = await database.runAsync(
-    `UPDATE messages SET status = ? WHERE id = ? AND status IN (${allowedFrom
+    `UPDATE messages SET status = ?, holder_peer_id = NULL WHERE id = ? AND status IN (${allowedFrom
       .map(() => "?")
       .join(",")})`,
     status,
     id,
     ...allowedFrom
+  );
+  return result.changes > 0;
+};
+
+/** Persist the CLI that accepted this id so later polls hit the same holder. */
+export const markMessageHeld = async (
+  id: string,
+  holderPeerId: string
+): Promise<boolean> => {
+  const database = await getDatabase();
+  const result = await database.runAsync(
+    `UPDATE messages
+     SET status = 'held', holder_peer_id = ?
+     WHERE id = ? AND status IN ('held', 'sending')`,
+    holderPeerId,
+    id
   );
   return result.changes > 0;
 };
@@ -353,38 +386,47 @@ const messageSelect = `SELECT
   id,
   contact_qid AS contactQid,
   direction,
+  holder_peer_id AS holderPeerId,
   text,
   sent_at AS sentAt,
   received_at AS receivedAt,
   status
 FROM messages`;
 
+const messageFromRow = (row: MessageRow): StoredMessage => ({
+  ...row,
+  holderPeerId: row.holderPeerId ?? null,
+});
+
 export const getMessageById = async (
   id: string
 ): Promise<StoredMessage | null> => {
   const database = await getDatabase();
-  return database.getFirstAsync<MessageRow>(
+  const row = await database.getFirstAsync<MessageRow>(
     `${messageSelect} WHERE id = ?`,
     id
   );
+  return row ? messageFromRow(row) : null;
 };
 
 export const listMessages = async (
   contactQid: string
 ): Promise<StoredMessage[]> => {
   const database = await getDatabase();
-  return database.getAllAsync<MessageRow>(
+  const rows = await database.getAllAsync<MessageRow>(
     `${messageSelect} WHERE contact_qid = ? ORDER BY received_at, rowid`,
     contactQid
   );
+  return rows.map(messageFromRow);
 };
 
 export const listOutgoingPending = async (): Promise<StoredMessage[]> => {
   const database = await getDatabase();
-  return database.getAllAsync<MessageRow>(
+  const rows = await database.getAllAsync<MessageRow>(
     `${messageSelect} WHERE direction = 'out' AND status IN ('failed','held','sending')
      ORDER BY received_at, rowid`
   );
+  return rows.map(messageFromRow);
 };
 
 export const deleteAll = async (): Promise<void> => {

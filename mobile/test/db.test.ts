@@ -9,6 +9,7 @@ import {
   listConversations,
   listMessages,
   markConversationRead,
+  markMessageHeld,
   upsertContact,
   advanceMessageStatus,
 } from "@/lib/db";
@@ -270,6 +271,47 @@ describe("delivery status transitions", () => {
     });
     expect(await advanceMessageStatus("held-fail", "failed")).toBe(true);
     expect(await getMessageById("held-fail")).toMatchObject({
+      holderPeerId: null,
+      status: "failed",
+    });
+  });
+
+  it("records the accepting holder and does not auto-unfail", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "held-by",
+      sentAt: 100,
+      status: "sending",
+      text: "hello",
+    });
+    expect(await markMessageHeld("held-by", "cli-peer")).toBe(true);
+    expect(await getMessageById("held-by")).toMatchObject({
+      holderPeerId: "cli-peer",
+      status: "held",
+    });
+    expect(await markMessageHeld("held-by", "other-cli")).toBe(true);
+    expect(await getMessageById("held-by")).toMatchObject({
+      holderPeerId: "other-cli",
+      status: "held",
+    });
+    expect(await advanceMessageStatus("held-by", "sent")).toBe(true);
+    expect(await markMessageHeld("held-by", "cli-peer")).toBe(false);
+    expect(await getMessageById("held-by")).toMatchObject({
+      holderPeerId: null,
+      status: "sent",
+    });
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "failed-stay",
+      sentAt: 100,
+      status: "failed",
+      text: "old",
+    });
+    expect(await markMessageHeld("failed-stay", "cli-peer")).toBe(false);
+    expect(await getMessageById("failed-stay")).toMatchObject({
+      holderPeerId: null,
       status: "failed",
     });
   });

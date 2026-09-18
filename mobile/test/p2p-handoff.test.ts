@@ -20,9 +20,12 @@ import type { RegistryAccount } from "@/lib/registry-core";
 
 const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
 const PEER_CLI = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
+const PEER_CLI_OTHER =
+  "12D3KooWaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
 const PEER_ALICE = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
 const phoneDeviceKey = `0x${"11".repeat(32)}`;
 const cliDeviceKey = `0x${"33".repeat(32)}`;
+const otherCliDeviceKey = `0x${"44".repeat(32)}`;
 const bobDeviceKey = `0x${"22".repeat(32)}`;
 
 const aliceAccount: RegistryAccount = {
@@ -167,7 +170,10 @@ describe("phone to CLI handoff", () => {
     }
     const id = useP2pStore.getState().sendMessage(contact, "hello");
     await vi.waitFor(async () =>
-      expect(await getMessageById(id)).toMatchObject({ status: "held" })
+      expect(await getMessageById(id)).toMatchObject({
+        holderPeerId: PEER_CLI,
+        status: "held",
+      })
     );
     expect(send).toHaveBeenCalledOnce();
     expect(handoff).toHaveBeenCalled();
@@ -221,6 +227,7 @@ describe("phone to CLI handoff", () => {
     await insertMessage({
       contactQid: "1",
       direction: "out",
+      holderPeerId: PEER_CLI,
       id: "c56a4180-65aa-42ec-a945-5fd21dec0538",
       sentAt: 1,
       status: "held",
@@ -256,5 +263,90 @@ describe("phone to CLI handoff", () => {
       expect(await getMessageById(id)).toMatchObject({ status: "failed" })
     );
     expect(handoff).toHaveBeenCalled();
+  });
+
+  it("does not hand failed messages to the CLI until the user retries", async () => {
+    const heldId = "c56a4180-65aa-42ec-a945-5fd21dec0540";
+    const failedId = "c56a4180-65aa-42ec-a945-5fd21dec0541";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      holderPeerId: PEER_CLI,
+      id: heldId,
+      sentAt: 1,
+      status: "held",
+      text: "waiting",
+    });
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: failedId,
+      sentAt: 1,
+      status: "failed",
+      text: "old",
+    });
+    poll.mockResolvedValue([]);
+    await useP2pStore.getState().start();
+    connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
+    await vi.waitFor(() =>
+      expect(handoff).toHaveBeenCalledWith(
+        expect.objectContaining({
+          holderPeerId: PEER_CLI,
+          record: expect.objectContaining({
+            frame: expect.objectContaining({ id: heldId }),
+          }),
+        })
+      )
+    );
+    expect(
+      handoff.mock.calls.some((call) => call[0]?.record.frame.id === failedId)
+    ).toBe(false);
+    expect(await getMessageById(failedId)).toMatchObject({
+      holderPeerId: null,
+      status: "failed",
+    });
+  });
+
+  it("polls the stored holder even when another own device would be picked", async () => {
+    const id = "c56a4180-65aa-42ec-a945-5fd21dec0542";
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(
+        handle === "alice"
+          ? {
+              ...aliceAccount,
+              devices: [
+                { deviceKey: phoneDeviceKey, peerId: PEER_ALICE },
+                { deviceKey: otherCliDeviceKey, peerId: PEER_CLI_OTHER },
+                { deviceKey: cliDeviceKey, peerId: PEER_CLI },
+              ],
+            }
+          : bobAccount
+      )
+    );
+    connectedPeers.mockReturnValue([PEER_CLI_OTHER, PEER_CLI]);
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      holderPeerId: PEER_CLI,
+      id,
+      sentAt: 1,
+      status: "held",
+      text: "hello",
+    });
+    poll.mockResolvedValue([{ deliveredAt: 9, id }]);
+    await useP2pStore.getState().start();
+    connectionEstablished?.({ connId: 2, peerId: PEER_CLI_OTHER });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({ status: "sent" })
+    );
+    expect(poll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        holderPeerId: PEER_CLI,
+        ids: [id],
+      })
+    );
+    expect(poll).not.toHaveBeenCalledWith(
+      expect.objectContaining({ holderPeerId: PEER_CLI_OTHER })
+    );
   });
 });

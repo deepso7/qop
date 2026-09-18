@@ -13,6 +13,7 @@ import {
   getMessageById,
   insertMessage,
   listOutgoingPending,
+  markMessageHeld,
   updateMessageStatus,
   upsertContact,
 } from "./db";
@@ -270,7 +271,7 @@ export const createP2pStore = ({
     }
   };
 
-  const handoffJobs = new Map<string, Promise<boolean>>();
+  const handoffJobs = new Map<string, Promise<string | undefined>>();
 
   const resolveHolderPeerId = async (activeEndpoint: P2pEndpoint) => {
     const own = getOwnDevice?.();
@@ -301,11 +302,11 @@ export const createP2pStore = ({
       const own = getOwnDevice?.();
       const activeEndpoint = endpoint;
       if (!own || !performHandoff || !activeEndpoint) {
-        return false;
+        return;
       }
       const holderPeerId = await resolveHolderPeerId(activeEndpoint);
       if (!holderPeerId || !isCurrentGeneration(jobGeneration)) {
-        return false;
+        return;
       }
       await performHandoff({
         composedBy: own.deviceKey,
@@ -324,7 +325,7 @@ export const createP2pStore = ({
         signal,
         timeoutMs: 10_000,
       });
-      return true;
+      return holderPeerId;
     })();
     handoffJobs.set(message.id, job);
     const removeWhenDone = async () => {
@@ -338,31 +339,51 @@ export const createP2pStore = ({
   };
 
   const applyReceipts = async (
-    ids: readonly string[],
+    messages: readonly Pick<StoredMessage, "holderPeerId" | "id">[],
     jobGeneration: number
   ) => {
     const own = getOwnDevice?.();
     const activeEndpoint = endpoint;
-    if (!own || !performPoll || !activeEndpoint || ids.length === 0) {
+    if (!own || !performPoll || !activeEndpoint || messages.length === 0) {
       return;
     }
-    const holderPeerId = await resolveHolderPeerId(activeEndpoint);
-    if (!holderPeerId || !isCurrentGeneration(jobGeneration)) {
-      return;
-    }
-    const receipts = await performPoll({
-      endpoint: activeEndpoint,
-      holderPeerId,
-      ids,
-      own,
-      sessions,
-      timeoutMs: 10_000,
-    });
+    const fallbackHolderPeerId = await resolveHolderPeerId(activeEndpoint);
     if (!isCurrentGeneration(jobGeneration)) {
       return;
     }
+    const idsByHolder = new Map<string, string[]>();
+    for (const message of messages) {
+      const holderPeerId = message.holderPeerId ?? fallbackHolderPeerId;
+      if (!holderPeerId) {
+        continue;
+      }
+      const queued = idsByHolder.get(holderPeerId);
+      if (queued) {
+        queued.push(message.id);
+      } else {
+        idsByHolder.set(holderPeerId, [message.id]);
+      }
+    }
     await Promise.all(
-      receipts.map((receipt) => advanceMessageStatus(receipt.id, "sent"))
+      [...idsByHolder].map(async ([holderPeerId, ids]) => {
+        if (!isCurrentGeneration(jobGeneration)) {
+          return;
+        }
+        const receipts = await performPoll({
+          endpoint: activeEndpoint,
+          holderPeerId,
+          ids,
+          own,
+          sessions,
+          timeoutMs: 10_000,
+        });
+        if (!isCurrentGeneration(jobGeneration)) {
+          return;
+        }
+        await Promise.all(
+          receipts.map((receipt) => advanceMessageStatus(receipt.id, "sent"))
+        );
+      })
     );
   };
 
@@ -373,35 +394,43 @@ export const createP2pStore = ({
       }
       const pending = await listOutgoingPending();
       await applyReceipts(
-        pending
-          .filter((message) => message.status === "held")
-          .map((message) => message.id),
+        pending.filter((message) => message.status === "held"),
         jobGeneration
       );
       const remaining = await listOutgoingPending();
       await Promise.all(
-        remaining.map(async (message) => {
-          if (!isCurrentGeneration(jobGeneration)) {
-            return;
-          }
-          const contact = await getContactByQid(message.contactQid);
-          if (!contact) {
-            return;
-          }
-          try {
-            if (await handoffToHolder(message, contact, jobGeneration)) {
-              await advanceMessageStatus(message.id, "held");
+        remaining
+          .filter(
+            (message) =>
+              message.status === "held" || message.status === "sending"
+          )
+          .map(async (message) => {
+            if (!isCurrentGeneration(jobGeneration)) {
+              return;
             }
-          } catch (error) {
-            if (
-              error instanceof Error &&
-              error.message === "CLI did not accept the handoff"
-            ) {
-              await advanceMessageStatus(message.id, "failed");
+            const contact = await getContactByQid(message.contactQid);
+            if (!contact) {
+              return;
             }
-            // Dial/timeout is opportunistic; local status stays pending.
-          }
-        })
+            try {
+              const holderPeerId = await handoffToHolder(
+                message,
+                contact,
+                jobGeneration
+              );
+              if (holderPeerId) {
+                await markMessageHeld(message.id, holderPeerId);
+              }
+            } catch (error) {
+              if (
+                error instanceof Error &&
+                error.message === "CLI did not accept the handoff"
+              ) {
+                await advanceMessageStatus(message.id, "failed");
+              }
+              // Dial/timeout is opportunistic; local status stays pending.
+            }
+          })
       );
       if (isCurrentGeneration(jobGeneration)) {
         storeBridge.setState((state) => ({ revision: state.revision + 1 }));
@@ -457,7 +486,7 @@ export const createP2pStore = ({
         try {
           return await handoffToHolder(message, contact, jobGeneration, signal);
         } catch {
-          return false;
+          // Dial/timeout; the phone keeps sending/failed locally.
         }
       })();
       const bobAcked = await delivered;
@@ -470,11 +499,13 @@ export const createP2pStore = ({
         void handedOff;
         return;
       }
-      const cliHeld = await handedOff;
+      const holderPeerId = await handedOff;
       if (!isCurrentGeneration(jobGeneration)) {
         return;
       }
-      await advanceMessageStatus(message.id, cliHeld ? "held" : "failed");
+      await (holderPeerId
+        ? markMessageHeld(message.id, holderPeerId)
+        : advanceMessageStatus(message.id, "failed"));
     } catch {
       try {
         if (!isCurrentGeneration(jobGeneration)) {

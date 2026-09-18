@@ -102,6 +102,15 @@ export const pickHolderPeerId = (
   holderPeerIds.find((peerId) => connectedPeerIds.includes(peerId)) ??
   holderPeerIds[0];
 
+/** Split poll ids so every held message is requested, not only the oldest 32. */
+export const chunkSyncPollIds = (ids: readonly string[]) => {
+  const chunks: string[][] = [];
+  for (let offset = 0; offset < ids.length; offset += SYNC_POLL_MAX_IDS) {
+    chunks.push(ids.slice(offset, offset + SYNC_POLL_MAX_IDS));
+  }
+  return chunks;
+};
+
 export const outgoingHandoffRecord = ({
   contact,
   fromHandle,
@@ -223,7 +232,7 @@ export const performHandoff = async ({
   }
 };
 
-export const performPoll = async ({
+const pollHeldChunk = async ({
   endpoint,
   holderPeerId,
   ids,
@@ -234,10 +243,6 @@ export const performPoll = async ({
 }: PerformSyncInput & {
   readonly ids: readonly string[];
 }): Promise<readonly SyncReceiptV1[]> => {
-  const pollIds = ids.slice(0, SYNC_POLL_MAX_IDS);
-  if (pollIds.length === 0) {
-    return [];
-  }
   let stream: SyncStream | undefined;
   try {
     return await Effect.runPromise(
@@ -279,7 +284,7 @@ export const performPoll = async ({
           );
         }
         const bytes = yield* encodeSyncRequestV1({
-          ids: [...pollIds],
+          ids: [...ids],
           type: "poll",
           v: 1,
         });
@@ -308,4 +313,37 @@ export const performPoll = async ({
     stream?.reset();
     throw error;
   }
+};
+
+export const performPoll = ({
+  endpoint,
+  holderPeerId,
+  ids,
+  own,
+  sessions,
+  signal,
+  timeoutMs,
+}: PerformSyncInput & {
+  readonly ids: readonly string[];
+}): Promise<readonly SyncReceiptV1[]> => {
+  const pollChunks = async (
+    chunks: readonly (readonly string[])[],
+    offset = 0
+  ): Promise<readonly SyncReceiptV1[]> => {
+    const pollIds = chunks[offset];
+    if (!pollIds) {
+      return [];
+    }
+    const receipts = await pollHeldChunk({
+      endpoint,
+      holderPeerId,
+      ids: pollIds,
+      own,
+      sessions,
+      signal,
+      timeoutMs,
+    });
+    return [...receipts, ...(await pollChunks(chunks, offset + 1))];
+  };
+  return pollChunks(chunkSyncPollIds(ids));
 };
