@@ -550,6 +550,110 @@ describe("phone to CLI handoff", () => {
     expect(aliceLookups()).toHaveLength(1);
   });
 
+  it("reconciles a CLI linked after stranger churn with no holder online", async () => {
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+    const first = useP2pStore.getState().sendMessage(contact, "one");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(first)).toMatchObject({
+        holderPeerId: PEER_CLI,
+        status: "held",
+      })
+    );
+
+    connectedPeers.mockReturnValue([]);
+    lookupHandle.mockClear();
+    connectionEstablished?.({ connId: 10, peerId: PEER_BOB });
+    await vi.waitFor(() => expect(aliceLookups()).toHaveLength(1));
+    for (let i = 0; i < 4; i += 1) {
+      connectionEstablished?.({ connId: 11 + i, peerId: PEER_BOB });
+    }
+    await Effect.runPromise(Effect.sleep(50));
+    expect(aliceLookups()).toHaveLength(1);
+
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(
+        handle === "alice"
+          ? {
+              ...aliceAccount,
+              devices: [
+                { deviceKey: phoneDeviceKey, peerId: PEER_ALICE },
+                { deviceKey: cliDeviceKey, peerId: PEER_CLI },
+                { deviceKey: otherCliDeviceKey, peerId: PEER_CLI_OTHER },
+              ],
+            }
+          : bobAccount
+      )
+    );
+    connectedPeers.mockReturnValue([PEER_CLI_OTHER]);
+    handoff.mockClear();
+
+    const pendingId = "c56a4180-65aa-42ec-a945-5fd21dec0546";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: pendingId,
+      sentAt: 2,
+      status: "sending",
+      text: "pending",
+    });
+    connectionEstablished?.({ connId: 20, peerId: PEER_CLI_OTHER });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(pendingId)).toMatchObject({
+        holderPeerId: PEER_CLI_OTHER,
+        status: "held",
+      })
+    );
+  });
+
+  it("reconciles a CLI linked after an empty roster stranger probe", async () => {
+    const phoneOnly: RegistryAccount = {
+      ...aliceAccount,
+      devices: [{ deviceKey: phoneDeviceKey, peerId: PEER_ALICE }],
+    };
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(handle === "alice" ? phoneOnly : bobAccount)
+    );
+    await useP2pStore.getState().start();
+    lookupHandle.mockClear();
+
+    connectionEstablished?.({ connId: 10, peerId: PEER_BOB });
+    await vi.waitFor(() => expect(aliceLookups()).toHaveLength(1));
+    for (let i = 0; i < 4; i += 1) {
+      connectionEstablished?.({ connId: 11 + i, peerId: PEER_BOB });
+    }
+    await Effect.runPromise(Effect.sleep(50));
+    expect(aliceLookups()).toHaveLength(1);
+
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(handle === "alice" ? aliceAccount : bobAccount)
+    );
+    connectedPeers.mockReturnValue([PEER_CLI]);
+    const contact = await getContactByQid("1");
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+    const pendingId = "c56a4180-65aa-42ec-a945-5fd21dec0547";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: pendingId,
+      sentAt: 2,
+      status: "sending",
+      text: "pending",
+    });
+    connectionEstablished?.({ connId: 20, peerId: PEER_CLI });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(pendingId)).toMatchObject({
+        holderPeerId: PEER_CLI,
+        status: "held",
+      })
+    );
+  });
+
   it("does not reconcile when a chat peer connects", async () => {
     await insertMessage({
       contactQid: "1",

@@ -150,8 +150,8 @@ export const createP2pStore = ({
   let holderLookup: Promise<readonly string[] | undefined> | undefined;
   let holderDiscoverLookup: Promise<readonly string[] | undefined> | undefined;
   let holderCacheEpoch = 0;
-  /** Connect-path roster probe for this `holderCacheEpoch`, if any. */
-  let holderDiscoverEpoch: number | undefined;
+  /** Connect-path peers already probed this epoch and not on the own roster. */
+  let holderDiscoverMisses = new Set<string>();
   let scheduledReconcile: Promise<void> | undefined;
   let queuedReconcile = false;
   let reconcileSeq = 0;
@@ -187,7 +187,7 @@ export const createP2pStore = ({
     cachedHolderPeerIds = undefined;
     holderLookup = undefined;
     holderDiscoverLookup = undefined;
-    holderDiscoverEpoch = undefined;
+    holderDiscoverMisses.clear();
     scheduledReconcile = undefined;
     queuedReconcile = false;
     reconcileSeq += 1;
@@ -296,6 +296,7 @@ export const createP2pStore = ({
     cachedHolderPeerIds = undefined;
     holderLookup = undefined;
     holderDiscoverLookup = undefined;
+    holderDiscoverMisses.clear();
   };
 
   const readOwnHolderPeerIds = async (jobGeneration: number) => {
@@ -369,24 +370,22 @@ export const createP2pStore = ({
 
   /**
    * Own-device check for `connectionEstablished`. Transport connect is not
-   * auth: strangers must not clear the session cache or force a registry
-   * read. Probe at most once per cache epoch, and only when no cached
-   * holder is currently connected (newly linked CLI while the previous
-   * holder is offline). Send/poll still refresh via `resolveHolderPeerId`.
+   * auth: strangers must not clear the session cache or spam the registry.
+   * Skip lookup when a cached holder is connected. Otherwise probe, but
+   * remember only this peer as a miss so reconnect churn cannot repeat
+   * RPCs while a later newly linked CLI can still be discovered.
+   * Send/poll still refresh via `resolveHolderPeerId`.
    */
   const isOwnHolderPeer = async (peerId: string) => {
     if (cachedHolderPeerIds?.includes(peerId) === true) {
       return true;
     }
-    if (hasConnectedCachedHolder()) {
+    if (hasConnectedCachedHolder() || holderDiscoverMisses.has(peerId)) {
       return false;
     }
     if (holderDiscoverLookup) {
       const ids = await holderDiscoverLookup;
       return ids?.includes(peerId) === true;
-    }
-    if (holderDiscoverEpoch === holderCacheEpoch) {
-      return false;
     }
     const jobGeneration = generation;
     const epoch = holderCacheEpoch;
@@ -399,7 +398,6 @@ export const createP2pStore = ({
         if (epoch !== holderCacheEpoch) {
           return ids;
         }
-        holderDiscoverEpoch = epoch;
         if (ids && ids.length > 0) {
           cachedHolderPeerIds = ids;
         }
@@ -411,7 +409,13 @@ export const createP2pStore = ({
       }
     })();
     const ids = await holderDiscoverLookup;
-    return ids?.includes(peerId) === true;
+    if (ids?.includes(peerId) === true) {
+      return true;
+    }
+    if (epoch === holderCacheEpoch) {
+      holderDiscoverMisses.add(peerId);
+    }
+    return false;
   };
 
   const handoffToHolder = (
