@@ -49,7 +49,11 @@ const invalid: SyncErrorV1 = { reason: "invalid", type: "error", v: 1 };
 const conflict: SyncErrorV1 = { reason: "conflict", type: "error", v: 1 };
 
 const reply = (stream: SyncStream, frame: SyncResponseV1) =>
-  writeSyncResponse(stream.write, stream.closeWrite, frame);
+  writeSyncResponse(
+    (data) => stream.write(data),
+    () => stream.closeWrite(),
+    frame
+  );
 
 const deviceKeyHexForPeer = (peerId: string) =>
   Schema.decodeUnknownEffect(PeerId)(peerId).pipe(

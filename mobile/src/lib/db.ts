@@ -331,8 +331,7 @@ export const updateMessageStatus = async (
 };
 
 const ADVANCE_FROM: Record<MessageStatus, readonly MessageStatus[]> = {
-  // held: CLI accepted then permanently failed (re-handoff → invalid).
-  failed: ["held", "sending"],
+  failed: ["sending"],
   held: ["failed", "sending"],
   received: [],
   sending: ["failed"],
@@ -374,6 +373,15 @@ export const markMessageHeld = async (
     id
   );
   return result.changes > 0;
+};
+
+/** Only an explicit CLI rejection can invalidate an accepted hold. */
+export const failRejectedHandoff = async (id: string): Promise<void> => {
+  const database = await getDatabase();
+  await database.runAsync(
+    "UPDATE messages SET status = 'failed', holder_peer_id = NULL WHERE id = ? AND status IN ('sending','held')",
+    id
+  );
 };
 
 // Endpoint shutdown and app startup make interrupted sends manually retryable.

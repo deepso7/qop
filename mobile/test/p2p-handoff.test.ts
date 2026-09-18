@@ -190,6 +190,31 @@ describe("phone to CLI handoff", () => {
     );
   });
 
+  it("keeps a reconciled hold when the original send later fails", async () => {
+    const pendingSend = Promise.withResolvers<true>();
+    send.mockImplementation(async () => {
+      await pendingSend.promise;
+    });
+    handoff.mockRejectedValueOnce(new Error("connection replaced"));
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+    const id = useP2pStore.getState().sendMessage(contact, "hello");
+    await vi.waitFor(() => expect(handoff).toHaveBeenCalledOnce());
+    connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({ status: "held" })
+    );
+    const { revision } = useP2pStore.getState();
+    pendingSend.reject(new Error("bob offline"));
+    await vi.waitFor(() =>
+      expect(useP2pStore.getState().revision).toBeGreaterThan(revision)
+    );
+    expect(await getMessageById(id)).toMatchObject({ status: "held" });
+  });
+
   it("prefers Bob's ack over held", async () => {
     send.mockResolvedValue();
     await useP2pStore.getState().start();

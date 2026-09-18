@@ -9,6 +9,7 @@ import type { ChatFrame } from "./chat-wire";
 import {
   advanceMessageStatus,
   failInterruptedMessages,
+  failRejectedHandoff,
   getContactByQid,
   getMessageById,
   insertMessage,
@@ -426,7 +427,7 @@ export const createP2pStore = ({
                 error instanceof Error &&
                 error.message === "CLI did not accept the handoff"
               ) {
-                await advanceMessageStatus(message.id, "failed");
+                await failRejectedHandoff(message.id);
               }
               // Dial/timeout is opportunistic; local status stays pending.
             }

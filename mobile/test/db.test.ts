@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deleteAll,
   failInterruptedMessages,
+  failRejectedHandoff,
   getContactByQid,
   getMessageById,
   insertMessage,
@@ -269,7 +270,8 @@ describe("delivery status transitions", () => {
       status: "held",
       text: "hello",
     });
-    expect(await advanceMessageStatus("held-fail", "failed")).toBe(true);
+    expect(await advanceMessageStatus("held-fail", "failed")).toBe(false);
+    await failRejectedHandoff("held-fail");
     expect(await getMessageById("held-fail")).toMatchObject({
       holderPeerId: null,
       status: "failed",

@@ -88,6 +88,39 @@ const makeStream = (bytes: Uint8Array) => {
 };
 
 describe("CLI inbound sync", () => {
+  it("preserves the stream receiver when writing and closing replies", async () => {
+    const bytes = await Effect.runPromise(
+      encodeSyncRequestV1({
+        composedBy: phoneDeviceKey,
+        record: queued,
+        type: "handoff",
+        v: 1,
+      })
+    );
+    const replies: Uint8Array[] = [];
+    const stream = {
+      ...makeStream(bytes),
+      closeWrite() {
+        this.writeClosed = true;
+      },
+      replies,
+      write(data: Uint8Array) {
+        this.replies.push(data);
+      },
+      writeClosed: false,
+    };
+    await Effect.runPromise(
+      handleInboundSyncStream(stream, makeSessions(), identity, {
+        enqueue: () => Effect.succeed(queued),
+        getByIds: () => Effect.succeed([]),
+      })
+    );
+    expect(stream.replies).toEqual([
+      await Effect.runPromise(encodeSyncResponseV1({ id, type: "held", v: 1 })),
+    ]);
+    expect(stream.writeClosed).toBe(true);
+  });
+
   it("replies held only after a durable enqueue", async () => {
     const order: string[] = [];
     const enqueue = vi.fn(() =>
