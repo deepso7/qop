@@ -306,7 +306,11 @@ export const createP2pStore = ({
           return;
         }
         const ids = otherOwnDevicePeerIds(own.peerId, account.devices);
-        cachedHolderPeerIds = ids;
+        // Empty means no other own device yet. Do not cache it — a CLI
+        // linked later must be visible to handoff/reconcile without resume.
+        if (ids.length > 0) {
+          cachedHolderPeerIds = ids;
+        }
         return ids;
       } finally {
         holderLookup = undefined;

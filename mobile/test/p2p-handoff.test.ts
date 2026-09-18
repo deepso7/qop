@@ -376,6 +376,37 @@ describe("phone to CLI handoff", () => {
     );
   });
 
+  it("re-looks up own-device holders after an empty registry snapshot", async () => {
+    const phoneOnly: RegistryAccount = {
+      ...aliceAccount,
+      devices: [{ deviceKey: phoneDeviceKey, peerId: PEER_ALICE }],
+    };
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(handle === "alice" ? phoneOnly : bobAccount)
+    );
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+    const first = useP2pStore.getState().sendMessage(contact, "one");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(first)).toMatchObject({ status: "failed" })
+    );
+    expect(handoff).not.toHaveBeenCalled();
+
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(handle === "alice" ? aliceAccount : bobAccount)
+    );
+    const second = useP2pStore.getState().sendMessage(contact, "two");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(second)).toMatchObject({
+        holderPeerId: PEER_CLI,
+        status: "held",
+      })
+    );
+  });
+
   it("reuses the own-device registry lookup across outgoing sends", async () => {
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
