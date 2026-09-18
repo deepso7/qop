@@ -148,6 +148,7 @@ export const createP2pStore = ({
   >();
   let cachedHolderPeerIds: readonly string[] | undefined;
   let holderLookup: Promise<readonly string[] | undefined> | undefined;
+  let holderCacheEpoch = 0;
   let scheduledReconcile: Promise<void> | undefined;
   let queuedReconcile = false;
   let reconcileSeq = 0;
@@ -179,6 +180,7 @@ export const createP2pStore = ({
     }
     retryJobs.clear();
     sessions.clear();
+    holderCacheEpoch += 1;
     cachedHolderPeerIds = undefined;
     holderLookup = undefined;
     scheduledReconcile = undefined;
@@ -284,6 +286,12 @@ export const createP2pStore = ({
 
   const handoffJobs = new Map<string, Promise<string | undefined>>();
 
+  const invalidateOwnHolderPeerIds = () => {
+    holderCacheEpoch += 1;
+    cachedHolderPeerIds = undefined;
+    holderLookup = undefined;
+  };
+
   const loadOwnHolderPeerIds = () => {
     if (cachedHolderPeerIds !== undefined) {
       return Promise.resolve(cachedHolderPeerIds);
@@ -292,42 +300,66 @@ export const createP2pStore = ({
       return holderLookup;
     }
     const jobGeneration = generation;
-    holderLookup = (async () => {
-      try {
-        const own = getOwnDevice?.();
-        if (!own) {
-          return;
-        }
-        const account = await Effect.runPromise(lookupHandle(own.handle));
-        if (!isCurrentGeneration(jobGeneration)) {
-          return;
-        }
-        if (!account || account.qid.toString() !== own.qid) {
-          return;
-        }
-        const ids = otherOwnDevicePeerIds(own.peerId, account.devices);
-        // Empty means no other own device yet. Do not cache it — a CLI
-        // linked later must be visible to handoff/reconcile without resume.
-        if (ids.length > 0) {
-          cachedHolderPeerIds = ids;
-        }
-        return ids;
-      } finally {
+    const epoch = holderCacheEpoch;
+    const job = (async () => {
+      const own = getOwnDevice?.();
+      if (!own) {
+        return;
+      }
+      const account = await Effect.runPromise(lookupHandle(own.handle));
+      if (!isCurrentGeneration(jobGeneration)) {
+        return;
+      }
+      if (!account || account.qid.toString() !== own.qid) {
+        return;
+      }
+      const ids = otherOwnDevicePeerIds(own.peerId, account.devices);
+      // Empty means no other own device yet. Do not cache it — a CLI
+      // linked later must be visible to handoff/reconcile without resume.
+      if (ids.length > 0 && epoch === holderCacheEpoch) {
+        cachedHolderPeerIds = ids;
+      }
+      return ids;
+    })();
+    holderLookup = job;
+    void job.finally(() => {
+      if (holderLookup === job) {
         holderLookup = undefined;
       }
-    })();
-    return holderLookup;
+    });
+    return job;
   };
 
   const resolveHolderPeerId = async (activeEndpoint: P2pEndpoint) => {
-    const holderPeerIds = await loadOwnHolderPeerIds();
-    if (!holderPeerIds || holderPeerIds.length === 0) {
-      return;
+    const connected = activeEndpoint.connectedPeers();
+    const pick = (ids: readonly string[] | undefined) => {
+      if (!ids || ids.length === 0) {
+        return;
+      }
+      return pickHolderPeerId(ids, connected);
+    };
+    const hadCachedRoster = cachedHolderPeerIds !== undefined;
+    const first = pick(await loadOwnHolderPeerIds());
+    if (first !== undefined && connected.includes(first)) {
+      return first;
     }
-    return pickHolderPeerId(holderPeerIds, activeEndpoint.connectedPeers());
+    // Cached roster has no connected holder — a CLI linked since the last
+    // lookup may be the only device that can take the handoff.
+    if (!hadCachedRoster) {
+      return first;
+    }
+    invalidateOwnHolderPeerIds();
+    return pick(await loadOwnHolderPeerIds());
   };
 
   const isOwnHolderPeer = async (peerId: string) => {
+    if (cachedHolderPeerIds?.includes(peerId) === true) {
+      return true;
+    }
+    if (cachedHolderPeerIds !== undefined) {
+      // Unknown peer: roster may have grown (another CLI linked this session).
+      invalidateOwnHolderPeerIds();
+    }
     const holderPeerIds = await loadOwnHolderPeerIds();
     return holderPeerIds?.includes(peerId) === true;
   };
@@ -882,7 +914,7 @@ export const createP2pStore = ({
                 subscribeAppResume(() => {
                   if (generation === startGeneration) {
                     sessions.invalidateAuthorization();
-                    cachedHolderPeerIds = undefined;
+                    invalidateOwnHolderPeerIds();
                   }
                 }),
               ]

@@ -407,6 +407,64 @@ describe("phone to CLI handoff", () => {
     );
   });
 
+  it("hands off to a CLI linked after a non-empty own-device roster lookup", async () => {
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+    const first = useP2pStore.getState().sendMessage(contact, "one");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(first)).toMatchObject({
+        holderPeerId: PEER_CLI,
+        status: "held",
+      })
+    );
+
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(
+        handle === "alice"
+          ? {
+              ...aliceAccount,
+              devices: [
+                { deviceKey: phoneDeviceKey, peerId: PEER_ALICE },
+                { deviceKey: cliDeviceKey, peerId: PEER_CLI },
+                { deviceKey: otherCliDeviceKey, peerId: PEER_CLI_OTHER },
+              ],
+            }
+          : bobAccount
+      )
+    );
+    connectedPeers.mockReturnValue([PEER_CLI_OTHER]);
+    handoff.mockClear();
+    poll.mockClear();
+
+    const pendingId = "c56a4180-65aa-42ec-a945-5fd21dec0545";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: pendingId,
+      sentAt: 2,
+      status: "sending",
+      text: "pending",
+    });
+    connectionEstablished?.({ connId: 4, peerId: PEER_CLI_OTHER });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(pendingId)).toMatchObject({
+        holderPeerId: PEER_CLI_OTHER,
+        status: "held",
+      })
+    );
+
+    const second = useP2pStore.getState().sendMessage(contact, "two");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(second)).toMatchObject({
+        holderPeerId: PEER_CLI_OTHER,
+        status: "held",
+      })
+    );
+  });
+
   it("reuses the own-device registry lookup across outgoing sends", async () => {
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
