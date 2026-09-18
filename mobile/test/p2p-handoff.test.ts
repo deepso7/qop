@@ -663,6 +663,14 @@ describe("phone to CLI handoff", () => {
       Effect.succeed(handle === "alice" ? phoneOnly : bobAccount)
     );
     await useP2pStore.getState().start();
+    lookupHandle.mockClear();
+    connectedPeers.mockReturnValue([PEER_CLI]);
+
+    connectionEstablished?.({ connId: 10, peerId: PEER_CLI });
+    await vi.waitFor(() => expect(aliceLookups()).toHaveLength(1));
+    await Effect.runPromise(Effect.sleep(50));
+    expect(aliceLookups()).toHaveLength(1);
+
     const pendingId = "c56a4180-65aa-42ec-a945-5fd21dec0548";
     await insertMessage({
       contactQid: "1",
@@ -672,16 +680,6 @@ describe("phone to CLI handoff", () => {
       status: "sending",
       text: "pending",
     });
-    connectedPeers.mockReturnValue([PEER_CLI]);
-    lookupHandle.mockClear();
-
-    connectionEstablished?.({ connId: 10, peerId: PEER_CLI });
-    await vi.waitFor(() => expect(aliceLookups()).toHaveLength(1));
-    await Effect.runPromise(Effect.sleep(50));
-    expect(await getMessageById(pendingId)).toMatchObject({
-      status: "sending",
-    });
-
     lookupHandle.mockImplementation((handle: string) =>
       Effect.succeed(handle === "alice" ? aliceAccount : bobAccount)
     );
@@ -711,15 +709,6 @@ describe("phone to CLI handoff", () => {
       Effect.succeed(handle === "alice" ? phoneOnly : bobAccount)
     );
     await useP2pStore.getState().start();
-    const pendingId = "c56a4180-65aa-42ec-a945-5fd21dec0549";
-    await insertMessage({
-      contactQid: "1",
-      direction: "out",
-      id: pendingId,
-      sentAt: 2,
-      status: "sending",
-      text: "pending",
-    });
     lookupHandle.mockClear();
 
     const firstAlice = Promise.withResolvers<RegistryAccount>();
@@ -739,6 +728,15 @@ describe("phone to CLI handoff", () => {
     connectionEstablished?.({ connId: 10, peerId: PEER_BOB });
     await vi.waitFor(() => expect(aliceReads).toBe(1));
 
+    const pendingId = "c56a4180-65aa-42ec-a945-5fd21dec0549";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: pendingId,
+      sentAt: 2,
+      status: "sending",
+      text: "pending",
+    });
     connectedPeers.mockReturnValue([PEER_CLI]);
     connectionEstablished?.({ connId: 11, peerId: PEER_CLI });
     firstAlice.resolve(phoneOnly);

@@ -47,6 +47,8 @@ interface P2pActions {
   readonly connectTo: (
     contact: Pick<Contact, "handle" | "qid">
   ) => Promise<string | undefined>;
+  /** Drop the session holder cache after own-device membership changes. */
+  readonly invalidateOwnHolders: () => void;
   readonly openPairingStream: (peerId: string) => Promise<
     | {
         readonly closeWrite: () => void;
@@ -69,8 +71,6 @@ interface P2pActions {
     addresses: readonly string[]
   ) => Promise<{ readonly peerId: string } | undefined>;
   readonly pairWaitPeerReady: (peerId: string) => Promise<void>;
-  /** Drop the session holder cache after own-device membership changes. */
-  readonly invalidateOwnHolders: () => void;
   readonly retryMessage: (id: string) => Promise<void>;
   readonly sendMessage: (contact: Contact, text: string) => string;
   readonly start: () => Promise<void>;
@@ -122,6 +122,14 @@ interface P2pDependencies {
 const errorMessage = (error: Error | string) =>
   error instanceof Error ? error.message : String(error);
 
+const holderRosterChanged = (
+  previous: readonly string[] | undefined,
+  next: readonly string[]
+) =>
+  previous === undefined ||
+  previous.length !== next.length ||
+  previous.some((id) => !next.includes(id));
+
 const uninitializedSetState: StoreApi<P2pStore>["setState"] = () => {
   throw new Error("P2P store used before initialization");
 };
@@ -158,7 +166,7 @@ export const createP2pStore = ({
     | undefined;
   let holderCacheEpoch = 0;
   /** Connect-path peers absent from a successful roster read this epoch. */
-  let holderDiscoverMisses = new Set<string>();
+  const holderDiscoverMisses = new Set<string>();
   let scheduledReconcile: Promise<void> | undefined;
   let queuedReconcile = false;
   let reconcileSeq = 0;
@@ -306,14 +314,6 @@ export const createP2pStore = ({
     holderDiscoverMisses.clear();
   };
 
-  const rosterChanged = (
-    previous: readonly string[] | undefined,
-    next: readonly string[]
-  ) =>
-    previous === undefined ||
-    previous.length !== next.length ||
-    previous.some((id) => !next.includes(id));
-
   const adoptOwnHolderPeerIds = (
     ids: readonly string[] | undefined,
     epoch: number
@@ -325,7 +325,7 @@ export const createP2pStore = ({
     }
     const previous = cachedHolderPeerIds;
     cachedHolderPeerIds = ids;
-    if (rosterChanged(previous, ids)) {
+    if (holderRosterChanged(previous, ids)) {
       holderDiscoverMisses.clear();
     } else {
       for (const id of ids) {
@@ -408,18 +408,15 @@ export const createP2pStore = ({
    * drop misses when the roster changes or enrollment invalidates.
    * Send/poll still refresh via `resolveHolderPeerId`.
    */
-  const isOwnHolderPeer = async (peerId: string) => {
-    for (;;) {
-      if (cachedHolderPeerIds?.includes(peerId) === true) {
-        return true;
-      }
-      if (hasConnectedCachedHolder() || holderDiscoverMisses.has(peerId)) {
-        return false;
-      }
-      const inflight = holderDiscoverLookup;
-      if (!inflight) {
-        break;
-      }
+  const isOwnHolderPeer = async (peerId: string): Promise<boolean> => {
+    if (cachedHolderPeerIds?.includes(peerId) === true) {
+      return true;
+    }
+    if (hasConnectedCachedHolder() || holderDiscoverMisses.has(peerId)) {
+      return false;
+    }
+    const inflight = holderDiscoverLookup;
+    if (inflight) {
       const ids = await inflight.promise;
       if (inflight.peerId === peerId) {
         return ids?.includes(peerId) === true;
@@ -427,6 +424,7 @@ export const createP2pStore = ({
       if (ids?.includes(peerId) === true) {
         return true;
       }
+      return isOwnHolderPeer(peerId);
     }
     const jobGeneration = generation;
     const epoch = holderCacheEpoch;
@@ -755,6 +753,10 @@ export const createP2pStore = ({
       }
     },
 
+    invalidateOwnHolders: () => {
+      invalidateOwnHolderPeerIds();
+    },
+
     openPairingStream: async (peerId) => {
       const activeEndpoint = endpoint;
       if (!activeEndpoint) {
@@ -798,10 +800,6 @@ export const createP2pStore = ({
         return;
       }
       await activeEndpoint.waitPeerReady(peerId, { timeoutMs: 15_000 });
-    },
-
-    invalidateOwnHolders: () => {
-      invalidateOwnHolderPeerIds();
     },
 
     retryMessage: (id) => {
