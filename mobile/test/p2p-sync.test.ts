@@ -323,7 +323,19 @@ describe("performHandoff", () => {
         v: 1,
       })
     );
+    const makeStream = () => {
+      const read = responseReader(held);
+      return {
+        closeWrite: vi.fn(),
+        connId: 4,
+        peerId: PEER_CLI,
+        read: vi.fn(read),
+        reset: vi.fn(),
+        write: vi.fn(),
+      };
+    };
     const { endpoint, sessions } = makeEndpoint(responseReader(held));
+    endpoint.openStream.mockImplementation(() => Promise.resolve(makeStream()));
 
     await expect(
       performHandoff({
@@ -336,6 +348,7 @@ describe("performHandoff", () => {
         timeoutMs: 50,
       })
     ).rejects.toThrow(/held does not match/u);
+    expect(endpoint.openStream).toHaveBeenCalledTimes(2);
   });
 
   it("does not insert own identity into chats when verifying the CLI", async () => {
