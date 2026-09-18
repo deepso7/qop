@@ -465,6 +465,9 @@ describe("phone to CLI handoff", () => {
     );
   });
 
+  const aliceLookups = () =>
+    lookupHandle.mock.calls.filter(([handle]) => handle === "alice");
+
   it("reuses the own-device registry lookup across outgoing sends", async () => {
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
@@ -480,9 +483,71 @@ describe("phone to CLI handoff", () => {
     await vi.waitFor(async () =>
       expect(await getMessageById(second)).toMatchObject({ status: "held" })
     );
-    expect(
-      lookupHandle.mock.calls.filter(([handle]) => handle === "alice")
-    ).toEqual([]);
+    expect(aliceLookups()).toEqual([]);
+  });
+
+  it("does not look up own devices when an unauthenticated peer connects", async () => {
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+    const first = useP2pStore.getState().sendMessage(contact, "one");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(first)).toMatchObject({ status: "held" })
+    );
+    lookupHandle.mockClear();
+
+    for (let i = 0; i < 5; i += 1) {
+      connectionEstablished?.({ connId: 10 + i, peerId: PEER_BOB });
+    }
+    await Effect.runPromise(Effect.sleep(50));
+    for (let i = 0; i < 5; i += 1) {
+      connectionEstablished?.({ connId: 20 + i, peerId: PEER_BOB });
+    }
+    await Effect.runPromise(Effect.sleep(50));
+    expect(aliceLookups()).toEqual([]);
+
+    const second = useP2pStore.getState().sendMessage(contact, "two");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(second)).toMatchObject({
+        holderPeerId: PEER_CLI,
+        status: "held",
+      })
+    );
+    expect(aliceLookups()).toEqual([]);
+  });
+
+  it("probes the own-device roster at most once when no cached holder is connected", async () => {
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+    const first = useP2pStore.getState().sendMessage(contact, "one");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(first)).toMatchObject({ status: "held" })
+    );
+    connectedPeers.mockReturnValue([]);
+    lookupHandle.mockClear();
+
+    connectionEstablished?.({ connId: 10, peerId: PEER_BOB });
+    await vi.waitFor(() => expect(aliceLookups()).toHaveLength(1));
+    for (let i = 0; i < 4; i += 1) {
+      connectionEstablished?.({ connId: 11 + i, peerId: PEER_BOB });
+    }
+    await Effect.runPromise(Effect.sleep(50));
+    expect(aliceLookups()).toHaveLength(1);
+
+    connectedPeers.mockReturnValue([PEER_CLI]);
+    const second = useP2pStore.getState().sendMessage(contact, "two");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(second)).toMatchObject({
+        holderPeerId: PEER_CLI,
+        status: "held",
+      })
+    );
+    expect(aliceLookups()).toHaveLength(1);
   });
 
   it("does not reconcile when a chat peer connects", async () => {

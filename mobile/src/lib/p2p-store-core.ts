@@ -148,7 +148,10 @@ export const createP2pStore = ({
   >();
   let cachedHolderPeerIds: readonly string[] | undefined;
   let holderLookup: Promise<readonly string[] | undefined> | undefined;
+  let holderDiscoverLookup: Promise<readonly string[] | undefined> | undefined;
   let holderCacheEpoch = 0;
+  /** Connect-path roster probe for this `holderCacheEpoch`, if any. */
+  let holderDiscoverEpoch: number | undefined;
   let scheduledReconcile: Promise<void> | undefined;
   let queuedReconcile = false;
   let reconcileSeq = 0;
@@ -183,6 +186,8 @@ export const createP2pStore = ({
     holderCacheEpoch += 1;
     cachedHolderPeerIds = undefined;
     holderLookup = undefined;
+    holderDiscoverLookup = undefined;
+    holderDiscoverEpoch = undefined;
     scheduledReconcile = undefined;
     queuedReconcile = false;
     reconcileSeq += 1;
@@ -290,6 +295,22 @@ export const createP2pStore = ({
     holderCacheEpoch += 1;
     cachedHolderPeerIds = undefined;
     holderLookup = undefined;
+    holderDiscoverLookup = undefined;
+  };
+
+  const readOwnHolderPeerIds = async (jobGeneration: number) => {
+    const own = getOwnDevice?.();
+    if (!own) {
+      return;
+    }
+    const account = await Effect.runPromise(lookupHandle(own.handle));
+    if (!isCurrentGeneration(jobGeneration)) {
+      return;
+    }
+    if (!account || account.qid.toString() !== own.qid) {
+      return;
+    }
+    return otherOwnDevicePeerIds(own.peerId, account.devices);
   };
 
   const loadOwnHolderPeerIds = () => {
@@ -303,21 +324,10 @@ export const createP2pStore = ({
     const epoch = holderCacheEpoch;
     holderLookup = (async () => {
       try {
-        const own = getOwnDevice?.();
-        if (!own) {
-          return;
-        }
-        const account = await Effect.runPromise(lookupHandle(own.handle));
-        if (!isCurrentGeneration(jobGeneration)) {
-          return;
-        }
-        if (!account || account.qid.toString() !== own.qid) {
-          return;
-        }
-        const ids = otherOwnDevicePeerIds(own.peerId, account.devices);
+        const ids = await readOwnHolderPeerIds(jobGeneration);
         // Empty means no other own device yet. Do not cache it — a CLI
         // linked later must be visible to handoff/reconcile without resume.
-        if (ids.length > 0 && epoch === holderCacheEpoch) {
+        if (ids && ids.length > 0 && epoch === holderCacheEpoch) {
           cachedHolderPeerIds = ids;
         }
         return ids;
@@ -352,16 +362,56 @@ export const createP2pStore = ({
     return pick(await loadOwnHolderPeerIds());
   };
 
+  const hasConnectedCachedHolder = () => {
+    const connected = endpoint?.connectedPeers() ?? [];
+    return cachedHolderPeerIds?.some((id) => connected.includes(id)) === true;
+  };
+
+  /**
+   * Own-device check for `connectionEstablished`. Transport connect is not
+   * auth: strangers must not clear the session cache or force a registry
+   * read. Probe at most once per cache epoch, and only when no cached
+   * holder is currently connected (newly linked CLI while the previous
+   * holder is offline). Send/poll still refresh via `resolveHolderPeerId`.
+   */
   const isOwnHolderPeer = async (peerId: string) => {
     if (cachedHolderPeerIds?.includes(peerId) === true) {
       return true;
     }
-    if (cachedHolderPeerIds !== undefined) {
-      // Unknown peer: roster may have grown (another CLI linked this session).
-      invalidateOwnHolderPeerIds();
+    if (hasConnectedCachedHolder()) {
+      return false;
     }
-    const holderPeerIds = await loadOwnHolderPeerIds();
-    return holderPeerIds?.includes(peerId) === true;
+    if (holderDiscoverLookup) {
+      const ids = await holderDiscoverLookup;
+      return ids?.includes(peerId) === true;
+    }
+    if (holderDiscoverEpoch === holderCacheEpoch) {
+      return false;
+    }
+    const jobGeneration = generation;
+    const epoch = holderCacheEpoch;
+    holderDiscoverLookup = (async () => {
+      try {
+        const ids =
+          cachedHolderPeerIds === undefined
+            ? await loadOwnHolderPeerIds()
+            : await readOwnHolderPeerIds(jobGeneration);
+        if (epoch !== holderCacheEpoch) {
+          return ids;
+        }
+        holderDiscoverEpoch = epoch;
+        if (ids && ids.length > 0) {
+          cachedHolderPeerIds = ids;
+        }
+        return ids;
+      } finally {
+        if (epoch === holderCacheEpoch) {
+          holderDiscoverLookup = undefined;
+        }
+      }
+    })();
+    const ids = await holderDiscoverLookup;
+    return ids?.includes(peerId) === true;
   };
 
   const handoffToHolder = (
