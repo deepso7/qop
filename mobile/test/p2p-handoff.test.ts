@@ -654,6 +654,104 @@ describe("phone to CLI handoff", () => {
     );
   });
 
+  it("reconciles a CLI that pair-connected before the registry listed it", async () => {
+    const phoneOnly: RegistryAccount = {
+      ...aliceAccount,
+      devices: [{ deviceKey: phoneDeviceKey, peerId: PEER_ALICE }],
+    };
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(handle === "alice" ? phoneOnly : bobAccount)
+    );
+    await useP2pStore.getState().start();
+    const pendingId = "c56a4180-65aa-42ec-a945-5fd21dec0548";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: pendingId,
+      sentAt: 2,
+      status: "sending",
+      text: "pending",
+    });
+    connectedPeers.mockReturnValue([PEER_CLI]);
+    lookupHandle.mockClear();
+
+    connectionEstablished?.({ connId: 10, peerId: PEER_CLI });
+    await vi.waitFor(() => expect(aliceLookups()).toHaveLength(1));
+    await Effect.runPromise(Effect.sleep(50));
+    expect(await getMessageById(pendingId)).toMatchObject({
+      status: "sending",
+    });
+
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(handle === "alice" ? aliceAccount : bobAccount)
+    );
+    connectionEstablished?.({ connId: 11, peerId: PEER_CLI });
+    await Effect.runPromise(Effect.sleep(50));
+    expect(aliceLookups()).toHaveLength(1);
+    expect(await getMessageById(pendingId)).toMatchObject({
+      status: "sending",
+    });
+
+    useP2pStore.getState().invalidateOwnHolders();
+    connectionEstablished?.({ connId: 12, peerId: PEER_CLI });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(pendingId)).toMatchObject({
+        holderPeerId: PEER_CLI,
+        status: "held",
+      })
+    );
+  });
+
+  it("reconciles a CLI that connects while a stranger roster probe is in flight", async () => {
+    const phoneOnly: RegistryAccount = {
+      ...aliceAccount,
+      devices: [{ deviceKey: phoneDeviceKey, peerId: PEER_ALICE }],
+    };
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(handle === "alice" ? phoneOnly : bobAccount)
+    );
+    await useP2pStore.getState().start();
+    const pendingId = "c56a4180-65aa-42ec-a945-5fd21dec0549";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: pendingId,
+      sentAt: 2,
+      status: "sending",
+      text: "pending",
+    });
+    lookupHandle.mockClear();
+
+    const firstAlice = Promise.withResolvers<RegistryAccount>();
+    let aliceReads = 0;
+    lookupHandle.mockImplementation((handle: string) => {
+      if (handle !== "alice") {
+        return Effect.succeed(bobAccount);
+      }
+      aliceReads += 1;
+      if (aliceReads === 1) {
+        return Effect.promise(() => firstAlice.promise);
+      }
+      return Effect.succeed(aliceAccount);
+    });
+
+    connectedPeers.mockReturnValue([]);
+    connectionEstablished?.({ connId: 10, peerId: PEER_BOB });
+    await vi.waitFor(() => expect(aliceReads).toBe(1));
+
+    connectedPeers.mockReturnValue([PEER_CLI]);
+    connectionEstablished?.({ connId: 11, peerId: PEER_CLI });
+    firstAlice.resolve(phoneOnly);
+
+    await vi.waitFor(async () =>
+      expect(await getMessageById(pendingId)).toMatchObject({
+        holderPeerId: PEER_CLI,
+        status: "held",
+      })
+    );
+    expect(aliceReads).toBeGreaterThan(1);
+  });
+
   it("does not reconcile when a chat peer connects", async () => {
     await insertMessage({
       contactQid: "1",

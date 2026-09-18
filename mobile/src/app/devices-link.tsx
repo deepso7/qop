@@ -30,6 +30,9 @@ const DevicesLinkScreen = () => {
   );
   const pairWaitPeerReady = useP2pStore((state) => state.pairWaitPeerReady);
   const openPairingStream = useP2pStore((state) => state.openPairingStream);
+  const invalidateOwnHolders = useP2pStore(
+    (state) => state.invalidateOwnHolders
+  );
   const p2pStatus = useP2pStore((state) => state.status);
   const [payload, setPayload] = React.useState("");
   const [message, setMessage] = React.useState<string>();
@@ -196,6 +199,7 @@ const DevicesLinkScreen = () => {
       return;
     }
     if (result.success?.membership === "linked") {
+      invalidateOwnHolders();
       setMessage("Linked. Both devices confirmed chain membership.");
       return;
     }
@@ -204,7 +208,15 @@ const DevicesLinkScreen = () => {
       return;
     }
     setMessage("The device action finished without becoming an active member.");
-  }, [busy, identity, offer, peerId, registration, transport]);
+  }, [
+    busy,
+    identity,
+    invalidateOwnHolders,
+    offer,
+    peerId,
+    registration,
+    transport,
+  ]);
 
   return (
     <Screen bounces={false}>

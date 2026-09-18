@@ -69,6 +69,8 @@ interface P2pActions {
     addresses: readonly string[]
   ) => Promise<{ readonly peerId: string } | undefined>;
   readonly pairWaitPeerReady: (peerId: string) => Promise<void>;
+  /** Drop the session holder cache after own-device membership changes. */
+  readonly invalidateOwnHolders: () => void;
   readonly retryMessage: (id: string) => Promise<void>;
   readonly sendMessage: (contact: Contact, text: string) => string;
   readonly start: () => Promise<void>;
@@ -148,9 +150,14 @@ export const createP2pStore = ({
   >();
   let cachedHolderPeerIds: readonly string[] | undefined;
   let holderLookup: Promise<readonly string[] | undefined> | undefined;
-  let holderDiscoverLookup: Promise<readonly string[] | undefined> | undefined;
+  let holderDiscoverLookup:
+    | {
+        readonly peerId: string;
+        readonly promise: Promise<readonly string[] | undefined>;
+      }
+    | undefined;
   let holderCacheEpoch = 0;
-  /** Connect-path peers already probed this epoch and not on the own roster. */
+  /** Connect-path peers absent from a successful roster read this epoch. */
   let holderDiscoverMisses = new Set<string>();
   let scheduledReconcile: Promise<void> | undefined;
   let queuedReconcile = false;
@@ -299,6 +306,34 @@ export const createP2pStore = ({
     holderDiscoverMisses.clear();
   };
 
+  const rosterChanged = (
+    previous: readonly string[] | undefined,
+    next: readonly string[]
+  ) =>
+    previous === undefined ||
+    previous.length !== next.length ||
+    previous.some((id) => !next.includes(id));
+
+  const adoptOwnHolderPeerIds = (
+    ids: readonly string[] | undefined,
+    epoch: number
+  ) => {
+    // Empty means no other own device yet. Do not cache it — a CLI
+    // linked later must be visible to handoff/reconcile without resume.
+    if (!ids || ids.length === 0 || epoch !== holderCacheEpoch) {
+      return;
+    }
+    const previous = cachedHolderPeerIds;
+    cachedHolderPeerIds = ids;
+    if (rosterChanged(previous, ids)) {
+      holderDiscoverMisses.clear();
+    } else {
+      for (const id of ids) {
+        holderDiscoverMisses.delete(id);
+      }
+    }
+  };
+
   const readOwnHolderPeerIds = async (jobGeneration: number) => {
     const own = getOwnDevice?.();
     if (!own) {
@@ -326,11 +361,7 @@ export const createP2pStore = ({
     holderLookup = (async () => {
       try {
         const ids = await readOwnHolderPeerIds(jobGeneration);
-        // Empty means no other own device yet. Do not cache it — a CLI
-        // linked later must be visible to handoff/reconcile without resume.
-        if (ids && ids.length > 0 && epoch === holderCacheEpoch) {
-          cachedHolderPeerIds = ids;
-        }
+        adoptOwnHolderPeerIds(ids, epoch);
         return ids;
       } finally {
         if (epoch === holderCacheEpoch) {
@@ -371,25 +402,35 @@ export const createP2pStore = ({
   /**
    * Own-device check for `connectionEstablished`. Transport connect is not
    * auth: strangers must not clear the session cache or spam the registry.
-   * Skip lookup when a cached holder is connected. Otherwise probe, but
-   * remember only this peer as a miss so reconnect churn cannot repeat
-   * RPCs while a later newly linked CLI can still be discovered.
+   * Skip lookup when a cached holder is connected. Otherwise probe this
+   * peer (in-flight coalesced only for the same peerId). Record a miss
+   * only after a successful roster read that did not include them, and
+   * drop misses when the roster changes or enrollment invalidates.
    * Send/poll still refresh via `resolveHolderPeerId`.
    */
   const isOwnHolderPeer = async (peerId: string) => {
-    if (cachedHolderPeerIds?.includes(peerId) === true) {
-      return true;
-    }
-    if (hasConnectedCachedHolder() || holderDiscoverMisses.has(peerId)) {
-      return false;
-    }
-    if (holderDiscoverLookup) {
-      const ids = await holderDiscoverLookup;
-      return ids?.includes(peerId) === true;
+    for (;;) {
+      if (cachedHolderPeerIds?.includes(peerId) === true) {
+        return true;
+      }
+      if (hasConnectedCachedHolder() || holderDiscoverMisses.has(peerId)) {
+        return false;
+      }
+      const inflight = holderDiscoverLookup;
+      if (!inflight) {
+        break;
+      }
+      const ids = await inflight.promise;
+      if (inflight.peerId === peerId) {
+        return ids?.includes(peerId) === true;
+      }
+      if (ids?.includes(peerId) === true) {
+        return true;
+      }
     }
     const jobGeneration = generation;
     const epoch = holderCacheEpoch;
-    holderDiscoverLookup = (async () => {
+    const runDiscover = async () => {
       try {
         const ids =
           cachedHolderPeerIds === undefined
@@ -398,21 +439,24 @@ export const createP2pStore = ({
         if (epoch !== holderCacheEpoch) {
           return ids;
         }
-        if (ids && ids.length > 0) {
-          cachedHolderPeerIds = ids;
-        }
+        adoptOwnHolderPeerIds(ids, epoch);
         return ids;
       } finally {
-        if (epoch === holderCacheEpoch) {
+        if (
+          epoch === holderCacheEpoch &&
+          holderDiscoverLookup?.peerId === peerId
+        ) {
           holderDiscoverLookup = undefined;
         }
       }
-    })();
-    const ids = await holderDiscoverLookup;
+    };
+    const promise = runDiscover();
+    holderDiscoverLookup = { peerId, promise };
+    const ids = await promise;
     if (ids?.includes(peerId) === true) {
       return true;
     }
-    if (epoch === holderCacheEpoch) {
+    if (ids !== undefined && epoch === holderCacheEpoch) {
       holderDiscoverMisses.add(peerId);
     }
     return false;
@@ -754,6 +798,10 @@ export const createP2pStore = ({
         return;
       }
       await activeEndpoint.waitPeerReady(peerId, { timeoutMs: 15_000 });
+    },
+
+    invalidateOwnHolders: () => {
+      invalidateOwnHolderPeerIds();
     },
 
     retryMessage: (id) => {
