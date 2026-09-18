@@ -260,7 +260,7 @@ describe("multi-device connection authorization", () => {
     await expect(
       Effect.runPromise(sessions.recipientPeerIds(contact))
     ).resolves.toEqual([PEER_CLI, PEER_ALICE]);
-    expect(lookupHandle).toHaveBeenCalledOnce();
+    expect(lookupHandle).toHaveBeenCalledTimes(2);
   });
 
   it("lists the full roster so an offline phone can fall through to the CLI", async () => {

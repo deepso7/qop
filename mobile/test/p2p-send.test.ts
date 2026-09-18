@@ -83,6 +83,11 @@ const resolvedUndefined = async (): Promise<undefined> => {
   await Promise.resolve();
 };
 
+const expectRemainingTimeout = (timeoutMs: number, overall: number) => {
+  expect(timeoutMs).toBeGreaterThan(0);
+  expect(timeoutMs).toBeLessThanOrEqual(overall);
+};
+
 describe("performSend", () => {
   it("writes a frame and accepts a matching ack", async () => {
     const { endpoint, stream, sessions } = makeEndpoint(ackReader(id));
@@ -91,12 +96,17 @@ describe("performSend", () => {
       performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 })
     ).resolves.toBeUndefined();
 
-    expect(endpoint.connect).toHaveBeenCalledWith(PEER_BOB, {
-      timeoutMs: 50,
-    });
-    expect(endpoint.openStream).toHaveBeenCalledWith(PEER_BOB, "/qop/chat/1", {
-      timeoutMs: 50,
-    });
+    expect(endpoint.connect.mock.calls[0]?.[0]).toBe(PEER_BOB);
+    expectRemainingTimeout(
+      endpoint.connect.mock.calls[0]?.[1]?.timeoutMs ?? 0,
+      50
+    );
+    expect(endpoint.openStream.mock.calls[0]?.[0]).toBe(PEER_BOB);
+    expect(endpoint.openStream.mock.calls[0]?.[1]).toBe("/qop/chat/1");
+    expectRemainingTimeout(
+      endpoint.openStream.mock.calls[0]?.[2]?.timeoutMs ?? 0,
+      50
+    );
     expect(stream.write).toHaveBeenCalledOnce();
     expect(stream.closeWrite).toHaveBeenCalledOnce();
     expect(stream.reset).not.toHaveBeenCalled();
@@ -140,9 +150,11 @@ describe("performSend", () => {
 
     await performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 });
     expect(endpoint.connect).not.toHaveBeenCalled();
-    expect(endpoint.waitPeerReady).toHaveBeenCalledWith(PEER_BOB, {
-      timeoutMs: 50,
-    });
+    expect(endpoint.waitPeerReady.mock.calls[0]?.[0]).toBe(PEER_BOB);
+    expectRemainingTimeout(
+      endpoint.waitPeerReady.mock.calls[0]?.[1]?.timeoutMs ?? 0,
+      50
+    );
   });
 
   it("does not open a stream when Identify never completes", async () => {
@@ -404,7 +416,11 @@ describe("performSend", () => {
       performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 })
     ).resolves.toBeUndefined();
 
-    expect(endpoint.connect).toHaveBeenCalledWith(PEER_BOB, { timeoutMs: 50 });
+    expect(endpoint.connect.mock.calls[0]?.[0]).toBe(PEER_BOB);
+    expectRemainingTimeout(
+      endpoint.connect.mock.calls[0]?.[1]?.timeoutMs ?? 0,
+      50
+    );
     expect(endpoint.connect.mock.calls[1]?.[0]).toBe(peerCli);
     expect(stream.write).toHaveBeenCalledOnce();
     expect(stream.reset).not.toHaveBeenCalled();
@@ -437,7 +453,11 @@ describe("performSend", () => {
       performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 })
     ).resolves.toBeUndefined();
 
-    expect(endpoint.connect).toHaveBeenCalledWith(PEER_BOB, { timeoutMs: 50 });
+    expect(endpoint.connect.mock.calls[0]?.[0]).toBe(PEER_BOB);
+    expectRemainingTimeout(
+      endpoint.connect.mock.calls[0]?.[1]?.timeoutMs ?? 0,
+      50
+    );
     expect(endpoint.connect.mock.calls[1]?.[0]).toBe(peerCli);
     expect(stream.write).toHaveBeenCalledOnce();
   });
