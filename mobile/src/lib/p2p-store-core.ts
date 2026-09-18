@@ -301,33 +301,33 @@ export const createP2pStore = ({
     }
     const jobGeneration = generation;
     const epoch = holderCacheEpoch;
-    const job = (async () => {
-      const own = getOwnDevice?.();
-      if (!own) {
-        return;
+    holderLookup = (async () => {
+      try {
+        const own = getOwnDevice?.();
+        if (!own) {
+          return;
+        }
+        const account = await Effect.runPromise(lookupHandle(own.handle));
+        if (!isCurrentGeneration(jobGeneration)) {
+          return;
+        }
+        if (!account || account.qid.toString() !== own.qid) {
+          return;
+        }
+        const ids = otherOwnDevicePeerIds(own.peerId, account.devices);
+        // Empty means no other own device yet. Do not cache it — a CLI
+        // linked later must be visible to handoff/reconcile without resume.
+        if (ids.length > 0 && epoch === holderCacheEpoch) {
+          cachedHolderPeerIds = ids;
+        }
+        return ids;
+      } finally {
+        if (epoch === holderCacheEpoch) {
+          holderLookup = undefined;
+        }
       }
-      const account = await Effect.runPromise(lookupHandle(own.handle));
-      if (!isCurrentGeneration(jobGeneration)) {
-        return;
-      }
-      if (!account || account.qid.toString() !== own.qid) {
-        return;
-      }
-      const ids = otherOwnDevicePeerIds(own.peerId, account.devices);
-      // Empty means no other own device yet. Do not cache it — a CLI
-      // linked later must be visible to handoff/reconcile without resume.
-      if (ids.length > 0 && epoch === holderCacheEpoch) {
-        cachedHolderPeerIds = ids;
-      }
-      return ids;
     })();
-    holderLookup = job;
-    void job.finally(() => {
-      if (holderLookup === job) {
-        holderLookup = undefined;
-      }
-    });
-    return job;
+    return holderLookup;
   };
 
   const resolveHolderPeerId = async (activeEndpoint: P2pEndpoint) => {
