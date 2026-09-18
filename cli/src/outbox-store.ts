@@ -299,7 +299,8 @@ export const createCliOutboxStore = (root: string) => {
       Effect.gen(function* () {
         const messages = yield* loadInboxUnlocked();
         const existing = messages.find(
-          (item) => item.frame.id === record.frame.id
+          (item) =>
+            item.frame.id === record.frame.id && item.fromQid === record.fromQid
         );
         if (existing) {
           if (inboxRecordsConflict(existing, record)) {

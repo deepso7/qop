@@ -211,9 +211,9 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
   const retry = React.useCallback(
     (id: string) => {
       void selectionHaptic();
-      void retryMessage(id);
+      void retryMessage(id, contact.qid);
     },
-    [retryMessage]
+    [contact.qid, retryMessage]
   );
   const renderItem = React.useCallback<ListRenderItem<StoredMessage>>(
     ({ item }) => <ConversationMessage item={item} retry={retry} />,

@@ -107,8 +107,11 @@ describe("CLI outbox store", () => {
       const again = yield* store.putInbox({ ...inbound, receivedAt: 9 });
       expect(again.inserted).toBe(false);
       expect(again.record.receivedAt).toBe(1_700_000_000_001);
+      const otherSender = yield* store.putInbox({ ...inbound, fromQid: "3" });
+      expect(otherSender.inserted).toBe(true);
+      expect(yield* store.loadInbox()).toHaveLength(2);
       const conflicted = yield* store
-        .putInbox({ ...inbound, fromQid: "3" })
+        .putInbox({ ...inbound, frame: { ...inbound.frame, text: "other" } })
         .pipe(Effect.result);
       expect(conflicted._tag).toBe("Failure");
     })

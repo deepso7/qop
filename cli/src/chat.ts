@@ -182,57 +182,69 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
   recipient: { readonly handle: string; readonly qid: string },
   frame: ChatFrame
 ) {
-  const peerId = yield* sessions
-    .recipientPeerId(recipient)
+  const peerIds = yield* sessions
+    .recipientPeerIds(recipient)
     .pipe(Effect.mapError(asDeliverError));
-  const stream = yield* openAuthorizedChatStream(
-    transport,
-    sessions,
-    peerId,
-    recipient
-  ).pipe(Effect.mapError(asDeliverError));
-  return yield* Effect.gen(function* () {
-    // Recheck immediately before write: SIGCONT/stall can invalidate after verify.
-    if (!sessions.isVerified(stream, recipient.qid)) {
-      return yield* Effect.fail(
-        new CliOutboxDeliverError({ operation: "unauthorized" })
-      );
+  let lastError: CliOutboxDeliverError | undefined;
+  for (const peerId of peerIds) {
+    const opened = yield* openAuthorizedChatStream(
+      transport,
+      sessions,
+      peerId,
+      recipient
+    ).pipe(Effect.mapError(asDeliverError), Effect.result);
+    if (opened._tag === "Failure") {
+      lastError = asDeliverError(opened.failure);
+      continue;
     }
-    yield* Effect.try({
-      catch: asDeliverError,
-      try: () => {
-        stream.write(encodeFrame(frame));
-        stream.closeWrite();
-      },
-    });
-    const ackBytes = yield* Effect.tryPromise({
-      catch: asDeliverError,
-      try: () => readUntilEof(() => stream.read()),
+    const stream = opened.success;
+    // A verified stream is committed — do not fall through after a write.
+    return yield* Effect.gen(function* () {
+      // Recheck immediately before write: SIGCONT/stall can invalidate after verify.
+      if (!sessions.isVerified(stream, recipient.qid)) {
+        return yield* Effect.fail(
+          new CliOutboxDeliverError({ operation: "unauthorized" })
+        );
+      }
+      yield* Effect.try({
+        catch: asDeliverError,
+        try: () => {
+          stream.write(encodeFrame(frame));
+          stream.closeWrite();
+        },
+      });
+      const ackBytes = yield* Effect.tryPromise({
+        catch: asDeliverError,
+        try: () => readUntilEof(() => stream.read()),
+      }).pipe(
+        Effect.timeoutOrElse({
+          duration: OUTBOUND_ACK_TIMEOUT_MS,
+          orElse: () =>
+            Effect.fail(new CliOutboxDeliverError({ operation: "timeout" })),
+        })
+      );
+      const ack = yield* Effect.try({
+        catch: asDeliverError,
+        try: () => decodeAck(ackBytes),
+      });
+      yield* Effect.try({
+        catch: asDeliverError,
+        try: () => {
+          assertAckMatches(ack, frame.id);
+        },
+      });
     }).pipe(
-      Effect.timeoutOrElse({
-        duration: OUTBOUND_ACK_TIMEOUT_MS,
-        orElse: () =>
-          Effect.fail(new CliOutboxDeliverError({ operation: "timeout" })),
-      })
+      Effect.onExit((exit) =>
+        exit._tag === "Success"
+          ? Effect.void
+          : Effect.sync(() => {
+              stream.reset();
+            })
+      )
     );
-    const ack = yield* Effect.try({
-      catch: asDeliverError,
-      try: () => decodeAck(ackBytes),
-    });
-    yield* Effect.try({
-      catch: asDeliverError,
-      try: () => {
-        assertAckMatches(ack, frame.id);
-      },
-    });
-  }).pipe(
-    Effect.onExit((exit) =>
-      exit._tag === "Success"
-        ? Effect.void
-        : Effect.sync(() => {
-            stream.reset();
-          })
-    )
+  }
+  return yield* Effect.fail(
+    lastError ?? new CliOutboxDeliverError({ operation: "transport" })
   );
 });
 

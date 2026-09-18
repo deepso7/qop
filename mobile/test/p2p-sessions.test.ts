@@ -252,11 +252,44 @@ describe("multi-device connection authorization", () => {
   });
 
   it("routes outgoing messages to a live authorized device peer", async () => {
-    const { sessions } = fixture();
+    const { lookupHandle, sessions } = fixture();
     await Effect.runPromise(sessions.verify(cliConnection, "alice"));
     await expect(
       Effect.runPromise(sessions.recipientPeerId(contact))
     ).resolves.toBe(PEER_CLI);
+    await expect(
+      Effect.runPromise(sessions.recipientPeerIds(contact))
+    ).resolves.toEqual([PEER_CLI, PEER_ALICE]);
+    expect(lookupHandle).toHaveBeenCalledTimes(2);
+  });
+
+  it("lists the full roster so an offline phone can fall through to the CLI", async () => {
+    const { lookupHandle, sessions } = fixture();
+    sessions.closed(phoneConnection);
+    sessions.closed(cliConnection);
+    await expect(
+      Effect.runPromise(sessions.recipientPeerIds(contact))
+    ).resolves.toEqual([PEER_ALICE, PEER_CLI]);
+    expect(lookupHandle).toHaveBeenCalledOnce();
+  });
+
+  it("keeps roster fallback after a live authorized phone", async () => {
+    const { sessions } = fixture();
+    await Effect.runPromise(sessions.verify(phoneConnection, "alice"));
+    await expect(
+      Effect.runPromise(sessions.recipientPeerIds(contact))
+    ).resolves.toEqual([PEER_ALICE, PEER_CLI]);
+  });
+
+  it("falls back to authorized peers when roster lookup fails", async () => {
+    const { lookupHandle, sessions } = fixture();
+    await Effect.runPromise(sessions.verify(phoneConnection, "alice"));
+    lookupHandle.mockReturnValue(
+      Effect.fail(new RegistryReaderError({ operation: "rpc" }))
+    );
+    await expect(
+      Effect.runPromise(sessions.recipientPeerIds(contact))
+    ).resolves.toEqual([PEER_ALICE]);
   });
 
   it("does not share authorization across parallel connections", async () => {

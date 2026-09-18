@@ -241,8 +241,8 @@ describe("delivery status transitions", () => {
       status: "sending",
       text: "hello",
     });
-    expect(await advanceMessageStatus("race", "sent")).toBe(true);
-    expect(await advanceMessageStatus("race", "held")).toBe(false);
+    expect(await advanceMessageStatus("race", "sent", "1")).toBe(true);
+    expect(await advanceMessageStatus("race", "held", "1")).toBe(false);
     expect(await getMessageById("race")).toMatchObject({ status: "sent" });
   });
 
@@ -255,7 +255,7 @@ describe("delivery status transitions", () => {
       status: "held",
       text: "hello",
     });
-    expect(await advanceMessageStatus("held-receipt", "sent")).toBe(true);
+    expect(await advanceMessageStatus("held-receipt", "sent", "1")).toBe(true);
     expect(await getMessageById("held-receipt")).toMatchObject({
       status: "sent",
     });
@@ -270,8 +270,8 @@ describe("delivery status transitions", () => {
       status: "held",
       text: "hello",
     });
-    expect(await advanceMessageStatus("held-fail", "failed")).toBe(false);
-    await failRejectedHandoff("held-fail");
+    expect(await advanceMessageStatus("held-fail", "failed", "1")).toBe(false);
+    await failRejectedHandoff("held-fail", "1");
     expect(await getMessageById("held-fail")).toMatchObject({
       holderPeerId: null,
       status: "failed",
@@ -287,18 +287,18 @@ describe("delivery status transitions", () => {
       status: "sending",
       text: "hello",
     });
-    expect(await markMessageHeld("held-by", "cli-peer")).toBe(true);
+    expect(await markMessageHeld("held-by", "cli-peer", "1")).toBe(true);
     expect(await getMessageById("held-by")).toMatchObject({
       holderPeerId: "cli-peer",
       status: "held",
     });
-    expect(await markMessageHeld("held-by", "other-cli")).toBe(true);
+    expect(await markMessageHeld("held-by", "other-cli", "1")).toBe(true);
     expect(await getMessageById("held-by")).toMatchObject({
       holderPeerId: "other-cli",
       status: "held",
     });
-    expect(await advanceMessageStatus("held-by", "sent")).toBe(true);
-    expect(await markMessageHeld("held-by", "cli-peer")).toBe(false);
+    expect(await advanceMessageStatus("held-by", "sent", "1")).toBe(true);
+    expect(await markMessageHeld("held-by", "cli-peer", "1")).toBe(false);
     expect(await getMessageById("held-by")).toMatchObject({
       holderPeerId: null,
       status: "sent",
@@ -311,7 +311,7 @@ describe("delivery status transitions", () => {
       status: "failed",
       text: "old",
     });
-    expect(await markMessageHeld("failed-stay", "cli-peer")).toBe(false);
+    expect(await markMessageHeld("failed-stay", "cli-peer", "1")).toBe(false);
     expect(await getMessageById("failed-stay")).toMatchObject({
       holderPeerId: null,
       status: "failed",
@@ -327,12 +327,14 @@ describe("delivery status transitions", () => {
       status: "failed",
       text: "hello",
     });
-    expect(await advanceMessageStatus("retry-send", "sending")).toBe(true);
+    expect(await advanceMessageStatus("retry-send", "sending", "1")).toBe(true);
     expect(await getMessageById("retry-send")).toMatchObject({
       holderPeerId: null,
       status: "sending",
     });
-    expect(await advanceMessageStatus("retry-send", "sending")).toBe(false);
+    expect(await advanceMessageStatus("retry-send", "sending", "1")).toBe(
+      false
+    );
   });
 });
 
@@ -368,7 +370,7 @@ describe("contact device roster", () => {
 });
 
 describe("message id dedupe", () => {
-  it("ignores a second insert with the same message id", async () => {
+  it("ignores a second insert with the same message id from the same sender", async () => {
     const input: MessageInput = {
       contactQid: "1",
       direction: "in",
@@ -383,5 +385,143 @@ describe("message id dedupe", () => {
     ).toBe(false);
     expect(await listMessages("1")).toHaveLength(1);
     expect(await getMessageById("same-id")).toMatchObject({ text: "first" });
+  });
+
+  it("keeps the same message id from two senders", async () => {
+    await upsertContact({
+      createdAt: 2,
+      deviceKey: "carol-device",
+      handle: "carol",
+      owner: "owner-2",
+      peerId: "carol-peer",
+      qid: "2",
+    });
+    const sharedId = "same-id";
+    vi.setSystemTime(100);
+    expect(
+      await insertMessage({
+        contactQid: "1",
+        direction: "in",
+        id: sharedId,
+        sentAt: 100,
+        status: "received",
+        text: "from alice",
+      })
+    ).toBe(true);
+    vi.setSystemTime(200);
+    expect(
+      await insertMessage({
+        contactQid: "2",
+        direction: "in",
+        id: sharedId,
+        sentAt: 100,
+        status: "received",
+        text: "from carol",
+      })
+    ).toBe(true);
+    expect(await listMessages("1")).toMatchObject([
+      { id: sharedId, text: "from alice" },
+    ]);
+    expect(await listMessages("2")).toMatchObject([
+      { id: sharedId, text: "from carol" },
+    ]);
+    expect(await listConversations()).toMatchObject([
+      { handle: "carol", latestMessageText: "from carol" },
+      { handle: "alice", latestMessageText: "from alice" },
+    ]);
+  });
+
+  it("does not let one contact's status change mutate another contact's row", async () => {
+    await upsertContact({
+      createdAt: 2,
+      deviceKey: "carol-device",
+      handle: "carol",
+      owner: "owner-2",
+      peerId: "carol-peer",
+      qid: "2",
+    });
+    const sharedId = "shared-id";
+    expect(
+      await insertMessage({
+        contactQid: "1",
+        direction: "out",
+        id: sharedId,
+        sentAt: 100,
+        status: "sending",
+        text: "to alice",
+      })
+    ).toBe(true);
+    expect(
+      await insertMessage({
+        contactQid: "2",
+        direction: "in",
+        id: sharedId,
+        sentAt: 100,
+        status: "received",
+        text: "from carol",
+      })
+    ).toBe(true);
+    expect(await advanceMessageStatus(sharedId, "sent", "1")).toBe(true);
+    expect(await getMessageById(sharedId, "1")).toMatchObject({
+      status: "sent",
+      text: "to alice",
+    });
+    expect(await getMessageById(sharedId, "2")).toMatchObject({
+      status: "received",
+      text: "from carol",
+    });
+    expect(await markMessageHeld(sharedId, "cli-peer", "1")).toBe(false);
+    expect(await getMessageById(sharedId, "2")).toMatchObject({
+      status: "received",
+      text: "from carol",
+    });
+  });
+
+  it("scopes held and rejected-handoff updates to one contact", async () => {
+    await upsertContact({
+      createdAt: 2,
+      deviceKey: "carol-device",
+      handle: "carol",
+      owner: "owner-2",
+      peerId: "carol-peer",
+      qid: "2",
+    });
+    const sharedId = "shared-held";
+    expect(
+      await insertMessage({
+        contactQid: "1",
+        direction: "out",
+        id: sharedId,
+        sentAt: 100,
+        status: "sending",
+        text: "to alice",
+      })
+    ).toBe(true);
+    expect(
+      await insertMessage({
+        contactQid: "2",
+        direction: "out",
+        id: sharedId,
+        sentAt: 100,
+        status: "sending",
+        text: "to carol",
+      })
+    ).toBe(true);
+    expect(await markMessageHeld(sharedId, "cli-peer", "1")).toBe(true);
+    expect(await getMessageById(sharedId, "1")).toMatchObject({
+      holderPeerId: "cli-peer",
+      status: "held",
+    });
+    expect(await getMessageById(sharedId, "2")).toMatchObject({
+      holderPeerId: null,
+      status: "sending",
+    });
+    await failRejectedHandoff(sharedId, "1");
+    expect(await getMessageById(sharedId, "1")).toMatchObject({
+      status: "failed",
+    });
+    expect(await getMessageById(sharedId, "2")).toMatchObject({
+      status: "sending",
+    });
   });
 });
