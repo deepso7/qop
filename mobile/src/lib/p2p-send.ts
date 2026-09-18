@@ -98,6 +98,9 @@ export const withTimeout = <A>(
     )
   );
 
+const asSendError = (cause: unknown) =>
+  cause instanceof Error ? cause : new Error(String(cause));
+
 export const performSend = async ({
   contact,
   endpoint,
@@ -110,61 +113,87 @@ export const performSend = async ({
   try {
     await Effect.runPromise(
       Effect.gen(function* () {
-        const peerId = yield* sessions.recipientPeerId(contact);
-        if (!endpoint.connectedPeers().includes(peerId)) {
-          yield* Effect.tryPromise({
-            catch: (error) =>
-              error instanceof Error ? error : new Error(String(error)),
-            try: () => endpoint.connect(peerId, { timeoutMs }),
-          });
-        }
-        // Path-up is not Identify. Opening chat before peerReady yields StreamClosedError.
-        yield* Effect.tryPromise({
-          catch: (error) =>
-            error instanceof Error ? error : new Error(String(error)),
-          try: () => endpoint.waitPeerReady(peerId, { timeoutMs }),
-        });
-        const opened = yield* Effect.tryPromise({
-          catch: (error) =>
-            error instanceof Error ? error : new Error(String(error)),
-          try: async (abortSignal) => {
-            const lateStream = await endpoint.openStream(
-              peerId,
-              CHAT_PROTOCOL,
-              {
-                timeoutMs,
-              }
-            );
-            if (abortSignal.aborted) {
-              lateStream.reset();
-              throw abortSignal.reason;
+        const peerIds = yield* sessions.recipientPeerIds(contact).pipe(
+          Effect.timeoutOrElse({
+            duration: timeoutMs,
+            orElse: () =>
+              Effect.fail(new Error("Timed out waiting for chat ack")),
+          })
+        );
+        let lastError: Error | undefined;
+        const sendToPeer = (peerId: string) => {
+          const mark = { committed: false };
+          const program = Effect.gen(function* () {
+            if (!endpoint.connectedPeers().includes(peerId)) {
+              yield* Effect.tryPromise({
+                catch: asSendError,
+                try: () => endpoint.connect(peerId, { timeoutMs }),
+              });
             }
-            return lateStream;
-          },
-        });
-        stream = opened;
-        sessions.opened(opened);
-        yield* sessions.verify(opened, contact.handle);
-        if (!sessions.isVerified(opened, contact.qid)) {
-          return yield* Effect.fail(
-            new Error("Chat connection is no longer authorized")
+            // Path-up is not Identify. Opening chat before peerReady yields StreamClosedError.
+            yield* Effect.tryPromise({
+              catch: asSendError,
+              try: () => endpoint.waitPeerReady(peerId, { timeoutMs }),
+            });
+            const opened = yield* Effect.tryPromise({
+              catch: asSendError,
+              try: async (abortSignal) => {
+                const lateStream = await endpoint.openStream(
+                  peerId,
+                  CHAT_PROTOCOL,
+                  {
+                    timeoutMs,
+                  }
+                );
+                if (abortSignal.aborted) {
+                  lateStream.reset();
+                  throw abortSignal.reason;
+                }
+                return lateStream;
+              },
+            });
+            stream = opened;
+            sessions.opened(opened);
+            yield* sessions.verify(opened, contact.handle);
+            mark.committed = true;
+            if (!sessions.isVerified(opened, contact.qid)) {
+              return yield* Effect.fail(
+                new Error("Chat connection is no longer authorized")
+              );
+            }
+            opened.write(encodeFrame(frame));
+            opened.closeWrite();
+            const ack = yield* Effect.tryPromise({
+              catch: asSendError,
+              try: () => readAck(opened),
+            });
+            assertAckMatches(ack, frame.id);
+          }).pipe(
+            Effect.timeoutOrElse({
+              duration: timeoutMs,
+              orElse: () =>
+                Effect.fail(new Error("Timed out waiting for chat ack")),
+            })
           );
+          return { mark, program };
+        };
+        for (const peerId of peerIds) {
+          const { mark, program } = sendToPeer(peerId);
+          const result = yield* program.pipe(Effect.result);
+          if (result._tag === "Success") {
+            return;
+          }
+          stream?.reset();
+          stream = undefined;
+          lastError = asSendError(result.failure);
+          if (mark.committed) {
+            return yield* Effect.fail(lastError);
+          }
         }
-        opened.write(encodeFrame(frame));
-        opened.closeWrite();
-        const ack = yield* Effect.tryPromise({
-          catch: (error) =>
-            error instanceof Error ? error : new Error(String(error)),
-          try: () => readAck(opened),
-        });
-        assertAckMatches(ack, frame.id);
-      }).pipe(
-        Effect.timeoutOrElse({
-          duration: timeoutMs,
-          orElse: () =>
-            Effect.fail(new Error("Timed out waiting for chat ack")),
-        })
-      ),
+        return yield* Effect.fail(
+          lastError ?? new Error("No reachable recipient device")
+        );
+      }),
       { signal }
     );
   } catch (error) {

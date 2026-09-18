@@ -733,21 +733,32 @@ export const createP2pStore = ({
         return;
       }
       try {
-        const peerId = await Effect.runPromise(
-          sessions.recipientPeerId(contact).pipe(
+        const peerIds = await Effect.runPromise(
+          sessions.recipientPeerIds(contact).pipe(
             Effect.timeoutOrElse({
               duration: 10_000,
               orElse: () => Effect.fail(new Error("Timed out looking up peer")),
             })
           )
         );
-        if (!isCurrentGeneration(jobGeneration)) {
-          return;
-        }
-        if (!activeEndpoint.connectedPeers().includes(peerId)) {
-          await activeEndpoint.connect(peerId, { timeoutMs: 15_000 });
-        }
-        return peerId;
+        const dialRoster = async (
+          index: number
+        ): Promise<string | undefined> => {
+          const peerId = peerIds[index];
+          if (peerId === undefined || !isCurrentGeneration(jobGeneration)) {
+            return;
+          }
+          try {
+            if (!activeEndpoint.connectedPeers().includes(peerId)) {
+              await activeEndpoint.connect(peerId, { timeoutMs: 15_000 });
+            }
+            return peerId;
+          } catch {
+            // Offline first roster device (usually the phone) — try the next holder.
+            return dialRoster(index + 1);
+          }
+        };
+        return await dialRoster(0);
       } catch {
         // The screen reports reachability from authoritative connection events.
       }

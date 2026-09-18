@@ -368,7 +368,7 @@ describe("contact device roster", () => {
 });
 
 describe("message id dedupe", () => {
-  it("ignores a second insert with the same message id", async () => {
+  it("ignores a second insert with the same message id from the same sender", async () => {
     const input: MessageInput = {
       contactQid: "1",
       direction: "in",
@@ -383,5 +383,49 @@ describe("message id dedupe", () => {
     ).toBe(false);
     expect(await listMessages("1")).toHaveLength(1);
     expect(await getMessageById("same-id")).toMatchObject({ text: "first" });
+  });
+
+  it("keeps the same message id from two senders", async () => {
+    await upsertContact({
+      createdAt: 2,
+      deviceKey: "carol-device",
+      handle: "carol",
+      owner: "owner-2",
+      peerId: "carol-peer",
+      qid: "2",
+    });
+    const sharedId = "same-id";
+    vi.setSystemTime(100);
+    expect(
+      await insertMessage({
+        contactQid: "1",
+        direction: "in",
+        id: sharedId,
+        sentAt: 100,
+        status: "received",
+        text: "from alice",
+      })
+    ).toBe(true);
+    vi.setSystemTime(200);
+    expect(
+      await insertMessage({
+        contactQid: "2",
+        direction: "in",
+        id: sharedId,
+        sentAt: 100,
+        status: "received",
+        text: "from carol",
+      })
+    ).toBe(true);
+    expect(await listMessages("1")).toMatchObject([
+      { id: sharedId, text: "from alice" },
+    ]);
+    expect(await listMessages("2")).toMatchObject([
+      { id: sharedId, text: "from carol" },
+    ]);
+    expect(await listConversations()).toMatchObject([
+      { handle: "carol", latestMessageText: "from carol" },
+      { handle: "alice", latestMessageText: "from alice" },
+    ]);
   });
 });

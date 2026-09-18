@@ -252,11 +252,25 @@ describe("multi-device connection authorization", () => {
   });
 
   it("routes outgoing messages to a live authorized device peer", async () => {
-    const { sessions } = fixture();
+    const { lookupHandle, sessions } = fixture();
     await Effect.runPromise(sessions.verify(cliConnection, "alice"));
     await expect(
       Effect.runPromise(sessions.recipientPeerId(contact))
     ).resolves.toBe(PEER_CLI);
+    await expect(
+      Effect.runPromise(sessions.recipientPeerIds(contact))
+    ).resolves.toEqual([PEER_CLI]);
+    expect(lookupHandle).not.toHaveBeenCalled();
+  });
+
+  it("lists the full roster so an offline phone can fall through to the CLI", async () => {
+    const { lookupHandle, sessions } = fixture();
+    sessions.closed(phoneConnection);
+    sessions.closed(cliConnection);
+    await expect(
+      Effect.runPromise(sessions.recipientPeerIds(contact))
+    ).resolves.toEqual([PEER_ALICE, PEER_CLI]);
+    expect(lookupHandle).toHaveBeenCalledOnce();
   });
 
   it("does not share authorization across parallel connections", async () => {

@@ -80,7 +80,7 @@ let databasePromise: Promise<SQLite.SQLiteDatabase> | undefined;
 const failInterruptedMessagesSql = `UPDATE messages SET status = 'failed'
   WHERE direction = 'out' AND status = 'sending'`;
 
-const MESSAGES_SCHEMA_VERSION = 3;
+const MESSAGES_SCHEMA_VERSION = 4;
 const messagesStatusCheck =
   "status IN ('sending','sent','failed','received','held')";
 
@@ -117,6 +117,29 @@ const migrateMessagesSchema = async (database: SQLite.SQLiteDatabase) => {
     await database.execAsync(`
       ALTER TABLE messages ADD COLUMN holder_peer_id TEXT;
       PRAGMA user_version = 3;
+    `);
+  }
+  if (version < 4) {
+    await database.execAsync(`
+      CREATE TABLE messages_v4 (
+        contact_qid TEXT NOT NULL REFERENCES contacts(qid) ON DELETE CASCADE,
+        id TEXT NOT NULL,
+        direction TEXT NOT NULL CHECK (direction IN ('in','out')),
+        text TEXT NOT NULL,
+        sent_at INTEGER NOT NULL,
+        received_at INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (${messagesStatusCheck}),
+        holder_peer_id TEXT,
+        PRIMARY KEY (contact_qid, id)
+      );
+      INSERT INTO messages_v4
+        SELECT contact_qid, id, direction, text, sent_at, received_at, status, holder_peer_id
+        FROM messages;
+      DROP TABLE messages;
+      ALTER TABLE messages_v4 RENAME TO messages;
+      CREATE INDEX IF NOT EXISTS messages_contact_received_idx
+        ON messages(contact_qid, received_at);
+      PRAGMA user_version = 4;
     `);
   }
 };
@@ -249,12 +272,14 @@ export const listConversations = async (): Promise<Conversation[]> => {
           AND messages.received_at > contacts.last_read_at
       ) AS unreadCount
     FROM contacts
-    LEFT JOIN messages AS latest ON latest.id = (
-      SELECT id FROM messages
-      WHERE contact_qid = contacts.qid
-      ORDER BY received_at DESC, rowid DESC
-      LIMIT 1
-    )
+    LEFT JOIN messages AS latest
+      ON latest.contact_qid = contacts.qid
+      AND latest.id = (
+        SELECT id FROM messages
+        WHERE contact_qid = contacts.qid
+        ORDER BY received_at DESC, rowid DESC
+        LIMIT 1
+      )
     ORDER BY COALESCE(latest.received_at, contacts.created_at) DESC
   `);
   return rows.map((row) => ({

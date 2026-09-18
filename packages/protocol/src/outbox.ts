@@ -73,12 +73,13 @@ export const outboxRecordsConflict = (
     existing.frame.sentAt !== candidate.frame.sentAt ||
     existing.frame.text !== candidate.frame.text);
 
+/** Same sender + id must keep the same content; a different sender is a new message. */
 export const inboxRecordsConflict = (
   existing: InboxRecordV1,
   candidate: InboxRecordV1
 ) =>
   existing.frame.id === candidate.frame.id &&
-  (existing.fromQid !== candidate.fromQid ||
-    existing.frame.fromHandle !== candidate.frame.fromHandle ||
+  existing.fromQid === candidate.fromQid &&
+  (existing.frame.fromHandle !== candidate.frame.fromHandle ||
     existing.frame.sentAt !== candidate.frame.sentAt ||
     existing.frame.text !== candidate.frame.text);
