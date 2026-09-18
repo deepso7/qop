@@ -11,6 +11,7 @@ import {
 import type { performSend } from "@/lib/p2p-send";
 import { createP2pStore } from "@/lib/p2p-store-core";
 import type { P2pEndpoint } from "@/lib/p2p-store-core";
+import { HANDOFF_REJECTED_MESSAGE } from "@/lib/p2p-sync";
 import type { performHandoff, performPoll } from "@/lib/p2p-sync";
 import type {
   lookupDeviceKey as LookupDeviceKey,
@@ -281,7 +282,7 @@ describe("phone to CLI handoff", () => {
       text: "hello",
     });
     poll.mockResolvedValue([]);
-    handoff.mockRejectedValue(new Error("CLI did not accept the handoff"));
+    handoff.mockRejectedValue(new Error(HANDOFF_REJECTED_MESSAGE));
     await useP2pStore.getState().start();
     connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
     await vi.waitFor(async () =>

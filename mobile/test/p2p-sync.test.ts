@@ -15,7 +15,12 @@ import {
   upsertContact,
 } from "@/lib/db";
 import { createPeerSessions } from "@/lib/p2p-sessions";
-import { chunkSyncPollIds, performHandoff, performPoll } from "@/lib/p2p-sync";
+import {
+  chunkSyncPollIds,
+  HANDOFF_REJECTED_MESSAGE,
+  performHandoff,
+  performPoll,
+} from "@/lib/p2p-sync";
 import type { RegistryAccount, RegistryReaderError } from "@/lib/registry-core";
 
 const PEER_CLI = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
@@ -144,6 +149,170 @@ describe("performHandoff", () => {
     expect(stream.write).toHaveBeenCalledOnce();
     expect(stream.closeWrite).toHaveBeenCalledOnce();
     expect(stream.reset).not.toHaveBeenCalled();
+  });
+
+  it("waits for Identify before opening a sync stream", async () => {
+    const held = await Effect.runPromise(
+      encodeSyncResponseV1({ id, type: "held", v: 1 })
+    );
+    const { endpoint, sessions, stream } = makeEndpoint(responseReader(held));
+    const order: string[] = [];
+    endpoint.connect.mockImplementation(() => {
+      order.push("connect");
+      return Promise.resolve({ peerId: PEER_CLI });
+    });
+    endpoint.waitPeerReady.mockImplementation(() => {
+      order.push("ready");
+      return Promise.resolve({ peerId: PEER_CLI });
+    });
+    endpoint.openStream.mockImplementation(() => {
+      order.push("open");
+      return Promise.resolve(stream);
+    });
+
+    await performHandoff({
+      composedBy: own.deviceKey,
+      endpoint,
+      holderPeerId: PEER_CLI,
+      own,
+      record,
+      sessions,
+      timeoutMs: 50,
+    });
+    expect(order).toEqual(["connect", "ready", "open"]);
+  });
+
+  it("waits for Identify even when the CLI is already connected", async () => {
+    const held = await Effect.runPromise(
+      encodeSyncResponseV1({ id, type: "held", v: 1 })
+    );
+    const { endpoint, sessions } = makeEndpoint(responseReader(held));
+    endpoint.connectedPeers.mockReturnValue([PEER_CLI]);
+
+    await performHandoff({
+      composedBy: own.deviceKey,
+      endpoint,
+      holderPeerId: PEER_CLI,
+      own,
+      record,
+      sessions,
+      timeoutMs: 50,
+    });
+    expect(endpoint.connect).not.toHaveBeenCalled();
+    expect(endpoint.waitPeerReady).toHaveBeenCalledWith(PEER_CLI, {
+      timeoutMs: 50,
+    });
+  });
+
+  it("retries a closed first sync stream and still accepts held", async () => {
+    const held = await Effect.runPromise(
+      encodeSyncResponseV1({ id, type: "held", v: 1 })
+    );
+    const { endpoint, sessions, stream } = makeEndpoint(responseReader(held));
+    endpoint.openStream
+      .mockRejectedValueOnce(new Error("The stream closed"))
+      .mockResolvedValue(stream);
+
+    await expect(
+      performHandoff({
+        composedBy: own.deviceKey,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        record,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).resolves.toBeUndefined();
+
+    expect(endpoint.waitPeerReady).toHaveBeenCalledTimes(2);
+    expect(endpoint.openStream).toHaveBeenCalledTimes(2);
+    expect(stream.write).toHaveBeenCalledOnce();
+    expect(stream.reset).not.toHaveBeenCalled();
+  });
+
+  it("stops after one retry when the sync stream keeps closing", async () => {
+    const { endpoint, sessions, stream } = makeEndpoint(async () => {
+      await Promise.resolve();
+    });
+    endpoint.openStream.mockRejectedValue(new Error("The stream closed"));
+
+    await expect(
+      performHandoff({
+        composedBy: own.deviceKey,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        record,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).rejects.toThrow("The stream closed");
+
+    expect(endpoint.openStream).toHaveBeenCalledTimes(2);
+    expect(stream.write).not.toHaveBeenCalled();
+  });
+
+  it("retries when the first stream closes without a held reply", async () => {
+    const held = await Effect.runPromise(
+      encodeSyncResponseV1({ id, type: "held", v: 1 })
+    );
+    const closedChunks: (Uint8Array | undefined)[] = [undefined];
+    const closedStream = {
+      closeWrite: vi.fn(),
+      connId: 3,
+      peerId: PEER_CLI,
+      read: vi.fn(() => Promise.resolve(closedChunks.shift())),
+      reset: vi.fn(),
+      write: vi.fn(),
+    };
+    const { endpoint, sessions, stream } = makeEndpoint(responseReader(held));
+    endpoint.openStream
+      .mockResolvedValueOnce(closedStream)
+      .mockResolvedValue(stream);
+
+    await expect(
+      performHandoff({
+        composedBy: own.deviceKey,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        record,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).resolves.toBeUndefined();
+
+    expect(endpoint.openStream).toHaveBeenCalledTimes(2);
+    expect(closedStream.write).toHaveBeenCalledOnce();
+    expect(closedStream.reset).toHaveBeenCalledOnce();
+    expect(stream.write).toHaveBeenCalledOnce();
+    expect(stream.reset).not.toHaveBeenCalled();
+  });
+
+  it("does not retry a permanent CLI reject", async () => {
+    const rejected = await Effect.runPromise(
+      encodeSyncResponseV1({ reason: "invalid", type: "error", v: 1 })
+    );
+    const { endpoint, sessions, stream } = makeEndpoint(
+      responseReader(rejected)
+    );
+
+    await expect(
+      performHandoff({
+        composedBy: own.deviceKey,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        record,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).rejects.toThrow(HANDOFF_REJECTED_MESSAGE);
+
+    expect(endpoint.openStream).toHaveBeenCalledOnce();
+    expect(stream.write).toHaveBeenCalledOnce();
+    expect(stream.reset).toHaveBeenCalledOnce();
   });
 
   it("does not insert own identity into chats when verifying the CLI", async () => {

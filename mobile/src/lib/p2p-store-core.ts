@@ -25,6 +25,7 @@ import { withTimeout } from "./p2p-send";
 import type { performSend } from "./p2p-send";
 import { createPeerSessions } from "./p2p-sessions";
 import {
+  HANDOFF_REJECTED_MESSAGE,
   otherOwnDevicePeerIds,
   outgoingHandoffRecord,
   pickHolderPeerId,
@@ -425,7 +426,7 @@ export const createP2pStore = ({
             } catch (error) {
               if (
                 error instanceof Error &&
-                error.message === "CLI did not accept the handoff"
+                error.message === HANDOFF_REJECTED_MESSAGE
               ) {
                 await failRejectedHandoff(message.id);
               }

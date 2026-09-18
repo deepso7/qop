@@ -111,6 +111,68 @@ export const chunkSyncPollIds = (ids: readonly string[]) => {
   return chunks;
 };
 
+/** Permanent CLI reject — do not auto-retry; the phone should leave `held`. */
+export const HANDOFF_REJECTED_MESSAGE = "CLI did not accept the handoff";
+
+const HANDOFF_TRANSIENT_RETRIES = 1;
+
+const openAuthorizedSyncStream = (
+  endpoint: SyncEndpoint,
+  holderPeerId: string,
+  own: Pick<OwnDevice, "handle" | "qid">,
+  sessions: ReturnType<typeof createPeerSessions>,
+  timeoutMs: number
+) =>
+  Effect.gen(function* () {
+    if (!endpoint.connectedPeers().includes(holderPeerId)) {
+      yield* Effect.tryPromise({
+        catch: (error) =>
+          error instanceof Error ? error : new Error(String(error)),
+        try: () => endpoint.connect(holderPeerId, { timeoutMs }),
+      });
+    }
+    // Path-up is not Identify. Opening sync before peerReady yields StreamClosedError.
+    yield* Effect.tryPromise({
+      catch: (error) =>
+        error instanceof Error ? error : new Error(String(error)),
+      try: () => endpoint.waitPeerReady(holderPeerId, { timeoutMs }),
+    });
+    const opened = yield* Effect.tryPromise({
+      catch: (error) =>
+        error instanceof Error ? error : new Error(String(error)),
+      try: async (abortSignal) => {
+        const lateStream = await endpoint.openStream(
+          holderPeerId,
+          SYNC_PROTOCOL,
+          { timeoutMs }
+        );
+        if (abortSignal.aborted) {
+          lateStream.reset();
+          throw abortSignal.reason;
+        }
+        return lateStream;
+      },
+    });
+    return yield* Effect.gen(function* () {
+      sessions.opened(opened);
+      yield* sessions.verify(opened, own.handle);
+      if (!sessions.isVerified(opened, own.qid)) {
+        return yield* Effect.fail(
+          new Error("Sync connection is no longer authorized")
+        );
+      }
+      return opened;
+    }).pipe(
+      Effect.onExit((exit) =>
+        exit._tag === "Success"
+          ? Effect.void
+          : Effect.sync(() => {
+              opened.reset();
+            })
+      )
+    );
+  });
+
 export const outgoingHandoffRecord = ({
   contact,
   fromHandle,
@@ -161,42 +223,14 @@ export const performHandoff = async ({
   try {
     await Effect.runPromise(
       Effect.gen(function* () {
-        if (!endpoint.connectedPeers().includes(holderPeerId)) {
-          yield* Effect.tryPromise({
-            catch: (error) =>
-              error instanceof Error ? error : new Error(String(error)),
-            try: () => endpoint.connect(holderPeerId, { timeoutMs }),
-          });
-        }
-        yield* Effect.tryPromise({
-          catch: (error) =>
-            error instanceof Error ? error : new Error(String(error)),
-          try: () => endpoint.waitPeerReady(holderPeerId, { timeoutMs }),
-        });
-        const opened = yield* Effect.tryPromise({
-          catch: (error) =>
-            error instanceof Error ? error : new Error(String(error)),
-          try: async (abortSignal) => {
-            const lateStream = await endpoint.openStream(
-              holderPeerId,
-              SYNC_PROTOCOL,
-              { timeoutMs }
-            );
-            if (abortSignal.aborted) {
-              lateStream.reset();
-              throw abortSignal.reason;
-            }
-            return lateStream;
-          },
-        });
+        const opened = yield* openAuthorizedSyncStream(
+          endpoint,
+          holderPeerId,
+          own,
+          sessions,
+          timeoutMs
+        );
         stream = opened;
-        sessions.opened(opened);
-        yield* sessions.verify(opened, own.handle);
-        if (!sessions.isVerified(opened, own.qid)) {
-          return yield* Effect.fail(
-            new Error("Sync connection is no longer authorized")
-          );
-        }
         const bytes = yield* encodeSyncRequestV1({
           composedBy,
           record,
@@ -212,12 +246,25 @@ export const performHandoff = async ({
         });
         const response = yield* decodeSyncResponseV1(responseBytes);
         if (response.type !== "held") {
-          return yield* Effect.fail(
-            new Error("CLI did not accept the handoff")
-          );
+          return yield* Effect.fail(new Error(HANDOFF_REJECTED_MESSAGE));
         }
         assertHeldMatches(response, record.frame.id);
       }).pipe(
+        Effect.tapError(() =>
+          Effect.sync(() => {
+            stream?.reset();
+            stream = undefined;
+          })
+        ),
+        Effect.retry({
+          times: HANDOFF_TRANSIENT_RETRIES,
+          while: (error) =>
+            !signal?.aborted &&
+            !(
+              error instanceof Error &&
+              error.message === HANDOFF_REJECTED_MESSAGE
+            ),
+        }),
         Effect.timeoutOrElse({
           duration: timeoutMs,
           orElse: () =>
@@ -247,42 +294,14 @@ const pollHeldChunk = async ({
   try {
     return await Effect.runPromise(
       Effect.gen(function* () {
-        if (!endpoint.connectedPeers().includes(holderPeerId)) {
-          yield* Effect.tryPromise({
-            catch: (error) =>
-              error instanceof Error ? error : new Error(String(error)),
-            try: () => endpoint.connect(holderPeerId, { timeoutMs }),
-          });
-        }
-        yield* Effect.tryPromise({
-          catch: (error) =>
-            error instanceof Error ? error : new Error(String(error)),
-          try: () => endpoint.waitPeerReady(holderPeerId, { timeoutMs }),
-        });
-        const opened = yield* Effect.tryPromise({
-          catch: (error) =>
-            error instanceof Error ? error : new Error(String(error)),
-          try: async (abortSignal) => {
-            const lateStream = await endpoint.openStream(
-              holderPeerId,
-              SYNC_PROTOCOL,
-              { timeoutMs }
-            );
-            if (abortSignal.aborted) {
-              lateStream.reset();
-              throw abortSignal.reason;
-            }
-            return lateStream;
-          },
-        });
+        const opened = yield* openAuthorizedSyncStream(
+          endpoint,
+          holderPeerId,
+          own,
+          sessions,
+          timeoutMs
+        );
         stream = opened;
-        sessions.opened(opened);
-        yield* sessions.verify(opened, own.handle);
-        if (!sessions.isVerified(opened, own.qid)) {
-          return yield* Effect.fail(
-            new Error("Sync connection is no longer authorized")
-          );
-        }
         const bytes = yield* encodeSyncRequestV1({
           ids: [...ids],
           type: "poll",
