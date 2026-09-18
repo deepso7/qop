@@ -1,7 +1,7 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { readSyncRequest, writeSyncRequest } from "../src/sync-io.ts";
+import { readSyncRequestFrom, writeSyncRequestTo } from "../src/sync-io.ts";
 
 const id = "c56a4180-65aa-42ec-a945-5fd21dec0538";
 
@@ -31,18 +31,20 @@ describe("sync stream frames", () => {
         type: "handoff" as const,
         v: 1 as const,
       };
-      const chunks: Uint8Array[] = [];
-      yield* writeSyncRequest(
-        (data) => {
-          chunks.push(data);
+      const pending: (Uint8Array | undefined)[] = [];
+      const stream = {
+        closeWrite: () => {},
+        connId: 1,
+        peerId: "peer",
+        read: () => Promise.resolve(pending.shift()),
+        reset: () => {},
+        write: (data: Uint8Array) => {
+          pending.push(data);
         },
-        () => {},
-        frame
-      );
-      const pending = [...chunks, undefined];
-      const decoded = yield* readSyncRequest(() =>
-        Promise.resolve(pending.shift())
-      );
+      };
+      yield* writeSyncRequestTo(stream, frame);
+      pending.push(undefined);
+      const decoded = yield* readSyncRequestFrom(stream);
       assert.strictEqual(decoded.type, "handoff");
       if (decoded.type === "handoff") {
         assert.strictEqual(decoded.record.frame.id, id);

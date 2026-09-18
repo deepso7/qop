@@ -196,12 +196,3 @@ export const decodeSyncResponseV1 = Effect.fn(
     Effect.mapError(() => new SyncCodecError({ operation: "frame" }))
   );
 });
-
-export const assertHeldMatches = (
-  held: SyncHeldV1,
-  messageId: string
-): void => {
-  if (held.id !== messageId) {
-    throw new Error("Sync held does not match the message id");
-  }
-};

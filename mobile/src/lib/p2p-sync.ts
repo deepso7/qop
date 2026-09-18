@@ -1,23 +1,19 @@
 import {
-  assertHeldMatches,
-  decodeSyncResponseV1,
-  encodeSyncRequestV1,
-  MAX_SYNC_PAYLOAD_BYTES,
+  readSyncResponseFrom,
   SYNC_POLL_MAX_IDS,
   SYNC_PROTOCOL,
+  writeSyncRequestTo,
 } from "@qop/protocol";
-import type { OutboxRecordV1, SyncReceiptV1 } from "@qop/protocol";
+import type {
+  OutboxRecordV1,
+  SyncReceiptV1,
+  SyncRequestV1,
+  SyncStream,
+} from "@qop/protocol";
 import { Effect } from "effect";
 
 import type { Contact } from "./db";
-import type { createPeerSessions, PeerConnection } from "./p2p-sessions";
-
-interface SyncStream extends PeerConnection {
-  readonly closeWrite: () => void;
-  readonly read: () => Promise<Uint8Array | undefined>;
-  readonly reset: () => void;
-  readonly write: (data: Uint8Array) => void;
-}
+import type { createPeerSessions } from "./p2p-sessions";
 
 interface SyncEndpoint {
   readonly connectedPeers: () => readonly string[];
@@ -51,41 +47,6 @@ export interface PerformSyncInput {
   readonly signal?: AbortSignal;
   readonly timeoutMs: number;
 }
-
-const concatChunks = (chunks: readonly Uint8Array[], byteLength: number) => {
-  const bytes = new Uint8Array(byteLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-};
-
-const readResponseChunks = async (
-  stream: SyncStream,
-  chunks: Uint8Array[] = [],
-  byteLength = 0
-): Promise<{ readonly byteLength: number; readonly chunks: Uint8Array[] }> => {
-  const chunk = await stream.read();
-  if (!chunk) {
-    return { byteLength, chunks };
-  }
-  const nextLength = byteLength + chunk.byteLength;
-  if (nextLength > MAX_SYNC_PAYLOAD_BYTES) {
-    throw new Error("Sync frame exceeds 16 KB");
-  }
-  chunks.push(chunk);
-  return readResponseChunks(stream, chunks, nextLength);
-};
-
-const readResponseBytes = async (stream: SyncStream) => {
-  const { byteLength, chunks } = await readResponseChunks(stream);
-  if (byteLength === 0) {
-    throw new Error("Sync peer closed without a response");
-  }
-  return concatChunks(chunks, byteLength);
-};
 
 export const otherOwnDevicePeerIds = (
   ownPeerId: string,
@@ -173,6 +134,31 @@ const openAuthorizedSyncStream = (
     );
   });
 
+const exchangeSyncRequest = (stream: SyncStream, request: SyncRequestV1) =>
+  Effect.gen(function* () {
+    yield* writeSyncRequestTo(stream, request);
+    return yield* readSyncResponseFrom(stream);
+  });
+
+const withAuthorizedSyncStream = <A, E>(
+  endpoint: SyncEndpoint,
+  holderPeerId: string,
+  own: Pick<OwnDevice, "handle" | "qid">,
+  sessions: ReturnType<typeof createPeerSessions>,
+  timeoutMs: number,
+  use: (stream: SyncStream) => Effect.Effect<A, E>
+) =>
+  Effect.acquireUseRelease(
+    openAuthorizedSyncStream(endpoint, holderPeerId, own, sessions, timeoutMs),
+    use,
+    (stream, exit) =>
+      exit._tag === "Success"
+        ? Effect.void
+        : Effect.sync(() => {
+            stream.reset();
+          })
+  );
+
 export const outgoingHandoffRecord = ({
   contact,
   fromHandle,
@@ -206,7 +192,7 @@ export const outgoingHandoffRecord = ({
   v: 1,
 });
 
-export const performHandoff = async ({
+export const performHandoff = ({
   composedBy,
   endpoint,
   holderPeerId,
@@ -218,68 +204,50 @@ export const performHandoff = async ({
 }: PerformSyncInput & {
   readonly composedBy: string;
   readonly record: OutboxRecordV1;
-}): Promise<void> => {
-  let stream: SyncStream | undefined;
-  try {
-    await Effect.runPromise(
-      Effect.gen(function* () {
-        const opened = yield* openAuthorizedSyncStream(
-          endpoint,
-          holderPeerId,
-          own,
-          sessions,
-          timeoutMs
-        );
-        stream = opened;
-        const bytes = yield* encodeSyncRequestV1({
-          composedBy,
-          record,
-          type: "handoff",
-          v: 1,
-        });
-        opened.write(bytes);
-        opened.closeWrite();
-        const responseBytes = yield* Effect.tryPromise({
-          catch: (error) =>
-            error instanceof Error ? error : new Error(String(error)),
-          try: () => readResponseBytes(opened),
-        });
-        const response = yield* decodeSyncResponseV1(responseBytes);
-        if (response.type !== "held") {
-          return yield* Effect.fail(new Error(HANDOFF_REJECTED_MESSAGE));
-        }
-        assertHeldMatches(response, record.frame.id);
-      }).pipe(
-        Effect.tapError(() =>
-          Effect.sync(() => {
-            stream?.reset();
-            stream = undefined;
-          })
-        ),
-        Effect.retry({
-          times: HANDOFF_TRANSIENT_RETRIES,
-          while: (error) =>
-            !signal?.aborted &&
-            !(
-              error instanceof Error &&
-              error.message === HANDOFF_REJECTED_MESSAGE
-            ),
-        }),
-        Effect.timeoutOrElse({
-          duration: timeoutMs,
-          orElse: () =>
-            Effect.fail(new Error("Timed out waiting for sync response")),
+}): Promise<void> =>
+  Effect.runPromise(
+    withAuthorizedSyncStream(
+      endpoint,
+      holderPeerId,
+      own,
+      sessions,
+      timeoutMs,
+      (stream) =>
+        Effect.gen(function* () {
+          const response = yield* exchangeSyncRequest(stream, {
+            composedBy,
+            record,
+            type: "handoff",
+            v: 1,
+          });
+          if (response.type !== "held") {
+            return yield* Effect.fail(new Error(HANDOFF_REJECTED_MESSAGE));
+          }
+          if (response.id !== record.frame.id) {
+            return yield* Effect.fail(
+              new Error("Sync held does not match the message id")
+            );
+          }
         })
-      ),
-      { signal }
-    );
-  } catch (error) {
-    stream?.reset();
-    throw error;
-  }
-};
+    ).pipe(
+      Effect.retry({
+        times: HANDOFF_TRANSIENT_RETRIES,
+        while: (error) =>
+          !signal?.aborted &&
+          !(
+            error instanceof Error && error.message === HANDOFF_REJECTED_MESSAGE
+          ),
+      }),
+      Effect.timeoutOrElse({
+        duration: timeoutMs,
+        orElse: () =>
+          Effect.fail(new Error("Timed out waiting for sync response")),
+      })
+    ),
+    { signal }
+  );
 
-const pollHeldChunk = async ({
+const pollHeldChunk = ({
   endpoint,
   holderPeerId,
   ids,
@@ -289,50 +257,35 @@ const pollHeldChunk = async ({
   timeoutMs,
 }: PerformSyncInput & {
   readonly ids: readonly string[];
-}): Promise<readonly SyncReceiptV1[]> => {
-  let stream: SyncStream | undefined;
-  try {
-    return await Effect.runPromise(
-      Effect.gen(function* () {
-        const opened = yield* openAuthorizedSyncStream(
-          endpoint,
-          holderPeerId,
-          own,
-          sessions,
-          timeoutMs
-        );
-        stream = opened;
-        const bytes = yield* encodeSyncRequestV1({
-          ids: [...ids],
-          type: "poll",
-          v: 1,
-        });
-        opened.write(bytes);
-        opened.closeWrite();
-        const responseBytes = yield* Effect.tryPromise({
-          catch: (error) =>
-            error instanceof Error ? error : new Error(String(error)),
-          try: () => readResponseBytes(opened),
-        });
-        const response = yield* decodeSyncResponseV1(responseBytes);
-        if (response.type !== "receipts") {
-          return yield* Effect.fail(new Error("CLI did not return receipts"));
-        }
-        return response.receipts;
-      }).pipe(
-        Effect.timeoutOrElse({
-          duration: timeoutMs,
-          orElse: () =>
-            Effect.fail(new Error("Timed out waiting for sync response")),
+}): Promise<readonly SyncReceiptV1[]> =>
+  Effect.runPromise(
+    withAuthorizedSyncStream(
+      endpoint,
+      holderPeerId,
+      own,
+      sessions,
+      timeoutMs,
+      (stream) =>
+        Effect.gen(function* () {
+          const response = yield* exchangeSyncRequest(stream, {
+            ids: [...ids],
+            type: "poll",
+            v: 1,
+          });
+          if (response.type !== "receipts") {
+            return yield* Effect.fail(new Error("CLI did not return receipts"));
+          }
+          return response.receipts;
         })
-      ),
-      { signal }
-    );
-  } catch (error) {
-    stream?.reset();
-    throw error;
-  }
-};
+    ).pipe(
+      Effect.timeoutOrElse({
+        duration: timeoutMs,
+        orElse: () =>
+          Effect.fail(new Error("Timed out waiting for sync response")),
+      })
+    ),
+    { signal }
+  );
 
 export const performPoll = ({
   endpoint,

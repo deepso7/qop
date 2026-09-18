@@ -318,18 +318,6 @@ export const insertMessage = async (
   return result.changes > 0;
 };
 
-export const updateMessageStatus = async (
-  id: string,
-  status: MessageStatus
-): Promise<void> => {
-  const database = await getDatabase();
-  await database.runAsync(
-    "UPDATE messages SET status = ?, holder_peer_id = NULL WHERE id = ?",
-    status,
-    id
-  );
-};
-
 const ADVANCE_FROM: Record<MessageStatus, readonly MessageStatus[]> = {
   failed: ["sending"],
   held: ["failed", "sending"],

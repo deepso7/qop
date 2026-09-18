@@ -317,6 +317,23 @@ describe("delivery status transitions", () => {
       status: "failed",
     });
   });
+
+  it("lets a manual retry move failed back to sending", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "retry-send",
+      sentAt: 100,
+      status: "failed",
+      text: "hello",
+    });
+    expect(await advanceMessageStatus("retry-send", "sending")).toBe(true);
+    expect(await getMessageById("retry-send")).toMatchObject({
+      holderPeerId: null,
+      status: "sending",
+    });
+    expect(await advanceMessageStatus("retry-send", "sending")).toBe(false);
+  });
 });
 
 describe("contact device roster", () => {

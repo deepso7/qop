@@ -2,7 +2,6 @@ import { Effect, Schema } from "effect";
 import { describe, expect, it } from "vitest";
 
 import {
-  assertHeldMatches,
   decodeSyncRequestV1,
   decodeSyncResponseV1,
   encodeSyncRequestV1,
@@ -95,17 +94,5 @@ describe("sync frames", () => {
       }).pipe(Effect.result)
     );
     expect(result._tag).toBe("Failure");
-  });
-
-  it("asserts a held id matches the handed-off message", () => {
-    expect(() =>
-      assertHeldMatches({ id, type: "held", v: 1 }, id)
-    ).not.toThrow();
-    expect(() =>
-      assertHeldMatches(
-        { id: "c56a4180-65aa-42ec-a945-5fd21dec0539", type: "held", v: 1 },
-        id
-      )
-    ).toThrow(/held does not match/u);
   });
 });

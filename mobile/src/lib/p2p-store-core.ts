@@ -15,7 +15,6 @@ import {
   insertMessage,
   listOutgoingPending,
   markMessageHeld,
-  updateMessageStatus,
   upsertContact,
 } from "./db";
 import type { Contact, MessageInput, StoredMessage } from "./db";
@@ -147,6 +146,11 @@ export const createP2pStore = ({
     string,
     { readonly controller: AbortController; readonly job: Promise<void> }
   >();
+  let cachedHolderPeerIds: readonly string[] | undefined;
+  let holderLookup: Promise<readonly string[] | undefined> | undefined;
+  let scheduledReconcile: Promise<void> | undefined;
+  let queuedReconcile = false;
+  let reconcileSeq = 0;
 
   const sessions = createPeerSessions({
     getContactByQid,
@@ -175,6 +179,11 @@ export const createP2pStore = ({
     }
     retryJobs.clear();
     sessions.clear();
+    cachedHolderPeerIds = undefined;
+    holderLookup = undefined;
+    scheduledReconcile = undefined;
+    queuedReconcile = false;
+    reconcileSeq += 1;
     const listeners = unsubscribe;
     unsubscribe = [];
     for (const removeListener of listeners) {
@@ -275,19 +284,48 @@ export const createP2pStore = ({
 
   const handoffJobs = new Map<string, Promise<string | undefined>>();
 
+  const loadOwnHolderPeerIds = () => {
+    if (cachedHolderPeerIds !== undefined) {
+      return Promise.resolve(cachedHolderPeerIds);
+    }
+    if (holderLookup) {
+      return holderLookup;
+    }
+    const jobGeneration = generation;
+    holderLookup = (async () => {
+      try {
+        const own = getOwnDevice?.();
+        if (!own) {
+          return;
+        }
+        const account = await Effect.runPromise(lookupHandle(own.handle));
+        if (!isCurrentGeneration(jobGeneration)) {
+          return;
+        }
+        if (!account || account.qid.toString() !== own.qid) {
+          return;
+        }
+        const ids = otherOwnDevicePeerIds(own.peerId, account.devices);
+        cachedHolderPeerIds = ids;
+        return ids;
+      } finally {
+        holderLookup = undefined;
+      }
+    })();
+    return holderLookup;
+  };
+
   const resolveHolderPeerId = async (activeEndpoint: P2pEndpoint) => {
-    const own = getOwnDevice?.();
-    if (!own) {
+    const holderPeerIds = await loadOwnHolderPeerIds();
+    if (!holderPeerIds || holderPeerIds.length === 0) {
       return;
     }
-    const account = await Effect.runPromise(lookupHandle(own.handle));
-    if (!account || account.qid.toString() !== own.qid) {
-      return;
-    }
-    return pickHolderPeerId(
-      otherOwnDevicePeerIds(own.peerId, account.devices),
-      activeEndpoint.connectedPeers()
-    );
+    return pickHolderPeerId(holderPeerIds, activeEndpoint.connectedPeers());
+  };
+
+  const isOwnHolderPeer = async (peerId: string) => {
+    const holderPeerIds = await loadOwnHolderPeerIds();
+    return holderPeerIds?.includes(peerId) === true;
   };
 
   const handoffToHolder = (
@@ -349,7 +387,10 @@ export const createP2pStore = ({
     if (!own || !performPoll || !activeEndpoint || messages.length === 0) {
       return;
     }
-    const fallbackHolderPeerId = await resolveHolderPeerId(activeEndpoint);
+    const needsFallback = messages.some((message) => !message.holderPeerId);
+    const fallbackHolderPeerId = needsFallback
+      ? await resolveHolderPeerId(activeEndpoint)
+      : undefined;
     if (!isCurrentGeneration(jobGeneration)) {
       return;
     }
@@ -440,6 +481,32 @@ export const createP2pStore = ({
     } catch {
       // Reconcile is best-effort; live chat must keep running.
     }
+  };
+
+  const scheduleReconcile = (jobGeneration: number) => {
+    if (scheduledReconcile) {
+      queuedReconcile = true;
+      return scheduledReconcile;
+    }
+    reconcileSeq += 1;
+    const seq = reconcileSeq;
+    const job = (async () => {
+      try {
+        await Promise.resolve();
+        queuedReconcile = false;
+        await reconcileOwnHolders(jobGeneration);
+        if (queuedReconcile && isCurrentGeneration(jobGeneration)) {
+          queuedReconcile = false;
+          await reconcileOwnHolders(jobGeneration);
+        }
+      } finally {
+        if (reconcileSeq === seq) {
+          scheduledReconcile = undefined;
+        }
+      }
+    })();
+    scheduledReconcile = job;
+    return trackJob(job);
   };
 
   const sendStoredMessage = async (
@@ -648,7 +715,9 @@ export const createP2pStore = ({
             if (!contact || !isCurrentGeneration(jobGeneration)) {
               return;
             }
-            await updateMessageStatus(id, "sending");
+            if (!(await advanceMessageStatus(id, "sending"))) {
+              return;
+            }
             if (!isCurrentGeneration(jobGeneration)) {
               return;
             }
@@ -809,6 +878,7 @@ export const createP2pStore = ({
                 subscribeAppResume(() => {
                   if (generation === startGeneration) {
                     sessions.invalidateAuthorization();
+                    cachedHolderPeerIds = undefined;
                   }
                 }),
               ]
@@ -833,7 +903,13 @@ export const createP2pStore = ({
           created.on("connectionEstablished", (connection) => {
             if (generation === startGeneration) {
               sessions.opened(connection);
-              void trackJob(reconcileOwnHolders(startGeneration));
+              void trackJob(
+                (async () => {
+                  if (await isOwnHolderPeer(connection.peerId)) {
+                    await scheduleReconcile(startGeneration);
+                  }
+                })()
+              );
             }
           }),
           created.on("peerReady", refreshPeers),
@@ -871,7 +947,7 @@ export const createP2pStore = ({
           relayReserved: created.activeReservation() !== undefined,
           status: "running",
         });
-        void trackJob(reconcileOwnHolders(startGeneration));
+        void scheduleReconcile(startGeneration);
       } catch (error) {
         if (generation === startGeneration) {
           set({

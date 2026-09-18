@@ -56,7 +56,6 @@ export {
   encodeSyncResponseV1,
   decodeSyncRequestV1,
   decodeSyncResponseV1,
-  assertHeldMatches,
 } from "./sync.ts";
 export type {
   SyncHandoffV1 as SyncHandoff,
@@ -70,10 +69,15 @@ export type {
 } from "./sync.ts";
 export {
   readSyncRequest,
+  readSyncRequestFrom,
   readSyncResponse,
+  readSyncResponseFrom,
   writeSyncRequest,
+  writeSyncRequestTo,
   writeSyncResponse,
+  writeSyncResponseTo,
 } from "./sync-io.ts";
+export type { SyncStream } from "./sync-io.ts";
 export {
   DEVICE_ACTION_DEADLINE_SECONDS,
   MAX_ACTIVE_DEVICES,

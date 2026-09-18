@@ -315,6 +315,29 @@ describe("performHandoff", () => {
     expect(stream.reset).toHaveBeenCalledOnce();
   });
 
+  it("rejects a held id that does not match the handed-off message", async () => {
+    const held = await Effect.runPromise(
+      encodeSyncResponseV1({
+        id: "c56a4180-65aa-42ec-a945-5fd21dec0539",
+        type: "held",
+        v: 1,
+      })
+    );
+    const { endpoint, sessions } = makeEndpoint(responseReader(held));
+
+    await expect(
+      performHandoff({
+        composedBy: own.deviceKey,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        record,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).rejects.toThrow(/held does not match/u);
+  });
+
   it("does not insert own identity into chats when verifying the CLI", async () => {
     await deleteAll();
     const held = await Effect.runPromise(

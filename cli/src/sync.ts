@@ -1,8 +1,8 @@
 import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
 import {
   PeerVerificationError,
-  readSyncRequest,
-  writeSyncResponse,
+  readSyncRequestFrom,
+  writeSyncResponseTo,
 } from "@qop/protocol";
 import type {
   OutboxRecordV1,
@@ -10,6 +10,7 @@ import type {
   SessionContact,
   SyncErrorV1,
   SyncResponseV1,
+  SyncStream,
 } from "@qop/protocol";
 import { Effect, Schema } from "effect";
 
@@ -29,13 +30,6 @@ export interface CliSyncStore {
   ) => Effect.Effect<readonly OutboxRecordV1[], CliOutboxStoreError>;
 }
 
-export interface SyncStream extends PeerConnection {
-  readonly closeWrite: () => void;
-  readonly read: () => Promise<Uint8Array | undefined>;
-  readonly reset: () => void;
-  readonly write: (data: Uint8Array) => void;
-}
-
 interface SyncSessions {
   readonly isVerified: (connection: PeerConnection, qid: string) => boolean;
   readonly opened: (connection: PeerConnection) => void;
@@ -49,11 +43,7 @@ const invalid: SyncErrorV1 = { reason: "invalid", type: "error", v: 1 };
 const conflict: SyncErrorV1 = { reason: "conflict", type: "error", v: 1 };
 
 const reply = (stream: SyncStream, frame: SyncResponseV1) =>
-  writeSyncResponse(
-    (data) => stream.write(data),
-    () => stream.closeWrite(),
-    frame
-  );
+  writeSyncResponseTo(stream, frame);
 
 const deviceKeyHexForPeer = (peerId: string) =>
   Schema.decodeUnknownEffect(PeerId)(peerId).pipe(
@@ -115,7 +105,7 @@ export const handleInboundSyncStream = Effect.fn("qop.handleInboundSyncStream")(
     ) {
       return yield* new PeerVerificationError({ operation: "identity" });
     }
-    const request = yield* readSyncRequest(() => stream.read());
+    const request = yield* readSyncRequestFrom(stream);
     // Recheck at the persist/held boundary: SIGCONT/stall can invalidate
     // during the inbound read, same as chat send-boundary.
     if (isLive?.() === false || !sessions.isVerified(stream, identity.qid)) {

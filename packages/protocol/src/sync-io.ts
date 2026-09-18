@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 
+import type { PeerConnection } from "./p2p-sessions.ts";
 import {
   decodeSyncRequestV1,
   decodeSyncResponseV1,
@@ -9,6 +10,14 @@ import {
   SyncCodecError,
 } from "./sync.ts";
 import type { SyncRequestV1, SyncResponseV1 } from "./sync.ts";
+
+/** Half-close duplex used by phone and CLI `/qop/sync/1`. Bind methods at the call. */
+export interface SyncStream extends PeerConnection {
+  readonly closeWrite: () => void;
+  readonly read: () => Promise<Uint8Array | undefined>;
+  readonly reset: () => void;
+  readonly write: (data: Uint8Array) => void;
+}
 
 const concatChunks = (chunks: readonly Uint8Array[], byteLength: number) => {
   const bytes = new Uint8Array(byteLength);
@@ -76,3 +85,30 @@ export const writeSyncResponse = Effect.fn("@qop/protocol/writeSyncResponse")(
     closeWrite();
   }
 );
+
+/** Write then closeWrite via bound stream methods (unbound `write` throws on minip2p). */
+export const writeSyncRequestTo = (
+  stream: Pick<SyncStream, "closeWrite" | "write">,
+  frame: SyncRequestV1
+) =>
+  writeSyncRequest(
+    (data) => stream.write(data),
+    () => stream.closeWrite(),
+    frame
+  );
+
+export const writeSyncResponseTo = (
+  stream: Pick<SyncStream, "closeWrite" | "write">,
+  frame: SyncResponseV1
+) =>
+  writeSyncResponse(
+    (data) => stream.write(data),
+    () => stream.closeWrite(),
+    frame
+  );
+
+export const readSyncRequestFrom = (stream: Pick<SyncStream, "read">) =>
+  readSyncRequest(() => stream.read());
+
+export const readSyncResponseFrom = (stream: Pick<SyncStream, "read">) =>
+  readSyncResponse(() => stream.read());

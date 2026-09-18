@@ -40,6 +40,7 @@ import {
   withMessagingLifecycle,
 } from "./process-lifecycle.ts";
 import { handleInboundSyncStream } from "./sync.ts";
+import type { CliSyncIdentity, CliSyncStore } from "./sync.ts";
 
 const MAX_INBOUND_STREAMS = 8;
 const INBOUND_READ_TIMEOUT_MS = 15_000;
@@ -251,6 +252,35 @@ export const ackInboundChatFrame = Effect.fn("qop.ackInboundChatFrame")(
   }
 );
 
+/** Own-device `/qop/sync/1` inbound: gate, persist/held, log accepted holds. */
+const handleCliInboundSync = Effect.fn("qop.handleCliInboundSync")(function* (
+  stream: ChatStream,
+  sessions: ReturnType<typeof createPeerSessions>,
+  identity: CliSyncIdentity,
+  store: CliSyncStore,
+  guardSensitive: () => boolean
+) {
+  if (guardSensitive()) {
+    stream.reset();
+    return;
+  }
+  const response = yield* handleInboundSyncStream(
+    stream,
+    sessions,
+    identity,
+    store,
+    () => !guardSensitive()
+  ).pipe(
+    Effect.timeoutOrElse({
+      duration: INBOUND_READ_TIMEOUT_MS,
+      orElse: () => Effect.fail(new Error("Inbound sync timed out")),
+    })
+  );
+  if (response.type === "held") {
+    console.log(`Holding ${response.id} from own device.`);
+  }
+});
+
 export const runStart = Effect.fn("qop.start")(function* (
   store: ReturnType<typeof createCliIdentityStore>,
   options: {
@@ -403,31 +433,16 @@ export const runStart = Effect.fn("qop.start")(function* (
             inbound += 1;
             const inboundProgram =
               stream.protocolId === SYNC_PROTOCOL
-                ? Effect.gen(function* () {
-                    if (guardSensitive()) {
-                      stream.reset();
-                      return;
-                    }
-                    const response = yield* handleInboundSyncStream(
-                      stream,
-                      sessions,
-                      {
-                        handle: identity.handle,
-                        qid: identity.qid,
-                      },
-                      messages,
-                      () => !guardSensitive()
-                    ).pipe(
-                      Effect.timeoutOrElse({
-                        duration: INBOUND_READ_TIMEOUT_MS,
-                        orElse: () =>
-                          Effect.fail(new Error("Inbound sync timed out")),
-                      })
-                    );
-                    if (response.type === "held") {
-                      console.log(`Holding ${response.id} from own device.`);
-                    }
-                  })
+                ? handleCliInboundSync(
+                    stream,
+                    sessions,
+                    {
+                      handle: identity.handle,
+                      qid: identity.qid,
+                    },
+                    messages,
+                    guardSensitive
+                  )
                 : Effect.gen(function* () {
                     guardSensitive();
                     const bytes = yield* Effect.tryPromise({

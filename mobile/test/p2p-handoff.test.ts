@@ -375,4 +375,81 @@ describe("phone to CLI handoff", () => {
       expect.objectContaining({ holderPeerId: PEER_CLI_OTHER })
     );
   });
+
+  it("reuses the own-device registry lookup across outgoing sends", async () => {
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+    const first = useP2pStore.getState().sendMessage(contact, "one");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(first)).toMatchObject({ status: "held" })
+    );
+    lookupHandle.mockClear();
+    const second = useP2pStore.getState().sendMessage(contact, "two");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(second)).toMatchObject({ status: "held" })
+    );
+    expect(
+      lookupHandle.mock.calls.filter(([handle]) => handle === "alice")
+    ).toEqual([]);
+  });
+
+  it("does not reconcile when a chat peer connects", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      holderPeerId: PEER_CLI,
+      id: "c56a4180-65aa-42ec-a945-5fd21dec0543",
+      sentAt: 1,
+      status: "held",
+      text: "hello",
+    });
+    poll.mockResolvedValue([]);
+    await useP2pStore.getState().start();
+    await vi.waitFor(() => expect(poll).toHaveBeenCalled());
+    poll.mockClear();
+    handoff.mockClear();
+    connectionEstablished?.({ connId: 3, peerId: PEER_BOB });
+    await Effect.runPromise(Effect.sleep(50));
+    expect(poll).not.toHaveBeenCalled();
+    expect(handoff).not.toHaveBeenCalled();
+  });
+
+  it("coalesces reconcile when several own devices connect together", async () => {
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(
+        handle === "alice"
+          ? {
+              ...aliceAccount,
+              devices: [
+                { deviceKey: phoneDeviceKey, peerId: PEER_ALICE },
+                { deviceKey: cliDeviceKey, peerId: PEER_CLI },
+                { deviceKey: otherCliDeviceKey, peerId: PEER_CLI_OTHER },
+              ],
+            }
+          : bobAccount
+      )
+    );
+    const id = "c56a4180-65aa-42ec-a945-5fd21dec0544";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      holderPeerId: PEER_CLI,
+      id,
+      sentAt: 1,
+      status: "held",
+      text: "hello",
+    });
+    poll.mockResolvedValue([]);
+    await useP2pStore.getState().start();
+    await vi.waitFor(() => expect(poll).toHaveBeenCalled());
+    poll.mockClear();
+    handoff.mockClear();
+    connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
+    connectionEstablished?.({ connId: 3, peerId: PEER_CLI_OTHER });
+    await vi.waitFor(() => expect(poll).toHaveBeenCalled());
+    expect(poll).toHaveBeenCalledTimes(1);
+  });
 });
