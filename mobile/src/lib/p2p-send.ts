@@ -113,6 +113,9 @@ export const performSend = async ({
   try {
     await Effect.runPromise(
       Effect.gen(function* () {
+        const startedAt = Date.now();
+        const remainingMs = () =>
+          Math.max(0, timeoutMs - (Date.now() - startedAt));
         const peerIds = yield* sessions.recipientPeerIds(contact).pipe(
           Effect.timeoutOrElse({
             duration: timeoutMs,
@@ -121,19 +124,21 @@ export const performSend = async ({
           })
         );
         let lastError: Error | undefined;
-        const sendToPeer = (peerId: string) => {
+        const sendToPeer = (peerId: string, attemptTimeout: number) => {
           const mark = { committed: false };
           const program = Effect.gen(function* () {
             if (!endpoint.connectedPeers().includes(peerId)) {
               yield* Effect.tryPromise({
                 catch: asSendError,
-                try: () => endpoint.connect(peerId, { timeoutMs }),
+                try: () =>
+                  endpoint.connect(peerId, { timeoutMs: attemptTimeout }),
               });
             }
             // Path-up is not Identify. Opening chat before peerReady yields StreamClosedError.
             yield* Effect.tryPromise({
               catch: asSendError,
-              try: () => endpoint.waitPeerReady(peerId, { timeoutMs }),
+              try: () =>
+                endpoint.waitPeerReady(peerId, { timeoutMs: attemptTimeout }),
             });
             const opened = yield* Effect.tryPromise({
               catch: asSendError,
@@ -142,7 +147,7 @@ export const performSend = async ({
                   peerId,
                   CHAT_PROTOCOL,
                   {
-                    timeoutMs,
+                    timeoutMs: attemptTimeout,
                   }
                 );
                 if (abortSignal.aborted) {
@@ -170,7 +175,7 @@ export const performSend = async ({
             assertAckMatches(ack, frame.id);
           }).pipe(
             Effect.timeoutOrElse({
-              duration: timeoutMs,
+              duration: attemptTimeout,
               orElse: () =>
                 Effect.fail(new Error("Timed out waiting for chat ack")),
             })
@@ -178,7 +183,13 @@ export const performSend = async ({
           return { mark, program };
         };
         for (const peerId of peerIds) {
-          const { mark, program } = sendToPeer(peerId);
+          const budget = remainingMs();
+          if (budget <= 0) {
+            return yield* Effect.fail(
+              lastError ?? new Error("Timed out waiting for chat ack")
+            );
+          }
+          const { mark, program } = sendToPeer(peerId, budget);
           const result = yield* program.pipe(Effect.result);
           if (result._tag === "Success") {
             return;

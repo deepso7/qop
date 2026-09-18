@@ -293,26 +293,41 @@ export const createPeerSessions = ({
     return peerIds;
   };
 
-  /** Ordered dial candidates: live auth, then live roster peers, then registry order. */
+  /** Live auth first, then the rest of the roster. Lookup failure keeps live auth only. */
   const recipientPeerIds = Effect.fn("PeerSessions.recipientPeerIds")(
     function* (contact: Pick<SessionContact, "handle" | "qid">) {
       const authorized = authorizedPeerIds(contact);
-      // Skip lookup while a live authorized device can take the send (RPC outage).
-      if (authorized.length > 0) {
-        return authorized;
-      }
-      const account = yield* lookupHandle(contact.handle).pipe(
-        Effect.mapError(mapLookupError)
+      const lookedUp = yield* lookupHandle(contact.handle).pipe(
+        Effect.mapError(mapLookupError),
+        Effect.result
       );
+      if (lookedUp._tag === "Failure") {
+        if (authorized.length > 0) {
+          return authorized;
+        }
+        return yield* lookedUp.failure;
+      }
+      const account = lookedUp.success;
       if (
         !account ||
         account.handle !== contact.handle ||
         account.qid.toString() !== contact.qid ||
         account.devices.length === 0
       ) {
+        if (authorized.length > 0) {
+          return authorized;
+        }
         return yield* new PeerVerificationError({ operation: "identity" });
       }
-      const peerIds = rosterPeerIds(account.devices);
+      const seen = new Set(authorized);
+      const peerIds = [...authorized];
+      for (const peerId of rosterPeerIds(account.devices)) {
+        if (seen.has(peerId)) {
+          continue;
+        }
+        seen.add(peerId);
+        peerIds.push(peerId);
+      }
       if (peerIds.length === 0) {
         return yield* new PeerVerificationError({ operation: "identity" });
       }

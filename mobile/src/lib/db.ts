@@ -354,7 +354,8 @@ const ADVANCE_FROM: Record<MessageStatus, readonly MessageStatus[]> = {
 /** Apply a delivery-status transition without clobbering a later terminal state. */
 export const advanceMessageStatus = async (
   id: string,
-  status: MessageStatus
+  status: MessageStatus,
+  contactQid: string
 ): Promise<boolean> => {
   const allowedFrom = ADVANCE_FROM[status];
   if (allowedFrom.length === 0) {
@@ -362,11 +363,13 @@ export const advanceMessageStatus = async (
   }
   const database = await getDatabase();
   const result = await database.runAsync(
-    `UPDATE messages SET status = ?, holder_peer_id = NULL WHERE id = ? AND status IN (${allowedFrom
-      .map(() => "?")
-      .join(",")})`,
+    `UPDATE messages SET status = ?, holder_peer_id = NULL
+     WHERE id = ? AND contact_qid = ? AND status IN (${allowedFrom
+       .map(() => "?")
+       .join(",")})`,
     status,
     id,
+    contactQid,
     ...allowedFrom
   );
   return result.changes > 0;
@@ -375,25 +378,32 @@ export const advanceMessageStatus = async (
 /** Persist the CLI that accepted this id so later polls hit the same holder. */
 export const markMessageHeld = async (
   id: string,
-  holderPeerId: string
+  holderPeerId: string,
+  contactQid: string
 ): Promise<boolean> => {
   const database = await getDatabase();
   const result = await database.runAsync(
     `UPDATE messages
      SET status = 'held', holder_peer_id = ?
-     WHERE id = ? AND status IN ('held', 'sending')`,
+     WHERE id = ? AND contact_qid = ? AND status IN ('held', 'sending')`,
     holderPeerId,
-    id
+    id,
+    contactQid
   );
   return result.changes > 0;
 };
 
 /** Only an explicit CLI rejection can invalidate an accepted hold. */
-export const failRejectedHandoff = async (id: string): Promise<void> => {
+export const failRejectedHandoff = async (
+  id: string,
+  contactQid: string
+): Promise<void> => {
   const database = await getDatabase();
   await database.runAsync(
-    "UPDATE messages SET status = 'failed', holder_peer_id = NULL WHERE id = ? AND status IN ('sending','held')",
-    id
+    `UPDATE messages SET status = 'failed', holder_peer_id = NULL
+     WHERE id = ? AND contact_qid = ? AND status IN ('sending','held')`,
+    id,
+    contactQid
   );
 };
 
@@ -420,13 +430,21 @@ const messageFromRow = (row: MessageRow): StoredMessage => ({
 });
 
 export const getMessageById = async (
-  id: string
+  id: string,
+  contactQid?: string
 ): Promise<StoredMessage | null> => {
   const database = await getDatabase();
-  const row = await database.getFirstAsync<MessageRow>(
-    `${messageSelect} WHERE id = ?`,
-    id
-  );
+  const row =
+    contactQid === undefined
+      ? await database.getFirstAsync<MessageRow>(
+          `${messageSelect} WHERE id = ?`,
+          id
+        )
+      : await database.getFirstAsync<MessageRow>(
+          `${messageSelect} WHERE id = ? AND contact_qid = ?`,
+          id,
+          contactQid
+        );
   return row ? messageFromRow(row) : null;
 };
 
