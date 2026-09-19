@@ -15,7 +15,7 @@ const TimestampMillis = Schema.Int.check(
 );
 
 /** Canonical decimal qid string (positive, no leading zeros). */
-const OutboxQid = Schema.String.check(
+export const OutboxQid = Schema.String.check(
   Schema.isMaxLength(78, { expected: "at most 78 decimal digits" }),
   Schema.isPattern(/^[1-9][0-9]*$/u, {
     expected: "a positive canonical qid decimal string",

@@ -65,7 +65,10 @@ const makeEndpoint = (read: () => Promise<Uint8Array | undefined>) => {
     connect: vi.fn().mockImplementation(() => Promise.resolve()),
     connectedPeers: vi.fn((): string[] => []),
     openStream: vi.fn().mockResolvedValue(stream),
-    waitPeerReady: vi.fn(() => Promise.resolve({ peerId: PEER_BOB })),
+    waitPeerReady: vi.fn(
+      (_peerId: string, _options?: { readonly timeoutMs?: number }) =>
+        Promise.resolve({ peerId: PEER_BOB })
+    ),
   };
   return { endpoint, lookupDeviceKey, lookupHandle, sessions, stream };
 };

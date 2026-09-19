@@ -461,12 +461,13 @@ export const createP2pStore = ({
   };
 
   const handoffToHolder = (
-    message: Pick<StoredMessage, "id" | "sentAt" | "text">,
+    message: Pick<StoredMessage, "contactQid" | "id" | "sentAt" | "text">,
     contact: Contact,
     jobGeneration: number,
     signal?: AbortSignal
   ) => {
-    const existing = handoffJobs.get(message.id);
+    const jobKey = `${message.contactQid}:${message.id}`;
+    const existing = handoffJobs.get(jobKey);
     if (existing) {
       return existing;
     }
@@ -499,11 +500,11 @@ export const createP2pStore = ({
       });
       return holderPeerId;
     })();
-    handoffJobs.set(message.id, job);
+    handoffJobs.set(jobKey, job);
     const removeWhenDone = async () => {
       await Promise.allSettled([job]);
-      if (handoffJobs.get(message.id) === job) {
-        handoffJobs.delete(message.id);
+      if (handoffJobs.get(jobKey) === job) {
+        handoffJobs.delete(jobKey);
       }
     };
     void removeWhenDone();
@@ -560,7 +561,11 @@ export const createP2pStore = ({
         }
         await Promise.all(
           receipts.map((receipt) => {
-            const row = messages.find((message) => message.id === receipt.id);
+            const row = messages.find(
+              (message) =>
+                message.id === receipt.id &&
+                message.contactQid === receipt.toQid
+            );
             return row
               ? advanceMessageStatus(row.id, "sent", row.contactQid)
               : Promise.resolve(false);

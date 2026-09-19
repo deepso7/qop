@@ -1,7 +1,7 @@
 import { Hex32 } from "@qop/identity";
 import { Data, Effect, Schema } from "effect";
 
-import { OutboxRecordV1Schema } from "./outbox.ts";
+import { OutboxQid, OutboxRecordV1Schema } from "./outbox.ts";
 
 /**
  * Phone↔CLI outbox handoff v1 (locked).
@@ -12,7 +12,8 @@ import { OutboxRecordV1Schema } from "./outbox.ts";
  *
  * Flow: `handoff{record, composedBy}` → `held{id}` only after the CLI durably
  * persists the record into `outbox.json`. A later `poll{ids}` returns
- * `receipts` for ids the CLI has marked `sent` after Bob's chat ACK.
+ * `receipts` for ids the CLI has marked `sent` after Bob's chat ACK. Each
+ * receipt carries `toQid` so the phone applies it to `(contact_qid, id)`.
  *
  * Disk remains `OutboxRecordV1` (JSON). `composedBy` is a sync-frame field in
  * this slice, not a disk column. Phone `held` is a local status, not a CLI
@@ -90,6 +91,7 @@ export type SyncHeldV1 = typeof SyncHeldV1Schema.Type;
 export const SyncReceiptV1Schema = Schema.Struct({
   deliveredAt: TimestampMillis,
   id: Uuid,
+  toQid: OutboxQid,
 }).annotate({
   messageUnexpectedKey: "Unexpected sync receipt field",
   parseOptions: strictParseOptions,

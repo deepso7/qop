@@ -118,6 +118,7 @@ const encodeReceipts = (chunk: readonly string[]) =>
       receipts: chunk.map((receiptId) => ({
         deliveredAt: 9,
         id: receiptId,
+        toQid: "1",
       })),
       type: "receipts",
       v: 1,
@@ -406,7 +407,7 @@ describe("performPoll", () => {
   it("returns receipts from the CLI", async () => {
     const encoded = await Effect.runPromise(
       encodeSyncResponseV1({
-        receipts: [{ deliveredAt: 9, id }],
+        receipts: [{ deliveredAt: 9, id, toQid: "1" }],
         type: "receipts",
         v: 1,
       })
@@ -421,7 +422,7 @@ describe("performPoll", () => {
         sessions,
         timeoutMs: 50,
       })
-    ).resolves.toEqual([{ deliveredAt: 9, id }]);
+    ).resolves.toEqual([{ deliveredAt: 9, id, toQid: "1" }]);
   });
 
   it("chunks ids so later held messages are still polled", async () => {
@@ -487,7 +488,11 @@ describe("performPoll", () => {
         timeoutMs: 50,
       })
     ).resolves.toEqual(
-      ids.map((receiptId) => ({ deliveredAt: 9, id: receiptId }))
+      ids.map((receiptId) => ({
+        deliveredAt: 9,
+        id: receiptId,
+        toQid: "1",
+      }))
     );
 
     expect(endpoint.openStream).toHaveBeenCalledTimes(2);
