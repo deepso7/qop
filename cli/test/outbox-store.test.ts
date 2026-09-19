@@ -269,6 +269,22 @@ describe("CLI outbox store", () => {
     })
   );
 
+  it.effect("refuses a garbage messages.db as unreadable", () =>
+    Effect.gen(function* () {
+      const root = yield* withTempRoot;
+      const dbPath = path.join(root, "messages.db");
+      yield* Effect.tryPromise(() =>
+        writeFile(dbPath, "x".repeat(256), { mode: 0o600 })
+      );
+      yield* Effect.tryPromise(() => chmod(dbPath, 0o600));
+      const opened = yield* openCliOutboxStore(root).pipe(Effect.result);
+      expect(opened._tag).toBe("Failure");
+      if (opened._tag === "Failure") {
+        expect(opened.failure.operation).toBe("decode");
+      }
+    })
+  );
+
   it.effect("refuses a messages.db with an unsupported schema version", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;

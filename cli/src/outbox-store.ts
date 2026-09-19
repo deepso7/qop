@@ -94,6 +94,10 @@ const ErrorMessage = Schema.Struct({
   message: Schema.String,
 });
 const errorMessage = Schema.decodeUnknownOption(ErrorMessage);
+const SqliteErrcode = Schema.Struct({
+  errcode: Schema.Number,
+});
+const sqliteErrcode = Schema.decodeUnknownOption(SqliteErrcode);
 const UserVersionRow = Schema.Struct({
   user_version: Schema.Number,
 });
@@ -103,9 +107,35 @@ const CountRow = Schema.Struct({
 });
 const decodeCount = Schema.decodeUnknownOption(CountRow);
 
-const SQLITE_UNREADABLE = /SQLITE_NOTADB|SQLITE_CORRUPT|not a database/iu;
+const SQLITE_CORRUPT = 11;
+const SQLITE_NOTADB = 26;
+const SQLITE_UNREADABLE_MESSAGE =
+  /SQLITE_NOTADB|SQLITE_CORRUPT|not a database|malformed/iu;
+
+const isUnreadableSqliteErrcode = (errcode: number) => {
+  // Primary SQLite result code; extended codes are 256 * extra + primary.
+  const primary = errcode % 256;
+  return primary === SQLITE_CORRUPT || primary === SQLITE_NOTADB;
+};
+
+const sqliteOpenError = (
+  coded: ReturnType<typeof sqliteErrcode>,
+  parsed: ReturnType<typeof errorMessage>
+) => {
+  if (coded._tag === "Some" && isUnreadableSqliteErrcode(coded.value.errcode)) {
+    return storeError("decode");
+  }
+  if (
+    parsed._tag === "Some" &&
+    SQLITE_UNREADABLE_MESSAGE.test(parsed.value.message)
+  ) {
+    return storeError("decode");
+  }
+  return storeError("read");
+};
 
 const CREATE_SCHEMA_SQL = `
+BEGIN;
 CREATE TABLE outbox (
   id              TEXT    PRIMARY KEY,
   from_handle     TEXT    NOT NULL,
@@ -131,6 +161,7 @@ CREATE TABLE inbox (
   PRIMARY KEY (from_qid, id)
 ) STRICT;
 PRAGMA user_version = ${SCHEMA_VERSION};
+COMMIT;
 `;
 
 const OUTBOX_SELECT = `SELECT
@@ -478,16 +509,8 @@ const openDatabase = Effect.fn("CliOutbox.openDatabase")(function* (
     return yield* storeError("permissions");
   }
   return yield* Effect.try({
-    catch: (cause) => {
-      const parsed = errorMessage(cause);
-      if (
-        parsed._tag === "Some" &&
-        SQLITE_UNREADABLE.test(parsed.value.message)
-      ) {
-        return storeError("decode");
-      }
-      return storeError("read");
-    },
+    catch: (cause) =>
+      sqliteOpenError(sqliteErrcode(cause), errorMessage(cause)),
     try: () => new DatabaseSync(dbPath, { timeout: SQLITE_BUSY_TIMEOUT_MS }),
   });
 });
@@ -509,14 +532,7 @@ export const openCliOutboxStore = (
           if (cause instanceof CliOutboxStoreError) {
             return cause;
           }
-          const parsed = errorMessage(cause);
-          if (
-            parsed._tag === "Some" &&
-            SQLITE_UNREADABLE.test(parsed.value.message)
-          ) {
-            return storeError("decode");
-          }
-          return storeError("read");
+          return sqliteOpenError(sqliteErrcode(cause), errorMessage(cause));
         },
         try: () => {
           applySchema(db);
