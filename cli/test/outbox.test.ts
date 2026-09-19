@@ -8,7 +8,7 @@ import { Deferred, Effect, Fiber } from "effect";
 
 import {
   CliOutboxStoreError,
-  createCliOutboxStore,
+  openCliOutboxStore,
 } from "../src/outbox-store.ts";
 import {
   CliOutboxDeliverError,
@@ -76,7 +76,7 @@ describe("CLI outbox retry", () => {
   it.effect("marks a delivered message sent and does not resend it", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
-      const store = createCliOutboxStore(root);
+      const store = yield* openCliOutboxStore(root);
       const delivered: string[] = [];
       const events: string[] = [];
       let now = 1000;
@@ -111,7 +111,7 @@ describe("CLI outbox retry", () => {
   it.effect("keeps an offline send queued and retries after backoff", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
-      const store = createCliOutboxStore(root);
+      const store = yield* openCliOutboxStore(root);
       const attempts: number[] = [];
       let now = 1000;
       let fail = true;
@@ -151,7 +151,7 @@ describe("CLI outbox retry", () => {
   it.effect("fails when the handle now belongs to another account", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
-      const store = createCliOutboxStore(root);
+      const store = yield* openCliOutboxStore(root);
       let delivered = 0;
       const outbox = createOutboxRuntime({
         deliver: () =>
@@ -178,7 +178,7 @@ describe("CLI outbox retry", () => {
   it.effect("announces existing queued messages on resume", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
-      const store = createCliOutboxStore(root);
+      const store = yield* openCliOutboxStore(root);
       const kinds: string[] = [];
       const first = createOutboxRuntime({
         deliver: () =>
@@ -206,7 +206,7 @@ describe("CLI outbox retry", () => {
   it.effect("retries immediately on a connection flush during backoff", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
-      const store = createCliOutboxStore(root);
+      const store = yield* openCliOutboxStore(root);
       const attempts: number[] = [];
       let now = 1000;
       const outbox = createOutboxRuntime({
@@ -239,7 +239,7 @@ describe("CLI outbox retry", () => {
     () =>
       Effect.gen(function* () {
         const root = yield* withTempRoot;
-        const store = createCliOutboxStore(root);
+        const store = yield* openCliOutboxStore(root);
         const otherId = "c56a4180-65aa-42ec-a945-5fd21dec0539";
         const thirdId = "c56a4180-65aa-42ec-a945-5fd21dec053a";
         let active = 0;
@@ -281,7 +281,7 @@ describe("CLI outbox retry", () => {
     () =>
       Effect.gen(function* () {
         const root = yield* withTempRoot;
-        const store = createCliOutboxStore(root);
+        const store = yield* openCliOutboxStore(root);
         const otherId = "c56a4180-65aa-42ec-a945-5fd21dec0539";
         const thirdId = "c56a4180-65aa-42ec-a945-5fd21dec053a";
         const aStarted = yield* Deferred.make<boolean>();
@@ -340,7 +340,7 @@ describe("CLI outbox retry", () => {
     () =>
       Effect.gen(function* () {
         const root = yield* withTempRoot;
-        const store = createCliOutboxStore(root);
+        const store = yield* openCliOutboxStore(root);
         const carolStarted = yield* Deferred.make<boolean>();
         const bobDelivered = yield* Deferred.make<boolean>();
         const releaseCarol = yield* Deferred.make<boolean>();
@@ -385,7 +385,7 @@ describe("CLI outbox retry", () => {
   it.effect("keeps backoff for records unrelated to a connection flush", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
-      const store = createCliOutboxStore(root);
+      const store = yield* openCliOutboxStore(root);
       const attempts: string[] = [];
       let now = 1000;
       const outbox = createOutboxRuntime({
@@ -416,7 +416,7 @@ describe("CLI outbox retry", () => {
     () =>
       Effect.gen(function* () {
         const root = yield* withTempRoot;
-        const inner = createCliOutboxStore(root);
+        const inner = yield* openCliOutboxStore(root);
         const bobStarted = yield* Deferred.make<boolean>();
         const releaseBob = yield* Deferred.make<boolean>();
         const events: string[] = [];
@@ -472,7 +472,7 @@ describe("CLI outbox retry", () => {
   it.effect("skips a connection lookup when nothing is queued", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
-      const store = createCliOutboxStore(root);
+      const store = yield* openCliOutboxStore(root);
       let lookups = 0;
       const outbox = createOutboxRuntime({
         deliver: () => Effect.void,
@@ -495,7 +495,7 @@ describe("CLI outbox retry", () => {
     () =>
       Effect.gen(function* () {
         const root = yield* withTempRoot;
-        const store = createCliOutboxStore(root);
+        const store = yield* openCliOutboxStore(root);
         let lookups = 0;
         const delivered: string[] = [];
         const outbox = createOutboxRuntime({
@@ -524,7 +524,7 @@ describe("CLI outbox retry", () => {
     () =>
       Effect.gen(function* () {
         const root = yield* withTempRoot;
-        const store = createCliOutboxStore(root);
+        const store = yield* openCliOutboxStore(root);
         let lookups = 0;
         const attempts: number[] = [];
         let now = 1000;
@@ -559,7 +559,7 @@ describe("CLI outbox retry", () => {
     () =>
       Effect.gen(function* () {
         const root = yield* withTempRoot;
-        const inner = createCliOutboxStore(root);
+        const inner = yield* openCliOutboxStore(root);
         const events: string[] = [];
         let failQueued = true;
         const store = {

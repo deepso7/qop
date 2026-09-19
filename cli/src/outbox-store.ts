@@ -1,13 +1,7 @@
-import {
-  chmod,
-  mkdir,
-  readFile,
-  rename,
-  stat,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, mkdir, open, stat } from "node:fs/promises";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
+import type { SQLInputValue, SQLOutputValue } from "node:sqlite";
 
 import {
   InboxRecordV1,
@@ -15,12 +9,14 @@ import {
   inboxRecordsConflict,
   outboxRecordsConflict,
 } from "@qop/protocol";
-import { Data, Effect, Schema, Semaphore } from "effect";
+import { Data, Effect, Schema } from "effect";
+import type { Scope } from "effect";
 
 const MODE_DIR = 0o700;
 const MODE_FILE = 0o600;
-const OUTBOX_VERSION = 1 as const;
-const INBOX_VERSION = 1 as const;
+const SCHEMA_VERSION = 1;
+const DB_FILE = "messages.db";
+const SQLITE_BUSY_TIMEOUT_MS = 5000;
 
 const NodeErrno = Schema.Struct({
   code: Schema.String,
@@ -38,6 +34,34 @@ export interface PutInboxResult {
   readonly record: InboxRecordV1;
 }
 
+export interface CliOutboxStore {
+  readonly enqueue: (
+    record: OutboxRecordV1
+  ) => Effect.Effect<OutboxRecordV1, CliOutboxStoreError>;
+  readonly getByIds: (
+    ids: readonly string[]
+  ) => Effect.Effect<readonly OutboxRecordV1[], CliOutboxStoreError>;
+  readonly loadInbox: () => Effect.Effect<
+    readonly InboxRecordV1[],
+    CliOutboxStoreError
+  >;
+  readonly loadRecords: () => Effect.Effect<
+    readonly OutboxRecordV1[],
+    CliOutboxStoreError
+  >;
+  readonly put: (
+    record: OutboxRecordV1
+  ) => Effect.Effect<OutboxRecordV1, CliOutboxStoreError>;
+  readonly putInbox: (
+    record: InboxRecordV1
+  ) => Effect.Effect<PutInboxResult, CliOutboxStoreError>;
+  readonly queued: () => Effect.Effect<
+    readonly OutboxRecordV1[],
+    CliOutboxStoreError
+  >;
+  readonly queuedCount: () => Effect.Effect<number, CliOutboxStoreError>;
+}
+
 /** Operator-facing copy for a durable outbox/inbox store failure. */
 export const describeCliOutboxStoreError = (error: CliOutboxStoreError) => {
   switch (error.operation) {
@@ -48,7 +72,7 @@ export const describeCliOutboxStoreError = (error: CliOutboxStoreError) => {
       return "CLI outbox or inbox is unreadable. Move the data directory aside to recover.";
     }
     case "permissions": {
-      return "CLI outbox files must be mode 600 (directory 700). Fix permissions or move the data directory aside.";
+      return "CLI messages.db must be mode 600 (directory 700). Fix permissions or move the data directory aside.";
     }
     case "read": {
       return "Could not read the CLI outbox or inbox.";
@@ -66,252 +90,340 @@ export const describeCliOutboxStoreError = (error: CliOutboxStoreError) => {
 const storeError = (operation: CliOutboxStoreError["operation"]) =>
   new CliOutboxStoreError({ operation });
 
-const StoredOutboxFile = Schema.Struct({
-  records: Schema.Array(OutboxRecordV1),
-  version: Schema.Literal(OUTBOX_VERSION),
-}).annotate({
-  messageUnexpectedKey: "Unexpected CLI outbox file field",
-  parseOptions: { errors: "all", onExcessProperty: "error" },
+const ErrorMessage = Schema.Struct({
+  message: Schema.String,
 });
-
-const StoredInboxFile = Schema.Struct({
-  messages: Schema.Array(InboxRecordV1),
-  version: Schema.Literal(INBOX_VERSION),
-}).annotate({
-  messageUnexpectedKey: "Unexpected CLI inbox file field",
-  parseOptions: { errors: "all", onExcessProperty: "error" },
+const errorMessage = Schema.decodeUnknownOption(ErrorMessage);
+const UserVersionRow = Schema.Struct({
+  user_version: Schema.Number,
 });
+const decodeUserVersion = Schema.decodeUnknownOption(UserVersionRow);
+const CountRow = Schema.Struct({
+  n: Schema.Number,
+});
+const decodeCount = Schema.decodeUnknownOption(CountRow);
 
-const writeAtomic = Effect.fn("CliOutbox.writeAtomic")(function* (
-  filePath: string,
-  contents: string
-) {
-  yield* Effect.tryPromise({
-    catch: () => storeError("write"),
-    try: () =>
-      mkdir(path.dirname(filePath), { mode: MODE_DIR, recursive: true }),
+const SQLITE_UNREADABLE = /SQLITE_NOTADB|SQLITE_CORRUPT|not a database/iu;
+
+const CREATE_SCHEMA_SQL = `
+CREATE TABLE outbox (
+  id              TEXT    PRIMARY KEY,
+  from_handle     TEXT    NOT NULL,
+  sent_at         INTEGER NOT NULL,
+  text            TEXT    NOT NULL,
+  to_handle       TEXT    NOT NULL,
+  to_qid          TEXT    NOT NULL,
+  status          TEXT    NOT NULL CHECK (status IN ('queued','sent','failed')),
+  attempts        INTEGER NOT NULL,
+  last_error      TEXT,
+  next_attempt_at INTEGER NOT NULL,
+  queued_at       INTEGER NOT NULL,
+  updated_at      INTEGER NOT NULL
+) STRICT;
+CREATE INDEX outbox_queued_idx ON outbox (next_attempt_at) WHERE status = 'queued';
+CREATE TABLE inbox (
+  from_qid    TEXT    NOT NULL,
+  id          TEXT    NOT NULL,
+  from_handle TEXT    NOT NULL,
+  sent_at     INTEGER NOT NULL,
+  text        TEXT    NOT NULL,
+  received_at INTEGER NOT NULL,
+  PRIMARY KEY (from_qid, id)
+) STRICT;
+PRAGMA user_version = ${SCHEMA_VERSION};
+`;
+
+const OUTBOX_SELECT = `SELECT
+  id,
+  from_handle AS fromHandle,
+  sent_at AS sentAt,
+  text,
+  to_handle AS toHandle,
+  to_qid AS toQid,
+  status,
+  attempts,
+  last_error AS lastError,
+  next_attempt_at AS nextAttemptAt,
+  queued_at AS queuedAt,
+  updated_at AS updatedAt
+FROM outbox`;
+
+const INBOX_SELECT = `SELECT
+  from_qid AS fromQid,
+  id,
+  from_handle AS fromHandle,
+  sent_at AS sentAt,
+  text,
+  received_at AS receivedAt
+FROM inbox`;
+
+const decodeOutboxRow = (row: Record<string, SQLOutputValue>) => {
+  const decoded = Schema.decodeUnknownOption(OutboxRecordV1)({
+    attempts: row.attempts,
+    frame: {
+      fromHandle: row.fromHandle,
+      id: row.id,
+      sentAt: row.sentAt,
+      text: row.text,
+      v: 1,
+    },
+    lastError: row.lastError,
+    nextAttemptAt: row.nextAttemptAt,
+    queuedAt: row.queuedAt,
+    status: row.status,
+    toHandle: row.toHandle,
+    toQid: row.toQid,
+    updatedAt: row.updatedAt,
+    v: 1,
   });
-  const temporary = `${filePath}.${crypto.randomUUID()}.tmp`;
-  yield* Effect.gen(function* () {
-    yield* Effect.tryPromise({
-      catch: () => storeError("write"),
-      try: () => writeFile(temporary, contents, { mode: MODE_FILE }),
-    });
-    yield* Effect.tryPromise({
-      catch: () => storeError("write"),
-      try: () => chmod(temporary, MODE_FILE),
-    });
-    yield* Effect.tryPromise({
-      catch: () => storeError("write"),
-      try: () => rename(temporary, filePath),
-    });
-  }).pipe(
-    Effect.tapError(() =>
-      Effect.tryPromise({
-        catch: () => storeError("write"),
-        try: () => unlink(temporary),
-      }).pipe(Effect.ignore)
-    )
-  );
-});
-
-const readTextOptional = (filePath: string) =>
-  Effect.tryPromise({
-    catch: (error) => error,
-    try: () => readFile(filePath, "utf-8"),
-  }).pipe(
-    Effect.matchEffect({
-      onFailure: (error) => {
-        const parsed = errnoCode(error);
-        return parsed._tag === "Some" && parsed.value.code === "ENOENT"
-          ? Effect.succeed(null)
-          : Effect.fail(storeError("read"));
-      },
-      onSuccess: (value) => Effect.succeed(value),
-    })
-  );
-
-const assertPrivateFile = Effect.fn("CliOutbox.assertPrivateFile")(function* (
-  filePath: string
-) {
-  const info = yield* Effect.tryPromise({
-    catch: () => storeError("permissions"),
-    try: () => stat(filePath),
-  });
-  if (info.mode.toString(8).slice(-3) !== "600") {
-    return yield* storeError("permissions");
+  if (decoded._tag === "None") {
+    throw storeError("decode");
   }
-});
+  return decoded.value;
+};
 
-const parseJson = (encoded: string) =>
+const decodeInboxRow = (row: Record<string, SQLOutputValue>) => {
+  const decoded = Schema.decodeUnknownOption(InboxRecordV1)({
+    frame: {
+      fromHandle: row.fromHandle,
+      id: row.id,
+      sentAt: row.sentAt,
+      text: row.text,
+      v: 1,
+    },
+    fromQid: row.fromQid,
+    receivedAt: row.receivedAt,
+    v: 1,
+  });
+  if (decoded._tag === "None") {
+    throw storeError("decode");
+  }
+  return decoded.value;
+};
+
+const outboxInsertParams = (record: OutboxRecordV1): SQLInputValue[] => {
+  const {
+    attempts,
+    frame,
+    lastError,
+    nextAttemptAt,
+    queuedAt,
+    status,
+    toHandle,
+    toQid,
+    updatedAt,
+  } = record;
+  return [
+    frame.id,
+    frame.fromHandle,
+    frame.sentAt,
+    frame.text,
+    toHandle,
+    toQid,
+    status,
+    attempts,
+    lastError,
+    nextAttemptAt,
+    queuedAt,
+    updatedAt,
+  ];
+};
+
+const outboxUpdateParams = (record: OutboxRecordV1): SQLInputValue[] => {
+  const {
+    attempts,
+    frame,
+    lastError,
+    nextAttemptAt,
+    queuedAt,
+    status,
+    toHandle,
+    toQid,
+    updatedAt,
+  } = record;
+  return [
+    frame.fromHandle,
+    frame.sentAt,
+    frame.text,
+    toHandle,
+    toQid,
+    status,
+    attempts,
+    lastError,
+    nextAttemptAt,
+    queuedAt,
+    updatedAt,
+    frame.id,
+  ];
+};
+
+const inboxInsertParams = (record: InboxRecordV1): SQLInputValue[] => {
+  const { frame, fromQid, receivedAt } = record;
+  return [
+    fromQid,
+    frame.id,
+    frame.fromHandle,
+    frame.sentAt,
+    frame.text,
+    receivedAt,
+  ];
+};
+
+const applySchema = (db: DatabaseSync) => {
+  db.exec("PRAGMA synchronous = FULL");
+  const versionParsed = decodeUserVersion(
+    db.prepare("PRAGMA user_version").get()
+  );
+  if (versionParsed._tag === "None") {
+    throw storeError("decode");
+  }
+  const { user_version: version } = versionParsed.value;
+  if (version === SCHEMA_VERSION) {
+    return;
+  }
+  const existingOutbox = db
+    .prepare(
+      "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'outbox'"
+    )
+    .get();
+  if (version === 0 && existingOutbox === undefined) {
+    db.exec(CREATE_SCHEMA_SQL);
+    return;
+  }
+  throw storeError("decode");
+};
+
+/**
+ * All DB access goes through this sync helper; never yield between the read
+ * and the write of one operation. DatabaseSync is synchronous and JS is
+ * single-threaded, so one try body is atomic w.r.t. every other fiber.
+ */
+const runSync = <A>(operation: "read" | "write", body: () => A) =>
   Effect.try({
-    catch: () => storeError("decode"),
-    // SAFETY: JSON.parse is untyped; the file schema is decoded next.
-    try: () => JSON.parse(encoded) as unknown,
+    catch: (cause) =>
+      cause instanceof CliOutboxStoreError ? cause : storeError(operation),
+    try: body,
   });
 
-const emptyOutbox: OutboxRecordV1[] = [];
-const emptyInbox: InboxRecordV1[] = [];
-
-/** Durable CLI outbox + inbox under the identity data directory. */
-export const createCliOutboxStore = (root: string) => {
-  const outboxPath = path.join(root, "outbox.json");
-  const inboxPath = path.join(root, "inbox.json");
-  const outboxLock = Semaphore.makeUnsafe(1);
-  const inboxLock = Semaphore.makeUnsafe(1);
-
-  const loadRecordsUnlocked = Effect.fn("CliOutbox.loadRecordsUnlocked")(
-    function* () {
-      const encoded = yield* readTextOptional(outboxPath);
-      if (!encoded) {
-        return emptyOutbox;
-      }
-      yield* assertPrivateFile(outboxPath);
-      const parsed = yield* parseJson(encoded);
-      const file = yield* Schema.decodeUnknownEffect(StoredOutboxFile)(
-        parsed
-      ).pipe(Effect.mapError(() => storeError("decode")));
-      return file.records;
-    }
+const makeStore = (db: DatabaseSync): CliOutboxStore => {
+  const selectOutboxById = db.prepare(`${OUTBOX_SELECT} WHERE id = ?`);
+  const insertOutbox = db.prepare(`INSERT INTO outbox (
+    id, from_handle, sent_at, text, to_handle, to_qid, status, attempts,
+    last_error, next_attempt_at, queued_at, updated_at
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  const updateOutbox = db.prepare(`UPDATE outbox SET
+    from_handle = ?, sent_at = ?, text = ?, to_handle = ?, to_qid = ?,
+    status = ?, attempts = ?, last_error = ?, next_attempt_at = ?,
+    queued_at = ?, updated_at = ?
+  WHERE id = ?`);
+  const selectOutboxAll = db.prepare(`${OUTBOX_SELECT} ORDER BY rowid`);
+  const selectOutboxQueued = db.prepare(
+    `${OUTBOX_SELECT} WHERE status = 'queued' ORDER BY rowid`
   );
-
-  const saveRecordsUnlocked = Effect.fn("CliOutbox.saveRecordsUnlocked")(
-    function* (records: readonly OutboxRecordV1[]) {
-      const encoded = yield* Schema.encodeEffect(StoredOutboxFile)({
-        records,
-        version: OUTBOX_VERSION,
-      }).pipe(Effect.mapError(() => storeError("write")));
-      yield* writeAtomic(outboxPath, JSON.stringify(encoded));
-      yield* assertPrivateFile(outboxPath);
-    }
+  const countOutboxQueued = db.prepare(
+    "SELECT COUNT(*) AS n FROM outbox WHERE status = 'queued'"
   );
-
-  const loadInboxUnlocked = Effect.fn("CliOutbox.loadInboxUnlocked")(
-    function* () {
-      const encoded = yield* readTextOptional(inboxPath);
-      if (!encoded) {
-        return emptyInbox;
-      }
-      yield* assertPrivateFile(inboxPath);
-      const parsed = yield* parseJson(encoded);
-      const file = yield* Schema.decodeUnknownEffect(StoredInboxFile)(
-        parsed
-      ).pipe(Effect.mapError(() => storeError("decode")));
-      return file.messages;
-    }
+  const selectInboxByKey = db.prepare(
+    `${INBOX_SELECT} WHERE from_qid = ? AND id = ?`
   );
-
-  const saveInboxUnlocked = Effect.fn("CliOutbox.saveInboxUnlocked")(function* (
-    messages: readonly InboxRecordV1[]
-  ) {
-    const encoded = yield* Schema.encodeEffect(StoredInboxFile)({
-      messages,
-      version: INBOX_VERSION,
-    }).pipe(Effect.mapError(() => storeError("write")));
-    yield* writeAtomic(inboxPath, JSON.stringify(encoded));
-    yield* assertPrivateFile(inboxPath);
-  });
+  const insertInbox = db.prepare(`INSERT INTO inbox (
+    from_qid, id, from_handle, sent_at, text, received_at
+  ) VALUES (?, ?, ?, ?, ?, ?)`);
+  const selectInboxAll = db.prepare(`${INBOX_SELECT} ORDER BY rowid`);
 
   const enqueue = Effect.fn("CliOutbox.enqueue")(function* (
     record: OutboxRecordV1
   ) {
-    return yield* outboxLock.withPermit(
-      Effect.gen(function* () {
-        const records = yield* loadRecordsUnlocked();
-        const existing = records.find(
-          (item) => item.frame.id === record.frame.id
-        );
-        if (existing) {
-          if (outboxRecordsConflict(existing, record)) {
-            return yield* storeError("conflict");
-          }
-          return existing;
+    return yield* runSync("write", () => {
+      const row = selectOutboxById.get(record.frame.id);
+      if (row) {
+        const existing = decodeOutboxRow(row);
+        if (outboxRecordsConflict(existing, record)) {
+          throw storeError("conflict");
         }
-        yield* saveRecordsUnlocked([...records, record]);
-        return record;
-      })
-    );
+        return existing;
+      }
+      insertOutbox.run(...outboxInsertParams(record));
+      return record;
+    });
   });
 
   const put = Effect.fn("CliOutbox.put")(function* (record: OutboxRecordV1) {
-    return yield* outboxLock.withPermit(
-      Effect.gen(function* () {
-        const records = yield* loadRecordsUnlocked();
-        const index = records.findIndex(
-          (item) => item.frame.id === record.frame.id
-        );
-        if (index === -1) {
-          yield* saveRecordsUnlocked([...records, record]);
-          return record;
+    return yield* runSync("write", () => {
+      const row = selectOutboxById.get(record.frame.id);
+      if (row) {
+        const current = decodeOutboxRow(row);
+        if (outboxRecordsConflict(current, record)) {
+          throw storeError("conflict");
         }
-        const current = records[index];
-        if (current && outboxRecordsConflict(current, record)) {
-          return yield* storeError("conflict");
-        }
-        const next = [...records];
-        next[index] = record;
-        yield* saveRecordsUnlocked(next);
+        updateOutbox.run(...outboxUpdateParams(record));
         return record;
-      })
-    );
+      }
+      insertOutbox.run(...outboxInsertParams(record));
+      return record;
+    });
   });
 
   const loadRecords = Effect.fn("CliOutbox.loadRecords")(function* () {
-    return yield* outboxLock.withPermit(loadRecordsUnlocked());
+    return yield* runSync("read", () =>
+      selectOutboxAll.all().map((row) => decodeOutboxRow(row))
+    );
   });
 
   const queued = Effect.fn("CliOutbox.queued")(function* () {
-    return yield* outboxLock.withPermit(
-      Effect.gen(function* () {
-        const records = yield* loadRecordsUnlocked();
-        return records.filter((record) => record.status === "queued");
-      })
+    return yield* runSync("read", () =>
+      selectOutboxQueued.all().map((row) => decodeOutboxRow(row))
     );
   });
 
   const queuedCount = Effect.fn("CliOutbox.queuedCount")(function* () {
-    return (yield* queued()).length;
+    return yield* runSync("read", () => {
+      const parsed = decodeCount(countOutboxQueued.get());
+      if (parsed._tag === "None") {
+        throw storeError("decode");
+      }
+      return parsed.value.n;
+    });
   });
 
   const getByIds = Effect.fn("CliOutbox.getByIds")(function* (
     ids: readonly string[]
   ) {
     if (ids.length === 0) {
-      return emptyOutbox;
+      return [];
     }
-    const wanted = new Set(ids);
-    return yield* outboxLock.withPermit(
-      Effect.gen(function* () {
-        const records = yield* loadRecordsUnlocked();
-        return records.filter((record) => wanted.has(record.frame.id));
-      })
-    );
+    return yield* runSync("read", () => {
+      const placeholders = ids.map(() => "?").join(", ");
+      const rows = db
+        .prepare(
+          `${OUTBOX_SELECT} WHERE id IN (${placeholders}) ORDER BY rowid`
+        )
+        .all(...ids);
+      return rows.map((row) => decodeOutboxRow(row));
+    });
   });
 
   const loadInbox = Effect.fn("CliOutbox.loadInbox")(function* () {
-    return yield* inboxLock.withPermit(loadInboxUnlocked());
+    return yield* runSync("read", () =>
+      selectInboxAll.all().map((row) => decodeInboxRow(row))
+    );
   });
 
   const putInbox = Effect.fn("CliOutbox.putInbox")(function* (
     record: InboxRecordV1
   ) {
-    return yield* inboxLock.withPermit(
-      Effect.gen(function* () {
-        const messages = yield* loadInboxUnlocked();
-        const existing = messages.find(
-          (item) =>
-            item.frame.id === record.frame.id && item.fromQid === record.fromQid
-        );
-        if (existing) {
-          if (inboxRecordsConflict(existing, record)) {
-            return yield* storeError("conflict");
-          }
-          return { inserted: false, record: existing };
+    return yield* runSync("write", () => {
+      const row = selectInboxByKey.get(record.fromQid, record.frame.id);
+      if (row) {
+        const existing = decodeInboxRow(row);
+        if (inboxRecordsConflict(existing, record)) {
+          throw storeError("conflict");
         }
-        yield* saveInboxUnlocked([...messages, record]);
-        return { inserted: true, record };
-      })
-    );
+        return { inserted: false, record: existing };
+      }
+      insertInbox.run(...inboxInsertParams(record));
+      return { inserted: true, record };
+    });
   });
 
   return {
@@ -325,3 +437,96 @@ export const createCliOutboxStore = (root: string) => {
     queuedCount,
   };
 };
+
+const openDatabase = Effect.fn("CliOutbox.openDatabase")(function* (
+  root: string
+) {
+  const dbPath = path.join(root, DB_FILE);
+  yield* Effect.tryPromise({
+    catch: () => storeError("write"),
+    try: () => mkdir(root, { mode: MODE_DIR, recursive: true }),
+  });
+  // chmod only the file we just created (defeat umask). Existing files are
+  // checked, not repaired — a 644 messages.db is a permissions failure.
+  const created = yield* Effect.tryPromise({
+    catch: () => storeError("write"),
+    try: async () => {
+      try {
+        const handle = await open(dbPath, "wx", MODE_FILE);
+        await handle.close();
+        return true;
+      } catch (error) {
+        const parsed = errnoCode(error);
+        if (parsed._tag === "Some" && parsed.value.code === "EEXIST") {
+          return false;
+        }
+        throw error;
+      }
+    },
+  });
+  if (created) {
+    yield* Effect.tryPromise({
+      catch: () => storeError("write"),
+      try: () => chmod(dbPath, MODE_FILE),
+    });
+  }
+  const info = yield* Effect.tryPromise({
+    catch: () => storeError("permissions"),
+    try: () => stat(dbPath),
+  });
+  if (info.mode.toString(8).slice(-3) !== "600") {
+    return yield* storeError("permissions");
+  }
+  return yield* Effect.try({
+    catch: (cause) => {
+      const parsed = errorMessage(cause);
+      if (
+        parsed._tag === "Some" &&
+        SQLITE_UNREADABLE.test(parsed.value.message)
+      ) {
+        return storeError("decode");
+      }
+      return storeError("read");
+    },
+    try: () => new DatabaseSync(dbPath, { timeout: SQLITE_BUSY_TIMEOUT_MS }),
+  });
+});
+
+/** Opens `<root>/messages.db` (creating it mode 600), verifies schema version, closes on scope exit. */
+export const openCliOutboxStore = (
+  root: string
+): Effect.Effect<CliOutboxStore, CliOutboxStoreError, Scope.Scope> =>
+  Effect.acquireRelease(
+    Effect.gen(function* () {
+      const db = yield* openDatabase(root);
+      const store = yield* Effect.try({
+        catch: (cause) => {
+          try {
+            db.close();
+          } catch {
+            // Open is already failing; close is best-effort.
+          }
+          if (cause instanceof CliOutboxStoreError) {
+            return cause;
+          }
+          const parsed = errorMessage(cause);
+          if (
+            parsed._tag === "Some" &&
+            SQLITE_UNREADABLE.test(parsed.value.message)
+          ) {
+            return storeError("decode");
+          }
+          return storeError("read");
+        },
+        try: () => {
+          applySchema(db);
+          return makeStore(db);
+        },
+      });
+      return { db, store };
+    }),
+    ({ db }) =>
+      Effect.sync(() => {
+        db.close();
+      })
+  ).pipe(Effect.map(({ store }) => store));

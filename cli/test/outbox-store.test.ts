@@ -1,11 +1,12 @@
-import { chmod, mkdtemp, rm, stat } from "node:fs/promises";
+import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { createCliOutboxStore } from "../src/outbox-store.ts";
+import { openCliOutboxStore } from "../src/outbox-store.ts";
 
 const id = "c56a4180-65aa-42ec-a945-5fd21dec0538";
 
@@ -42,9 +43,13 @@ describe("CLI outbox store", () => {
     Effect.gen(function* () {
       const root = yield* withTempRoot;
       yield* Effect.tryPromise(() => chmod(root, 0o700));
-      const store = createCliOutboxStore(root);
-      yield* store.enqueue(queuedRecord);
-      const reloaded = createCliOutboxStore(root);
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const store = yield* openCliOutboxStore(root);
+          yield* store.enqueue(queuedRecord);
+        })
+      );
+      const reloaded = yield* openCliOutboxStore(root);
       const pending = yield* reloaded.queued();
       expect(pending).toEqual([queuedRecord]);
       expect(yield* reloaded.queuedCount()).toBe(1);
@@ -52,7 +57,7 @@ describe("CLI outbox store", () => {
         queuedRecord,
       ]);
       const info = yield* Effect.tryPromise(() =>
-        stat(path.join(root, "outbox.json"))
+        stat(path.join(root, "messages.db"))
       );
       expect(info.mode.toString(8).slice(-3)).toBe("600");
     })
@@ -61,7 +66,7 @@ describe("CLI outbox store", () => {
   it.effect("treats the same id and content as idempotent", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
-      const store = createCliOutboxStore(root);
+      const store = yield* openCliOutboxStore(root);
       const first = yield* store.enqueue(queuedRecord);
       const second = yield* store.enqueue({
         ...queuedRecord,
@@ -76,7 +81,7 @@ describe("CLI outbox store", () => {
   it.effect("rejects a conflicting payload for an existing id", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
-      const store = createCliOutboxStore(root);
+      const store = yield* openCliOutboxStore(root);
       yield* store.enqueue(queuedRecord);
       const conflicted = yield* store
         .enqueue({
@@ -94,7 +99,7 @@ describe("CLI outbox store", () => {
   it.effect("treats the same inbox id and content as idempotent", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
-      const store = createCliOutboxStore(root);
+      const store = yield* openCliOutboxStore(root);
       const inbound = {
         frame: queuedRecord.frame,
         fromQid: "2",
@@ -120,7 +125,7 @@ describe("CLI outbox store", () => {
   it.effect("keeps concurrent enqueue and sent marks from dropping rows", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
-      const store = createCliOutboxStore(root);
+      const store = yield* openCliOutboxStore(root);
       const extraId = "c56a4180-65aa-42ec-a945-5fd21dec0539";
       const extra = {
         ...queuedRecord,
@@ -149,7 +154,7 @@ describe("CLI outbox store", () => {
   it.effect("persists every concurrent enqueue", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
-      const store = createCliOutboxStore(root);
+      const store = yield* openCliOutboxStore(root);
       const batch = Array.from({ length: 20 }, (_, index) => ({
         ...queuedRecord,
         frame: {
@@ -171,7 +176,7 @@ describe("CLI outbox store", () => {
   it.effect("persists concurrent inbox inserts before ack", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
-      const store = createCliOutboxStore(root);
+      const store = yield* openCliOutboxStore(root);
       const first = {
         frame: queuedRecord.frame,
         fromQid: "2",
@@ -196,6 +201,87 @@ describe("CLI outbox store", () => {
         first.frame.id,
         second.frame.id,
       ]);
+    })
+  );
+
+  it.effect("treats concurrent enqueue of the same id as one row", () =>
+    Effect.gen(function* () {
+      const root = yield* withTempRoot;
+      const store = yield* openCliOutboxStore(root);
+      const results = yield* Effect.all(
+        Array.from({ length: 8 }, () => store.enqueue(queuedRecord)),
+        { concurrency: "unbounded" }
+      );
+      expect(results).toEqual(Array.from({ length: 8 }, () => queuedRecord));
+      expect(yield* store.queuedCount()).toBe(1);
+    })
+  );
+
+  it.effect("preserves queued insertion order across reload", () =>
+    Effect.gen(function* () {
+      const root = yield* withTempRoot;
+      const first = queuedRecord;
+      const second = {
+        ...queuedRecord,
+        frame: {
+          ...queuedRecord.frame,
+          id: "c56a4180-65aa-42ec-a945-5fd21dec0539",
+          text: "second",
+        },
+      };
+      const third = {
+        ...queuedRecord,
+        frame: {
+          ...queuedRecord.frame,
+          id: "c56a4180-65aa-42ec-a945-5fd21dec053a",
+          text: "third",
+        },
+      };
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const store = yield* openCliOutboxStore(root);
+          yield* store.enqueue(first);
+          yield* store.enqueue(second);
+          yield* store.enqueue(third);
+        })
+      );
+      const reloaded = yield* openCliOutboxStore(root);
+      const pending = yield* reloaded.queued();
+      expect(pending.map((record) => record.frame.id)).toEqual([
+        first.frame.id,
+        second.frame.id,
+        third.frame.id,
+      ]);
+    })
+  );
+
+  it.effect("refuses an existing messages.db that is not mode 600", () =>
+    Effect.gen(function* () {
+      const root = yield* withTempRoot;
+      const dbPath = path.join(root, "messages.db");
+      yield* Effect.tryPromise(() => writeFile(dbPath, "", { mode: 0o644 }));
+      yield* Effect.tryPromise(() => chmod(dbPath, 0o644));
+      const opened = yield* openCliOutboxStore(root).pipe(Effect.result);
+      expect(opened._tag).toBe("Failure");
+      if (opened._tag === "Failure") {
+        expect(opened.failure.operation).toBe("permissions");
+      }
+    })
+  );
+
+  it.effect("refuses a messages.db with an unsupported schema version", () =>
+    Effect.gen(function* () {
+      const root = yield* withTempRoot;
+      const dbPath = path.join(root, "messages.db");
+      const raw = new DatabaseSync(dbPath);
+      raw.exec("PRAGMA user_version = 99");
+      raw.close();
+      yield* Effect.tryPromise(() => chmod(dbPath, 0o600));
+      const opened = yield* openCliOutboxStore(root).pipe(Effect.result);
+      expect(opened._tag).toBe("Failure");
+      if (opened._tag === "Failure") {
+        expect(opened.failure.operation).toBe("decode");
+      }
     })
   );
 });

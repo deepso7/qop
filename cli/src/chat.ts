@@ -25,8 +25,8 @@ import { CliConfigError, cliRelays, configuredRegistry } from "./config.ts";
 import type { createCliIdentityStore } from "./identity-store.ts";
 import {
   CliOutboxStoreError,
-  createCliOutboxStore,
   describeCliOutboxStoreError,
+  openCliOutboxStore,
 } from "./outbox-store.ts";
 import type { PutInboxResult } from "./outbox-store.ts";
 import {
@@ -354,6 +354,7 @@ export const runStart = Effect.fn("qop.start")(function* (
           return false;
         };
 
+        const messages = yield* openCliOutboxStore(store.root);
         const secretKey = yield* store.loadSecret();
         const relays = cliRelays();
         const chatConfig = {
@@ -368,7 +369,6 @@ export const runStart = Effect.fn("qop.start")(function* (
         const closeEndpoint = Effect.sync(() => {
           endpoint.close();
         });
-        const messages = createCliOutboxStore(store.root);
         const outbox = createOutboxRuntime({
           deliver: (record) => {
             if (guardSensitive()) {
