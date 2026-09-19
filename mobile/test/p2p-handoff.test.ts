@@ -260,7 +260,11 @@ describe("phone to CLI handoff", () => {
       text: "hello",
     });
     poll.mockResolvedValue([
-      { deliveredAt: 9, id: "c56a4180-65aa-42ec-a945-5fd21dec0538" },
+      {
+        deliveredAt: 9,
+        id: "c56a4180-65aa-42ec-a945-5fd21dec0538",
+        toQid: "1",
+      },
     ]);
     await useP2pStore.getState().start();
     connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
@@ -269,6 +273,54 @@ describe("phone to CLI handoff", () => {
         await getMessageById("c56a4180-65aa-42ec-a945-5fd21dec0538")
       ).toMatchObject({ status: "sent" })
     );
+  });
+
+  it("does not apply one contact's receipt onto another contact's same id", async () => {
+    const sharedId = "c56a4180-65aa-42ec-a945-5fd21dec0548";
+    await upsertContact({
+      createdAt: 2,
+      deviceKey: `0x${"55".repeat(32)}`,
+      handle: "carol",
+      owner: bobAccount.owner,
+      peerId: "carol-peer",
+      qid: "2",
+    });
+    // Insert Carol first so an id-only find() would pick her row.
+    expect(
+      await insertMessage({
+        contactQid: "2",
+        direction: "out",
+        holderPeerId: PEER_CLI,
+        id: sharedId,
+        sentAt: 1,
+        status: "held",
+        text: "to carol",
+      })
+    ).toBe(true);
+    expect(
+      await insertMessage({
+        contactQid: "1",
+        direction: "out",
+        holderPeerId: PEER_CLI,
+        id: sharedId,
+        sentAt: 1,
+        status: "held",
+        text: "to bob",
+      })
+    ).toBe(true);
+    poll.mockResolvedValue([{ deliveredAt: 9, id: sharedId, toQid: "1" }]);
+    await useP2pStore.getState().start();
+    connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(sharedId, "1")).toMatchObject({
+        status: "sent",
+        text: "to bob",
+      })
+    );
+    expect(await getMessageById(sharedId, "2")).toMatchObject({
+      status: "held",
+      text: "to carol",
+    });
   });
 
   it("marks held failed when CLI later reports the id invalid", async () => {
@@ -359,7 +411,7 @@ describe("phone to CLI handoff", () => {
       status: "held",
       text: "hello",
     });
-    poll.mockResolvedValue([{ deliveredAt: 9, id }]);
+    poll.mockResolvedValue([{ deliveredAt: 9, id, toQid: "1" }]);
     await useP2pStore.getState().start();
     connectionEstablished?.({ connId: 2, peerId: PEER_CLI_OTHER });
     await vi.waitFor(async () =>

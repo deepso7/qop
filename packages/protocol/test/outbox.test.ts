@@ -83,5 +83,37 @@ describe("outbox records", () => {
         }
       )
     ).toBe(false);
+    expect(
+      inboxRecordsConflict(
+        {
+          frame: queued.frame,
+          fromQid: "2",
+          receivedAt: 1,
+          v: 1,
+        },
+        {
+          frame: queued.frame,
+          fromQid: "3",
+          receivedAt: 1,
+          v: 1,
+        }
+      )
+    ).toBe(false);
+    expect(
+      inboxRecordsConflict(
+        {
+          frame: queued.frame,
+          fromQid: "2",
+          receivedAt: 1,
+          v: 1,
+        },
+        {
+          frame: { ...queued.frame, text: "other" },
+          fromQid: "2",
+          receivedAt: 1,
+          v: 1,
+        }
+      )
+    ).toBe(true);
   });
 });

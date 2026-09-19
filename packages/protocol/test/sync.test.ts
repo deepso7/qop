@@ -56,7 +56,7 @@ describe("sync frames", () => {
       poll
     );
     const receipts = {
-      receipts: [{ deliveredAt: 1_700_000_000_100, id }],
+      receipts: [{ deliveredAt: 1_700_000_000_100, id, toQid: "1" }],
       type: "receipts" as const,
       v: 1 as const,
     };
@@ -64,6 +64,21 @@ describe("sync frames", () => {
     expect(await Effect.runPromise(decodeSyncResponseV1(encoded))).toEqual(
       receipts
     );
+  });
+
+  it("rejects a receipt that omits toQid", async () => {
+    const result = await Effect.runPromise(
+      decodeSyncResponseV1(
+        new TextEncoder().encode(
+          JSON.stringify({
+            receipts: [{ deliveredAt: 1_700_000_000_100, id }],
+            type: "receipts",
+            v: 1,
+          })
+        )
+      ).pipe(Effect.result)
+    );
+    expect(result._tag).toBe("Failure");
   });
 
   it("rejects an unknown request type", async () => {

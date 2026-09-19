@@ -71,7 +71,7 @@ interface P2pActions {
     addresses: readonly string[]
   ) => Promise<{ readonly peerId: string } | undefined>;
   readonly pairWaitPeerReady: (peerId: string) => Promise<void>;
-  readonly retryMessage: (id: string) => Promise<void>;
+  readonly retryMessage: (id: string, contactQid?: string) => Promise<void>;
   readonly sendMessage: (contact: Contact, text: string) => string;
   readonly start: () => Promise<void>;
   readonly stop: () => Promise<void>;
@@ -461,12 +461,13 @@ export const createP2pStore = ({
   };
 
   const handoffToHolder = (
-    message: Pick<StoredMessage, "id" | "sentAt" | "text">,
+    message: Pick<StoredMessage, "contactQid" | "id" | "sentAt" | "text">,
     contact: Contact,
     jobGeneration: number,
     signal?: AbortSignal
   ) => {
-    const existing = handoffJobs.get(message.id);
+    const jobKey = `${message.contactQid}:${message.id}`;
+    const existing = handoffJobs.get(jobKey);
     if (existing) {
       return existing;
     }
@@ -499,11 +500,11 @@ export const createP2pStore = ({
       });
       return holderPeerId;
     })();
-    handoffJobs.set(message.id, job);
+    handoffJobs.set(jobKey, job);
     const removeWhenDone = async () => {
       await Promise.allSettled([job]);
-      if (handoffJobs.get(message.id) === job) {
-        handoffJobs.delete(message.id);
+      if (handoffJobs.get(jobKey) === job) {
+        handoffJobs.delete(jobKey);
       }
     };
     void removeWhenDone();
@@ -511,7 +512,10 @@ export const createP2pStore = ({
   };
 
   const applyReceipts = async (
-    messages: readonly Pick<StoredMessage, "holderPeerId" | "id">[],
+    messages: readonly Pick<
+      StoredMessage,
+      "contactQid" | "holderPeerId" | "id"
+    >[],
     jobGeneration: number
   ) => {
     const own = getOwnDevice?.();
@@ -556,7 +560,16 @@ export const createP2pStore = ({
           return;
         }
         await Promise.all(
-          receipts.map((receipt) => advanceMessageStatus(receipt.id, "sent"))
+          receipts.map((receipt) => {
+            const row = messages.find(
+              (message) =>
+                message.id === receipt.id &&
+                message.contactQid === receipt.toQid
+            );
+            return row
+              ? advanceMessageStatus(row.id, "sent", row.contactQid)
+              : Promise.resolve(false);
+          })
         );
       })
     );
@@ -594,14 +607,18 @@ export const createP2pStore = ({
                 jobGeneration
               );
               if (holderPeerId) {
-                await markMessageHeld(message.id, holderPeerId);
+                await markMessageHeld(
+                  message.id,
+                  holderPeerId,
+                  message.contactQid
+                );
               }
             } catch (error) {
               if (
                 error instanceof Error &&
                 error.message === HANDOFF_REJECTED_MESSAGE
               ) {
-                await failRejectedHandoff(message.id);
+                await failRejectedHandoff(message.id, message.contactQid);
               }
               // Dial/timeout is opportunistic; local status stays pending.
             }
@@ -657,7 +674,7 @@ export const createP2pStore = ({
         if (!isCurrentGeneration(jobGeneration)) {
           return;
         }
-        await advanceMessageStatus(message.id, "failed");
+        await advanceMessageStatus(message.id, "failed", message.contactQid);
         return;
       }
 
@@ -696,7 +713,7 @@ export const createP2pStore = ({
       }
       if (bobAcked) {
         // Prefer sent as soon as Bob ACKs. Do not wait for CLI dial/timeout.
-        await advanceMessageStatus(message.id, "sent");
+        await advanceMessageStatus(message.id, "sent", message.contactQid);
         void handedOff;
         return;
       }
@@ -705,14 +722,14 @@ export const createP2pStore = ({
         return;
       }
       await (holderPeerId
-        ? markMessageHeld(message.id, holderPeerId)
-        : advanceMessageStatus(message.id, "failed"));
+        ? markMessageHeld(message.id, holderPeerId, message.contactQid)
+        : advanceMessageStatus(message.id, "failed", message.contactQid));
     } catch {
       try {
         if (!isCurrentGeneration(jobGeneration)) {
           return;
         }
-        await advanceMessageStatus(message.id, "failed");
+        await advanceMessageStatus(message.id, "failed", message.contactQid);
       } catch {
         // A storage failure is reflected in the store without leaking a rejection.
       }
@@ -733,21 +750,32 @@ export const createP2pStore = ({
         return;
       }
       try {
-        const peerId = await Effect.runPromise(
-          sessions.recipientPeerId(contact).pipe(
+        const peerIds = await Effect.runPromise(
+          sessions.recipientPeerIds(contact).pipe(
             Effect.timeoutOrElse({
               duration: 10_000,
               orElse: () => Effect.fail(new Error("Timed out looking up peer")),
             })
           )
         );
-        if (!isCurrentGeneration(jobGeneration)) {
-          return;
-        }
-        if (!activeEndpoint.connectedPeers().includes(peerId)) {
-          await activeEndpoint.connect(peerId, { timeoutMs: 15_000 });
-        }
-        return peerId;
+        const dialRoster = async (
+          index: number
+        ): Promise<string | undefined> => {
+          const peerId = peerIds[index];
+          if (peerId === undefined || !isCurrentGeneration(jobGeneration)) {
+            return;
+          }
+          try {
+            if (!activeEndpoint.connectedPeers().includes(peerId)) {
+              await activeEndpoint.connect(peerId, { timeoutMs: 15_000 });
+            }
+            return peerId;
+          } catch {
+            // Offline first roster device (usually the phone) — try the next holder.
+            return dialRoster(index + 1);
+          }
+        };
+        return await dialRoster(0);
       } catch {
         // The screen reports reachability from authoritative connection events.
       }
@@ -802,8 +830,9 @@ export const createP2pStore = ({
       await activeEndpoint.waitPeerReady(peerId, { timeoutMs: 15_000 });
     },
 
-    retryMessage: (id) => {
-      const existing = retryJobs.get(id);
+    retryMessage: (id, contactQid) => {
+      const jobKey = contactQid === undefined ? id : `${contactQid}:${id}`;
+      const existing = retryJobs.get(jobKey);
       if (existing) {
         return existing.job;
       }
@@ -839,7 +868,7 @@ export const createP2pStore = ({
         const jobGeneration = generation;
         const send = async () => {
           try {
-            const message = await getMessageById(id);
+            const message = await getMessageById(id, contactQid);
             if (
               !message ||
               message.direction !== "out" ||
@@ -851,7 +880,9 @@ export const createP2pStore = ({
             if (!contact || !isCurrentGeneration(jobGeneration)) {
               return;
             }
-            if (!(await advanceMessageStatus(id, "sending"))) {
+            if (
+              !(await advanceMessageStatus(id, "sending", message.contactQid))
+            ) {
               return;
             }
             if (!isCurrentGeneration(jobGeneration)) {
@@ -877,11 +908,11 @@ export const createP2pStore = ({
         return trackJob(send());
       };
       const job = retry();
-      retryJobs.set(id, { controller, job });
+      retryJobs.set(jobKey, { controller, job });
       const removeWhenDone = async () => {
         await Promise.allSettled([job]);
-        if (retryJobs.get(id)?.job === job) {
-          retryJobs.delete(id);
+        if (retryJobs.get(jobKey)?.job === job) {
+          retryJobs.delete(jobKey);
         }
       };
       void removeWhenDone();

@@ -249,42 +249,100 @@ export const createPeerSessions = ({
       })
   );
 
-  const recipientPeerId = Effect.fn("PeerSessions.recipientPeerId")(function* (
+  const authorizedPeerIds = (
     contact: Pick<SessionContact, "handle" | "qid">
-  ) {
+  ) => {
+    const peerIds: string[] = [];
+    const seen = new Set<string>();
     for (const session of sessions.values()) {
       const { authorization } = session;
       if (
         authorization &&
         authorization.contact.qid === contact.qid &&
         authorization.contact.handle === contact.handle &&
-        authAgeMs(authorization) < MAX_AUTH_AGE_MS
+        authAgeMs(authorization) < MAX_AUTH_AGE_MS &&
+        !seen.has(session.peerId)
       ) {
-        return session.peerId;
+        seen.add(session.peerId);
+        peerIds.push(session.peerId);
       }
     }
-    const account = yield* lookupHandle(contact.handle).pipe(
-      Effect.mapError(mapLookupError)
-    );
-    if (
-      !account ||
-      account.handle !== contact.handle ||
-      account.qid.toString() !== contact.qid ||
-      account.devices.length === 0
-    ) {
-      return yield* new PeerVerificationError({ operation: "identity" });
-    }
-    // Prefer a live connected peer among active devices; else first active.
+    return peerIds;
+  };
+
+  const rosterPeerIds = (
+    devices: readonly { readonly peerId: string }[]
+  ): string[] => {
+    const peerIds: string[] = [];
+    const seen = new Set<string>();
+    const push = (peerId: string) => {
+      if (seen.has(peerId)) {
+        return;
+      }
+      seen.add(peerId);
+      peerIds.push(peerId);
+    };
     for (const session of sessions.values()) {
-      if (account.devices.some((device) => device.peerId === session.peerId)) {
-        return session.peerId;
+      if (devices.some((device) => device.peerId === session.peerId)) {
+        push(session.peerId);
       }
     }
-    const [first] = account.devices;
-    if (!first) {
+    for (const device of devices) {
+      push(device.peerId);
+    }
+    return peerIds;
+  };
+
+  /** Live auth first, then the rest of the roster. Lookup failure keeps live auth only. */
+  const recipientPeerIds = Effect.fn("PeerSessions.recipientPeerIds")(
+    function* (contact: Pick<SessionContact, "handle" | "qid">) {
+      const authorized = authorizedPeerIds(contact);
+      const lookedUp = yield* lookupHandle(contact.handle).pipe(
+        Effect.mapError(mapLookupError),
+        Effect.result
+      );
+      if (lookedUp._tag === "Failure") {
+        if (authorized.length > 0) {
+          return authorized;
+        }
+        return yield* lookedUp.failure;
+      }
+      const account = lookedUp.success;
+      if (
+        !account ||
+        account.handle !== contact.handle ||
+        account.qid.toString() !== contact.qid ||
+        account.devices.length === 0
+      ) {
+        if (authorized.length > 0) {
+          return authorized;
+        }
+        return yield* new PeerVerificationError({ operation: "identity" });
+      }
+      const seen = new Set(authorized);
+      const peerIds = [...authorized];
+      for (const peerId of rosterPeerIds(account.devices)) {
+        if (seen.has(peerId)) {
+          continue;
+        }
+        seen.add(peerId);
+        peerIds.push(peerId);
+      }
+      if (peerIds.length === 0) {
+        return yield* new PeerVerificationError({ operation: "identity" });
+      }
+      return peerIds;
+    }
+  );
+
+  const recipientPeerId = Effect.fn("PeerSessions.recipientPeerId")(function* (
+    contact: Pick<SessionContact, "handle" | "qid">
+  ) {
+    const [peerId] = yield* recipientPeerIds(contact);
+    if (!peerId) {
       return yield* new PeerVerificationError({ operation: "identity" });
     }
-    return first.peerId;
+    return peerId;
   });
 
   const isVerified = ({ connId, peerId }: PeerConnection, qid: string) => {
@@ -304,6 +362,7 @@ export const createPeerSessions = ({
     isVerified,
     opened,
     recipientPeerId,
+    recipientPeerIds,
     verify,
   };
 };

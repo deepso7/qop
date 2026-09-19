@@ -226,7 +226,7 @@ describe("CLI inbound sync", () => {
       handleInboundSyncStream(stream, makeSessions(), identity, store)
     );
     expect(response).toEqual({
-      receipts: [{ deliveredAt: 9, id }],
+      receipts: [{ deliveredAt: 9, id, toQid: "1" }],
       type: "receipts",
       v: 1,
     });

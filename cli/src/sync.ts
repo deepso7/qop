@@ -130,6 +130,7 @@ export const handleInboundSyncStream = Effect.fn("qop.handleInboundSyncStream")(
       .map((record) => ({
         deliveredAt: record.updatedAt,
         id: record.frame.id,
+        toQid: record.toQid,
       }));
     const response = {
       receipts,
