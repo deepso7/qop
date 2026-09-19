@@ -4,12 +4,23 @@ import { Effect } from "effect";
 
 export const LIFECYCLE_OBSERVE_MS = 1000;
 
-/** Operator override: enable diagnostic chat without a captured lid-sleep demo. */
-export const UNPROVEN_LIFECYCLE_OVERRIDE_ENV = "QOP_ALLOW_UNPROVEN_LIFECYCLE";
+/**
+ * macOS laptop lid sleep/wake is still undemonstrated. Linux holders do not
+ * need this: SIGCONT, wall/monotonic sleep detection, stall observe, and the
+ * verify-boundary check are the lifecycle contract.
+ */
+export const UNPROVEN_MACOS_LIFECYCLE_OVERRIDE_ENV =
+  "QOP_ALLOW_UNPROVEN_MACOS_LIFECYCLE";
 
-export const isUnprovenLifecycleOverride = (
-  env: NodeJS.ProcessEnv = process.env
-) => env[UNPROVEN_LIFECYCLE_OVERRIDE_ENV] === "1";
+export const isMessagingLifecycleAllowed = ({
+  env = process.env,
+  platform = process.platform,
+}: {
+  readonly env?: NodeJS.ProcessEnv;
+  readonly platform?: NodeJS.Platform;
+} = {}) =>
+  platform === "linux" ||
+  (platform === "darwin" && env[UNPROVEN_MACOS_LIFECYCLE_OVERRIDE_ENV] === "1");
 
 export const createProcessLifecycle = ({
   adapter,

@@ -6,7 +6,8 @@ import { Effect } from "effect";
 
 import {
   createProcessLifecycle,
-  isUnprovenLifecycleOverride,
+  isMessagingLifecycleAllowed,
+  UNPROVEN_MACOS_LIFECYCLE_OVERRIDE_ENV,
   withProcessLifecycle,
 } from "../src/process-lifecycle.ts";
 
@@ -57,11 +58,68 @@ describe("CLI process lifecycle", () => {
     lifecycle.dispose();
   });
 
-  it("does not treat SIGCONT-to-self as lid-sleep proof", () => {
-    expect(isUnprovenLifecycleOverride({})).toBe(false);
+  it("invalidates from the observe interval after a suspend clock gap", () => {
+    let monotonic = 0;
+    let wall = 0;
+    const adapter = createLifecycleAdapter({
+      monotonicNow: () => monotonic,
+      stallThresholdMs: 1000,
+      wallNow: () => wall,
+    });
+    let epoch = 0;
+    let tick = noop;
+    const lifecycle = createProcessLifecycle({
+      adapter,
+      observeMs: 60_000,
+      onInterrupt: () => {
+        epoch += 1;
+      },
+      onSigcont: () => noop,
+      setObserveInterval: (handler) => {
+        tick = handler;
+        return noop;
+      },
+    });
+    expect(epoch).toBe(0);
+    wall += 60_000;
+    monotonic += 10;
+    tick();
+    expect(epoch).toBe(1);
+    expect(lifecycle.adapter.takeInvalidation()).toBe(false);
+    lifecycle.dispose();
+  });
+
+  it("allows Linux holders without an unproven-lifecycle override", () => {
+    expect(isMessagingLifecycleAllowed({ env: {}, platform: "linux" })).toBe(
+      true
+    );
     expect(
-      isUnprovenLifecycleOverride({ QOP_ALLOW_UNPROVEN_LIFECYCLE: "1" })
+      isMessagingLifecycleAllowed({
+        env: { QOP_ALLOW_UNPROVEN_LIFECYCLE: "1" },
+        platform: "linux",
+      })
     ).toBe(true);
+  });
+
+  it("keeps macOS messaging gated until the named override is set", () => {
+    expect(isMessagingLifecycleAllowed({ env: {}, platform: "darwin" })).toBe(
+      false
+    );
+    expect(
+      isMessagingLifecycleAllowed({
+        env: { QOP_ALLOW_UNPROVEN_LIFECYCLE: "1" },
+        platform: "darwin",
+      })
+    ).toBe(false);
+    expect(
+      isMessagingLifecycleAllowed({
+        env: { [UNPROVEN_MACOS_LIFECYCLE_OVERRIDE_ENV]: "1" },
+        platform: "darwin",
+      })
+    ).toBe(true);
+    expect(isMessagingLifecycleAllowed({ env: {}, platform: "win32" })).toBe(
+      false
+    );
   });
 
   it.effect("disposes the observe interval when startup work fails", () =>

@@ -35,8 +35,8 @@ import {
   describeOutboxEvent,
 } from "./outbox.ts";
 import {
-  isUnprovenLifecycleOverride,
-  UNPROVEN_LIFECYCLE_OVERRIDE_ENV,
+  isMessagingLifecycleAllowed,
+  UNPROVEN_MACOS_LIFECYCLE_OVERRIDE_ENV,
   withMessagingLifecycle,
 } from "./process-lifecycle.ts";
 import { handleInboundSyncStream } from "./sync.ts";
@@ -315,9 +315,9 @@ export const runStart = Effect.fn("qop.start")(function* (
     return;
   }
 
-  if (!isUnprovenLifecycleOverride()) {
+  if (!isMessagingLifecycleAllowed()) {
     console.error(
-      `CLI messaging is disabled until real macOS/Linux sleep/wake invalidation is demonstrated. Pairing (\`qop link\`) still works. Set ${UNPROVEN_LIFECYCLE_OVERRIDE_ENV}=1 to enable diagnostic chat with SIGCONT, stall observe, and verify-boundary invalidation — that override is not lid-sleep proof.`
+      `CLI messaging on macOS is disabled until lid sleep/wake invalidation is demonstrated. Pairing (\`qop link\`) still works. Linux holders run without this gate. Set ${UNPROVEN_MACOS_LIFECYCLE_OVERRIDE_ENV}=1 to enable diagnostic chat with SIGCONT, stall observe, and verify-boundary invalidation — that override is not lid-sleep proof.`
     );
     return;
   }
@@ -338,8 +338,8 @@ export const runStart = Effect.fn("qop.start")(function* (
       return Promise.resolve();
     },
   });
-  // SIGCONT and stall observe still invalidate at the verify/send boundary.
-  // They are not proof of lid sleep/wake; messaging is override-gated above.
+  // SIGCONT, stall observe, and sleep clock-gap still invalidate at the
+  // verify/send boundary. macOS lid sleep remains override-gated above.
   return yield* withMessagingLifecycle(
     () => {
       sessions.invalidateAuthorization();
@@ -526,7 +526,7 @@ export const runStart = Effect.fn("qop.start")(function* (
             `CLI messaging ready for @${identity.handle} (${identity.peerId}).`
           );
           console.log(
-            `${UNPROVEN_LIFECYCLE_OVERRIDE_ENV}=1: SIGCONT, stall observe, and verify-boundary invalidation are armed. This is not proof of macOS/Linux lid sleep/wake.`
+            "SIGCONT, stall observe, and verify-boundary invalidation are armed."
           );
 
           yield* outbox.resume();
