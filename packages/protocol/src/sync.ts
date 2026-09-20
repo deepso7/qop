@@ -11,11 +11,11 @@ import { OutboxQid, OutboxRecordV1Schema } from "./outbox.ts";
  * live-revoke as chat). The phone initiates.
  *
  * Flow: `handoff{record, composedBy}` → `held{id}` only after the CLI durably
- * persists the record into `outbox.json`. A later `poll{ids}` returns
+ * persists the record into the CLI store. A later `poll{ids}` returns
  * `receipts` for ids the CLI has marked `sent` after Bob's chat ACK. Each
  * receipt carries `toQid` so the phone applies it to `(contact_qid, id)`.
  *
- * Disk remains `OutboxRecordV1` (JSON). `composedBy` is a sync-frame field in
+ * Disk remains `OutboxRecordV1`. `composedBy` is a sync-frame field in
  * this slice, not a disk column. Phone `held` is a local status, not a CLI
  * outbox status. `expired` and a disk V2 schema are deferred.
  */

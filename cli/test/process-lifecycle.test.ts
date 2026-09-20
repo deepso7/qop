@@ -6,7 +6,7 @@ import { Effect } from "effect";
 
 import {
   createProcessLifecycle,
-  isUnprovenLifecycleOverride,
+  isMessagingLifecycleAllowed,
   withProcessLifecycle,
 } from "../src/process-lifecycle.ts";
 
@@ -57,11 +57,75 @@ describe("CLI process lifecycle", () => {
     lifecycle.dispose();
   });
 
-  it("does not treat SIGCONT-to-self as lid-sleep proof", () => {
-    expect(isUnprovenLifecycleOverride({})).toBe(false);
-    expect(
-      isUnprovenLifecycleOverride({ QOP_ALLOW_UNPROVEN_LIFECYCLE: "1" })
-    ).toBe(true);
+  it("invalidates from the observe interval after a suspend clock gap", () => {
+    // One observe branch: monotonic paused, wall ran. Stall observe is the other.
+    let monotonic = 0;
+    let wall = 0;
+    const adapter = createLifecycleAdapter({
+      monotonicNow: () => monotonic,
+      stallThresholdMs: 1000,
+      wallNow: () => wall,
+    });
+    let epoch = 0;
+    let tick = noop;
+    const lifecycle = createProcessLifecycle({
+      adapter,
+      observeMs: 60_000,
+      onInterrupt: () => {
+        epoch += 1;
+      },
+      onSigcont: () => noop,
+      setObserveInterval: (handler) => {
+        tick = handler;
+        return noop;
+      },
+    });
+    expect(epoch).toBe(0);
+    wall += 60_000;
+    monotonic += 10;
+    tick();
+    expect(epoch).toBe(1);
+    expect(lifecycle.adapter.takeInvalidation()).toBe(false);
+    lifecycle.dispose();
+  });
+
+  it("invalidates from the observe interval after a monotonic stall", () => {
+    // Verified Mac software-sleep: both clocks jumped ~123s, so stall fired
+    // and the wall−monotonic sleep-gap did not. SIGCONT was not delivered.
+    let monotonic = 0;
+    let wall = 0;
+    const adapter = createLifecycleAdapter({
+      monotonicNow: () => monotonic,
+      stallThresholdMs: 1000,
+      wallNow: () => wall,
+    });
+    let epoch = 0;
+    let tick = noop;
+    const lifecycle = createProcessLifecycle({
+      adapter,
+      observeMs: 60_000,
+      onInterrupt: () => {
+        epoch += 1;
+      },
+      onSigcont: () => noop,
+      setObserveInterval: (handler) => {
+        tick = handler;
+        return noop;
+      },
+    });
+    expect(epoch).toBe(0);
+    wall += 123_096;
+    monotonic += 123_094.7825;
+    tick();
+    expect(epoch).toBe(1);
+    expect(lifecycle.adapter.takeInvalidation()).toBe(false);
+    lifecycle.dispose();
+  });
+
+  it("allows linux and darwin holders", () => {
+    expect(isMessagingLifecycleAllowed({ platform: "linux" })).toBe(true);
+    expect(isMessagingLifecycleAllowed({ platform: "darwin" })).toBe(true);
+    expect(isMessagingLifecycleAllowed({ platform: "win32" })).toBe(false);
   });
 
   it.effect("disposes the observe interval when startup work fails", () =>

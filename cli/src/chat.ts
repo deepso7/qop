@@ -19,14 +19,14 @@ import type {
   SessionContact,
   SessionContactInput,
 } from "@qop/protocol";
-import { Effect, Schema } from "effect";
+import { Effect, FiberSet, Schema } from "effect";
 
 import { CliConfigError, cliRelays, configuredRegistry } from "./config.ts";
 import type { createCliIdentityStore } from "./identity-store.ts";
 import {
   CliOutboxStoreError,
-  createCliOutboxStore,
   describeCliOutboxStoreError,
+  openCliOutboxStore,
 } from "./outbox-store.ts";
 import type { PutInboxResult } from "./outbox-store.ts";
 import {
@@ -35,8 +35,7 @@ import {
   describeOutboxEvent,
 } from "./outbox.ts";
 import {
-  isUnprovenLifecycleOverride,
-  UNPROVEN_LIFECYCLE_OVERRIDE_ENV,
+  isMessagingLifecycleAllowed,
   withMessagingLifecycle,
 } from "./process-lifecycle.ts";
 import { handleInboundSyncStream } from "./sync.ts";
@@ -300,7 +299,7 @@ export const runStart = Effect.fn("qop.start")(function* (
     readonly to?: string | undefined;
   }
 ) {
-  if (process.platform !== "darwin" && process.platform !== "linux") {
+  if (!isMessagingLifecycleAllowed()) {
     return yield* new CliConfigError({ operation: "platform" });
   }
   const identity = yield* store.loadIdentity();
@@ -312,13 +311,6 @@ export const runStart = Effect.fn("qop.start")(function* (
   const membership = yield* reader.lookupDeviceKey(identity.deviceKey);
   if (membership?.qid.toString() !== identity.qid) {
     console.error("This device is not an active member of the account.");
-    return;
-  }
-
-  if (!isUnprovenLifecycleOverride()) {
-    console.error(
-      `CLI messaging is disabled until real macOS/Linux sleep/wake invalidation is demonstrated. Pairing (\`qop link\`) still works. Set ${UNPROVEN_LIFECYCLE_OVERRIDE_ENV}=1 to enable diagnostic chat with SIGCONT, stall observe, and verify-boundary invalidation — that override is not lid-sleep proof.`
-    );
     return;
   }
 
@@ -338,8 +330,9 @@ export const runStart = Effect.fn("qop.start")(function* (
       return Promise.resolve();
     },
   });
-  // SIGCONT and stall observe still invalidate at the verify/send boundary.
-  // They are not proof of lid sleep/wake; messaging is override-gated above.
+  // SIGCONT, stall observe, and sleep clock-gap still invalidate at the
+  // verify/send boundary. A verified Mac software-sleep was caught by stall
+  // observe (monotonic advanced with wall; sleep-gap and SIGCONT did not fire).
   return yield* withMessagingLifecycle(
     () => {
       sessions.invalidateAuthorization();
@@ -354,6 +347,10 @@ export const runStart = Effect.fn("qop.start")(function* (
           return false;
         };
 
+        // FiberSet is acquired after the store so LIFO finalizers interrupt
+        // (and await) connection-flush / inbound fibers before db.close().
+        const messages = yield* openCliOutboxStore(store.root);
+        const runHandler = yield* FiberSet.makeRuntime();
         const secretKey = yield* store.loadSecret();
         const relays = cliRelays();
         const chatConfig = {
@@ -368,7 +365,6 @@ export const runStart = Effect.fn("qop.start")(function* (
         const closeEndpoint = Effect.sync(() => {
           endpoint.close();
         });
-        const messages = createCliOutboxStore(store.root);
         const outbox = createOutboxRuntime({
           deliver: (record) => {
             if (guardSensitive()) {
@@ -405,7 +401,7 @@ export const runStart = Effect.fn("qop.start")(function* (
               return;
             }
             connectionFlushInFlight.add(peerId);
-            Effect.runFork(
+            runHandler(
               outbox
                 .flushOnConnection(
                   Schema.decodeUnknownEffect(PeerId)(peerId).pipe(
@@ -501,7 +497,7 @@ export const runStart = Effect.fn("qop.start")(function* (
                       console.log(`@${frame.fromHandle}: ${frame.text}`);
                     }
                   });
-            Effect.runFork(
+            runHandler(
               inboundProgram.pipe(
                 Effect.ensuring(
                   Effect.sync(() => {
@@ -526,7 +522,7 @@ export const runStart = Effect.fn("qop.start")(function* (
             `CLI messaging ready for @${identity.handle} (${identity.peerId}).`
           );
           console.log(
-            `${UNPROVEN_LIFECYCLE_OVERRIDE_ENV}=1: SIGCONT, stall observe, and verify-boundary invalidation are armed. This is not proof of macOS/Linux lid sleep/wake.`
+            "SIGCONT, stall observe, and verify-boundary invalidation are armed."
           );
 
           yield* outbox.resume();

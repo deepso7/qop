@@ -10,6 +10,7 @@ import {
 
 describe("lifecycle adapter", () => {
   it("invalidates when wall time advances across a monotonic pause", () => {
+    // Sleep-gap branch (monotonic paused). Stall observe is the other branch.
     let monotonic = 0;
     let wall = 0;
     const adapter = createLifecycleAdapter({
@@ -26,6 +27,8 @@ describe("lifecycle adapter", () => {
   });
 
   it("invalidates when the event loop stalls on the monotonic clock", () => {
+    // Same shape as verified Mac software-sleep: both clocks advance, so stall
+    // fires and the wall−monotonic sleep-gap does not.
     let monotonic = 0;
     let wall = 0;
     const adapter = createLifecycleAdapter({

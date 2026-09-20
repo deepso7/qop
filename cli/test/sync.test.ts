@@ -14,7 +14,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   CliOutboxStoreError,
-  createCliOutboxStore,
+  openCliOutboxStore,
 } from "../src/outbox-store.ts";
 import { handleInboundSyncStream } from "../src/sync.ts";
 import type { CliSyncStore } from "../src/sync.ts";
@@ -347,26 +347,37 @@ describe("CLI inbound sync", () => {
     const root = await mkdtemp(path.join(tmpdir(), "qop-sync-conflict-"));
     try {
       await chmod(root, 0o700);
-      const store = createCliOutboxStore(root);
-      await Effect.runPromise(store.enqueue(queued));
-      const stream = makeStream(
-        await Effect.runPromise(
-          encodeSyncRequestV1({
-            composedBy: phoneDeviceKey,
-            record: {
-              ...queued,
-              frame: { ...queued.frame, text: "other" },
-            },
-            type: "handoff",
-            v: 1,
+      await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const store = yield* openCliOutboxStore(root);
+            yield* store.enqueue(queued);
+            const stream = makeStream(
+              yield* encodeSyncRequestV1({
+                composedBy: phoneDeviceKey,
+                record: {
+                  ...queued,
+                  frame: { ...queued.frame, text: "other" },
+                },
+                type: "handoff",
+                v: 1,
+              })
+            );
+            const response = yield* handleInboundSyncStream(
+              stream,
+              makeSessions(),
+              identity,
+              store
+            );
+            expect(response).toEqual({
+              reason: "conflict",
+              type: "error",
+              v: 1,
+            });
+            expect(yield* store.getByIds([id])).toEqual([queued]);
           })
         )
       );
-      const response = await Effect.runPromise(
-        handleInboundSyncStream(stream, makeSessions(), identity, store)
-      );
-      expect(response).toEqual({ reason: "conflict", type: "error", v: 1 });
-      expect(await Effect.runPromise(store.getByIds([id]))).toEqual([queued]);
     } finally {
       await rm(root, { force: true, recursive: true });
     }

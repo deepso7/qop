@@ -14,8 +14,8 @@ import {
 } from "./identity-store.ts";
 import {
   CliOutboxStoreError,
-  createCliOutboxStore,
   describeCliOutboxStoreError,
+  openCliOutboxStore,
 } from "./outbox-store.ts";
 import { runLink } from "./pairing-link.ts";
 
@@ -48,14 +48,16 @@ const runStatus = Effect.fn("qop.status")(function* () {
   console.log(
     `state    ${membership?.qid.toString() === identity.qid ? "linked" : "not linked"}`
   );
-  const queued = yield* createCliOutboxStore(store.root)
-    .queuedCount()
-    .pipe(
-      Effect.map((count) => `outbox   ${count} queued`),
-      Effect.catchTag("CliOutboxStoreError", () =>
-        Effect.succeed("outbox   unreadable")
-      )
-    );
+  const queued = yield* Effect.scoped(
+    openCliOutboxStore(store.root).pipe(
+      Effect.flatMap((messages) => messages.queuedCount())
+    )
+  ).pipe(
+    Effect.map((count) => `outbox   ${count} queued`),
+    Effect.catchTag("CliOutboxStoreError", () =>
+      Effect.succeed("outbox   unreadable")
+    )
+  );
   console.log(queued);
 });
 

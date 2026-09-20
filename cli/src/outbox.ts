@@ -7,10 +7,7 @@ import type {
 import { Data, Effect } from "effect";
 
 import { describeCliOutboxStoreError } from "./outbox-store.ts";
-import type {
-  CliOutboxStoreError,
-  createCliOutboxStore,
-} from "./outbox-store.ts";
+import type { CliOutboxStore, CliOutboxStoreError } from "./outbox-store.ts";
 
 export class CliOutboxDeliverError extends Data.TaggedError(
   "CliOutboxDeliverError"
@@ -107,7 +104,7 @@ export const createOutboxRuntime = ({
   ) => Effect.Effect<RegistryAccount | null, RegistryReaderError>;
   readonly now?: () => number;
   readonly onEvent?: (event: OutboxEvent) => void;
-  readonly store: ReturnType<typeof createCliOutboxStore>;
+  readonly store: CliOutboxStore;
 }) => {
   /** One owner per recipient so overlapping poll/connection flushes cannot reorder. */
   const flushingRecipients = new Set<string>();
@@ -192,9 +189,7 @@ export const createOutboxRuntime = ({
   const deliverOne = Effect.fn("qop.outbox.deliverOne")(function* (
     record: OutboxRecordV1
   ) {
-    const latest = (yield* store.loadRecords()).find(
-      (item) => item.frame.id === record.frame.id
-    );
+    const [latest] = yield* store.getByIds([record.frame.id]);
     if (!latest || latest.status !== "queued") {
       return;
     }
