@@ -34,7 +34,7 @@ Both final emulator cases were rerun with both fixes applied, then repeated afte
 
 ## Evidence and limits
 
-Local logs, database observations, and screenshots are in the ignored `.codex-tasks/pr13-e2e/` directory. This tests local emulators and real native transport against Sepolia; it does not prove physical-device behavior, relay-only traversal, or laptop lid sleep/wake. The lifecycle gate remains in place. The final emulator runs used one linked CLI per account. Multi-holder routing and more than 32 receipts were covered by the incoming commit's automated tests, not by manual emulator scenarios.
+Local logs, database observations, and screenshots are in the ignored `.codex-tasks/pr13-e2e/` directory. This tests local emulators and real native transport against Sepolia; it does not prove physical-device behavior, relay-only traversal, or laptop lid sleep/wake. The lifecycle gate was still in place for this run. The final emulator runs used one linked CLI per account. Multi-holder routing and more than 32 receipts were covered by the incoming commit's automated tests, not by manual emulator scenarios.
 
 One Android development-launcher reload crashed with `App react context shouldn't be created before`; a cold launch recovered. The final cold-launch scenarios completed successfully.
 

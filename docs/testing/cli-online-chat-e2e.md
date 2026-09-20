@@ -17,7 +17,7 @@ Online messaging passes with the two CLI fixes found during this run.
 
 Fresh accounts were `@pr11_ios_0917` and `@pr11_android_0917`. Reused the previously linked CLI identities for `@deepso` and `@qop_android_0905v` after checking that their keys were still active registry members. No new CLI enrollment was necessary. Diagnostic sends explicitly enabled `QOP_ALLOW_UNPROVEN_LIFECYCLE=1`.
 
-SQLite reads after restarting the apps confirmed received/sent status and one row per test message. The final CLI logs include both successful sends and the phone replies. The ordinary `qop start` command still refuses diagnostic messaging without the lifecycle override.
+SQLite reads after restarting the apps confirmed received/sent status and one row per test message. The final CLI logs include both successful sends and the phone replies. At the time of this run, ordinary `qop start` still refused diagnostic messaging without the lifecycle override.
 
 ## Fixes found during testing
 

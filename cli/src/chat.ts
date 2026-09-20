@@ -36,7 +36,6 @@ import {
 } from "./outbox.ts";
 import {
   isMessagingLifecycleAllowed,
-  UNPROVEN_MACOS_LIFECYCLE_OVERRIDE_ENV,
   withMessagingLifecycle,
 } from "./process-lifecycle.ts";
 import { handleInboundSyncStream } from "./sync.ts";
@@ -300,7 +299,7 @@ export const runStart = Effect.fn("qop.start")(function* (
     readonly to?: string | undefined;
   }
 ) {
-  if (process.platform !== "darwin" && process.platform !== "linux") {
+  if (!isMessagingLifecycleAllowed()) {
     return yield* new CliConfigError({ operation: "platform" });
   }
   const identity = yield* store.loadIdentity();
@@ -312,13 +311,6 @@ export const runStart = Effect.fn("qop.start")(function* (
   const membership = yield* reader.lookupDeviceKey(identity.deviceKey);
   if (membership?.qid.toString() !== identity.qid) {
     console.error("This device is not an active member of the account.");
-    return;
-  }
-
-  if (!isMessagingLifecycleAllowed()) {
-    console.error(
-      `CLI messaging on macOS is disabled until lid sleep/wake invalidation is demonstrated. Pairing (\`qop link\`) still works. Linux holders run without this gate. Set ${UNPROVEN_MACOS_LIFECYCLE_OVERRIDE_ENV}=1 to enable diagnostic chat with SIGCONT, stall observe, and verify-boundary invalidation — that override is not lid-sleep proof.`
-    );
     return;
   }
 
@@ -339,7 +331,8 @@ export const runStart = Effect.fn("qop.start")(function* (
     },
   });
   // SIGCONT, stall observe, and sleep clock-gap still invalidate at the
-  // verify/send boundary. macOS lid sleep remains override-gated above.
+  // verify/send boundary. A verified Mac software-sleep was caught by stall
+  // observe (monotonic advanced with wall; sleep-gap and SIGCONT did not fire).
   return yield* withMessagingLifecycle(
     () => {
       sessions.invalidateAuthorization();

@@ -62,7 +62,7 @@ export const createQopCommand = ({
     })
   ).pipe(
     Command.withDescription(
-      "Start holder chat after linking (macOS and Linux). Linux runs without an env override. macOS still needs QOP_ALLOW_UNPROVEN_MACOS_LIFECYCLE=1 until lid sleep/wake is proven. Queued sends retry while this process runs. Accepts phone handoff on /qop/sync/1."
+      "Start holder chat after linking (macOS and Linux). SIGCONT, stall observe, and verify-boundary invalidation are armed. Queued sends retry while this process runs. Accepts phone handoff on /qop/sync/1."
     )
   );
 

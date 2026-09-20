@@ -4,23 +4,12 @@ import { Effect } from "effect";
 
 export const LIFECYCLE_OBSERVE_MS = 1000;
 
-/**
- * macOS laptop lid sleep/wake is still undemonstrated. Linux holders do not
- * need this: SIGCONT, wall/monotonic sleep detection, stall observe, and the
- * verify-boundary check are the lifecycle contract.
- */
-export const UNPROVEN_MACOS_LIFECYCLE_OVERRIDE_ENV =
-  "QOP_ALLOW_UNPROVEN_MACOS_LIFECYCLE";
-
+/** Holder chat is armed on macOS and Linux: SIGCONT, stall/sleep observe, verify-boundary. */
 export const isMessagingLifecycleAllowed = ({
-  env = process.env,
   platform = process.platform,
 }: {
-  readonly env?: NodeJS.ProcessEnv;
   readonly platform?: NodeJS.Platform;
-} = {}) =>
-  platform === "linux" ||
-  (platform === "darwin" && env[UNPROVEN_MACOS_LIFECYCLE_OVERRIDE_ENV] === "1");
+} = {}) => platform === "linux" || platform === "darwin";
 
 export const createProcessLifecycle = ({
   adapter,

@@ -1,10 +1,12 @@
 /** Detect suspend and event-loop stall for CLI live-auth invalidation.
  *
- * Monotonic elapsed time (`performance.now`) typically pauses across sleep;
- * wall-clock time does not. A large wall-minus-monotonic gap means the process
- * was suspended. A large monotonic jump means the event loop stalled. Wall
- * drift may conservatively invalidate, but a later successful registry read at
- * a strictly newer head is still required to mint a new auth window.
+ * Monotonic elapsed time (`performance.now`) may pause across sleep or keep
+ * advancing. A large wall-minus-monotonic gap means suspend while monotonic
+ * paused. A large monotonic jump means the event loop stalled, or sleep where
+ * monotonic kept running (the path observed on a verified Mac software-sleep;
+ * SIGCONT did not fire there). Either observe branch, or SIGCONT, invalidates.
+ * Wall drift may conservatively invalidate, but a later successful registry
+ * read at a strictly newer head is still required to mint a new auth window.
  */
 export const createLifecycleAdapter = ({
   monotonicNow,
