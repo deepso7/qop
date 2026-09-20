@@ -22,6 +22,7 @@ import { DeviceActionApprovalV1 } from "@qop/protocol";
 import { Data, Effect, Schema } from "effect";
 
 const IDENTITY_VERSION = 1 as const;
+/** Exclusive holder lock file. Legacy PID `lock` is ignored (breaking OK). */
 const LOCK_FILE = "lock.db";
 const SQLITE_BUSY = 5;
 const SQLITE_BUSY_TIMEOUT_MS = 0;
@@ -173,7 +174,8 @@ export const createCliIdentityStore = (root: string) => {
   /**
    * Kernel-released exclusive lock: `BEGIN IMMEDIATE` on `lock.db` with a
    * zero busy timeout. POSIX fcntl locks drop on process exit, including
-   * SIGKILL — no PID file, no stale-lock recovery.
+   * SIGKILL — no PID file, no stale-lock recovery. Connection is scoped via
+   * acquireRelease so interrupt cannot leak a RESERVED lock.db handle.
    */
   const acquireLock = Effect.fn("CliIdentity.acquireLock")(function* () {
     yield* Effect.tryPromise({
@@ -208,32 +210,32 @@ export const createCliIdentityStore = (root: string) => {
       });
     }
     yield* assertPrivateMode(lockPath, false);
-    const database = yield* Effect.try({
-      catch: sqliteLockError,
-      try: () => {
-        const db = new DatabaseSync(lockPath, {
-          timeout: SQLITE_BUSY_TIMEOUT_MS,
-        });
-        try {
-          db.exec("BEGIN IMMEDIATE");
-        } catch (error) {
+    // acquire is uninterruptible; finalizer is registered before yielding.
+    yield* Effect.acquireRelease(
+      Effect.try({
+        catch: sqliteLockError,
+        try: () => {
+          const db = new DatabaseSync(lockPath, {
+            timeout: SQLITE_BUSY_TIMEOUT_MS,
+          });
           try {
-            db.close();
-          } catch {
-            // Open is already failing; close is best-effort.
+            db.exec("BEGIN IMMEDIATE");
+          } catch (error) {
+            try {
+              db.close();
+            } catch {
+              // Open is already failing; close is best-effort.
+            }
+            throw error;
           }
-          throw error;
-        }
-        return db;
-      },
-    });
-    const release = Effect.try({
-      catch: () => storeError("lock"),
-      try: () => {
-        database.close();
-      },
-    });
-    return { release };
+          return db;
+        },
+      }),
+      (database) =>
+        Effect.sync(() => {
+          database.close();
+        })
+    );
   });
 
   const loadIdentity = Effect.fn("CliIdentity.loadIdentity")(function* () {

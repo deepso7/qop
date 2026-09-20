@@ -353,6 +353,44 @@ describe("CLI outbox store", () => {
     })
   );
 
+  it.effect("read-only open fails absent without creating messages.db", () =>
+    Effect.gen(function* () {
+      const root = yield* withTempRoot;
+      yield* Effect.tryPromise(() => chmod(root, 0o700));
+      const opened = yield* openCliOutboxStore(root, {
+        readOnly: true,
+      }).pipe(Effect.result);
+      expect(opened._tag).toBe("Failure");
+      if (opened._tag === "Failure") {
+        expect(opened.failure.operation).toBe("absent");
+      }
+      const missing = yield* Effect.tryPromise({
+        catch: (error) => error,
+        try: () => stat(path.join(root, "messages.db")),
+      }).pipe(Effect.result);
+      expect(missing._tag).toBe("Failure");
+    })
+  );
+
+  it.effect("read-only open reads queued count on an existing v1 store", () =>
+    Effect.gen(function* () {
+      const root = yield* withTempRoot;
+      yield* Effect.tryPromise(() => chmod(root, 0o700));
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const store = yield* openCliOutboxStore(root);
+          yield* store.enqueue(queuedRecord);
+        })
+      );
+      const count = yield* Effect.scoped(
+        openCliOutboxStore(root, { readOnly: true }).pipe(
+          Effect.flatMap((store) => store.queuedCount())
+        )
+      );
+      expect(count).toBe(1);
+    })
+  );
+
   it.live(
     "opens a v1 messages.db while another connection holds a write lock",
     () =>

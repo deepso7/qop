@@ -24,12 +24,12 @@ const store = createCliIdentityStore(
 );
 
 const withLock = <A, E, R>(program: Effect.Effect<A, E, R>) =>
-  Effect.gen(function* () {
-    const lock = yield* store.acquireLock();
-    return yield* program.pipe(
-      Effect.ensuring(lock.release.pipe(Effect.ignore))
-    );
-  });
+  Effect.scoped(
+    Effect.gen(function* () {
+      yield* store.acquireLock();
+      return yield* program;
+    })
+  );
 
 const runStatus = Effect.fn("qop.status")(function* () {
   const identity = yield* store.loadIdentity();
@@ -49,13 +49,15 @@ const runStatus = Effect.fn("qop.status")(function* () {
     `state    ${membership?.qid.toString() === identity.qid ? "linked" : "not linked"}`
   );
   const queued = yield* Effect.scoped(
-    openCliOutboxStore(store.root).pipe(
+    openCliOutboxStore(store.root, { readOnly: true }).pipe(
       Effect.flatMap((messages) => messages.queuedCount())
     )
   ).pipe(
     Effect.map((count) => `outbox   ${count} queued`),
-    Effect.catchTag("CliOutboxStoreError", () =>
-      Effect.succeed("outbox   unreadable")
+    Effect.catchTag("CliOutboxStoreError", (error) =>
+      error.operation === "absent"
+        ? Effect.succeed("outbox   0 queued")
+        : Effect.succeed("outbox   unreadable")
     )
   );
   console.log(queued);
@@ -64,8 +66,8 @@ const runStatus = Effect.fn("qop.status")(function* () {
 const command = createQopCommand({
   runLink: (handle) => withLock(runLink(store, handle)),
   runStart: (options) => withLock(runStart(store, options)),
-  // Status is read-only: identity.json + messages.db. The holder lock is
-  // exclusive so it must not wrap this command.
+  // Status is read-only: identity.json + existing messages.db (no create).
+  // The holder lock is exclusive so it must not wrap this command.
   runStatus,
 });
 

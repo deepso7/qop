@@ -26,7 +26,13 @@ const errnoCode = Schema.decodeUnknownOption(NodeErrno);
 export class CliOutboxStoreError extends Data.TaggedError(
   "CliOutboxStoreError"
 )<{
-  readonly operation: "conflict" | "decode" | "permissions" | "read" | "write";
+  readonly operation:
+    | "absent"
+    | "conflict"
+    | "decode"
+    | "permissions"
+    | "read"
+    | "write";
 }> {}
 
 export interface PutInboxResult {
@@ -65,6 +71,9 @@ export interface CliOutboxStore {
 /** Operator-facing copy for a durable outbox/inbox store failure. */
 export const describeCliOutboxStoreError = (error: CliOutboxStoreError) => {
   switch (error.operation) {
+    case "absent": {
+      return "CLI messages.db is not present.";
+    }
     case "conflict": {
       return "CLI outbox or inbox has a conflicting record for the same message id.";
     }
@@ -308,7 +317,14 @@ const readUserVersion = (db: DatabaseSync) => {
   return versionParsed.value.user_version;
 };
 
-const applySchema = (db: DatabaseSync) => {
+const applySchema = (db: DatabaseSync, readOnly = false) => {
+  if (readOnly) {
+    // Status opens while the holder may write; never bootstrap here.
+    if (readUserVersion(db) !== SCHEMA_VERSION) {
+      throw storeError("decode");
+    }
+    return;
+  }
   db.exec("PRAGMA synchronous = FULL");
   // Healthy v1 is a shared read so status can open while the holder writes.
   if (readUserVersion(db) === SCHEMA_VERSION) {
@@ -489,9 +505,33 @@ const makeStore = (db: DatabaseSync): CliOutboxStore => {
 };
 
 const openDatabase = Effect.fn("CliOutbox.openDatabase")(function* (
-  root: string
+  root: string,
+  readOnly = false
 ) {
   const dbPath = path.join(root, DB_FILE);
+  if (readOnly) {
+    const info = yield* Effect.tryPromise({
+      catch: (error) => {
+        const parsed = errnoCode(error);
+        return parsed._tag === "Some" && parsed.value.code === "ENOENT"
+          ? storeError("absent")
+          : storeError("permissions");
+      },
+      try: () => stat(dbPath),
+    });
+    if (info.mode.toString(8).slice(-3) !== "600") {
+      return yield* storeError("permissions");
+    }
+    return yield* Effect.try({
+      catch: (cause) =>
+        sqliteOpenError(sqliteErrcode(cause), errorMessage(cause)),
+      try: () =>
+        new DatabaseSync(dbPath, {
+          readOnly: true,
+          timeout: SQLITE_BUSY_TIMEOUT_MS,
+        }),
+    });
+  }
   yield* Effect.tryPromise({
     catch: () => storeError("write"),
     try: () => mkdir(root, { mode: MODE_DIR, recursive: true }),
@@ -534,13 +574,19 @@ const openDatabase = Effect.fn("CliOutbox.openDatabase")(function* (
   });
 });
 
-/** Opens `<root>/messages.db` (creating it mode 600), verifies schema version, closes on scope exit. */
+export interface OpenCliOutboxStoreOptions {
+  readonly readOnly?: boolean;
+}
+
+/** Opens `<root>/messages.db`, verifies schema version, closes on scope exit. */
 export const openCliOutboxStore = (
-  root: string
-): Effect.Effect<CliOutboxStore, CliOutboxStoreError, Scope.Scope> =>
-  Effect.acquireRelease(
+  root: string,
+  options?: OpenCliOutboxStoreOptions
+): Effect.Effect<CliOutboxStore, CliOutboxStoreError, Scope.Scope> => {
+  const readOnly = options?.readOnly === true;
+  return Effect.acquireRelease(
     Effect.gen(function* () {
-      const db = yield* openDatabase(root);
+      const db = yield* openDatabase(root, readOnly);
       const store = yield* Effect.try({
         catch: (cause) => {
           try {
@@ -554,7 +600,7 @@ export const openCliOutboxStore = (
           return sqliteOpenError(sqliteErrcode(cause), errorMessage(cause));
         },
         try: () => {
-          applySchema(db);
+          applySchema(db, readOnly);
           return makeStore(db);
         },
       });
@@ -565,3 +611,4 @@ export const openCliOutboxStore = (
         db.close();
       })
   ).pipe(Effect.map(({ store }) => store));
+};
