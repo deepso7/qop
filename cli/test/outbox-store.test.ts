@@ -6,7 +6,7 @@ import { DatabaseSync } from "node:sqlite";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "@effect/vitest";
-import { Effect } from "effect";
+import { Duration, Effect } from "effect";
 
 import { openCliOutboxStore } from "../src/outbox-store.ts";
 
@@ -344,6 +344,38 @@ describe("CLI outbox store", () => {
         expect(opened.failure.operation).toBe("decode");
       }
     })
+  );
+
+  it.effect(
+    "opens a v1 messages.db while another connection holds a write lock",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        yield* Effect.tryPromise(() => chmod(root, 0o700));
+        yield* Effect.scoped(openCliOutboxStore(root).pipe(Effect.asVoid));
+        const writer = new DatabaseSync(path.join(root, "messages.db"), {
+          timeout: 0,
+        });
+        const opened = yield* Effect.suspend(() => {
+          writer.exec("BEGIN IMMEDIATE");
+          return Effect.scoped(
+            openCliOutboxStore(root).pipe(
+              Effect.flatMap((store) => store.queuedCount())
+            )
+          ).pipe(Effect.timeout(Duration.millis(1000)), Effect.result);
+        }).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              writer.exec("ROLLBACK");
+              writer.close();
+            })
+          )
+        );
+        expect(opened._tag).toBe("Success");
+        if (opened._tag === "Success") {
+          expect(opened.success).toBe(0);
+        }
+      })
   );
 
   it.live(

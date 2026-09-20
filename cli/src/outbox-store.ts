@@ -298,19 +298,26 @@ const inboxInsertParams = (record: InboxRecordV1): SQLInputValue[] => {
   ];
 };
 
+const readUserVersion = (db: DatabaseSync) => {
+  const versionParsed = decodeUserVersion(
+    db.prepare("PRAGMA user_version").get()
+  );
+  if (versionParsed._tag === "None") {
+    throw storeError("decode");
+  }
+  return versionParsed.value.user_version;
+};
+
 const applySchema = (db: DatabaseSync) => {
   db.exec("PRAGMA synchronous = FULL");
-  // Exclusive txn before the version check so a concurrent opener cannot
-  // read user_version 0, wait, then CREATE (or refuse) a healthy v1 file.
+  // Healthy v1 is a shared read so status can open while the holder writes.
+  if (readUserVersion(db) === SCHEMA_VERSION) {
+    return;
+  }
+  // Serialize first bootstrap: loser waits, re-reads v1, and returns.
   db.exec("BEGIN IMMEDIATE");
   try {
-    const versionParsed = decodeUserVersion(
-      db.prepare("PRAGMA user_version").get()
-    );
-    if (versionParsed._tag === "None") {
-      throw storeError("decode");
-    }
-    const { user_version: version } = versionParsed.value;
+    const version = readUserVersion(db);
     if (version === SCHEMA_VERSION) {
       db.exec("ROLLBACK");
       return;
