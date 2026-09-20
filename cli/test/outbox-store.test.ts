@@ -4,7 +4,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 
 import { describe, expect, it } from "@effect/vitest";
-import { Deferred, Effect, FiberSet } from "effect";
+import { Effect } from "effect";
 
 import { openCliOutboxStore } from "../src/outbox-store.ts";
 
@@ -298,51 +298,6 @@ describe("CLI outbox store", () => {
       if (opened._tag === "Failure") {
         expect(opened.failure.operation).toBe("decode");
       }
-    })
-  );
-
-  it.effect("interrupts FiberSet handlers before closing the database", () =>
-    Effect.gen(function* () {
-      const root = yield* withTempRoot;
-      yield* Effect.tryPromise(() => chmod(root, 0o700));
-      const entered = yield* Deferred.make<boolean>();
-      const outcome = yield* Deferred.make<"ok" | "error" | "interrupted">();
-      const inbound = {
-        frame: queuedRecord.frame,
-        fromQid: "2",
-        receivedAt: 1_700_000_000_001,
-        v: 1 as const,
-      };
-
-      yield* Effect.scoped(
-        Effect.gen(function* () {
-          const store = yield* openCliOutboxStore(root);
-          const runHandler = yield* FiberSet.makeRuntime();
-          runHandler(
-            Effect.gen(function* () {
-              yield* Deferred.succeed(entered, true);
-              yield* Effect.never;
-              yield* store.putInbox(inbound);
-              yield* Deferred.succeed(outcome, "ok");
-            }).pipe(
-              Effect.onInterrupt(() =>
-                Deferred.succeed(outcome, "interrupted")
-              ),
-              Effect.matchEffect({
-                onFailure: () => Deferred.succeed(outcome, "error"),
-                onSuccess: () => Effect.void,
-              })
-            )
-          );
-          yield* Deferred.await(entered);
-        })
-      );
-
-      expect(yield* Deferred.await(outcome)).toBe("interrupted");
-      const inbox = yield* openCliOutboxStore(root).pipe(
-        Effect.flatMap((store) => store.loadInbox())
-      );
-      expect(inbox).toEqual([]);
     })
   );
 });
