@@ -1,7 +1,9 @@
+import { spawn } from "node:child_process";
 import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
@@ -37,6 +39,49 @@ const withTempRoot = Effect.acquireRelease(
       try: () => rm(root, { force: true, recursive: true }),
     }).pipe(Effect.ignore)
 );
+
+const openStoreInChild = (root: string) =>
+  Effect.callback<string, Error>((resume) => {
+    const worker = fileURLToPath(
+      new URL("outbox-open-worker.ts", import.meta.url)
+    );
+    const child = spawn(
+      process.execPath,
+      ["--experimental-strip-types", worker, root],
+      {
+        cwd: fileURLToPath(new URL("..", import.meta.url)),
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (effect: Effect.Effect<string, Error>) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resume(effect);
+    };
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      stderr += chunk.toString();
+    });
+    child.once("error", (error: Error) => {
+      finish(Effect.fail(error));
+    });
+    child.once("exit", (code) => {
+      if (code === 0) {
+        finish(Effect.succeed(stdout));
+        return;
+      }
+      finish(
+        Effect.fail(new Error(`worker exited ${code}: ${stdout}${stderr}`))
+      );
+    });
+  });
 
 describe("CLI outbox store", () => {
   it.effect("persists queued records across reload", () =>
@@ -299,5 +344,28 @@ describe("CLI outbox store", () => {
         expect(opened.failure.operation).toBe("decode");
       }
     })
+  );
+
+  it.live(
+    "bootstraps messages.db when several processes open a fresh store",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        yield* Effect.tryPromise(() => chmod(root, 0o700));
+        const outputs = yield* Effect.all(
+          [
+            openStoreInChild(root),
+            openStoreInChild(root),
+            openStoreInChild(root),
+          ],
+          { concurrency: "unbounded" }
+        );
+        expect(outputs.map((line) => line.trim())).toEqual([
+          "SUCCESS 0",
+          "SUCCESS 0",
+          "SUCCESS 0",
+        ]);
+      }),
+    15_000
   );
 });

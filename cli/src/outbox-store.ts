@@ -135,7 +135,6 @@ const sqliteOpenError = (
 };
 
 const CREATE_SCHEMA_SQL = `
-BEGIN;
 CREATE TABLE outbox (
   id              TEXT    PRIMARY KEY,
   from_handle     TEXT    NOT NULL,
@@ -161,7 +160,6 @@ CREATE TABLE inbox (
   PRIMARY KEY (from_qid, id)
 ) STRICT;
 PRAGMA user_version = ${SCHEMA_VERSION};
-COMMIT;
 `;
 
 const OUTBOX_SELECT = `SELECT
@@ -302,26 +300,40 @@ const inboxInsertParams = (record: InboxRecordV1): SQLInputValue[] => {
 
 const applySchema = (db: DatabaseSync) => {
   db.exec("PRAGMA synchronous = FULL");
-  const versionParsed = decodeUserVersion(
-    db.prepare("PRAGMA user_version").get()
-  );
-  if (versionParsed._tag === "None") {
+  // Exclusive txn before the version check so a concurrent opener cannot
+  // read user_version 0, wait, then CREATE (or refuse) a healthy v1 file.
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const versionParsed = decodeUserVersion(
+      db.prepare("PRAGMA user_version").get()
+    );
+    if (versionParsed._tag === "None") {
+      throw storeError("decode");
+    }
+    const { user_version: version } = versionParsed.value;
+    if (version === SCHEMA_VERSION) {
+      db.exec("ROLLBACK");
+      return;
+    }
+    const existingOutbox = db
+      .prepare(
+        "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'outbox'"
+      )
+      .get();
+    if (version === 0 && existingOutbox === undefined) {
+      db.exec(CREATE_SCHEMA_SQL);
+      db.exec("COMMIT");
+      return;
+    }
     throw storeError("decode");
+  } catch (error) {
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      // Open is already failing; rollback is best-effort.
+    }
+    throw error;
   }
-  const { user_version: version } = versionParsed.value;
-  if (version === SCHEMA_VERSION) {
-    return;
-  }
-  const existingOutbox = db
-    .prepare(
-      "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'outbox'"
-    )
-    .get();
-  if (version === 0 && existingOutbox === undefined) {
-    db.exec(CREATE_SCHEMA_SQL);
-    return;
-  }
-  throw storeError("decode");
 };
 
 /**
