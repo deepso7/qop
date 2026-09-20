@@ -81,6 +81,12 @@ const openStoreInChild = (root: string) =>
         Effect.fail(new Error(`worker exited ${code}: ${stdout}${stderr}`))
       );
     });
+    // Parent timeout/interrupt must kill the child — sync open can block the
+    // child's event loop so Effect.timeout inside the child cannot fire.
+    return Effect.sync(() => {
+      settled = true;
+      child.kill("SIGKILL");
+    });
   });
 
 describe("CLI outbox store", () => {
@@ -346,7 +352,7 @@ describe("CLI outbox store", () => {
     })
   );
 
-  it.effect(
+  it.live(
     "opens a v1 messages.db while another connection holds a write lock",
     () =>
       Effect.gen(function* () {
@@ -356,13 +362,14 @@ describe("CLI outbox store", () => {
         const writer = new DatabaseSync(path.join(root, "messages.db"), {
           timeout: 0,
         });
+        // Open in a child so a regressing sync busy-wait cannot block the
+        // parent's event loop; enforce the 1s deadline from this process.
         const opened = yield* Effect.suspend(() => {
           writer.exec("BEGIN IMMEDIATE");
-          return Effect.scoped(
-            openCliOutboxStore(root).pipe(
-              Effect.flatMap((store) => store.queuedCount())
-            )
-          ).pipe(Effect.timeout(Duration.millis(1000)), Effect.result);
+          return openStoreInChild(root).pipe(
+            Effect.timeout(Duration.millis(1000)),
+            Effect.result
+          );
         }).pipe(
           Effect.ensuring(
             Effect.sync(() => {
@@ -373,9 +380,10 @@ describe("CLI outbox store", () => {
         );
         expect(opened._tag).toBe("Success");
         if (opened._tag === "Success") {
-          expect(opened.success).toBe(0);
+          expect(opened.success.trim()).toBe("SUCCESS 0");
         }
-      })
+      }),
+    10_000
   );
 
   it.live(
