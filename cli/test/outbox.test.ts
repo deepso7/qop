@@ -449,6 +449,7 @@ describe("CLI outbox retry", () => {
       const attempts: string[] = [];
       let now = 1000;
       let lookups = 0;
+      const lookedUp = yield* Deferred.make<string>();
       const outbox = yield* createOutboxRuntime({
         deliver: (record) => {
           attempts.push(record.toHandle);
@@ -461,6 +462,7 @@ describe("CLI outbox retry", () => {
         lookupPeerQid: (peerId) =>
           Effect.sync(() => {
             lookups += 1;
+            Effect.runSync(Deferred.succeed(lookedUp, peerId));
             return peerId === PEER_CAROL ? "2" : "1";
           }),
         now: () => now,
@@ -472,8 +474,7 @@ describe("CLI outbox retry", () => {
       now += 1;
       const fiber = yield* Effect.forkChild(outbox.run);
       yield* outbox.wake(PEER_CAROL);
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
+      expect(yield* Deferred.await(lookedUp)).toBe(PEER_CAROL);
       expect(lookups).toBe(1);
       expect(attempts).toEqual(["bob"]);
       yield* Fiber.interrupt(fiber);
@@ -543,8 +544,24 @@ describe("CLI outbox retry", () => {
   it.effect("skips a connection lookup when nothing is queued", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
-      const store = yield* openCliOutboxStore(root);
+      const inner = yield* openCliOutboxStore(root);
       let lookups = 0;
+      let queuedReads = 0;
+      const firstPass = yield* Deferred.make<boolean>();
+      const nextPass = yield* Deferred.make<boolean>();
+      const store = {
+        ...inner,
+        queued: () => {
+          queuedReads += 1;
+          if (queuedReads === 2) {
+            Effect.runSync(Deferred.succeed(firstPass, true));
+          }
+          if (queuedReads === 3) {
+            Effect.runSync(Deferred.succeed(nextPass, true));
+          }
+          return inner.queued();
+        },
+      };
       const outbox = yield* createOutboxRuntime({
         deliver: () => Effect.void,
         lookupHandle: () => Effect.succeed(account),
@@ -557,9 +574,9 @@ describe("CLI outbox retry", () => {
         store,
       });
       const fiber = yield* Effect.forkChild(outbox.run);
+      yield* Deferred.await(firstPass);
       yield* outbox.wake(PEER_BOB);
-      yield* Effect.yieldNow;
-      yield* Effect.yieldNow;
+      yield* Deferred.await(nextPass);
       expect(lookups).toBe(0);
       yield* Fiber.interrupt(fiber);
     })
@@ -570,9 +587,23 @@ describe("CLI outbox retry", () => {
     () =>
       Effect.gen(function* () {
         const root = yield* withTempRoot;
-        const store = yield* openCliOutboxStore(root);
+        const inner = yield* openCliOutboxStore(root);
         let lookups = 0;
         const delivered = yield* Deferred.make<string>();
+        const afterDeliverQueued = yield* Deferred.make<boolean>();
+        const afterWakeQueued = yield* Deferred.make<boolean>();
+        let stage: "before" | "awaitPending" | "awaitWake" = "before";
+        const store = {
+          ...inner,
+          queued: () => {
+            if (stage === "awaitPending") {
+              Effect.runSync(Deferred.succeed(afterDeliverQueued, true));
+            } else if (stage === "awaitWake") {
+              Effect.runSync(Deferred.succeed(afterWakeQueued, true));
+            }
+            return inner.queued();
+          },
+        };
         const outbox = yield* createOutboxRuntime({
           deliver: (record) =>
             Effect.sync(() => {
@@ -590,9 +621,11 @@ describe("CLI outbox retry", () => {
         const fiber = yield* Effect.forkChild(outbox.run);
         yield* outbox.enqueue(recordFor());
         expect(yield* Deferred.await(delivered)).toBe(id);
+        stage = "awaitPending";
+        yield* Deferred.await(afterDeliverQueued);
+        stage = "awaitWake";
         yield* outbox.wake(PEER_BOB);
-        yield* Effect.yieldNow;
-        yield* Effect.yieldNow;
+        yield* Deferred.await(afterWakeQueued);
         expect(lookups).toBe(0);
         yield* Fiber.interrupt(fiber);
       })
