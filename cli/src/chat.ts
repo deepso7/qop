@@ -324,16 +324,6 @@ const handleCliInboundSync = Effect.fn("qop.handleCliInboundSync")(function* (
   }
 });
 
-const logInboundFailure = (out: HolderOutput, error: unknown) => {
-  if (error instanceof CliOutboxStoreError) {
-    out.error(describeCliOutboxStoreError(error));
-    return;
-  }
-  if (error instanceof Error && error.message.startsWith("Inbound ")) {
-    out.error(error.message);
-  }
-};
-
 const decodeInboundChatFrame = (bytes: Uint8Array) =>
   Effect.try({
     catch: () => new Error(UNREADABLE_INBOUND_CHAT),
@@ -417,7 +407,9 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
         .flushOnConnection(
           Schema.decodeUnknownEffect(PeerId)(peerId).pipe(
             Effect.flatMap(deviceKeyFromPeerId),
-            Effect.flatMap((deviceKey) => Schema.encodeEffect(Hex32)(deviceKey)),
+            Effect.flatMap((deviceKey) =>
+              Schema.encodeEffect(Hex32)(deviceKey)
+            ),
             Effect.flatMap(reader.lookupDeviceKey),
             Effect.map((account) => account?.qid.toString()),
             Effect.orElseSucceed((): string | undefined => undefined)
@@ -501,9 +493,15 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
           });
     runHandler(
       inboundProgram.pipe(
-        Effect.tapError((error) =>
+        Effect.tapError((error: CliOutboxStoreError | Error) =>
           Effect.sync(() => {
-            logInboundFailure(out, error);
+            if (error instanceof CliOutboxStoreError) {
+              out.error(describeCliOutboxStoreError(error));
+              return;
+            }
+            if (error.message.startsWith("Inbound ")) {
+              out.error(error.message);
+            }
           })
         ),
         Effect.onExit((exit) =>

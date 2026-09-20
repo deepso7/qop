@@ -74,13 +74,7 @@ const makeSessions = () =>
     upsertContact: () => Promise.resolve(),
   });
 
-const makeStream = (
-  protocolId: string,
-  read: ChatStream["read"] = async () => {
-    await Promise.resolve();
-    return undefined;
-  }
-): ChatStream => ({
+const makeStream = (protocolId: string, read?: ChatStream["read"]) => ({
   closeWrite: vi.fn(),
   connId: 3,
   peerId: PEER_BOB,
@@ -143,9 +137,12 @@ describe("createHolder", () => {
       const ready = yield* Deferred.make<boolean>();
       const reset = yield* Deferred.make<boolean>();
       const { errors, out } = makeOut(ready);
+      const unread: (Uint8Array | undefined)[] = [
+        new TextEncoder().encode("{not-a-frame"),
+      ];
       const stream = makeStream(CHAT_PROTOCOL, async () => {
         await Promise.resolve();
-        return new TextEncoder().encode("{not-a-frame");
+        return unread.shift();
       });
       stream.reset.mockImplementation(() => {
         Effect.runSync(Deferred.succeed(reset, true));
@@ -225,11 +222,10 @@ describe("createHolder", () => {
       const ready = yield* Deferred.make<boolean>();
       const started = yield* Deferred.make<boolean>();
       const { out } = makeOut(ready);
+      const hangSlot = yield* Deferred.make<Uint8Array>();
       const hang = () => {
         Effect.runSync(Deferred.succeed(started, true));
-        return new Promise<Uint8Array>(() => {
-          // Hold the inbound slot until the holder scope closes.
-        });
+        return Effect.runPromise(Deferred.await(hangSlot));
       };
       const hanging = Array.from({ length: MAX_INBOUND_STREAMS }, () =>
         makeStream(CHAT_PROTOCOL, hang)
@@ -275,11 +271,10 @@ describe("createHolder", () => {
       const ready = yield* Deferred.make<boolean>();
       const started = yield* Deferred.make<boolean>();
       const { out } = makeOut(ready);
+      const hang = yield* Deferred.make<Uint8Array>();
       const stream = makeStream(CHAT_PROTOCOL, () => {
         Effect.runSync(Deferred.succeed(started, true));
-        return new Promise(() => {
-          // Hang in read so shutdown must interrupt the FiberSet handler.
-        });
+        return Effect.runPromise(Deferred.await(hang));
       });
 
       yield* Effect.scoped(

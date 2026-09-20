@@ -104,4 +104,3 @@ it("runs status while the exclusive lock is held", async () => {
     await rm(root, { force: true, recursive: true });
   }
 }, 10_000);
-
