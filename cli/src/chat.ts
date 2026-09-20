@@ -19,7 +19,7 @@ import type {
   SessionContact,
   SessionContactInput,
 } from "@qop/protocol";
-import { Effect, Schema } from "effect";
+import { Effect, FiberSet, Schema } from "effect";
 
 import { CliConfigError, cliRelays, configuredRegistry } from "./config.ts";
 import type { createCliIdentityStore } from "./identity-store.ts";
@@ -293,6 +293,14 @@ const handleCliInboundSync = Effect.fn("qop.handleCliInboundSync")(function* (
   }
 });
 
+/** Open messages.db, then a handler runtime interrupted before that db closes. */
+export const openChatStore = (root: string) =>
+  Effect.gen(function* () {
+    const messages = yield* openCliOutboxStore(root);
+    const runHandler = yield* FiberSet.makeRuntime();
+    return { messages, runHandler };
+  });
+
 export const runStart = Effect.fn("qop.start")(function* (
   store: ReturnType<typeof createCliIdentityStore>,
   options: {
@@ -354,7 +362,7 @@ export const runStart = Effect.fn("qop.start")(function* (
           return false;
         };
 
-        const messages = yield* openCliOutboxStore(store.root);
+        const { messages, runHandler } = yield* openChatStore(store.root);
         const secretKey = yield* store.loadSecret();
         const relays = cliRelays();
         const chatConfig = {
@@ -405,7 +413,7 @@ export const runStart = Effect.fn("qop.start")(function* (
               return;
             }
             connectionFlushInFlight.add(peerId);
-            Effect.runFork(
+            runHandler(
               outbox
                 .flushOnConnection(
                   Schema.decodeUnknownEffect(PeerId)(peerId).pipe(
@@ -501,7 +509,7 @@ export const runStart = Effect.fn("qop.start")(function* (
                       console.log(`@${frame.fromHandle}: ${frame.text}`);
                     }
                   });
-            Effect.runFork(
+            runHandler(
               inboundProgram.pipe(
                 Effect.ensuring(
                   Effect.sync(() => {
