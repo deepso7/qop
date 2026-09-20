@@ -293,14 +293,6 @@ const handleCliInboundSync = Effect.fn("qop.handleCliInboundSync")(function* (
   }
 });
 
-/** Open messages.db, then a handler runtime interrupted before that db closes. */
-export const openChatStore = (root: string) =>
-  Effect.gen(function* () {
-    const messages = yield* openCliOutboxStore(root);
-    const runHandler = yield* FiberSet.makeRuntime();
-    return { messages, runHandler };
-  });
-
 export const runStart = Effect.fn("qop.start")(function* (
   store: ReturnType<typeof createCliIdentityStore>,
   options: {
@@ -362,7 +354,10 @@ export const runStart = Effect.fn("qop.start")(function* (
           return false;
         };
 
-        const { messages, runHandler } = yield* openChatStore(store.root);
+        // FiberSet is acquired after the store so LIFO finalizers interrupt
+        // (and await) connection-flush / inbound fibers before db.close().
+        const messages = yield* openCliOutboxStore(store.root);
+        const runHandler = yield* FiberSet.makeRuntime();
         const secretKey = yield* store.loadSecret();
         const relays = cliRelays();
         const chatConfig = {
