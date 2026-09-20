@@ -72,7 +72,8 @@ const openStoreInChild = (root: string) =>
     child.once("error", (error: Error) => {
       finish(Effect.fail(error));
     });
-    child.once("exit", (code) => {
+    // Prefer "close" over "exit" so stdout/stderr are fully drained first.
+    child.once("close", (code) => {
       if (code === 0) {
         finish(Effect.succeed(stdout));
         return;
