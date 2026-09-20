@@ -314,22 +314,24 @@ export const createOutboxRuntime = Effect.fn("qop.createOutboxRuntime")(
         yield* flushDueOrAnnounce(
           ignoreBackoffForQids.length > 0 ? { ignoreBackoffForQids } : undefined
         );
-        const pending = yield* store.queued().pipe(
-          Effect.catchTag("CliOutboxStoreError", (error) =>
-            Effect.sync((): OutboxRecordV1[] => {
-              announceStoreError(error);
-              return [];
-            })
-          )
-        );
+        const pendingResult = yield* store.queued().pipe(Effect.result);
+        let pending: readonly OutboxRecordV1[] = [];
+        let sleepFor: number | undefined;
         const at = now();
-        const sleepFor =
-          pending.length === 0
-            ? undefined
-            : Math.max(
-                0,
-                Math.min(...pending.map((record) => record.nextAttemptAt)) - at
-              );
+        if (pendingResult._tag === "Failure") {
+          // Don't treat a failed read as an empty outbox (that parks forever).
+          announceStoreError(pendingResult.failure);
+          sleepFor = OUTBOX_INITIAL_BACKOFF_MS;
+        } else {
+          pending = pendingResult.success;
+          if (pending.length > 0) {
+            // Due rows left queued after a swallowed write must not spin at 0.
+            sleepFor = Math.max(
+              OUTBOX_INITIAL_BACKOFF_MS,
+              Math.min(...pending.map((record) => record.nextAttemptAt)) - at
+            );
+          }
+        }
         const taken = yield* takeWakes(sleepFor);
         const drained = yield* Queue.clear(wakes);
         const seen = [...taken, ...drained];

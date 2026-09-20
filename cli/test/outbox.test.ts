@@ -4,7 +4,8 @@ import path from "node:path";
 
 import { describe, expect, it } from "@effect/vitest";
 import type { OutboxRecordV1, RegistryAccount } from "@qop/protocol";
-import { Deferred, Effect, Fiber } from "effect";
+import { Deferred, Duration, Effect, Fiber } from "effect";
+import { TestClock } from "effect/testing";
 
 import {
   CliOutboxStoreError,
@@ -688,6 +689,99 @@ describe("CLI outbox retry", () => {
           "sent",
           "store-error",
         ]);
+        yield* Fiber.interrupt(fiber);
+      })
+  );
+
+  it.effect(
+    "retries durable queued records after a transient queued() read failure",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        const inner = yield* openCliOutboxStore(root);
+        const sent = yield* Deferred.make<boolean>();
+        const storeError = yield* Deferred.make<boolean>();
+        let remainingFails = 2;
+        let delivered = false;
+        const store = {
+          ...inner,
+          queued: () => {
+            if (remainingFails > 0) {
+              remainingFails -= 1;
+              return Effect.fail(
+                new CliOutboxStoreError({ operation: "read" })
+              );
+            }
+            return inner.queued();
+          },
+        };
+        const outbox = yield* createOutboxRuntime({
+          deliver: () =>
+            Effect.sync(() => {
+              delivered = true;
+              Effect.runSync(Deferred.succeed(sent, true));
+            }),
+          lookupHandle: () => Effect.succeed(account),
+          now: () => 1000,
+          onEvent: (event) => {
+            if (event.kind === "store-error") {
+              Effect.runSync(Deferred.succeed(storeError, true));
+            }
+          },
+          store,
+        });
+        yield* inner.enqueue(recordFor());
+        const fiber = yield* Effect.forkChild(outbox.run);
+        yield* Deferred.await(storeError);
+        for (let i = 0; i < 50; i += 1) {
+          yield* Effect.yieldNow;
+        }
+        expect(delivered).toBe(false);
+        yield* TestClock.adjust(Duration.millis(OUTBOX_INITIAL_BACKOFF_MS + 1));
+        yield* Deferred.await(sent);
+        expect(yield* inner.queued()).toEqual([]);
+        yield* Fiber.interrupt(fiber);
+      })
+  );
+
+  it.effect(
+    "does not re-deliver a written frame while a sent mark is failing",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        const inner = yield* openCliOutboxStore(root);
+        const store = {
+          ...inner,
+          put: () =>
+            Effect.fail(new CliOutboxStoreError({ operation: "write" })),
+        };
+        const attempts: number[] = [];
+        const first = yield* Deferred.make<boolean>();
+        const second = yield* Deferred.make<boolean>();
+        const outbox = yield* createOutboxRuntime({
+          deliver: () =>
+            Effect.sync(() => {
+              attempts.push(attempts.length + 1);
+              if (attempts.length === 1) {
+                Effect.runSync(Deferred.succeed(first, true));
+              } else if (attempts.length === 2) {
+                Effect.runSync(Deferred.succeed(second, true));
+              }
+            }),
+          lookupHandle: () => Effect.succeed(account),
+          now: () => 1000,
+          store,
+        });
+        yield* inner.enqueue(recordFor());
+        const fiber = yield* Effect.forkChild(outbox.run);
+        yield* Deferred.await(first);
+        for (let i = 0; i < 200; i += 1) {
+          yield* Effect.yieldNow;
+        }
+        expect(attempts).toEqual([1]);
+        yield* TestClock.adjust(Duration.millis(OUTBOX_INITIAL_BACKOFF_MS + 1));
+        yield* Deferred.await(second);
+        expect(attempts).toEqual([1, 2]);
         yield* Fiber.interrupt(fiber);
       })
   );
