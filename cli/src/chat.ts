@@ -35,6 +35,7 @@ import {
   CliOutboxDeliverError,
   createOutboxRuntime,
   describeOutboxEvent,
+  newOutboxRecord,
 } from "./outbox.ts";
 import {
   isMessagingLifecycleAllowed,
@@ -49,6 +50,8 @@ export const UNREADABLE_INBOUND_CHAT = "Inbound chat frame was unreadable";
 const INBOUND_READ_TIMEOUT_MS = 15_000;
 export const OUTBOUND_ACK_TIMEOUT_MS = 15_000;
 export const CHAT_CONNECT_TIMEOUT_MS = 15_000;
+/** Hard bound on the concurrent roster dial phase, before any chat write. */
+export const CHAT_DIAL_BUDGET_MS = 30_000;
 
 export interface ChatStream extends PeerConnection {
   readonly closeWrite: () => void;
@@ -210,71 +213,87 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
   transport: ChatTransport,
   sessions: ReturnType<typeof createPeerSessions>,
   recipient: { readonly handle: string; readonly qid: string },
-  frame: ChatFrame
+  frame: ChatFrame,
+  account?: RegistryAccount
 ) {
   const peerIds = yield* sessions
-    .recipientPeerIds(recipient)
+    .recipientPeerIds(recipient, account)
     .pipe(Effect.mapError(asDeliverError));
-  let lastError: CliOutboxDeliverError | undefined;
-  for (const peerId of peerIds) {
-    const opened = yield* openAuthorizedChatStream(
-      transport,
-      sessions,
-      peerId,
-      recipient
-    ).pipe(Effect.mapError(asDeliverError), Effect.result);
-    if (opened._tag === "Failure") {
-      lastError = asDeliverError(opened.failure);
-      continue;
-    }
-    const stream = opened.success;
-    // A verified stream is committed — do not fall through after a write.
-    return yield* Effect.gen(function* () {
-      // Recheck immediately before write: SIGCONT/stall can invalidate after verify.
-      if (!sessions.isVerified(stream, recipient.qid)) {
-        return yield* Effect.fail(
-          new CliOutboxDeliverError({ operation: "unauthorized" })
-        );
-      }
-      yield* Effect.try({
-        catch: asDeliverError,
-        try: () => {
-          stream.write(encodeFrame(frame));
-          stream.closeWrite();
-        },
-      });
-      const ackBytes = yield* Effect.tryPromise({
-        catch: asDeliverError,
-        try: () => readUntilEof(() => stream.read()),
-      }).pipe(
-        Effect.timeoutOrElse({
-          duration: OUTBOUND_ACK_TIMEOUT_MS,
-          orElse: () =>
-            Effect.fail(new CliOutboxDeliverError({ operation: "timeout" })),
-        })
-      );
-      const ack = yield* Effect.try({
-        catch: asDeliverError,
-        try: () => decodeAck(ackBytes),
-      });
-      yield* Effect.try({
-        catch: asDeliverError,
-        try: () => {
-          assertAckMatches(ack, frame.id);
-        },
-      });
-    }).pipe(
-      Effect.onExit((exit) =>
-        exit._tag === "Success"
-          ? Effect.void
-          : Effect.sync(() => {
+  if (peerIds.length === 0) {
+    return yield* new CliOutboxDeliverError({ operation: "transport" });
+  }
+  // Dial the roster concurrently; the first *authorized* stream wins.
+  // Exactly one stream survives: a late second success resets itself.
+  // Never write a chat frame before this claim succeeds.
+  let claimed = false;
+  const dial = (peerId: string) =>
+    openAuthorizedChatStream(transport, sessions, peerId, recipient).pipe(
+      Effect.flatMap((stream) =>
+        Effect.uninterruptible(
+          Effect.suspend(() => {
+            if (claimed) {
               stream.reset();
-            })
+              return Effect.fail(
+                new CliOutboxDeliverError({ operation: "transport" })
+              );
+            }
+            claimed = true;
+            return Effect.succeed(stream);
+          })
+        )
       )
     );
-  }
-  return yield* Effect.fail(
-    lastError ?? new CliOutboxDeliverError({ operation: "transport" })
+  const stream = yield* Effect.raceAll(peerIds.map(dial)).pipe(
+    Effect.timeoutOrElse({
+      duration: CHAT_DIAL_BUDGET_MS,
+      orElse: () =>
+        Effect.fail(new CliOutboxDeliverError({ operation: "timeout" })),
+    }),
+    Effect.mapError(asDeliverError)
+  );
+  // A verified stream is committed — there is no fallback loop after a write.
+  return yield* Effect.gen(function* () {
+    // Recheck immediately before write: SIGCONT/stall can invalidate after verify.
+    if (!sessions.isVerified(stream, recipient.qid)) {
+      return yield* Effect.fail(
+        new CliOutboxDeliverError({ operation: "unauthorized" })
+      );
+    }
+    yield* Effect.try({
+      catch: asDeliverError,
+      try: () => {
+        stream.write(encodeFrame(frame));
+        stream.closeWrite();
+      },
+    });
+    const ackBytes = yield* Effect.tryPromise({
+      catch: asDeliverError,
+      try: () => readUntilEof(() => stream.read()),
+    }).pipe(
+      Effect.timeoutOrElse({
+        duration: OUTBOUND_ACK_TIMEOUT_MS,
+        orElse: () =>
+          Effect.fail(new CliOutboxDeliverError({ operation: "timeout" })),
+      })
+    );
+    const ack = yield* Effect.try({
+      catch: asDeliverError,
+      try: () => decodeAck(ackBytes),
+    });
+    yield* Effect.try({
+      catch: asDeliverError,
+      try: () => {
+        assertAckMatches(ack, frame.id);
+      },
+    });
+  }).pipe(
+    Effect.onExit((exit) =>
+      exit._tag === "Success"
+        ? Effect.void
+        : Effect.sync(() => {
+            stream.reset();
+          })
+    )
   );
 });
 
@@ -367,8 +386,8 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
 
   const runHandler = yield* FiberSet.makeRuntime();
   let inbound = 0;
-  const outbox = createOutboxRuntime({
-    deliver: (record) => {
+  const outbox = yield* createOutboxRuntime({
+    deliver: (record, account) => {
       if (guardSensitive()) {
         return Effect.fail(
           new CliOutboxDeliverError({ operation: "unauthorized" })
@@ -378,10 +397,19 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
         endpoint,
         sessions,
         { handle: record.toHandle, qid: record.toQid },
-        record.frame
+        record.frame,
+        account
       );
     },
     lookupHandle: reader.lookupHandle,
+    lookupPeerQid: (peerId) =>
+      Schema.decodeUnknownEffect(PeerId)(peerId).pipe(
+        Effect.flatMap(deviceKeyFromPeerId),
+        Effect.flatMap((deviceKey) => Schema.encodeEffect(Hex32)(deviceKey)),
+        Effect.flatMap(reader.lookupDeviceKey),
+        Effect.map((account) => account?.qid.toString()),
+        Effect.orElseSucceed((): string | undefined => undefined)
+      ),
     onEvent: (event) => {
       const line = describeOutboxEvent(event);
       if (event.kind === "failed" || event.kind === "store-error") {
@@ -394,35 +422,9 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
   });
 
   lifecycle.adapter.observe();
-  const connectionFlushInFlight = new Set<string>();
   endpoint.on("connectionEstablished", (connection) => {
     sessions.opened(connection);
-    const { peerId } = connection;
-    if (connectionFlushInFlight.has(peerId)) {
-      return;
-    }
-    connectionFlushInFlight.add(peerId);
-    runHandler(
-      outbox
-        .flushOnConnection(
-          Schema.decodeUnknownEffect(PeerId)(peerId).pipe(
-            Effect.flatMap(deviceKeyFromPeerId),
-            Effect.flatMap((deviceKey) =>
-              Schema.encodeEffect(Hex32)(deviceKey)
-            ),
-            Effect.flatMap(reader.lookupDeviceKey),
-            Effect.map((account) => account?.qid.toString()),
-            Effect.orElseSucceed((): string | undefined => undefined)
-          )
-        )
-        .pipe(
-          Effect.ensuring(
-            Effect.sync(() => {
-              connectionFlushInFlight.delete(peerId);
-            })
-          )
-        )
-    );
+    Effect.runSync(outbox.wake(connection.peerId));
   });
   endpoint.on("connectionClosed", (connection) => {
     sessions.closed(connection);
@@ -449,7 +451,10 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
               handle: identity.handle,
               qid: identity.qid,
             },
-            messages,
+            {
+              enqueue: outbox.enqueue,
+              getByIds: messages.getByIds,
+            },
             guardSensitive,
             out
           )
@@ -533,17 +538,20 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
     } else {
       const recipient = yield* reader.lookupHandle(options.to);
       if (recipient) {
-        yield* outbox.enqueue({
-          frame: {
-            fromHandle: identity.handle,
-            id: crypto.randomUUID(),
-            sentAt: Date.now(),
-            text: options.message,
-            v: 1,
-          },
-          toHandle: recipient.handle,
-          toQid: recipient.qid.toString(),
-        });
+        yield* outbox.enqueue(
+          newOutboxRecord({
+            frame: {
+              fromHandle: identity.handle,
+              id: crypto.randomUUID(),
+              sentAt: Date.now(),
+              text: options.message,
+              v: 1,
+            },
+            now: Date.now(),
+            toHandle: recipient.handle,
+            toQid: recipient.qid.toString(),
+          })
+        );
       } else {
         out.error(`Account @${options.to} was not found.`);
       }

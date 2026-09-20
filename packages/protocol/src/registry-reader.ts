@@ -260,15 +260,25 @@ export const createRegistryReader = ({
     },
     preferredDeviceKey?: string
   ) {
-    const result = yield* readContract(
-      withOptionalBlockNumber(
-        {
-          abi: registryAbi,
-          args: [qid],
-          functionName: "account",
-        },
-        head.blockNumber
-      )
+    // Issue both reads at the captured head together. Sequential await would
+    // keep them as two HTTP round-trips; concurrent start lets viem
+    // `batch: true` collapse the pair. Freshness is unchanged: both are
+    // pinned to `head.blockNumber`.
+    const [result, devices] = yield* Effect.all(
+      [
+        readContract(
+          withOptionalBlockNumber(
+            {
+              abi: registryAbi,
+              args: [qid],
+              functionName: "account",
+            },
+            head.blockNumber
+          )
+        ),
+        listActiveDevicesAt(qid, head.blockNumber),
+      ],
+      { concurrency: 2 }
     );
     const {
       owner: ownerInput,
@@ -282,7 +292,6 @@ export const createRegistryReader = ({
     const owner = yield* Schema.decodeUnknownEffect(EthereumAddress)(
       ownerInput.toLowerCase()
     ).pipe(Effect.mapError(() => readerError("decode")));
-    const devices = yield* listActiveDevicesAt(qid, head.blockNumber);
     const preferred = preferredDeviceKey?.toLowerCase();
     // Do not fall back to devices[0] before membership check — a stale
     // qidByDeviceKey hit must not return another device's account.

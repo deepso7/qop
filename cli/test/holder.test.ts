@@ -3,13 +3,17 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { describe, expect, it } from "@effect/vitest";
+import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
 import {
   CHAT_PROTOCOL,
   createLifecycleAdapter,
   createPeerSessions,
+  encodeAck,
+  encodeSyncRequestV1,
+  SYNC_PROTOCOL,
 } from "@qop/protocol";
-import type { RegistryAccount } from "@qop/protocol";
-import { Deferred, Effect } from "effect";
+import type { OutboxRecordV1, RegistryAccount } from "@qop/protocol";
+import { Deferred, Effect, Schema } from "effect";
 import { vi } from "vitest";
 
 import {
@@ -21,6 +25,7 @@ import type { ChatStream, HolderEndpoint } from "../src/chat.ts";
 import { openCliOutboxStore } from "../src/outbox-store.ts";
 
 const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
+const PEER_CAROL = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
 const bobDeviceKey = `0x${"22".repeat(32)}`;
 
 const account: RegistryAccount = {
@@ -86,8 +91,10 @@ const makeStream = (protocolId: string, read?: ChatStream["read"]) => ({
 
 const makeEndpoint = () => {
   const listeners = new Map<string, ((value: ChatStream) => void)[]>();
+  const openStream = vi.fn();
   const endpoint: HolderEndpoint & {
     emit: (event: string, value: ChatStream) => void;
+    openStream: typeof openStream;
   } = {
     close: vi.fn(),
     connect: vi.fn().mockResolvedValue({}),
@@ -102,7 +109,7 @@ const makeEndpoint = () => {
       existing.push(listener);
       listeners.set(event, existing);
     }),
-    openStream: vi.fn(),
+    openStream,
     waitPeerReady: vi.fn().mockResolvedValue({}),
   };
   return endpoint;
@@ -306,6 +313,146 @@ describe("createHolder", () => {
         Effect.flatMap((messages) => messages.loadInbox())
       );
       expect(inbox).toEqual([]);
+    })
+  );
+
+  it.live("delivers a sync handoff without waiting for a poll timer", () =>
+    Effect.gen(function* () {
+      const root = yield* withTempRoot;
+      yield* Effect.tryPromise(() => chmod(root, 0o700));
+      const aliceDeviceKey = yield* Schema.decodeUnknownEffect(PeerId)(
+        PEER_BOB
+      ).pipe(
+        Effect.flatMap(deviceKeyFromPeerId),
+        Effect.flatMap((deviceKey) => Schema.encodeEffect(Hex32)(deviceKey))
+      );
+      const carolDeviceKey = yield* Schema.decodeUnknownEffect(PeerId)(
+        PEER_CAROL
+      ).pipe(
+        Effect.flatMap(deviceKeyFromPeerId),
+        Effect.flatMap((deviceKey) => Schema.encodeEffect(Hex32)(deviceKey))
+      );
+      const aliceAccount: RegistryAccount = {
+        blockNumber: 1n,
+        deviceKey: aliceDeviceKey,
+        devices: [{ deviceKey: aliceDeviceKey, peerId: PEER_BOB }],
+        freshness: "fresh",
+        handle: "alice",
+        nonce: 0n,
+        owner: "0x0000000000000000000000000000000000000001",
+        ownerVersion: 0,
+        peerId: PEER_BOB,
+        qid: 1n,
+        registeredAt: 1n,
+      };
+      const bobAccount: RegistryAccount = {
+        ...aliceAccount,
+        deviceKey: carolDeviceKey,
+        devices: [{ deviceKey: carolDeviceKey, peerId: PEER_CAROL }],
+        handle: "bob",
+        peerId: PEER_CAROL,
+        qid: 2n,
+      };
+      const lookupAccount = (key: string) => {
+        if (key === aliceDeviceKey) {
+          return Effect.succeed(aliceAccount);
+        }
+        if (key === carolDeviceKey) {
+          return Effect.succeed(bobAccount);
+        }
+        return Effect.succeed(null);
+      };
+      const sessions = createPeerSessions({
+        getContactByQid: () => Promise.resolve(null),
+        lookupDeviceKey: lookupAccount,
+        lookupHandle: (handle) =>
+          Effect.succeed(handle === "bob" ? bobAccount : aliceAccount),
+        ownQid: () => identity.qid,
+        upsertContact: () => Promise.resolve(),
+      });
+      const endpoint = makeEndpoint();
+      const ready = yield* Deferred.make<boolean>();
+      const sent = yield* Deferred.make<boolean>();
+      const { lines, out } = makeOut(ready);
+      const originalLog = out.log;
+      out.log = (line: string) => {
+        originalLog(line);
+        if (line.startsWith("Sent to @bob")) {
+          Effect.runSync(Deferred.succeed(sent, true));
+        }
+      };
+      const queued: OutboxRecordV1 = {
+        attempts: 0,
+        frame: {
+          fromHandle: "alice",
+          id: "c56a4180-65aa-42ec-a945-5fd21dec0538",
+          sentAt: 1_700_000_000_000,
+          text: "hello",
+          v: 1,
+        },
+        lastError: null,
+        nextAttemptAt: 1_700_000_000_000,
+        queuedAt: 1_700_000_000_000,
+        status: "queued",
+        toHandle: "bob",
+        toQid: "2",
+        updatedAt: 1_700_000_000_000,
+        v: 1,
+      };
+      const handoffBytes = yield* encodeSyncRequestV1({
+        composedBy: aliceDeviceKey,
+        record: queued,
+        type: "handoff",
+        v: 1,
+      });
+      const unread: (Uint8Array | undefined)[] = [handoffBytes, undefined];
+      const syncStream = makeStream(SYNC_PROTOCOL, async () => {
+        await Promise.resolve();
+        return unread.shift();
+      });
+      const ackUnread = [encodeAck({ ack: queued.frame.id, v: 1 }), undefined];
+      const bobStream = makeStream(CHAT_PROTOCOL, async () => {
+        await Promise.resolve();
+        return ackUnread.shift();
+      });
+      bobStream.connId = 4;
+      bobStream.peerId = PEER_CAROL;
+      endpoint.openStream.mockImplementation(
+        (peerId: string, protocolId: string) => {
+          expect(peerId).toBe(PEER_CAROL);
+          expect(protocolId).toBe(CHAT_PROTOCOL);
+          return Promise.resolve(bobStream);
+        }
+      );
+
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const messages = yield* openCliOutboxStore(root);
+          yield* Effect.forkChild(
+            createHolder({
+              endpoint,
+              identity,
+              lifecycle: makeLifecycle(),
+              messages,
+              out,
+              reader: {
+                lookupDeviceKey: lookupAccount,
+                lookupHandle: (handle) =>
+                  Effect.succeed(handle === "bob" ? bobAccount : aliceAccount),
+              },
+              sessions,
+            })
+          );
+          yield* Deferred.await(ready);
+          endpoint.emit("stream", syncStream);
+          yield* Deferred.await(sent);
+        })
+      );
+
+      expect(lines.some((line) => line.startsWith("Queued for @bob"))).toBe(
+        true
+      );
+      expect(bobStream.write).toHaveBeenCalledOnce();
     })
   );
 });

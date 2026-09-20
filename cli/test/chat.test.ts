@@ -14,7 +14,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   ackInboundChatFrame,
-  CHAT_CONNECT_TIMEOUT_MS,
+  CHAT_DIAL_BUDGET_MS,
   deliverChatFrame,
   OUTBOUND_ACK_TIMEOUT_MS,
   openAuthorizedChatStream,
@@ -22,7 +22,9 @@ import {
 import { CliOutboxStoreError } from "../src/outbox-store.ts";
 
 const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
+const PEER_CLI = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
 const bobDeviceKey = `0x${"22".repeat(32)}`;
+const cliDeviceKey = `0x${"33".repeat(32)}`;
 
 const account: RegistryAccount = {
   blockNumber: 1n,
@@ -468,61 +470,52 @@ describe("deliverChatFrame", () => {
     })
   );
 
-  it("falls through to the next roster device when the first dial fails", async () => {
-    const peerCli = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
-    const cliDeviceKey = `0x${"33".repeat(32)}`;
-    const multiAccount: RegistryAccount = {
-      ...account,
-      devices: [
-        { deviceKey: bobDeviceKey, peerId: PEER_BOB },
-        { deviceKey: cliDeviceKey, peerId: peerCli },
-      ],
-    };
-    const sessions = createPeerSessions({
-      getContactByQid: () => Promise.resolve(null),
-      lookupDeviceKey: () => Effect.succeed(multiAccount),
-      lookupHandle: () => Effect.succeed(multiAccount),
-      upsertContact: () => Promise.resolve(),
-    });
-    const stream = makeStream();
-    stream.peerId = peerCli;
-    const unread = [encodeAck({ ack: chatFrame.id, v: 1 })];
-    stream.read.mockImplementation(async () => {
-      await Promise.resolve();
-      return unread.shift();
-    });
-    const transport = {
-      connect: vi.fn((peerId: string) => {
-        if (peerId === PEER_BOB) {
-          return Promise.reject(new Error("phone offline"));
-        }
-        return Promise.resolve({});
-      }),
-      connectedPeers: vi.fn((): string[] => []),
-      openStream: vi.fn().mockResolvedValue(stream),
-      waitPeerReady: vi.fn().mockResolvedValue({}),
-    };
-    await Effect.runPromise(
-      deliverChatFrame(transport, sessions, bobRecipient, chatFrame)
-    );
-    expect(transport.connect).toHaveBeenCalledWith(PEER_BOB, {
-      timeoutMs: CHAT_CONNECT_TIMEOUT_MS,
-    });
-    expect(transport.connect).toHaveBeenCalledWith(peerCli, {
-      timeoutMs: CHAT_CONNECT_TIMEOUT_MS,
-    });
-    expect(stream.write).toHaveBeenCalledOnce();
-    expect(stream.reset).not.toHaveBeenCalled();
-  });
+  itEffect.effect("first authorized device wins while another dial hangs", () =>
+    Effect.gen(function* () {
+      const multiAccount: RegistryAccount = {
+        ...account,
+        devices: [
+          { deviceKey: bobDeviceKey, peerId: PEER_BOB },
+          { deviceKey: cliDeviceKey, peerId: PEER_CLI },
+        ],
+      };
+      const sessions = createPeerSessions({
+        getContactByQid: () => Promise.resolve(null),
+        lookupDeviceKey: () => Effect.succeed(multiAccount),
+        lookupHandle: () => Effect.succeed(multiAccount),
+        upsertContact: () => Promise.resolve(),
+      });
+      const hang = yield* Deferred.make<{ readonly peerId?: string }>();
+      const stream = makeStream();
+      stream.peerId = PEER_CLI;
+      const unread = [encodeAck({ ack: chatFrame.id, v: 1 })];
+      stream.read.mockImplementation(async () => {
+        await Promise.resolve();
+        return unread.shift();
+      });
+      const transport = {
+        connect: vi.fn((peerId: string) => {
+          if (peerId === PEER_BOB) {
+            return Effect.runPromise(Deferred.await(hang));
+          }
+          return Promise.resolve({});
+        }),
+        connectedPeers: vi.fn((): string[] => []),
+        openStream: vi.fn().mockResolvedValue(stream),
+        waitPeerReady: vi.fn().mockResolvedValue({}),
+      };
+      yield* deliverChatFrame(transport, sessions, bobRecipient, chatFrame);
+      expect(stream.write).toHaveBeenCalledOnce();
+      expect(stream.reset).not.toHaveBeenCalled();
+    })
+  );
 
-  it("falls through when a live authorized phone cannot be dialed", async () => {
-    const peerCli = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
-    const cliDeviceKey = `0x${"33".repeat(32)}`;
+  it("two dials authorize — exactly one write, the other reset", async () => {
     const multiAccount: RegistryAccount = {
       ...account,
       devices: [
         { deviceKey: bobDeviceKey, peerId: PEER_BOB },
-        { deviceKey: cliDeviceKey, peerId: peerCli },
+        { deviceKey: cliDeviceKey, peerId: PEER_CLI },
       ],
     };
     const sessions = createPeerSessions({
@@ -532,36 +525,146 @@ describe("deliverChatFrame", () => {
       upsertContact: () => Promise.resolve(),
     });
     const phone = makeStream();
-    sessions.opened(phone);
-    await Effect.runPromise(sessions.verify(phone, bobRecipient.handle));
+    const cli = makeStream();
+    cli.connId = 4;
+    cli.peerId = PEER_CLI;
+    const ackPhone = [encodeAck({ ack: chatFrame.id, v: 1 })];
+    const ackCli = [encodeAck({ ack: chatFrame.id, v: 1 })];
+    phone.read.mockImplementation(async () => {
+      await Promise.resolve();
+      return ackPhone.shift();
+    });
+    cli.read.mockImplementation(async () => {
+      await Promise.resolve();
+      return ackCli.shift();
+    });
+    const transport = {
+      connect: vi.fn().mockResolvedValue({}),
+      connectedPeers: vi.fn((): string[] => []),
+      openStream: vi.fn((peerId: string) =>
+        Promise.resolve(peerId === PEER_BOB ? phone : cli)
+      ),
+      waitPeerReady: vi.fn().mockResolvedValue({}),
+    };
+    await Effect.runPromise(
+      deliverChatFrame(transport, sessions, bobRecipient, chatFrame)
+    );
+    const phoneWrote = phone.write.mock.calls.length > 0;
+    const cliWrote = cli.write.mock.calls.length > 0;
+    expect(Number(phoneWrote) + Number(cliWrote)).toBe(1);
+    expect(phone.reset.mock.calls.length + cli.reset.mock.calls.length).toBe(1);
+    expect(phoneWrote).toBe(phone.reset.mock.calls.length === 0);
+    expect(cliWrote).toBe(cli.reset.mock.calls.length === 0);
+  });
+
+  it("all dials fail → transport error, nothing written", async () => {
+    const multiAccount: RegistryAccount = {
+      ...account,
+      devices: [
+        { deviceKey: bobDeviceKey, peerId: PEER_BOB },
+        { deviceKey: cliDeviceKey, peerId: PEER_CLI },
+      ],
+    };
+    const sessions = createPeerSessions({
+      getContactByQid: () => Promise.resolve(null),
+      lookupDeviceKey: () => Effect.succeed(multiAccount),
+      lookupHandle: () => Effect.succeed(multiAccount),
+      upsertContact: () => Promise.resolve(),
+    });
+    const phone = makeStream();
+    const cli = makeStream();
+    cli.connId = 4;
+    cli.peerId = PEER_CLI;
+    const transport = {
+      connect: vi.fn().mockRejectedValue(new Error("offline")),
+      connectedPeers: vi.fn((): string[] => []),
+      openStream: vi.fn(),
+      waitPeerReady: vi.fn(),
+    };
+    await expect(
+      Effect.runPromise(
+        deliverChatFrame(transport, sessions, bobRecipient, chatFrame)
+      )
+    ).rejects.toMatchObject({
+      _tag: "CliOutboxDeliverError",
+      operation: "transport",
+    });
+    expect(phone.write).not.toHaveBeenCalled();
+    expect(cli.write).not.toHaveBeenCalled();
+    expect(transport.openStream).not.toHaveBeenCalled();
+  });
+
+  itEffect.effect("dial budget expires → timeout error, all dials reset", () =>
+    Effect.gen(function* () {
+      const multiAccount: RegistryAccount = {
+        ...account,
+        devices: [
+          { deviceKey: bobDeviceKey, peerId: PEER_BOB },
+          { deviceKey: cliDeviceKey, peerId: PEER_CLI },
+        ],
+      };
+      const sessions = createPeerSessions({
+        getContactByQid: () => Promise.resolve(null),
+        lookupDeviceKey: () => Effect.succeed(multiAccount),
+        lookupHandle: () => Effect.succeed(multiAccount),
+        upsertContact: () => Promise.resolve(),
+      });
+      const hang = yield* Deferred.make<never>();
+      const phone = makeStream();
+      const cli = makeStream();
+      cli.connId = 4;
+      cli.peerId = PEER_CLI;
+      const transport = {
+        connect: vi.fn(() => Effect.runPromise(Deferred.await(hang))),
+        connectedPeers: vi.fn((): string[] => []),
+        openStream: vi.fn(),
+        waitPeerReady: vi.fn(),
+      };
+      const fiber = yield* Effect.forkChild(
+        deliverChatFrame(transport, sessions, bobRecipient, chatFrame)
+      );
+      yield* TestClock.adjust(Duration.millis(CHAT_DIAL_BUDGET_MS + 1));
+      const result = yield* Fiber.join(fiber).pipe(Effect.result);
+      expect(result._tag).toBe("Failure");
+      if (result._tag === "Failure") {
+        expect(result.failure).toMatchObject({
+          _tag: "CliOutboxDeliverError",
+          operation: "timeout",
+        });
+      }
+      expect(phone.write).not.toHaveBeenCalled();
+      expect(cli.write).not.toHaveBeenCalled();
+    })
+  );
+
+  it("deliverChatFrame with a provided account never calls lookupHandle", async () => {
+    const lookupHandle = vi.fn(() => Effect.succeed(account));
+    const sessions = createPeerSessions({
+      getContactByQid: () => Promise.resolve(null),
+      lookupDeviceKey: () => Effect.succeed(account),
+      lookupHandle,
+      upsertContact: () => Promise.resolve(),
+    });
     const stream = makeStream();
-    stream.connId = 4;
-    stream.peerId = peerCli;
     const unread = [encodeAck({ ack: chatFrame.id, v: 1 })];
     stream.read.mockImplementation(async () => {
       await Promise.resolve();
       return unread.shift();
     });
     const transport = {
-      connect: vi.fn((peerId: string) => {
-        if (peerId === PEER_BOB) {
-          return Promise.reject(new Error("phone offline"));
-        }
-        return Promise.resolve({});
-      }),
-      connectedPeers: vi.fn((): string[] => []),
+      connect: vi.fn(),
+      connectedPeers: vi.fn((): string[] => [PEER_BOB]),
       openStream: vi.fn().mockResolvedValue(stream),
-      waitPeerReady: vi.fn().mockResolvedValue({}),
+      waitPeerReady: vi.fn(async () => {
+        await Promise.resolve();
+        return {};
+      }),
     };
     await Effect.runPromise(
-      deliverChatFrame(transport, sessions, bobRecipient, chatFrame)
+      deliverChatFrame(transport, sessions, bobRecipient, chatFrame, account)
     );
-    expect(transport.connect.mock.calls.map(([peerId]) => peerId)).toEqual([
-      PEER_BOB,
-      peerCli,
-    ]);
+    expect(lookupHandle).not.toHaveBeenCalled();
     expect(stream.write).toHaveBeenCalledOnce();
-    expect(stream.reset).not.toHaveBeenCalled();
   });
 });
 

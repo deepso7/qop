@@ -295,12 +295,21 @@ export const createPeerSessions = ({
 
   /** Live auth first, then the rest of the roster. Lookup failure keeps live auth only. */
   const recipientPeerIds = Effect.fn("PeerSessions.recipientPeerIds")(
-    function* (contact: Pick<SessionContact, "handle" | "qid">) {
+    function* (
+      contact: Pick<SessionContact, "handle" | "qid">,
+      // Dial hints only. Authorization still comes from verify's own
+      // lookupDeviceKey at a fresh, strictly-newer head with the 60 s window.
+      // Do not pass the account into verify; do not use it to extend or seed
+      // the auth cache.
+      accountHint?: RegistryAccount
+    ) {
       const authorized = authorizedPeerIds(contact);
-      const lookedUp = yield* lookupHandle(contact.handle).pipe(
-        Effect.mapError(mapLookupError),
-        Effect.result
-      );
+      const lookedUp = accountHint
+        ? { _tag: "Success" as const, success: accountHint }
+        : yield* lookupHandle(contact.handle).pipe(
+            Effect.mapError(mapLookupError),
+            Effect.result
+          );
       if (lookedUp._tag === "Failure") {
         if (authorized.length > 0) {
           return authorized;
