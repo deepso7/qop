@@ -24,12 +24,12 @@ const store = createCliIdentityStore(
 );
 
 const withLock = <A, E, R>(program: Effect.Effect<A, E, R>) =>
-  Effect.gen(function* () {
-    const lock = yield* store.acquireLock();
-    return yield* program.pipe(
-      Effect.ensuring(lock.release.pipe(Effect.ignore))
-    );
-  });
+  Effect.scoped(
+    Effect.gen(function* () {
+      yield* store.acquireLock();
+      return yield* program;
+    })
+  );
 
 const runStatus = Effect.fn("qop.status")(function* () {
   const identity = yield* store.loadIdentity();
@@ -49,13 +49,15 @@ const runStatus = Effect.fn("qop.status")(function* () {
     `state    ${membership?.qid.toString() === identity.qid ? "linked" : "not linked"}`
   );
   const queued = yield* Effect.scoped(
-    openCliOutboxStore(store.root).pipe(
+    openCliOutboxStore(store.root, { readOnly: true }).pipe(
       Effect.flatMap((messages) => messages.queuedCount())
     )
   ).pipe(
     Effect.map((count) => `outbox   ${count} queued`),
-    Effect.catchTag("CliOutboxStoreError", () =>
-      Effect.succeed("outbox   unreadable")
+    Effect.catchTag("CliOutboxStoreError", (error) =>
+      error.operation === "absent"
+        ? Effect.succeed("outbox   0 queued")
+        : Effect.succeed("outbox   unreadable")
     )
   );
   console.log(queued);
@@ -64,7 +66,9 @@ const runStatus = Effect.fn("qop.status")(function* () {
 const command = createQopCommand({
   runLink: (handle) => withLock(runLink(store, handle)),
   runStart: (options) => withLock(runStart(store, options)),
-  runStatus: () => withLock(runStatus()),
+  // Status is read-only: identity.json + existing messages.db (no create).
+  // The holder lock is exclusive so it must not wrap this command.
+  runStatus,
 });
 
 const operatorMessage = (
@@ -80,7 +84,7 @@ const operatorMessage = (
     return "CLI identity is unreadable. Move the data directory aside to recover — do not overwrite device.key.";
   }
   if (error.operation === "conflict") {
-    return "Could not lock the CLI data directory or reuse this identity. If no other qop process is running, delete `lock` and any `lock.recover.*` files in the data directory, then retry. Leftover recover claims are not taken over automatically. A secret without identity.json must not be overwritten.";
+    return "Could not lock the CLI data directory or reuse this identity. Another qop process may already be using this data directory. A secret without identity.json must not be overwritten.";
   }
 };
 

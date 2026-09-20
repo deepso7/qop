@@ -16,6 +16,8 @@ import type {
   ChatFrame,
   InboxRecordV1,
   PeerConnection,
+  RegistryAccount,
+  RegistryReaderError,
   SessionContact,
   SessionContactInput,
 } from "@qop/protocol";
@@ -28,7 +30,7 @@ import {
   describeCliOutboxStoreError,
   openCliOutboxStore,
 } from "./outbox-store.ts";
-import type { PutInboxResult } from "./outbox-store.ts";
+import type { CliOutboxStore, PutInboxResult } from "./outbox-store.ts";
 import {
   CliOutboxDeliverError,
   createOutboxRuntime,
@@ -38,16 +40,19 @@ import {
   isMessagingLifecycleAllowed,
   withMessagingLifecycle,
 } from "./process-lifecycle.ts";
+import type { ArmedProcessLifecycle } from "./process-lifecycle.ts";
 import { handleInboundSyncStream } from "./sync.ts";
 import type { CliSyncIdentity, CliSyncStore } from "./sync.ts";
 
-const MAX_INBOUND_STREAMS = 8;
+export const MAX_INBOUND_STREAMS = 8;
+export const UNREADABLE_INBOUND_CHAT = "Inbound chat frame was unreadable";
 const INBOUND_READ_TIMEOUT_MS = 15_000;
 export const OUTBOUND_ACK_TIMEOUT_MS = 15_000;
 export const CHAT_CONNECT_TIMEOUT_MS = 15_000;
 
 export interface ChatStream extends PeerConnection {
   readonly closeWrite: () => void;
+  readonly protocolId?: string;
   readonly read: () => Promise<Uint8Array | undefined>;
   readonly reset: () => void;
   readonly write: (data: Uint8Array) => void;
@@ -72,6 +77,32 @@ export interface ChatTransport {
     peerId: string,
     options?: { readonly timeoutMs?: number }
   ) => Promise<ChatDialResult>;
+}
+
+/** Minip2p endpoint surface the holder actually uses. */
+export type HolderEndpoint = ChatTransport & {
+  readonly close: () => void;
+  readonly on: (event: string, listener: (value: ChatStream) => void) => void;
+};
+
+export interface HolderIdentity {
+  readonly handle: string;
+  readonly qid: string;
+  readonly peerId: string;
+}
+
+export interface HolderOutput {
+  readonly error: (line: string) => void;
+  readonly log: (line: string) => void;
+}
+
+export interface HolderReader {
+  readonly lookupDeviceKey: (
+    deviceKey: string
+  ) => Effect.Effect<RegistryAccount | null, RegistryReaderError>;
+  readonly lookupHandle: (
+    handle: string
+  ) => Effect.Effect<RegistryAccount | null, RegistryReaderError>;
 }
 
 const concatChunks = (chunks: readonly Uint8Array[], byteLength: number) => {
@@ -269,7 +300,8 @@ const handleCliInboundSync = Effect.fn("qop.handleCliInboundSync")(function* (
   sessions: ReturnType<typeof createPeerSessions>,
   identity: CliSyncIdentity,
   store: CliSyncStore,
-  guardSensitive: () => boolean
+  guardSensitive: () => boolean,
+  out: HolderOutput
 ) {
   if (guardSensitive()) {
     stream.reset();
@@ -288,8 +320,237 @@ const handleCliInboundSync = Effect.fn("qop.handleCliInboundSync")(function* (
     })
   );
   if (response.type === "held") {
-    console.log(`Holding ${response.id} from own device.`);
+    out.log(`Holding ${response.id} from own device.`);
   }
+});
+
+const decodeInboundChatFrame = (bytes: Uint8Array) =>
+  Effect.try({
+    catch: () => new Error(UNREADABLE_INBOUND_CHAT),
+    try: () => decodeFrame(bytes),
+  });
+
+/**
+ * Holder wiring: inbound dispatch, outbox flush, and FiberSet handlers.
+ * FiberSet is acquired here so LIFO finalizers interrupt (and await) those
+ * fibers before the caller's `messages.db` close.
+ */
+export const createHolder = Effect.fn("qop.createHolder")(function* ({
+  endpoint,
+  identity,
+  lifecycle,
+  messages,
+  options = {},
+  out,
+  reader,
+  sessions,
+}: {
+  readonly endpoint: HolderEndpoint;
+  readonly identity: HolderIdentity;
+  readonly lifecycle: ArmedProcessLifecycle;
+  readonly messages: CliOutboxStore;
+  readonly options?: {
+    readonly message?: string | undefined;
+    readonly to?: string | undefined;
+  };
+  readonly out: HolderOutput;
+  readonly reader: HolderReader;
+  readonly sessions: ReturnType<typeof createPeerSessions>;
+}) {
+  const guardSensitive = () => {
+    if (lifecycle.adapter.takeInvalidation()) {
+      sessions.invalidateAuthorization();
+      return true;
+    }
+    return false;
+  };
+
+  const runHandler = yield* FiberSet.makeRuntime();
+  let inbound = 0;
+  const outbox = createOutboxRuntime({
+    deliver: (record) => {
+      if (guardSensitive()) {
+        return Effect.fail(
+          new CliOutboxDeliverError({ operation: "unauthorized" })
+        );
+      }
+      return deliverChatFrame(
+        endpoint,
+        sessions,
+        { handle: record.toHandle, qid: record.toQid },
+        record.frame
+      );
+    },
+    lookupHandle: reader.lookupHandle,
+    onEvent: (event) => {
+      const line = describeOutboxEvent(event);
+      if (event.kind === "failed" || event.kind === "store-error") {
+        out.error(line);
+        return;
+      }
+      out.log(line);
+    },
+    store: messages,
+  });
+
+  lifecycle.adapter.observe();
+  const connectionFlushInFlight = new Set<string>();
+  endpoint.on("connectionEstablished", (connection) => {
+    sessions.opened(connection);
+    const { peerId } = connection;
+    if (connectionFlushInFlight.has(peerId)) {
+      return;
+    }
+    connectionFlushInFlight.add(peerId);
+    runHandler(
+      outbox
+        .flushOnConnection(
+          Schema.decodeUnknownEffect(PeerId)(peerId).pipe(
+            Effect.flatMap(deviceKeyFromPeerId),
+            Effect.flatMap((deviceKey) =>
+              Schema.encodeEffect(Hex32)(deviceKey)
+            ),
+            Effect.flatMap(reader.lookupDeviceKey),
+            Effect.map((account) => account?.qid.toString()),
+            Effect.orElseSucceed((): string | undefined => undefined)
+          )
+        )
+        .pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              connectionFlushInFlight.delete(peerId);
+            })
+          )
+        )
+    );
+  });
+  endpoint.on("connectionClosed", (connection) => {
+    sessions.closed(connection);
+  });
+  endpoint.on("stream", (stream) => {
+    if (
+      stream.protocolId !== CHAT_PROTOCOL &&
+      stream.protocolId !== SYNC_PROTOCOL
+    ) {
+      stream.reset();
+      return;
+    }
+    if (inbound >= MAX_INBOUND_STREAMS) {
+      stream.reset();
+      return;
+    }
+    inbound += 1;
+    const inboundProgram =
+      stream.protocolId === SYNC_PROTOCOL
+        ? handleCliInboundSync(
+            stream,
+            sessions,
+            {
+              handle: identity.handle,
+              qid: identity.qid,
+            },
+            messages,
+            guardSensitive,
+            out
+          )
+        : Effect.gen(function* () {
+            guardSensitive();
+            const bytes = yield* Effect.tryPromise({
+              catch: (cause) =>
+                cause instanceof Error ? cause : new Error(String(cause)),
+              try: () => readUntilEof(() => stream.read()),
+            }).pipe(
+              Effect.timeoutOrElse({
+                duration: INBOUND_READ_TIMEOUT_MS,
+                orElse: () =>
+                  Effect.fail(new Error("Inbound chat read timed out")),
+              })
+            );
+            const frame = yield* decodeInboundChatFrame(bytes);
+            if (guardSensitive()) {
+              stream.reset();
+              return;
+            }
+            sessions.opened(stream);
+            const contact = yield* sessions.verify(stream, frame.fromHandle);
+            if (guardSensitive() || !sessions.isVerified(stream, contact.qid)) {
+              stream.reset();
+              return;
+            }
+            const saved = yield* ackInboundChatFrame(
+              stream,
+              {
+                frame,
+                fromQid: contact.qid,
+                receivedAt: Date.now(),
+                v: 1,
+              },
+              messages.putInbox
+            );
+            if (saved.inserted) {
+              out.log(`@${frame.fromHandle}: ${frame.text}`);
+            }
+          });
+    runHandler(
+      inboundProgram.pipe(
+        Effect.tapError((error: CliOutboxStoreError | Error) =>
+          Effect.sync(() => {
+            if (error instanceof CliOutboxStoreError) {
+              out.error(describeCliOutboxStoreError(error));
+              return;
+            }
+            if (error.message.startsWith("Inbound ")) {
+              out.error(error.message);
+            }
+          })
+        ),
+        Effect.onExit((exit) =>
+          exit._tag === "Success"
+            ? Effect.void
+            : Effect.sync(() => {
+                stream.reset();
+              })
+        ),
+        Effect.ensuring(
+          Effect.sync(() => {
+            inbound -= 1;
+          })
+        )
+      )
+    );
+  });
+
+  out.log(`CLI messaging ready for @${identity.handle} (${identity.peerId}).`);
+  out.log(
+    "SIGCONT, stall observe, and verify-boundary invalidation are armed."
+  );
+
+  yield* outbox.resume();
+
+  if (options.to && options.message) {
+    if (guardSensitive()) {
+      out.error("Authorization was invalidated. Try sending again.");
+    } else {
+      const recipient = yield* reader.lookupHandle(options.to);
+      if (recipient) {
+        yield* outbox.enqueue({
+          frame: {
+            fromHandle: identity.handle,
+            id: crypto.randomUUID(),
+            sentAt: Date.now(),
+            text: options.message,
+            v: 1,
+          },
+          toHandle: recipient.handle,
+          toQid: recipient.qid.toString(),
+        });
+      } else {
+        out.error(`Account @${options.to} was not found.`);
+      }
+    }
+  }
+
+  yield* outbox.run;
 });
 
 export const runStart = Effect.fn("qop.start")(function* (
@@ -339,18 +600,7 @@ export const runStart = Effect.fn("qop.start")(function* (
     },
     (lifecycle) =>
       Effect.gen(function* () {
-        const guardSensitive = () => {
-          if (lifecycle.adapter.takeInvalidation()) {
-            sessions.invalidateAuthorization();
-            return true;
-          }
-          return false;
-        };
-
-        // FiberSet is acquired after the store so LIFO finalizers interrupt
-        // (and await) connection-flush / inbound fibers before db.close().
         const messages = yield* openCliOutboxStore(store.root);
-        const runHandler = yield* FiberSet.makeRuntime();
         const secretKey = yield* store.loadSecret();
         const relays = cliRelays();
         const chatConfig = {
@@ -361,201 +611,23 @@ export const runStart = Effect.fn("qop.start")(function* (
         const endpoint = Minip2p.create(
           relays.length > 0 ? { ...chatConfig, relays } : chatConfig
         );
-        let inbound = 0;
-        const closeEndpoint = Effect.sync(() => {
-          endpoint.close();
-        });
-        const outbox = createOutboxRuntime({
-          deliver: (record) => {
-            if (guardSensitive()) {
-              return Effect.fail(
-                new CliOutboxDeliverError({ operation: "unauthorized" })
-              );
-            }
-            return deliverChatFrame(
-              endpoint,
-              sessions,
-              { handle: record.toHandle, qid: record.toQid },
-              record.frame
-            );
-          },
-          lookupHandle: reader.lookupHandle,
-          onEvent: (event) => {
-            const line = describeOutboxEvent(event);
-            if (event.kind === "failed" || event.kind === "store-error") {
+        return yield* createHolder({
+          endpoint,
+          identity,
+          lifecycle,
+          messages,
+          options,
+          out: {
+            error: (line) => {
               console.error(line);
-              return;
-            }
-            console.log(line);
+            },
+            log: (line) => {
+              console.log(line);
+            },
           },
-          store: messages,
-        });
-
-        const program = Effect.gen(function* () {
-          lifecycle.adapter.observe();
-          const connectionFlushInFlight = new Set<string>();
-          endpoint.on("connectionEstablished", (connection) => {
-            sessions.opened(connection);
-            const { peerId } = connection;
-            if (connectionFlushInFlight.has(peerId)) {
-              return;
-            }
-            connectionFlushInFlight.add(peerId);
-            runHandler(
-              outbox
-                .flushOnConnection(
-                  Schema.decodeUnknownEffect(PeerId)(peerId).pipe(
-                    Effect.flatMap(deviceKeyFromPeerId),
-                    Effect.flatMap((deviceKey) =>
-                      Schema.encodeEffect(Hex32)(deviceKey)
-                    ),
-                    Effect.flatMap(reader.lookupDeviceKey),
-                    Effect.map((account) => account?.qid.toString()),
-                    Effect.orElseSucceed((): string | undefined => undefined)
-                  )
-                )
-                .pipe(
-                  Effect.ensuring(
-                    Effect.sync(() => {
-                      connectionFlushInFlight.delete(peerId);
-                    })
-                  )
-                )
-            );
-          });
-          endpoint.on("connectionClosed", (connection) => {
-            sessions.closed(connection);
-          });
-          endpoint.on("stream", (stream) => {
-            if (
-              stream.protocolId !== CHAT_PROTOCOL &&
-              stream.protocolId !== SYNC_PROTOCOL
-            ) {
-              stream.reset();
-              return;
-            }
-            if (inbound >= MAX_INBOUND_STREAMS) {
-              stream.reset();
-              return;
-            }
-            inbound += 1;
-            const inboundProgram =
-              stream.protocolId === SYNC_PROTOCOL
-                ? handleCliInboundSync(
-                    stream,
-                    sessions,
-                    {
-                      handle: identity.handle,
-                      qid: identity.qid,
-                    },
-                    messages,
-                    guardSensitive
-                  )
-                : Effect.gen(function* () {
-                    guardSensitive();
-                    const bytes = yield* Effect.tryPromise({
-                      catch: (cause) =>
-                        cause instanceof Error
-                          ? cause
-                          : new Error(String(cause)),
-                      try: () => readUntilEof(() => stream.read()),
-                    }).pipe(
-                      Effect.timeoutOrElse({
-                        duration: INBOUND_READ_TIMEOUT_MS,
-                        orElse: () =>
-                          Effect.fail(new Error("Inbound chat read timed out")),
-                      })
-                    );
-                    const frame = decodeFrame(bytes);
-                    if (guardSensitive()) {
-                      stream.reset();
-                      return;
-                    }
-                    sessions.opened(stream);
-                    const contact = yield* sessions.verify(
-                      stream,
-                      frame.fromHandle
-                    );
-                    if (
-                      guardSensitive() ||
-                      !sessions.isVerified(stream, contact.qid)
-                    ) {
-                      stream.reset();
-                      return;
-                    }
-                    const saved = yield* ackInboundChatFrame(
-                      stream,
-                      {
-                        frame,
-                        fromQid: contact.qid,
-                        receivedAt: Date.now(),
-                        v: 1,
-                      },
-                      messages.putInbox
-                    );
-                    if (saved.inserted) {
-                      console.log(`@${frame.fromHandle}: ${frame.text}`);
-                    }
-                  });
-            runHandler(
-              inboundProgram.pipe(
-                Effect.ensuring(
-                  Effect.sync(() => {
-                    inbound -= 1;
-                  })
-                ),
-                Effect.matchEffect({
-                  onFailure: (error) =>
-                    Effect.sync(() => {
-                      if (error instanceof CliOutboxStoreError) {
-                        console.error(describeCliOutboxStoreError(error));
-                      }
-                      stream.reset();
-                    }),
-                  onSuccess: () => Effect.void,
-                })
-              )
-            );
-          });
-
-          console.log(
-            `CLI messaging ready for @${identity.handle} (${identity.peerId}).`
-          );
-          console.log(
-            "SIGCONT, stall observe, and verify-boundary invalidation are armed."
-          );
-
-          yield* outbox.resume();
-
-          if (options.to && options.message) {
-            if (guardSensitive()) {
-              console.error(
-                "Authorization was invalidated. Try sending again."
-              );
-            } else {
-              const recipient = yield* reader.lookupHandle(options.to);
-              if (recipient) {
-                yield* outbox.enqueue({
-                  frame: {
-                    fromHandle: identity.handle,
-                    id: crypto.randomUUID(),
-                    sentAt: Date.now(),
-                    text: options.message,
-                    v: 1,
-                  },
-                  toHandle: recipient.handle,
-                  toQid: recipient.qid.toString(),
-                });
-              } else {
-                console.error(`Account @${options.to} was not found.`);
-              }
-            }
-          }
-
-          yield* outbox.run;
-        });
-
-        return yield* program.pipe(Effect.ensuring(closeEndpoint));
+          reader,
+          sessions,
+        }).pipe(Effect.ensuring(Effect.sync(() => endpoint.close())));
       })
   );
 });

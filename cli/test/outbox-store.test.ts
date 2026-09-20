@@ -1,10 +1,12 @@
+import { spawn } from "node:child_process";
 import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "@effect/vitest";
-import { Deferred, Effect, FiberSet } from "effect";
+import { Duration, Effect } from "effect";
 
 import { openCliOutboxStore } from "../src/outbox-store.ts";
 
@@ -37,6 +39,56 @@ const withTempRoot = Effect.acquireRelease(
       try: () => rm(root, { force: true, recursive: true }),
     }).pipe(Effect.ignore)
 );
+
+const openStoreInChild = (root: string) =>
+  Effect.callback<string, Error>((resume) => {
+    const worker = fileURLToPath(
+      new URL("outbox-open-worker.ts", import.meta.url)
+    );
+    const child = spawn(
+      process.execPath,
+      ["--experimental-strip-types", worker, root],
+      {
+        cwd: fileURLToPath(new URL("..", import.meta.url)),
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const finish = (effect: Effect.Effect<string, Error>) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resume(effect);
+    };
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      stdout += chunk.toString();
+    });
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      stderr += chunk.toString();
+    });
+    child.once("error", (error: Error) => {
+      finish(Effect.fail(error));
+    });
+    // Prefer "close" over "exit" so stdout/stderr are fully drained first.
+    child.once("close", (code) => {
+      if (code === 0) {
+        finish(Effect.succeed(stdout));
+        return;
+      }
+      finish(
+        Effect.fail(new Error(`worker exited ${code}: ${stdout}${stderr}`))
+      );
+    });
+    // Parent timeout/interrupt must kill the child — sync open can block the
+    // child's event loop so Effect.timeout inside the child cannot fire.
+    return Effect.sync(() => {
+      settled = true;
+      child.kill("SIGKILL");
+    });
+  });
 
 describe("CLI outbox store", () => {
   it.effect("persists queued records across reload", () =>
@@ -301,48 +353,98 @@ describe("CLI outbox store", () => {
     })
   );
 
-  it.effect("interrupts FiberSet handlers before closing the database", () =>
+  it.effect("read-only open fails absent without creating messages.db", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
       yield* Effect.tryPromise(() => chmod(root, 0o700));
-      const entered = yield* Deferred.make<boolean>();
-      const outcome = yield* Deferred.make<"ok" | "error" | "interrupted">();
-      const inbound = {
-        frame: queuedRecord.frame,
-        fromQid: "2",
-        receivedAt: 1_700_000_000_001,
-        v: 1 as const,
-      };
+      const opened = yield* openCliOutboxStore(root, {
+        readOnly: true,
+      }).pipe(Effect.result);
+      expect(opened._tag).toBe("Failure");
+      if (opened._tag === "Failure") {
+        expect(opened.failure.operation).toBe("absent");
+      }
+      const missing = yield* Effect.tryPromise({
+        catch: (error) => error,
+        try: () => stat(path.join(root, "messages.db")),
+      }).pipe(Effect.result);
+      expect(missing._tag).toBe("Failure");
+    })
+  );
 
+  it.effect("read-only open reads queued count on an existing v1 store", () =>
+    Effect.gen(function* () {
+      const root = yield* withTempRoot;
+      yield* Effect.tryPromise(() => chmod(root, 0o700));
       yield* Effect.scoped(
         Effect.gen(function* () {
           const store = yield* openCliOutboxStore(root);
-          const runHandler = yield* FiberSet.makeRuntime();
-          runHandler(
-            Effect.gen(function* () {
-              yield* Deferred.succeed(entered, true);
-              yield* Effect.never;
-              yield* store.putInbox(inbound);
-              yield* Deferred.succeed(outcome, "ok");
-            }).pipe(
-              Effect.onInterrupt(() =>
-                Deferred.succeed(outcome, "interrupted")
-              ),
-              Effect.matchEffect({
-                onFailure: () => Deferred.succeed(outcome, "error"),
-                onSuccess: () => Effect.void,
-              })
-            )
-          );
-          yield* Deferred.await(entered);
+          yield* store.enqueue(queuedRecord);
         })
       );
-
-      expect(yield* Deferred.await(outcome)).toBe("interrupted");
-      const inbox = yield* openCliOutboxStore(root).pipe(
-        Effect.flatMap((store) => store.loadInbox())
+      const count = yield* Effect.scoped(
+        openCliOutboxStore(root, { readOnly: true }).pipe(
+          Effect.flatMap((store) => store.queuedCount())
+        )
       );
-      expect(inbox).toEqual([]);
+      expect(count).toBe(1);
     })
+  );
+
+  it.live(
+    "opens a v1 messages.db while another connection holds a write lock",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        yield* Effect.tryPromise(() => chmod(root, 0o700));
+        yield* Effect.scoped(openCliOutboxStore(root).pipe(Effect.asVoid));
+        const writer = new DatabaseSync(path.join(root, "messages.db"), {
+          timeout: 0,
+        });
+        // Open in a child so a regressing sync busy-wait cannot block the
+        // parent's event loop; enforce the 1s deadline from this process.
+        const opened = yield* Effect.suspend(() => {
+          writer.exec("BEGIN IMMEDIATE");
+          return openStoreInChild(root).pipe(
+            Effect.timeout(Duration.millis(1000)),
+            Effect.result
+          );
+        }).pipe(
+          Effect.ensuring(
+            Effect.sync(() => {
+              writer.exec("ROLLBACK");
+              writer.close();
+            })
+          )
+        );
+        expect(opened._tag).toBe("Success");
+        if (opened._tag === "Success") {
+          expect(opened.success.trim()).toBe("SUCCESS 0");
+        }
+      }),
+    10_000
+  );
+
+  it.live(
+    "bootstraps messages.db when several processes open a fresh store",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        yield* Effect.tryPromise(() => chmod(root, 0o700));
+        const outputs = yield* Effect.all(
+          [
+            openStoreInChild(root),
+            openStoreInChild(root),
+            openStoreInChild(root),
+          ],
+          { concurrency: "unbounded" }
+        );
+        expect(outputs.map((line) => line.trim())).toEqual([
+          "SUCCESS 0",
+          "SUCCESS 0",
+          "SUCCESS 0",
+        ]);
+      }),
+    15_000
   );
 });

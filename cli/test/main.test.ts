@@ -1,13 +1,15 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { access, mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { expect, it } from "@effect/vitest";
-import { Predicate } from "effect";
+import { Effect, Exit, Predicate, Scope } from "effect";
+
+import { createCliIdentityStore } from "../src/identity-store.ts";
 
 it.each(["SIGINT", "SIGTERM"] as const)(
   "releases the CLI identity lock on %s",
@@ -44,14 +46,19 @@ it.each(["SIGINT", "SIGTERM"] as const)(
       }
     );
     const exited = once(child, "exit");
+    const store = createCliIdentityStore(root);
     try {
       await requested;
-      await access(path.join(root, "lock"));
+      const blocked = await Effect.runPromise(
+        Effect.scoped(store.acquireLock()).pipe(Effect.result)
+      );
+      expect(blocked._tag).toBe("Failure");
+      if (blocked._tag === "Failure") {
+        expect(blocked.failure.operation).toBe("conflict");
+      }
       child.kill(signal);
       await exited;
-      await expect(access(path.join(root, "lock"))).rejects.toMatchObject({
-        code: "ENOENT",
-      });
+      await Effect.runPromise(Effect.scoped(store.acquireLock()));
     } finally {
       if (child.exitCode === null && child.signalCode === null) {
         child.kill("SIGTERM");
@@ -64,3 +71,37 @@ it.each(["SIGINT", "SIGTERM"] as const)(
   },
   10_000
 );
+
+it("runs status while the exclusive lock is held", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "qop-status-"));
+  const store = createCliIdentityStore(root);
+  const scope = Scope.makeUnsafe();
+  try {
+    await Effect.runPromise(Scope.provide(scope)(store.acquireLock()));
+    const child = spawn(
+      process.execPath,
+      [fileURLToPath(new URL("../src/main.ts", import.meta.url)), "status"],
+      {
+        env: {
+          ...process.env,
+          QOP_DATA_DIR: root,
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      }
+    );
+    let output = "";
+    child.stdout?.on("data", (chunk: Buffer | string) => {
+      output += chunk.toString();
+    });
+    child.stderr?.on("data", (chunk: Buffer | string) => {
+      output += chunk.toString();
+    });
+    // Wait for "close" (not "exit") so stdout/stderr are fully drained first.
+    const [code] = await once(child, "close");
+    expect(code).toBe(0);
+    expect(output).toContain("No CLI identity");
+  } finally {
+    await Effect.runPromise(Scope.close(scope, Exit.void));
+    await rm(root, { force: true, recursive: true });
+  }
+}, 10_000);
