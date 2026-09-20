@@ -96,7 +96,8 @@ it("runs status while the exclusive lock is held", async () => {
     child.stderr?.on("data", (chunk: Buffer | string) => {
       output += chunk.toString();
     });
-    const [code] = await once(child, "exit");
+    // Wait for "close" (not "exit") so stdout/stderr are fully drained first.
+    const [code] = await once(child, "close");
     expect(code).toBe(0);
     expect(output).toContain("No CLI identity");
   } finally {
