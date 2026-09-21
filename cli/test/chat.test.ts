@@ -637,6 +637,88 @@ describe("deliverChatFrame", () => {
     })
   );
 
+  itEffect.effect("resets a stream that opens after dial interrupt", () =>
+    Effect.gen(function* () {
+      const sessions = makeSessions();
+      const stream = makeStream();
+      const opened = yield* Deferred.make<ReturnType<typeof makeStream>>();
+      const started = yield* Deferred.make<boolean>();
+      const transport = {
+        connect: vi.fn(),
+        connectedPeers: vi.fn((): string[] => [PEER_BOB]),
+        openStream: vi.fn(() => {
+          Effect.runSync(Deferred.succeed(started, true));
+          return Effect.runPromise(Deferred.await(opened));
+        }),
+        waitPeerReady: vi.fn().mockResolvedValue({}),
+      };
+      const fiber = yield* Effect.forkChild(
+        openAuthorizedChatStream(transport, sessions, PEER_BOB, bobRecipient)
+      );
+      yield* Deferred.await(started);
+      yield* Fiber.interrupt(fiber);
+      yield* Deferred.succeed(opened, stream);
+      yield* Effect.tryPromise(() =>
+        vi.waitFor(() => {
+          expect(stream.reset).toHaveBeenCalledOnce();
+        })
+      );
+      expect(stream.write).not.toHaveBeenCalled();
+    })
+  );
+
+  itEffect.effect("resets a late loser stream after another device wins", () =>
+    Effect.gen(function* () {
+      const multiAccount: RegistryAccount = {
+        ...account,
+        devices: [
+          { deviceKey: bobDeviceKey, peerId: PEER_BOB },
+          { deviceKey: cliDeviceKey, peerId: PEER_CLI },
+        ],
+      };
+      const sessions = createPeerSessions({
+        getContactByQid: () => Promise.resolve(null),
+        lookupDeviceKey: () => Effect.succeed(multiAccount),
+        lookupHandle: () => Effect.succeed(multiAccount),
+        upsertContact: () => Promise.resolve(),
+      });
+      const phone = makeStream();
+      const cli = makeStream();
+      cli.connId = 4;
+      cli.peerId = PEER_CLI;
+      const unread = [encodeAck({ ack: chatFrame.id, v: 1 })];
+      cli.read.mockImplementation(async () => {
+        await Promise.resolve();
+        return unread.shift();
+      });
+      const loserOpened = yield* Deferred.make<ReturnType<typeof makeStream>>();
+      const loserStarted = yield* Deferred.make<boolean>();
+      const transport = {
+        connect: vi.fn().mockResolvedValue({}),
+        connectedPeers: vi.fn((): string[] => []),
+        openStream: vi.fn((peerId: string) => {
+          if (peerId === PEER_BOB) {
+            Effect.runSync(Deferred.succeed(loserStarted, true));
+            return Effect.runPromise(Deferred.await(loserOpened));
+          }
+          return Promise.resolve(cli);
+        }),
+        waitPeerReady: vi.fn().mockResolvedValue({}),
+      };
+      yield* deliverChatFrame(transport, sessions, bobRecipient, chatFrame);
+      yield* Deferred.await(loserStarted);
+      yield* Deferred.succeed(loserOpened, phone);
+      yield* Effect.tryPromise(() =>
+        vi.waitFor(() => {
+          expect(phone.reset).toHaveBeenCalledOnce();
+        })
+      );
+      expect(cli.write).toHaveBeenCalledOnce();
+      expect(cli.reset).not.toHaveBeenCalled();
+      expect(phone.write).not.toHaveBeenCalled();
+    })
+  );
+
   it("deliverChatFrame with a provided account never calls lookupHandle", async () => {
     const lookupHandle = vi.fn(() => Effect.succeed(account));
     const sessions = createPeerSessions({

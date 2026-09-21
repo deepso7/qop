@@ -171,10 +171,17 @@ export const openAuthorizedChatStream = Effect.fn(
     });
     return yield* Effect.tryPromise({
       catch: catchOpenStreamError,
-      try: () =>
-        transport.openStream(peerId, CHAT_PROTOCOL, {
+      try: async (signal) => {
+        // Interrupt cannot cancel minip2p openStream; reset if it lands late.
+        const lateStream = await transport.openStream(peerId, CHAT_PROTOCOL, {
           timeoutMs: CHAT_CONNECT_TIMEOUT_MS,
-        }),
+        });
+        if (signal.aborted) {
+          lateStream.reset();
+          throw signal.reason;
+        }
+        return lateStream;
+      },
     });
   }).pipe(
     // Relay-to-direct upgrades can close the initial connection during setup.
@@ -225,11 +232,16 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
   // Dial the roster concurrently; the first *authorized* stream wins.
   // Exactly one stream survives: a late second success resets itself.
   // Never write a chat frame before this claim succeeds.
+  // Claim is in the same uninterruptible region as the open's tail so an
+  // interrupt cannot land after verify's onExit has popped and before reset.
   let claimed = false;
+  let claimedStream: ChatStream | undefined;
   const dial = (peerId: string) =>
-    openAuthorizedChatStream(transport, sessions, peerId, recipient).pipe(
-      Effect.flatMap((stream) =>
-        Effect.uninterruptible(
+    Effect.uninterruptibleMask((restore) =>
+      restore(
+        openAuthorizedChatStream(transport, sessions, peerId, recipient)
+      ).pipe(
+        Effect.flatMap((stream) =>
           Effect.suspend(() => {
             if (claimed) {
               stream.reset();
@@ -238,6 +250,7 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
               );
             }
             claimed = true;
+            claimedStream = stream;
             return Effect.succeed(stream);
           })
         )
@@ -249,7 +262,16 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
       orElse: () =>
         Effect.fail(new CliOutboxDeliverError({ operation: "timeout" })),
     }),
-    Effect.mapError(asDeliverError)
+    Effect.mapError(asDeliverError),
+    Effect.onExit((exit) => {
+      if (exit._tag === "Success" || claimedStream === undefined) {
+        return Effect.void;
+      }
+      const orphan = claimedStream;
+      return Effect.sync(() => {
+        orphan.reset();
+      });
+    })
   );
   // A verified stream is committed — there is no fallback loop after a write.
   return yield* Effect.gen(function* () {

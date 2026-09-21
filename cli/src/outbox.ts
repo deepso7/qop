@@ -19,6 +19,8 @@ export const OUTBOX_INITIAL_BACKOFF_MS = 2000;
 export const OUTBOX_MAX_BACKOFF_MS = 60_000;
 /** Cap concurrent deliveries so one hung peer cannot open unbounded streams. */
 export const OUTBOX_FLUSH_CONCURRENCY = 8;
+/** Bound connected-peer registry lookups so a hung RPC cannot stall the consumer. */
+export const OUTBOX_PEER_LOOKUP_TIMEOUT_MS = 5000;
 
 export type OutboxWake =
   | { readonly kind: "enqueued" }
@@ -343,21 +345,24 @@ export const createOutboxRuntime = Effect.fn("qop.createOutboxRuntime")(
             )
           ),
         ];
-        if (!waiting || connectedPeerIds.length === 0) {
+        if (!waiting || connectedPeerIds.length === 0 || !lookupPeerQid) {
           ignoreBackoffForQids = [];
           return;
         }
-        const qids: string[] = [];
-        for (const peerId of connectedPeerIds) {
-          if (!lookupPeerQid) {
-            break;
+        const found = yield* Effect.forEach(
+          connectedPeerIds,
+          (peerId) =>
+            lookupPeerQid(peerId).pipe(
+              Effect.timeoutOption(OUTBOX_PEER_LOOKUP_TIMEOUT_MS)
+            ),
+          { concurrency: "unbounded" }
+        );
+        ignoreBackoffForQids = found.flatMap((qidOption) => {
+          if (Option.isNone(qidOption) || qidOption.value === undefined) {
+            return [];
           }
-          const qid = yield* lookupPeerQid(peerId);
-          if (qid !== undefined) {
-            qids.push(qid);
-          }
-        }
-        ignoreBackoffForQids = qids;
+          return [qidOption.value];
+        });
       })
     );
 

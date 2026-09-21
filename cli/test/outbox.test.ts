@@ -19,6 +19,7 @@ import {
   nextAttemptDelayMs,
   OUTBOX_INITIAL_BACKOFF_MS,
   OUTBOX_MAX_BACKOFF_MS,
+  OUTBOX_PEER_LOOKUP_TIMEOUT_MS,
 } from "../src/outbox.ts";
 
 const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
@@ -672,6 +673,110 @@ describe("CLI outbox retry", () => {
         yield* Deferred.await(second);
         expect(lookups).toBe(1);
         expect(attempts).toEqual([1000, now]);
+        yield* Fiber.interrupt(fiber);
+      })
+  );
+
+  it.effect("looks up connected peers concurrently", () =>
+    Effect.gen(function* () {
+      const root = yield* withTempRoot;
+      const store = yield* openCliOutboxStore(root);
+      const attempts: number[] = [];
+      let now = 1000;
+      const first = yield* Deferred.make<boolean>();
+      const bobStarted = yield* Deferred.make<boolean>();
+      const carolStarted = yield* Deferred.make<boolean>();
+      const bobHold = yield* Deferred.make<boolean>();
+      const carolHold = yield* Deferred.make<boolean>();
+      const outbox = yield* createOutboxRuntime({
+        deliver: () => {
+          attempts.push(now);
+          if (attempts.length === 1) {
+            Effect.runSync(Deferred.succeed(first, true));
+          }
+          return Effect.fail(
+            new CliOutboxDeliverError({ operation: "transport" })
+          );
+        },
+        lookupHandle: () => Effect.succeed(account),
+        lookupPeerQid: (peerId) =>
+          Effect.gen(function* () {
+            if (peerId === PEER_BOB) {
+              yield* Deferred.succeed(bobStarted, true);
+              yield* Deferred.await(bobHold);
+              return "1";
+            }
+            yield* Deferred.succeed(carolStarted, true);
+            yield* Deferred.await(carolHold);
+            return "2";
+          }),
+        now: () => now,
+        store,
+      });
+      const fiber = yield* Effect.forkChild(outbox.run);
+      yield* outbox.enqueue(recordFor());
+      yield* Deferred.await(first);
+      now += 1;
+      yield* outbox.wake(PEER_BOB);
+      yield* outbox.wake(PEER_CAROL);
+      yield* Deferred.await(bobStarted);
+      yield* Deferred.await(carolStarted);
+      yield* Deferred.succeed(bobHold, true);
+      yield* Deferred.succeed(carolHold, true);
+      yield* Fiber.interrupt(fiber);
+    })
+  );
+
+  it.effect(
+    "times out hung connection lookups without stalling later deliveries",
+    () =>
+      Effect.gen(function* () {
+        const root = yield* withTempRoot;
+        const store = yield* openCliOutboxStore(root);
+        const hang = yield* Deferred.make<string>();
+        const first = yield* Deferred.make<boolean>();
+        const lookupStarted = yield* Deferred.make<boolean>();
+        const carolSent = yield* Deferred.make<boolean>();
+        const carolId = "c56a4180-65aa-42ec-a945-5fd21dec0539";
+        let now = 1000;
+        const outbox = yield* createOutboxRuntime({
+          deliver: (record) => {
+            if (record.toHandle === "bob") {
+              Effect.runSync(Deferred.succeed(first, true));
+              return Effect.fail(
+                new CliOutboxDeliverError({ operation: "transport" })
+              );
+            }
+            Effect.runSync(Deferred.succeed(carolSent, true));
+            return Effect.void;
+          },
+          lookupHandle: (handle) =>
+            Effect.succeed(handle === "carol" ? carolAccount : account),
+          lookupPeerQid: () =>
+            Effect.gen(function* () {
+              yield* Deferred.succeed(lookupStarted, true);
+              return yield* Deferred.await(hang);
+            }),
+          now: () => now,
+          store,
+        });
+        const fiber = yield* Effect.forkChild(outbox.run);
+        yield* outbox.enqueue(recordFor());
+        yield* Deferred.await(first);
+        now += 1;
+        yield* outbox.wake(PEER_BOB);
+        yield* Deferred.await(lookupStarted);
+        yield* outbox.enqueue(
+          recordFor({
+            message: { ...frame, id: carolId, text: "offline" },
+            toHandle: "carol",
+            toQid: "2",
+          })
+        );
+        yield* TestClock.adjust(
+          Duration.millis(OUTBOX_PEER_LOOKUP_TIMEOUT_MS + 1)
+        );
+        yield* Deferred.await(carolSent);
         yield* Fiber.interrupt(fiber);
       })
   );
