@@ -681,23 +681,14 @@ describe("CLI outbox retry", () => {
     Effect.gen(function* () {
       const root = yield* withTempRoot;
       const store = yield* openCliOutboxStore(root);
-      const attempts: number[] = [];
-      let now = 1000;
-      const first = yield* Deferred.make<boolean>();
+      const now = 1000;
       const bobStarted = yield* Deferred.make<boolean>();
       const carolStarted = yield* Deferred.make<boolean>();
       const bobHold = yield* Deferred.make<boolean>();
       const carolHold = yield* Deferred.make<boolean>();
       const outbox = yield* createOutboxRuntime({
-        deliver: () => {
-          attempts.push(now);
-          if (attempts.length === 1) {
-            Effect.runSync(Deferred.succeed(first, true));
-          }
-          return Effect.fail(
-            new CliOutboxDeliverError({ operation: "transport" })
-          );
-        },
+        deliver: () =>
+          Effect.fail(new CliOutboxDeliverError({ operation: "transport" })),
         lookupHandle: () => Effect.succeed(account),
         lookupPeerQid: (peerId) =>
           Effect.gen(function* () {
@@ -713,12 +704,16 @@ describe("CLI outbox retry", () => {
         now: () => now,
         store,
       });
-      const fiber = yield* Effect.forkChild(outbox.run);
-      yield* outbox.enqueue(recordFor());
-      yield* Deferred.await(first);
-      now += 1;
+      // Seed waiting before run so both wakes sit in the queue for one take.
+      yield* store.put({
+        ...recordFor({ at: now }),
+        attempts: 1,
+        lastError: "transport",
+        nextAttemptAt: now + OUTBOX_INITIAL_BACKOFF_MS,
+      });
       yield* outbox.wake(PEER_BOB);
       yield* outbox.wake(PEER_CAROL);
+      const fiber = yield* Effect.forkChild(outbox.run);
       yield* Deferred.await(bobStarted);
       yield* Deferred.await(carolStarted);
       yield* Deferred.succeed(bobHold, true);

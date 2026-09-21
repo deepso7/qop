@@ -337,7 +337,11 @@ export const createOutboxRuntime = Effect.fn("qop.createOutboxRuntime")(
         const taken = yield* takeWakes(sleepFor);
         const drained = yield* Queue.clear(wakes);
         const seen = [...taken, ...drained];
-        const waiting = pending.some((record) => record.nextAttemptAt > at);
+        // Recompute after the wait so expired backoff isn't treated as waiting.
+        const afterWait = now();
+        const waiting = pending.some(
+          (record) => record.nextAttemptAt > afterWait
+        );
         const connectedPeerIds = [
           ...new Set(
             seen.flatMap((item) =>
