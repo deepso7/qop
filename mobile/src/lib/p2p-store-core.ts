@@ -11,10 +11,12 @@ import {
   failInterruptedMessages,
   failRejectedHandoff,
   getContactByQid,
+  getHolderInboxCursor,
   getMessageById,
   insertMessage,
   listOutgoingPending,
   markMessageHeld,
+  setHolderInboxCursor,
   upsertContact,
 } from "./db";
 import type { Contact, MessageInput, StoredMessage } from "./db";
@@ -29,8 +31,13 @@ import {
   outgoingHandoffRecord,
   pickHolderPeerId,
 } from "./p2p-sync";
-import type { OwnDevice, performHandoff, performPoll } from "./p2p-sync";
-import type { lookupDeviceKey, lookupHandle } from "./registry";
+import type {
+  OwnDevice,
+  performCatchup,
+  performHandoff,
+  performPoll,
+} from "./p2p-sync";
+import type { lookupDeviceKey, lookupHandle, lookupQid } from "./registry";
 
 type P2pStatus = "failed" | "running" | "starting" | "stopped";
 
@@ -110,6 +117,8 @@ interface P2pDependencies {
   readonly loadDeviceSecretKey: typeof loadDeviceSecretKey;
   readonly lookupDeviceKey: typeof lookupDeviceKey;
   readonly lookupHandle: typeof lookupHandle;
+  readonly lookupQid?: typeof lookupQid;
+  readonly performCatchup?: typeof performCatchup;
   readonly performHandoff?: typeof performHandoff;
   readonly performPoll?: typeof performPoll;
   readonly performSend: typeof performSend;
@@ -141,6 +150,8 @@ export const createP2pStore = ({
   loadDeviceSecretKey,
   lookupDeviceKey,
   lookupHandle,
+  lookupQid,
+  performCatchup,
   performHandoff,
   performPoll,
   performSend,
@@ -372,26 +383,28 @@ export const createP2pStore = ({
     return holderLookup;
   };
 
-  const resolveHolderPeerId = async (activeEndpoint: P2pEndpoint) => {
+  const ownHolderPeerIds = async (activeEndpoint: P2pEndpoint) => {
     const connected = activeEndpoint.connectedPeers();
-    const pick = (ids: readonly string[] | undefined) => {
-      if (!ids || ids.length === 0) {
-        return;
-      }
-      return pickHolderPeerId(ids, connected);
-    };
     const hadCachedRoster = cachedHolderPeerIds !== undefined;
-    const first = pick(await loadOwnHolderPeerIds());
-    if (first !== undefined && connected.includes(first)) {
-      return first;
+    const loaded = (await loadOwnHolderPeerIds()) ?? [];
+    if (
+      loaded.some((peerId) => connected.includes(peerId)) ||
+      !hadCachedRoster
+    ) {
+      return loaded;
     }
     // Cached roster has no connected holder — a CLI linked since the last
     // lookup may be the only device that can take the handoff.
-    if (!hadCachedRoster) {
-      return first;
-    }
     invalidateOwnHolderPeerIds();
-    return pick(await loadOwnHolderPeerIds());
+    return (await loadOwnHolderPeerIds()) ?? [];
+  };
+
+  const resolveHolderPeerId = async (activeEndpoint: P2pEndpoint) => {
+    const ids = await ownHolderPeerIds(activeEndpoint);
+    if (ids.length === 0) {
+      return;
+    }
+    return pickHolderPeerId(ids, activeEndpoint.connectedPeers());
   };
 
   const hasConnectedCachedHolder = () => {
@@ -575,6 +588,144 @@ export const createP2pStore = ({
     );
   };
 
+  const ensureCatchupSender = async (record: {
+    readonly frame: { readonly fromHandle: string };
+    readonly fromQid: string;
+  }): Promise<"ready" | "retry" | "skip"> => {
+    if (await getContactByQid(record.fromQid)) {
+      return "ready";
+    }
+    if (!lookupQid) {
+      return "retry";
+    }
+    const lookedUp = await Effect.runPromise(
+      lookupQid(BigInt(record.fromQid)).pipe(Effect.result)
+    );
+    if (lookedUp._tag === "Failure") {
+      return "retry";
+    }
+    const account = lookedUp.success;
+    const device = account?.devices[0];
+    if (
+      !account ||
+      !device ||
+      account.handle !== record.frame.fromHandle ||
+      account.qid.toString() !== record.fromQid
+    ) {
+      // Handle reassigned or no devices: skip so one row cannot stall the cursor.
+      return "skip";
+    }
+    await upsertContact({
+      createdAt: Number(account.registeredAt) * 1000,
+      deviceKey: device.deviceKey,
+      handle: account.handle,
+      owner: account.owner,
+      peerId: device.peerId,
+      qid: account.qid.toString(),
+    });
+    return "ready";
+  };
+
+  const catchUpHolder = async (holderPeerId: string, jobGeneration: number) => {
+    const own = getOwnDevice?.();
+    const activeEndpoint = endpoint;
+    if (!own || !performCatchup || !activeEndpoint) {
+      return;
+    }
+    let after = await getHolderInboxCursor(holderPeerId);
+    let touched = false;
+    const applyItems = async (
+      items: readonly {
+        readonly record: {
+          readonly frame: {
+            readonly fromHandle: string;
+            readonly id: string;
+            readonly sentAt: number;
+            readonly text: string;
+          };
+          readonly fromQid: string;
+        };
+        readonly seq: number;
+      }[],
+      index: number
+    ): Promise<boolean> => {
+      const item = items[index];
+      if (!item) {
+        return true;
+      }
+      if (!isCurrentGeneration(jobGeneration) || item.seq <= after) {
+        return false;
+      }
+      const sender = await ensureCatchupSender(item.record);
+      if (sender === "retry") {
+        return false;
+      }
+      if (sender === "ready") {
+        await insertMessage({
+          contactQid: item.record.fromQid,
+          direction: "in",
+          id: item.record.frame.id,
+          sentAt: item.record.frame.sentAt,
+          status: "received",
+          text: item.record.frame.text,
+        });
+      }
+      await setHolderInboxCursor(holderPeerId, item.seq);
+      after = item.seq;
+      touched = true;
+      return applyItems(items, index + 1);
+    };
+    const pull = async (): Promise<void> => {
+      if (!isCurrentGeneration(jobGeneration)) {
+        return;
+      }
+      const page = await performCatchup({
+        after,
+        endpoint: activeEndpoint,
+        holderPeerId,
+        own,
+        sessions,
+        timeoutMs: 10_000,
+      });
+      if (page.length === 0 || !isCurrentGeneration(jobGeneration)) {
+        return;
+      }
+      const advanced = await applyItems(page, 0);
+      if (advanced) {
+        await pull();
+      }
+    };
+    try {
+      await pull();
+    } catch {
+      // Dial/timeout is best-effort; the cursor stays on the last saved row.
+    }
+    if (touched && isCurrentGeneration(jobGeneration)) {
+      storeBridge.setState((state) => ({ revision: state.revision + 1 }));
+    }
+  };
+
+  const catchUpInboxes = async (jobGeneration: number) => {
+    const activeEndpoint = endpoint;
+    if (
+      !performCatchup ||
+      !activeEndpoint ||
+      !isCurrentGeneration(jobGeneration)
+    ) {
+      return;
+    }
+    const holderPeerIds = await ownHolderPeerIds(activeEndpoint);
+    const catchUpNext = async (index: number): Promise<void> => {
+      const holderPeerId = holderPeerIds[index];
+      if (!holderPeerId || !isCurrentGeneration(jobGeneration)) {
+        return;
+      }
+      await catchUpHolder(holderPeerId, jobGeneration);
+      await catchUpNext(index + 1);
+    };
+    await catchUpNext(0);
+  };
+
   const reconcileOwnHolders = async (jobGeneration: number) => {
     try {
       if (!getOwnDevice?.() || !isCurrentGeneration(jobGeneration)) {
@@ -624,6 +775,7 @@ export const createP2pStore = ({
             }
           })
       );
+      await catchUpInboxes(jobGeneration);
       if (isCurrentGeneration(jobGeneration)) {
         storeBridge.setState((state) => ({ revision: state.revision + 1 }));
       }

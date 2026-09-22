@@ -18,6 +18,7 @@ import { createPeerSessions } from "@/lib/p2p-sessions";
 import {
   chunkSyncPollIds,
   HANDOFF_REJECTED_MESSAGE,
+  performCatchup,
   performHandoff,
   performPoll,
 } from "@/lib/p2p-sync";
@@ -400,6 +401,53 @@ describe("performHandoff", () => {
 
     expect(await getContactByQid(own.qid)).toBeNull();
     expect(await listConversations()).toEqual([]);
+  });
+});
+
+describe("performCatchup", () => {
+  it("writes a catchup request and accepts an empty inbox", async () => {
+    const encoded = await Effect.runPromise(
+      encodeSyncResponseV1({ records: [], type: "inbox", v: 1 })
+    );
+    const { endpoint, sessions, stream } = makeEndpoint(
+      responseReader(encoded)
+    );
+    await expect(
+      performCatchup({
+        after: 4,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).resolves.toEqual([]);
+    const bytes = stream.write.mock.calls[0]?.[0];
+    if (!(bytes instanceof Uint8Array)) {
+      throw new Error("expected a catchup frame");
+    }
+    expect(await Effect.runPromise(decodeSyncRequestV1(bytes))).toEqual({
+      after: 4,
+      type: "catchup",
+      v: 1,
+    });
+  });
+
+  it("surfaces a permanent error response", async () => {
+    const encoded = await Effect.runPromise(
+      encodeSyncResponseV1({ reason: "invalid", type: "error", v: 1 })
+    );
+    const { endpoint, sessions } = makeEndpoint(responseReader(encoded));
+    await expect(
+      performCatchup({
+        after: 0,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).rejects.toThrow("CLI rejected inbox catch-up");
   });
 });
 

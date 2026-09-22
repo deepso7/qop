@@ -80,7 +80,7 @@ let databasePromise: Promise<SQLite.SQLiteDatabase> | undefined;
 const failInterruptedMessagesSql = `UPDATE messages SET status = 'failed'
   WHERE direction = 'out' AND status = 'sending'`;
 
-const MESSAGES_SCHEMA_VERSION = 4;
+const MESSAGES_SCHEMA_VERSION = 5;
 const messagesStatusCheck =
   "status IN ('sending','sent','failed','received','held')";
 
@@ -140,6 +140,15 @@ const migrateMessagesSchema = async (database: SQLite.SQLiteDatabase) => {
       CREATE INDEX IF NOT EXISTS messages_contact_received_idx
         ON messages(contact_qid, received_at);
       PRAGMA user_version = 4;
+    `);
+  }
+  if (version < 5) {
+    await database.execAsync(`
+      CREATE TABLE IF NOT EXISTS holder_cursors(
+        holder_peer_id TEXT PRIMARY KEY,
+        inbox_seq INTEGER NOT NULL
+      );
+      PRAGMA user_version = 5;
     `);
   }
 };
@@ -473,5 +482,30 @@ export const deleteAll = async (): Promise<void> => {
   await database.withExclusiveTransactionAsync(async (transaction) => {
     await transaction.runAsync("DELETE FROM messages");
     await transaction.runAsync("DELETE FROM contacts");
+    await transaction.runAsync("DELETE FROM holder_cursors");
   });
+};
+
+export const getHolderInboxCursor = async (peerId: string): Promise<number> => {
+  const database = await getDatabase();
+  const row = await database.getFirstAsync<{ inboxSeq: number }>(
+    `SELECT inbox_seq AS inboxSeq FROM holder_cursors WHERE holder_peer_id = ?`,
+    peerId
+  );
+  return row?.inboxSeq ?? 0;
+};
+
+/** Monotonic: a late page must not move the cursor backward. */
+export const setHolderInboxCursor = async (
+  peerId: string,
+  seq: number
+): Promise<void> => {
+  const database = await getDatabase();
+  await database.runAsync(
+    `INSERT INTO holder_cursors(holder_peer_id, inbox_seq) VALUES (?, ?)
+     ON CONFLICT(holder_peer_id) DO UPDATE SET
+       inbox_seq = MAX(holder_cursors.inbox_seq, excluded.inbox_seq)`,
+    peerId,
+    seq
+  );
 };

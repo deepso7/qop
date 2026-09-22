@@ -5,6 +5,7 @@ import {
   writeSyncRequestTo,
 } from "@qop/protocol";
 import type {
+  InboxRecordV1,
   OutboxRecordV1,
   SyncReceiptV1,
   SyncRequestV1,
@@ -276,6 +277,51 @@ const pollHeldChunk = ({
             return yield* Effect.fail(new Error("CLI did not return receipts"));
           }
           return response.receipts;
+        })
+    ).pipe(
+      Effect.timeoutOrElse({
+        duration: timeoutMs,
+        orElse: () =>
+          Effect.fail(new Error("Timed out waiting for sync response")),
+      })
+    ),
+    { signal }
+  );
+
+export const performCatchup = ({
+  after,
+  endpoint,
+  holderPeerId,
+  own,
+  sessions,
+  signal,
+  timeoutMs,
+}: PerformSyncInput & {
+  readonly after: number;
+}): Promise<
+  readonly { readonly record: InboxRecordV1; readonly seq: number }[]
+> =>
+  Effect.runPromise(
+    withAuthorizedSyncStream(
+      endpoint,
+      holderPeerId,
+      own,
+      sessions,
+      timeoutMs,
+      (stream) =>
+        Effect.gen(function* () {
+          const response = yield* exchangeSyncRequest(stream, {
+            after,
+            type: "catchup",
+            v: 1,
+          });
+          if (response.type === "error") {
+            return yield* Effect.fail(new Error("CLI rejected inbox catch-up"));
+          }
+          if (response.type !== "inbox") {
+            return yield* Effect.fail(new Error("CLI did not return inbox"));
+          }
+          return response.records;
         })
     ).pipe(
       Effect.timeoutOrElse({
