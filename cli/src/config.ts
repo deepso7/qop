@@ -28,7 +28,9 @@ export const configuredRegistry = Effect.fn("cli.configuredRegistry")(
     const chainId = yield* Schema.decodeUnknownEffect(ChainId)(
       chainIdInput
     ).pipe(Effect.mapError(() => envError));
-    const publicClient = createPublicClient({ transport: http(rpcUrl) });
+    const publicClient = createPublicClient({
+      transport: http(rpcUrl, { batch: true }),
+    });
     const reader = createRegistryReader({
       client: {
         getBlock: async ({ blockNumber, signal } = {}) => {
