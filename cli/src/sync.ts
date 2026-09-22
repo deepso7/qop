@@ -1,25 +1,31 @@
 import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
 import {
+  encodeSyncResponseV1,
   PeerVerificationError,
   readSyncRequestFrom,
   writeSyncResponseTo,
 } from "@qop/protocol";
 import type {
+  InboxRecordV1,
   OutboxRecordV1,
   PeerConnection,
   SessionContact,
   SyncErrorV1,
+  SyncInboxV1,
   SyncResponseV1,
   SyncStream,
 } from "@qop/protocol";
 import { Effect, Schema } from "effect";
 
-import type { CliOutboxStoreError } from "./outbox-store.ts";
+import type { CliOutboxStoreError, InboxCursorRow } from "./outbox-store.ts";
 
 export interface CliSyncIdentity {
   readonly handle: string;
   readonly qid: string;
 }
+
+/** Row cap before the byte packer trims a catch-up page. */
+const INBOX_CATCHUP_ROW_LIMIT = 64;
 
 export interface CliSyncStore {
   readonly enqueue: (
@@ -28,6 +34,10 @@ export interface CliSyncStore {
   readonly getByIds: (
     ids: readonly string[]
   ) => Effect.Effect<readonly OutboxRecordV1[], CliOutboxStoreError>;
+  readonly inboxAfter: (
+    seq: number,
+    limit: number
+  ) => Effect.Effect<readonly InboxCursorRow[], CliOutboxStoreError>;
 }
 
 interface SyncSessions {
@@ -51,6 +61,34 @@ const deviceKeyHexForPeer = (peerId: string) =>
     Effect.flatMap((deviceKey) => Schema.encodeEffect(Hex32)(deviceKey)),
     Effect.mapError(() => new PeerVerificationError({ operation: "identity" }))
   );
+
+const inboxFrame = (
+  records: readonly { readonly record: InboxRecordV1; readonly seq: number }[]
+): SyncInboxV1 => ({
+  records: records.map((row) => ({ record: row.record, seq: row.seq })),
+  type: "inbox",
+  v: 1,
+});
+
+/** Greedy by encoded size. Always keeps the first row; later rows stop at 64 KB. */
+const packInbox = Effect.fn("qop.sync.packInbox")(function* (
+  rows: readonly InboxCursorRow[]
+) {
+  const packed: InboxCursorRow[] = [];
+  for (const row of rows) {
+    const encoded = yield* encodeSyncResponseV1(
+      inboxFrame([...packed, row])
+    ).pipe(Effect.result);
+    if (encoded._tag === "Failure") {
+      if (encoded.failure.operation === "oversized" && packed.length > 0) {
+        break;
+      }
+      return yield* encoded.failure;
+    }
+    packed.push(row);
+  }
+  return inboxFrame(packed);
+});
 
 const acceptHandoff = Effect.fn("qop.sync.acceptHandoff")(function* (
   identity: CliSyncIdentity,
@@ -121,6 +159,20 @@ export const handleInboundSyncStream = Effect.fn("qop.handleInboundSyncStream")(
         peerDeviceKey,
         store
       );
+      yield* reply(stream, response);
+      return response;
+    }
+    if (request.type === "catchup") {
+      const rows = yield* store
+        .inboxAfter(request.after, INBOX_CATCHUP_ROW_LIMIT)
+        .pipe(
+          Effect.tapError(() =>
+            Effect.sync(() => {
+              stream.reset();
+            })
+          )
+        );
+      const response = yield* packInbox(rows);
       yield* reply(stream, response);
       return response;
     }

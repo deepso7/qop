@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   deleteAll,
   getContactByQid,
+  getHolderInboxCursor,
   getMessageById,
   insertMessage,
   upsertContact,
@@ -12,10 +13,15 @@ import type { performSend } from "@/lib/p2p-send";
 import { createP2pStore } from "@/lib/p2p-store-core";
 import type { P2pEndpoint } from "@/lib/p2p-store-core";
 import { HANDOFF_REJECTED_MESSAGE } from "@/lib/p2p-sync";
-import type { performHandoff, performPoll } from "@/lib/p2p-sync";
+import type {
+  performCatchup,
+  performHandoff,
+  performPoll,
+} from "@/lib/p2p-sync";
 import type {
   lookupDeviceKey as LookupDeviceKey,
   lookupHandle as LookupHandle,
+  lookupQid as LookupQid,
 } from "@/lib/registry";
 import type { RegistryAccount } from "@/lib/registry-core";
 
@@ -70,6 +76,8 @@ const connectedPeers = vi.fn((): string[] => [PEER_CLI]);
 const send = vi.fn<typeof performSend>();
 const handoff = vi.fn<typeof performHandoff>();
 const poll = vi.fn<typeof performPoll>();
+const catchup = vi.fn<typeof performCatchup>();
+const lookupQid = vi.fn<typeof LookupQid>(() => Effect.succeed(null));
 const lookupDeviceKey = vi.fn((): ReturnType<typeof LookupDeviceKey> =>
   Effect.succeed(bobAccount)
 );
@@ -128,6 +136,8 @@ const useP2pStore = createP2pStore({
   loadDeviceSecretKey: () => Effect.succeed(new Uint8Array(32)),
   lookupDeviceKey,
   lookupHandle,
+  lookupQid,
+  performCatchup: catchup,
   performHandoff: handoff,
   performPoll: poll,
   performSend: send,
@@ -139,6 +149,8 @@ beforeEach(async () => {
   send.mockReset().mockRejectedValue(new Error("bob offline"));
   handoff.mockReset().mockResolvedValue();
   poll.mockReset().mockResolvedValue([]);
+  catchup.mockReset().mockResolvedValue([]);
+  lookupQid.mockReset().mockImplementation(() => Effect.succeed(null));
   lookupDeviceKey.mockReset().mockReturnValue(Effect.succeed(bobAccount));
   lookupHandle
     .mockReset()
@@ -366,16 +378,13 @@ describe("phone to CLI handoff", () => {
     poll.mockResolvedValue([]);
     await useP2pStore.getState().start();
     connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
-    await vi.waitFor(() =>
-      expect(handoff).toHaveBeenCalledWith(
-        expect.objectContaining({
-          holderPeerId: PEER_CLI,
-          record: expect.objectContaining({
-            frame: expect.objectContaining({ id: heldId }),
-          }),
-        })
-      )
-    );
+    await vi.waitFor(() => expect(poll).toHaveBeenCalled());
+    await Effect.runPromise(Effect.sleep(50));
+    expect(handoff).not.toHaveBeenCalled();
+    expect(await getMessageById(heldId)).toMatchObject({
+      holderPeerId: PEER_CLI,
+      status: "held",
+    });
     expect(
       handoff.mock.calls.some((call) => call[0]?.record.frame.id === failedId)
     ).toBe(false);
@@ -670,6 +679,7 @@ describe("phone to CLI handoff", () => {
       Effect.succeed(handle === "alice" ? phoneOnly : bobAccount)
     );
     await useP2pStore.getState().start();
+    await vi.waitFor(() => expect(aliceLookups().length).toBeGreaterThan(0));
     lookupHandle.mockClear();
 
     connectionEstablished?.({ connId: 10, peerId: PEER_BOB });
@@ -715,6 +725,7 @@ describe("phone to CLI handoff", () => {
       Effect.succeed(handle === "alice" ? phoneOnly : bobAccount)
     );
     await useP2pStore.getState().start();
+    await vi.waitFor(() => expect(aliceLookups().length).toBeGreaterThan(0));
     lookupHandle.mockClear();
     connectedPeers.mockReturnValue([PEER_CLI]);
 
@@ -857,5 +868,397 @@ describe("phone to CLI handoff", () => {
     connectionEstablished?.({ connId: 3, peerId: PEER_CLI_OTHER });
     await vi.waitFor(() => expect(poll).toHaveBeenCalled());
     expect(poll).toHaveBeenCalledTimes(1);
+  });
+});
+
+const bothCliAccount = (): RegistryAccount => ({
+  ...aliceAccount,
+  devices: [
+    { deviceKey: phoneDeviceKey, peerId: PEER_ALICE },
+    { deviceKey: cliDeviceKey, peerId: PEER_CLI },
+    { deviceKey: otherCliDeviceKey, peerId: PEER_CLI_OTHER },
+  ],
+});
+
+describe("multi-holder picker", () => {
+  it("falls through a transient holder failure to the next holder", async () => {
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(handle === "alice" ? bothCliAccount() : bobAccount)
+    );
+    connectedPeers.mockReturnValue([PEER_CLI, PEER_CLI_OTHER]);
+    handoff.mockImplementation(({ holderPeerId }) =>
+      holderPeerId === PEER_CLI
+        ? Promise.reject(new Error("offline"))
+        : Promise.resolve()
+    );
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+    const id = useP2pStore.getState().sendMessage(contact, "hello");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({
+        holderPeerId: PEER_CLI_OTHER,
+        status: "held",
+      })
+    );
+    expect(handoff.mock.calls.map((call) => call[0]?.holderPeerId)).toEqual([
+      PEER_CLI,
+      PEER_CLI_OTHER,
+    ]);
+  });
+
+  it("stops after a permanent reject and does not try the next holder", async () => {
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(handle === "alice" ? bothCliAccount() : bobAccount)
+    );
+    connectedPeers.mockReturnValue([PEER_CLI, PEER_CLI_OTHER]);
+    handoff.mockRejectedValue(new Error(HANDOFF_REJECTED_MESSAGE));
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+    const id = useP2pStore.getState().sendMessage(contact, "hello");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({ status: "failed" })
+    );
+    expect(handoff).toHaveBeenCalledTimes(1);
+    expect(handoff).toHaveBeenCalledWith(
+      expect.objectContaining({ holderPeerId: PEER_CLI })
+    );
+  });
+
+  it("re-homes a held message whose holder left the roster", async () => {
+    const unlinked = "12D3KooWunlinkedunlinkedunlinkedunlinkedunlinkedunlinked";
+    const id = "c56a4180-65aa-42ec-a945-5fd21dec0701";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      holderPeerId: unlinked,
+      id,
+      sentAt: 1,
+      status: "held",
+      text: "waiting",
+    });
+    poll.mockResolvedValue([]);
+    await useP2pStore.getState().start();
+    connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({
+        holderPeerId: PEER_CLI,
+        status: "held",
+      })
+    );
+  });
+
+  it("leaves a held message on a linked holder that is offline", async () => {
+    const id = "c56a4180-65aa-42ec-a945-5fd21dec0702";
+    connectedPeers.mockReturnValue([]);
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      holderPeerId: PEER_CLI,
+      id,
+      sentAt: 1,
+      status: "held",
+      text: "waiting",
+    });
+    poll.mockResolvedValue([]);
+    await useP2pStore.getState().start();
+    await vi.waitFor(() => expect(poll).toHaveBeenCalled());
+    await Effect.runPromise(Effect.sleep(50));
+    expect(handoff).not.toHaveBeenCalled();
+    expect(await getMessageById(id)).toMatchObject({
+      holderPeerId: PEER_CLI,
+      status: "held",
+    });
+  });
+});
+
+const bobInboxFrom = { fromHandle: "bob", fromQid: "1" } as const;
+
+const inboxRecord = (
+  messageId: string,
+  text: string,
+  from: { readonly fromHandle: string; readonly fromQid: string } = bobInboxFrom
+) => ({
+  frame: {
+    fromHandle: from.fromHandle,
+    id: messageId,
+    sentAt: 10,
+    text,
+    v: 1 as const,
+  },
+  fromQid: from.fromQid,
+  receivedAt: 11,
+  v: 1 as const,
+});
+
+describe("inbox catch-up", () => {
+  it("inserts received rows for a known contact and advances the cursor", async () => {
+    const id = "c56a4180-65aa-42ec-a945-5fd21dec0601";
+    const before = useP2pStore.getState().revision;
+    catchup.mockImplementation(({ after }) =>
+      Promise.resolve(
+        after > 0
+          ? []
+          : [{ record: inboxRecord(id, "while you were out"), seq: 3 }]
+      )
+    );
+    await useP2pStore.getState().start();
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id, "1")).toMatchObject({
+        direction: "in",
+        status: "received",
+        text: "while you were out",
+      })
+    );
+    expect(await getHolderInboxCursor(PEER_CLI)).toBe(3);
+    expect(useP2pStore.getState().revision).toBeGreaterThan(before);
+  });
+
+  it("ignores a duplicate id and still advances the cursor", async () => {
+    const id = "c56a4180-65aa-42ec-a945-5fd21dec0602";
+    await insertMessage({
+      contactQid: "1",
+      direction: "in",
+      id,
+      sentAt: 1,
+      status: "received",
+      text: "live",
+    });
+    catchup.mockImplementation(({ after }) =>
+      Promise.resolve(
+        after > 0 ? [] : [{ record: inboxRecord(id, "replay"), seq: 4 }]
+      )
+    );
+    await useP2pStore.getState().start();
+    await vi.waitFor(async () =>
+      expect(await getHolderInboxCursor(PEER_CLI)).toBe(4)
+    );
+    expect(await getMessageById(id, "1")).toMatchObject({ text: "live" });
+  });
+
+  it("keeps a separate cursor for each holder", async () => {
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(
+        handle === "alice"
+          ? {
+              ...aliceAccount,
+              devices: [
+                { deviceKey: phoneDeviceKey, peerId: PEER_ALICE },
+                { deviceKey: cliDeviceKey, peerId: PEER_CLI },
+                { deviceKey: otherCliDeviceKey, peerId: PEER_CLI_OTHER },
+              ],
+            }
+          : bobAccount
+      )
+    );
+    const first = "c56a4180-65aa-42ec-a945-5fd21dec0603";
+    const second = "c56a4180-65aa-42ec-a945-5fd21dec0604";
+    catchup.mockImplementation(({ after, holderPeerId }) => {
+      if (after > 0) {
+        return Promise.resolve([]);
+      }
+      if (holderPeerId === PEER_CLI) {
+        return Promise.resolve([
+          { record: inboxRecord(first, "from cli"), seq: 2 },
+        ]);
+      }
+      return Promise.resolve([
+        { record: inboxRecord(second, "from other"), seq: 8 },
+      ]);
+    });
+    await useP2pStore.getState().start();
+    await vi.waitFor(async () => {
+      expect(await getMessageById(first, "1")).toMatchObject({
+        text: "from cli",
+      });
+      expect(await getMessageById(second, "1")).toMatchObject({
+        text: "from other",
+      });
+    });
+    expect(await getHolderInboxCursor(PEER_CLI)).toBe(2);
+    expect(await getHolderInboxCursor(PEER_CLI_OTHER)).toBe(8);
+  });
+
+  it("creates a contact for an unknown sender before inserting", async () => {
+    const id = "c56a4180-65aa-42ec-a945-5fd21dec0605";
+    const carolDeviceKey = `0x${"55".repeat(32)}`;
+    const carolPeer = "12D3KooWcarolcarolcarolcarolcarolcarolcarolcarolcarolca";
+    lookupQid.mockImplementation((qid: bigint) =>
+      Effect.succeed(
+        qid === 99n
+          ? {
+              ...bobAccount,
+              deviceKey: carolDeviceKey,
+              devices: [{ deviceKey: carolDeviceKey, peerId: carolPeer }],
+              handle: "carol",
+              peerId: carolPeer,
+              qid: 99n,
+            }
+          : null
+      )
+    );
+    catchup.mockImplementation(({ after }) =>
+      Promise.resolve(
+        after > 0
+          ? []
+          : [
+              {
+                record: inboxRecord(id, "first hello", {
+                  fromHandle: "carol",
+                  fromQid: "99",
+                }),
+                seq: 1,
+              },
+            ]
+      )
+    );
+    await useP2pStore.getState().start();
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id, "99")).toMatchObject({
+        status: "received",
+        text: "first hello",
+      })
+    );
+    expect(await getContactByQid("99")).toMatchObject({
+      deviceKey: carolDeviceKey,
+      handle: "carol",
+      peerId: carolPeer,
+    });
+    expect(await getHolderInboxCursor(PEER_CLI)).toBe(1);
+  });
+
+  it("skips an unknown sender whose handle was reassigned and advances the cursor", async () => {
+    const id = "c56a4180-65aa-42ec-a945-5fd21dec0606";
+    lookupQid.mockImplementation(() =>
+      Effect.succeed({ ...bobAccount, handle: "mallory", qid: 99n })
+    );
+    catchup.mockImplementation(({ after }) =>
+      Promise.resolve(
+        after > 0
+          ? []
+          : [
+              {
+                record: inboxRecord(id, "stale", {
+                  fromHandle: "carol",
+                  fromQid: "99",
+                }),
+                seq: 6,
+              },
+            ]
+      )
+    );
+    await useP2pStore.getState().start();
+    await vi.waitFor(async () =>
+      expect(await getHolderInboxCursor(PEER_CLI)).toBe(6)
+    );
+    expect(await getContactByQid("99")).toBeNull();
+    expect(await getMessageById(id)).toBeNull();
+  });
+
+  it("skips a registry-matching sender whose handle is already taken and still advances", async () => {
+    const skipped = "c56a4180-65aa-42ec-a945-5fd21dec0609";
+    const later = "c56a4180-65aa-42ec-a945-5fd21dec0610";
+    const staleKey = `0x${"66".repeat(32)}`;
+    const stalePeer = "12D3KooWcarolstalecarolstalecarolstalecarolstalecarolst";
+    await upsertContact({
+      createdAt: 1,
+      deviceKey: staleKey,
+      handle: "carol",
+      owner: bobAccount.owner,
+      peerId: stalePeer,
+      qid: "50",
+    });
+    const carolDeviceKey = `0x${"55".repeat(32)}`;
+    const carolPeer = "12D3KooWcarolcarolcarolcarolcarolcarolcarolcarolcarolca";
+    lookupQid.mockImplementation((qid: bigint) =>
+      Effect.succeed(
+        qid === 99n
+          ? {
+              ...bobAccount,
+              deviceKey: carolDeviceKey,
+              devices: [{ deviceKey: carolDeviceKey, peerId: carolPeer }],
+              handle: "carol",
+              peerId: carolPeer,
+              qid: 99n,
+            }
+          : null
+      )
+    );
+    catchup.mockImplementation(({ after }) => {
+      if (after === 0) {
+        return Promise.resolve([
+          {
+            record: inboxRecord(skipped, "from the new carol", {
+              fromHandle: "carol",
+              fromQid: "99",
+            }),
+            seq: 7,
+          },
+        ]);
+      }
+      if (after === 7) {
+        return Promise.resolve([
+          { record: inboxRecord(later, "after the skip"), seq: 8 },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    await useP2pStore.getState().start();
+    await vi.waitFor(async () =>
+      expect(await getHolderInboxCursor(PEER_CLI)).toBe(8)
+    );
+    expect(await getMessageById(skipped)).toBeNull();
+    expect(await getContactByQid("99")).toBeNull();
+    expect(await getContactByQid("50")).toMatchObject({
+      deviceKey: staleKey,
+      handle: "carol",
+      peerId: stalePeer,
+    });
+    expect(await getMessageById(later, "1")).toMatchObject({
+      status: "received",
+      text: "after the skip",
+    });
+  });
+
+  it("drains inbox pages until the holder returns an empty page", async () => {
+    const first = "c56a4180-65aa-42ec-a945-5fd21dec0607";
+    const second = "c56a4180-65aa-42ec-a945-5fd21dec0608";
+    catchup.mockImplementation(({ after }) => {
+      if (after === 0) {
+        return Promise.resolve([
+          { record: inboxRecord(first, "page one"), seq: 2 },
+        ]);
+      }
+      if (after === 2) {
+        return Promise.resolve([
+          { record: inboxRecord(second, "page two"), seq: 9 },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    await useP2pStore.getState().start();
+    await vi.waitFor(async () => {
+      expect(await getMessageById(first, "1")).toMatchObject({
+        text: "page one",
+      });
+      expect(await getMessageById(second, "1")).toMatchObject({
+        text: "page two",
+      });
+    });
+    expect(await getHolderInboxCursor(PEER_CLI)).toBe(9);
+    expect(catchup).toHaveBeenCalledWith(
+      expect.objectContaining({ after: 0, holderPeerId: PEER_CLI })
+    );
+    expect(catchup).toHaveBeenCalledWith(
+      expect.objectContaining({ after: 2, holderPeerId: PEER_CLI })
+    );
+    expect(catchup).toHaveBeenCalledWith(
+      expect.objectContaining({ after: 9, holderPeerId: PEER_CLI })
+    );
   });
 });
