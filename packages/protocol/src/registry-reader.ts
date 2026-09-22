@@ -226,6 +226,15 @@ export const createRegistryReader = ({
     return { deviceKey, peerId } satisfies RegistryDevice;
   });
 
+  const decodeDevices = Effect.fn("RegistryReader.decodeDevices")(function* (
+    result: RegistryContractResult
+  ) {
+    const keys = yield* Schema.decodeUnknownEffect(ContractDeviceKeysResult)(
+      result
+    ).pipe(Effect.mapError(() => readerError("decode")));
+    return yield* Effect.forEach(keys, decodeDevice, { concurrency: 1 });
+  });
+
   const listActiveDevicesAt = Effect.fn("RegistryReader.listActiveDevicesAt")(
     function* (qid: bigint, blockNumber: bigint | undefined) {
       const result = yield* readContract(
@@ -238,12 +247,25 @@ export const createRegistryReader = ({
           blockNumber
         )
       );
-      const keys = yield* Schema.decodeUnknownEffect(ContractDeviceKeysResult)(
-        result
-      ).pipe(Effect.mapError(() => readerError("decode")));
-      return yield* Effect.forEach(keys, decodeDevice, { concurrency: 1 });
+      return yield* decodeDevices(result);
     }
   );
+
+  // viem's HTTP batch scheduler is keyed by AbortSignal. Separate
+  // `Effect.tryPromise` calls each get a new signal, so `batch: true` never
+  // collapses the pair. One signal lets the transport send one JSON-RPC batch.
+  const readContractPair = (
+    left: ReadContractParams,
+    right: ReadContractParams
+  ) =>
+    Effect.tryPromise({
+      catch: () => readerError("rpc"),
+      try: (signal) =>
+        Promise.all([
+          client.readContract(left, { signal }),
+          client.readContract(right, { signal }),
+        ]),
+    });
 
   const listActiveDevices = Effect.fn("RegistryReader.listActiveDevices")(
     function* (qid: bigint) {
@@ -260,26 +282,27 @@ export const createRegistryReader = ({
     },
     preferredDeviceKey?: string
   ) {
-    // Issue both reads at the captured head together. Sequential await would
-    // keep them as two HTTP round-trips; concurrent start lets viem
-    // `batch: true` collapse the pair. Freshness is unchanged: both are
-    // pinned to `head.blockNumber`.
-    const [result, devices] = yield* Effect.all(
-      [
-        readContract(
-          withOptionalBlockNumber(
-            {
-              abi: registryAbi,
-              args: [qid],
-              functionName: "account",
-            },
-            head.blockNumber
-          )
-        ),
-        listActiveDevicesAt(qid, head.blockNumber),
-      ],
-      { concurrency: 2 }
+    // Both reads share one abort signal and the captured head. A `batch: true`
+    // transport can then send them as one HTTP request. Freshness is unchanged.
+    const [result, devicesResult] = yield* readContractPair(
+      withOptionalBlockNumber(
+        {
+          abi: registryAbi,
+          args: [qid],
+          functionName: "account",
+        },
+        head.blockNumber
+      ),
+      withOptionalBlockNumber(
+        {
+          abi: registryAbi,
+          args: [qid],
+          functionName: "listActiveDevices",
+        },
+        head.blockNumber
+      )
     );
+    const devices = yield* decodeDevices(devicesResult);
     const {
       owner: ownerInput,
       ownerVersion,

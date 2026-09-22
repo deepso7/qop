@@ -19,12 +19,14 @@ const accountResult = {
 describe("registry reader accountAt", () => {
   it("issues account and listActiveDevices concurrently at the pinned head", async () => {
     const started: string[] = [];
+    const signals: (AbortSignal | undefined)[] = [];
     const accountHold = Deferred.makeUnsafe<boolean>();
     const devicesHold = Deferred.makeUnsafe<boolean>();
     const { lookupQid } = createRegistryReader({
       client: {
         getBlockNumber: () => Promise.resolve(HEAD),
-        readContract: async ({ blockNumber, functionName }) => {
+        readContract: async ({ blockNumber, functionName }, options) => {
+          signals.push(options?.signal);
           if (functionName === "account") {
             expect(blockNumber).toBe(HEAD);
             started.push(functionName);
@@ -49,6 +51,8 @@ describe("registry reader accountAt", () => {
       );
       expect(started).toHaveLength(2);
     });
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    expect(signals[1]).toBe(signals[0]);
     Effect.runSync(Deferred.succeed(accountHold, true));
     Effect.runSync(Deferred.succeed(devicesHold, true));
 

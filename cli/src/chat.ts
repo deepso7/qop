@@ -223,12 +223,10 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
   frame: ChatFrame,
   account?: RegistryAccount
 ) {
+  // Success is a non-empty roster; an empty roster fails inside recipientPeerIds.
   const peerIds = yield* sessions
     .recipientPeerIds(recipient, account)
     .pipe(Effect.mapError(asDeliverError));
-  if (peerIds.length === 0) {
-    return yield* new CliOutboxDeliverError({ operation: "transport" });
-  }
   // Dial the roster concurrently; the first *authorized* stream wins.
   // Exactly one stream survives: a late second success resets itself.
   // Never write a chat frame before this claim succeeds.
