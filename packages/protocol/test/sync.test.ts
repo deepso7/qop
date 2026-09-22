@@ -6,6 +6,9 @@ import {
   decodeSyncResponseV1,
   encodeSyncRequestV1,
   encodeSyncResponseV1,
+  MAX_SYNC_PAYLOAD_BYTES,
+  SyncCatchupV1,
+  SyncCodecError,
   SyncHandoffV1,
   SyncPollV1,
 } from "../src/sync.ts";
@@ -99,6 +102,114 @@ describe("sync frames", () => {
       }).pipe(Effect.result)
     );
     expect(result._tag).toBe("Failure");
+  });
+
+  it("round-trips catch-up and inbox frames", async () => {
+    const catchup = { after: 0, type: "catchup" as const, v: 1 as const };
+    const encodedCatchup = await Effect.runPromise(
+      encodeSyncRequestV1(catchup)
+    );
+    expect(
+      await Effect.runPromise(decodeSyncRequestV1(encodedCatchup))
+    ).toEqual(catchup);
+    const inbox = {
+      records: [
+        {
+          record: {
+            frame: queued.frame,
+            fromQid: "2",
+            receivedAt: 1_700_000_000_100,
+            v: 1 as const,
+          },
+          seq: 4,
+        },
+      ],
+      type: "inbox" as const,
+      v: 1 as const,
+    };
+    const encoded = await Effect.runPromise(encodeSyncResponseV1(inbox));
+    expect(await Effect.runPromise(decodeSyncResponseV1(encoded))).toEqual(
+      inbox
+    );
+  });
+
+  it("rejects a negative or non-integer catch-up cursor", async () => {
+    const results = await Promise.all(
+      [-1, 1.5].map((after) =>
+        Effect.runPromise(
+          Schema.decodeUnknownEffect(SyncCatchupV1)({
+            after,
+            type: "catchup",
+            v: 1,
+          }).pipe(Effect.result)
+        )
+      )
+    );
+    expect(results.map((result) => result._tag)).toEqual([
+      "Failure",
+      "Failure",
+    ]);
+  });
+
+  it("rejects an inbox frame above 64 KB as oversized", async () => {
+    const bytes = new TextEncoder().encode(
+      JSON.stringify({
+        records: [
+          {
+            record: {
+              frame: { ...queued.frame, text: "x".repeat(70_000) },
+              fromQid: "2",
+              receivedAt: 1,
+              v: 1,
+            },
+            seq: 1,
+          },
+        ],
+        type: "inbox",
+        v: 1,
+      })
+    );
+    expect(bytes.byteLength).toBeGreaterThan(MAX_SYNC_PAYLOAD_BYTES);
+    const result = await Effect.runPromise(
+      decodeSyncResponseV1(bytes).pipe(Effect.result)
+    );
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(SyncCodecError);
+      expect(result.failure.operation).toBe("oversized");
+    }
+  });
+
+  it("does not treat a 16 KB text inbox record as oversized", async () => {
+    const bytes = new TextEncoder().encode(
+      JSON.stringify({
+        records: [
+          {
+            record: {
+              frame: { ...queued.frame, text: "a".repeat(16 * 1024) },
+              fromQid: "2",
+              receivedAt: 1,
+              v: 1,
+            },
+            seq: 1,
+          },
+        ],
+        type: "inbox",
+        v: 1,
+      })
+    );
+    expect(bytes.byteLength).toBeGreaterThan(16 * 1024);
+    expect(bytes.byteLength).toBeLessThanOrEqual(MAX_SYNC_PAYLOAD_BYTES);
+    const result = await Effect.runPromise(
+      decodeSyncResponseV1(bytes).pipe(Effect.result)
+    );
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(SyncCodecError);
+      // Chat text is capped at 4,000 characters, so schema rejects the body
+      // after the sync cap has already accepted the frame.
+      expect(result.failure.operation).toBe("frame");
+    }
   });
 
   it("rejects a handoff that is not a queued outbox record", async () => {

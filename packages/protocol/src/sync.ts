@@ -1,26 +1,31 @@
 import { Hex32 } from "@qop/identity";
 import { Data, Effect, Schema } from "effect";
 
-import { OutboxQid, OutboxRecordV1Schema } from "./outbox.ts";
+import { InboxRecordV1, OutboxQid, OutboxRecordV1Schema } from "./outbox.ts";
 
 /**
- * Phone↔CLI outbox handoff v1 (locked).
+ * Phone↔CLI sync v1 on `/qop/sync/1` (extended: catch-up).
  *
- * Dedicated `/qop/sync/1` between own devices of the same qid only. Both sides
- * verify the peer as an active device of that qid (same 60s auth age and
- * live-revoke as chat). The phone initiates.
+ * Own devices of the same qid only. Both sides verify the peer as an active
+ * device of that qid (same 60s auth age and live-revoke as chat). The phone
+ * initiates. An old CLI that does not know `catchup`/`inbox` decode-fails and
+ * resets; there is no compatibility shim.
  *
  * Flow: `handoff{record, composedBy}` → `held{id}` only after the CLI durably
  * persists the record into the CLI store. A later `poll{ids}` returns
  * `receipts` for ids the CLI has marked `sent` after Bob's chat ACK. Each
  * receipt carries `toQid` so the phone applies it to `(contact_qid, id)`.
+ * `catchup{after}` returns `inbox{records}` of replies the CLI stored while
+ * the phone was away. `after` is that holder's inbox rowid cursor. The phone
+ * repeats until `records` is empty.
  *
- * Disk remains `OutboxRecordV1`. `composedBy` is a sync-frame field in
- * this slice, not a disk column. Phone `held` is a local status, not a CLI
- * outbox status. `expired` and a disk V2 schema are deferred.
+ * Disk remains `OutboxRecordV1` / `InboxRecordV1`. `composedBy` is a sync-frame
+ * field, not a disk column. Phone `held` is a local status, not a CLI outbox
+ * status. `expired` and a disk V2 schema are deferred.
  */
 export const SYNC_PROTOCOL = "/qop/sync/1";
-export const MAX_SYNC_PAYLOAD_BYTES = 16 * 1024;
+/** One inbox record can wrap a max chat frame, so the cap is above 16 KB. */
+export const MAX_SYNC_PAYLOAD_BYTES = 64 * 1024;
 export const SYNC_POLL_MAX_IDS = 32;
 
 const strictParseOptions = {
@@ -42,6 +47,9 @@ const TimestampMillis = Schema.Int.check(
     expected: "a valid nonnegative millisecond timestamp",
   })
 );
+
+const NonNegativeInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+const PositiveInt = Schema.Int.check(Schema.isGreaterThanOrEqualTo(1));
 
 export const SyncHandoffV1Schema = Schema.Struct({
   composedBy: CanonicalHex32,
@@ -70,9 +78,21 @@ export const SyncPollV1Schema = Schema.Struct({
 export { SyncPollV1Schema as SyncPollV1 };
 export type SyncPollV1 = typeof SyncPollV1Schema.Type;
 
+export const SyncCatchupV1Schema = Schema.Struct({
+  after: NonNegativeInt,
+  type: Schema.Literal("catchup"),
+  v: Schema.Literal(1),
+}).annotate({
+  messageUnexpectedKey: "Unexpected sync catchup field",
+  parseOptions: strictParseOptions,
+});
+export { SyncCatchupV1Schema as SyncCatchupV1 };
+export type SyncCatchupV1 = typeof SyncCatchupV1Schema.Type;
+
 export const SyncRequestV1Schema = Schema.Union([
   SyncHandoffV1Schema,
   SyncPollV1Schema,
+  SyncCatchupV1Schema,
 ]);
 export { SyncRequestV1Schema as SyncRequestV1 };
 export type SyncRequestV1 = typeof SyncRequestV1Schema.Type;
@@ -112,6 +132,27 @@ export const SyncReceiptsV1Schema = Schema.Struct({
 export { SyncReceiptsV1Schema as SyncReceiptsV1 };
 export type SyncReceiptsV1 = typeof SyncReceiptsV1Schema.Type;
 
+export const SyncInboxItemV1Schema = Schema.Struct({
+  record: InboxRecordV1,
+  seq: PositiveInt,
+}).annotate({
+  messageUnexpectedKey: "Unexpected sync inbox item field",
+  parseOptions: strictParseOptions,
+});
+export { SyncInboxItemV1Schema as SyncInboxItemV1 };
+export type SyncInboxItemV1 = typeof SyncInboxItemV1Schema.Type;
+
+export const SyncInboxV1Schema = Schema.Struct({
+  records: Schema.Array(SyncInboxItemV1Schema),
+  type: Schema.Literal("inbox"),
+  v: Schema.Literal(1),
+}).annotate({
+  messageUnexpectedKey: "Unexpected sync inbox field",
+  parseOptions: strictParseOptions,
+});
+export { SyncInboxV1Schema as SyncInboxV1 };
+export type SyncInboxV1 = typeof SyncInboxV1Schema.Type;
+
 export const SyncErrorV1Schema = Schema.Struct({
   reason: Schema.Literals(["conflict", "invalid"]),
   type: Schema.Literal("error"),
@@ -126,6 +167,7 @@ export type SyncErrorV1 = typeof SyncErrorV1Schema.Type;
 export const SyncResponseV1Schema = Schema.Union([
   SyncHeldV1Schema,
   SyncReceiptsV1Schema,
+  SyncInboxV1Schema,
   SyncErrorV1Schema,
 ]);
 export { SyncResponseV1Schema as SyncResponseV1 };
