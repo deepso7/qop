@@ -378,16 +378,13 @@ describe("phone to CLI handoff", () => {
     poll.mockResolvedValue([]);
     await useP2pStore.getState().start();
     connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
-    await vi.waitFor(() =>
-      expect(handoff).toHaveBeenCalledWith(
-        expect.objectContaining({
-          holderPeerId: PEER_CLI,
-          record: expect.objectContaining({
-            frame: expect.objectContaining({ id: heldId }),
-          }),
-        })
-      )
-    );
+    await vi.waitFor(() => expect(poll).toHaveBeenCalled());
+    await Effect.runPromise(Effect.sleep(50));
+    expect(handoff).not.toHaveBeenCalled();
+    expect(await getMessageById(heldId)).toMatchObject({
+      holderPeerId: PEER_CLI,
+      status: "held",
+    });
     expect(
       handoff.mock.calls.some((call) => call[0]?.record.frame.id === failedId)
     ).toBe(false);
@@ -871,6 +868,112 @@ describe("phone to CLI handoff", () => {
     connectionEstablished?.({ connId: 3, peerId: PEER_CLI_OTHER });
     await vi.waitFor(() => expect(poll).toHaveBeenCalled());
     expect(poll).toHaveBeenCalledTimes(1);
+  });
+});
+
+const bothCliAccount = (): RegistryAccount => ({
+  ...aliceAccount,
+  devices: [
+    { deviceKey: phoneDeviceKey, peerId: PEER_ALICE },
+    { deviceKey: cliDeviceKey, peerId: PEER_CLI },
+    { deviceKey: otherCliDeviceKey, peerId: PEER_CLI_OTHER },
+  ],
+});
+
+describe("multi-holder picker", () => {
+  it("falls through a transient holder failure to the next holder", async () => {
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(handle === "alice" ? bothCliAccount() : bobAccount)
+    );
+    connectedPeers.mockReturnValue([PEER_CLI, PEER_CLI_OTHER]);
+    handoff.mockImplementation(({ holderPeerId }) =>
+      holderPeerId === PEER_CLI
+        ? Promise.reject(new Error("offline"))
+        : Promise.resolve()
+    );
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+    const id = useP2pStore.getState().sendMessage(contact, "hello");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({
+        holderPeerId: PEER_CLI_OTHER,
+        status: "held",
+      })
+    );
+    expect(handoff.mock.calls.map((call) => call[0]?.holderPeerId)).toEqual([
+      PEER_CLI,
+      PEER_CLI_OTHER,
+    ]);
+  });
+
+  it("stops after a permanent reject and does not try the next holder", async () => {
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(handle === "alice" ? bothCliAccount() : bobAccount)
+    );
+    connectedPeers.mockReturnValue([PEER_CLI, PEER_CLI_OTHER]);
+    handoff.mockRejectedValue(new Error(HANDOFF_REJECTED_MESSAGE));
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+    const id = useP2pStore.getState().sendMessage(contact, "hello");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({ status: "failed" })
+    );
+    expect(handoff).toHaveBeenCalledTimes(1);
+    expect(handoff).toHaveBeenCalledWith(
+      expect.objectContaining({ holderPeerId: PEER_CLI })
+    );
+  });
+
+  it("re-homes a held message whose holder left the roster", async () => {
+    const unlinked = "12D3KooWunlinkedunlinkedunlinkedunlinkedunlinkedunlinked";
+    const id = "c56a4180-65aa-42ec-a945-5fd21dec0701";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      holderPeerId: unlinked,
+      id,
+      sentAt: 1,
+      status: "held",
+      text: "waiting",
+    });
+    poll.mockResolvedValue([]);
+    await useP2pStore.getState().start();
+    connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({
+        holderPeerId: PEER_CLI,
+        status: "held",
+      })
+    );
+  });
+
+  it("leaves a held message on a linked holder that is offline", async () => {
+    const id = "c56a4180-65aa-42ec-a945-5fd21dec0702";
+    connectedPeers.mockReturnValue([]);
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      holderPeerId: PEER_CLI,
+      id,
+      sentAt: 1,
+      status: "held",
+      text: "waiting",
+    });
+    poll.mockResolvedValue([]);
+    await useP2pStore.getState().start();
+    await vi.waitFor(() => expect(poll).toHaveBeenCalled());
+    await Effect.runPromise(Effect.sleep(50));
+    expect(handoff).not.toHaveBeenCalled();
+    expect(await getMessageById(id)).toMatchObject({
+      holderPeerId: PEER_CLI,
+      status: "held",
+    });
   });
 });
 

@@ -18,6 +18,7 @@ import { createPeerSessions } from "@/lib/p2p-sessions";
 import {
   chunkSyncPollIds,
   HANDOFF_REJECTED_MESSAGE,
+  orderHolderPeerIds,
   performCatchup,
   performHandoff,
   performPoll,
@@ -125,6 +126,16 @@ const encodeReceipts = (chunk: readonly string[]) =>
       v: 1,
     })
   );
+
+describe("orderHolderPeerIds", () => {
+  it("lists connected holders first and keeps roster order", () => {
+    expect(orderHolderPeerIds(["a", "b", "c"], ["c", "a"])).toEqual([
+      "a",
+      "c",
+      "b",
+    ]);
+  });
+});
 
 describe("performHandoff", () => {
   it("writes a handoff on /qop/sync/1 and accepts held", async () => {

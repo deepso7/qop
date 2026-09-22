@@ -27,9 +27,9 @@ import type { performSend } from "./p2p-send";
 import { createPeerSessions } from "./p2p-sessions";
 import {
   HANDOFF_REJECTED_MESSAGE,
+  orderHolderPeerIds,
   otherOwnDevicePeerIds,
   outgoingHandoffRecord,
-  pickHolderPeerId,
 } from "./p2p-sync";
 import type {
   OwnDevice,
@@ -399,13 +399,11 @@ export const createP2pStore = ({
     return (await loadOwnHolderPeerIds()) ?? [];
   };
 
-  const resolveHolderPeerId = async (activeEndpoint: P2pEndpoint) => {
-    const ids = await ownHolderPeerIds(activeEndpoint);
-    if (ids.length === 0) {
-      return;
-    }
-    return pickHolderPeerId(ids, activeEndpoint.connectedPeers());
-  };
+  const resolveHolderPeerIds = async (activeEndpoint: P2pEndpoint) =>
+    orderHolderPeerIds(
+      await ownHolderPeerIds(activeEndpoint),
+      activeEndpoint.connectedPeers()
+    );
 
   const hasConnectedCachedHolder = () => {
     const connected = endpoint?.connectedPeers() ?? [];
@@ -419,7 +417,7 @@ export const createP2pStore = ({
    * peer (in-flight coalesced only for the same peerId). Record a miss
    * only after a successful roster read that did not include them, and
    * drop misses when the roster changes or enrollment invalidates.
-   * Send/poll still refresh via `resolveHolderPeerId`.
+   * Send/poll still refresh via `resolveHolderPeerIds`.
    */
   const isOwnHolderPeer = async (peerId: string): Promise<boolean> => {
     if (cachedHolderPeerIds?.includes(peerId) === true) {
@@ -490,28 +488,50 @@ export const createP2pStore = ({
       if (!own || !performHandoff || !activeEndpoint) {
         return;
       }
-      const holderPeerId = await resolveHolderPeerId(activeEndpoint);
-      if (!holderPeerId || !isCurrentGeneration(jobGeneration)) {
+      const holderPeerIds = await resolveHolderPeerIds(activeEndpoint);
+      if (holderPeerIds.length === 0 || !isCurrentGeneration(jobGeneration)) {
         return;
       }
-      await performHandoff({
-        composedBy: own.deviceKey,
-        endpoint: activeEndpoint,
-        holderPeerId,
-        own,
-        record: outgoingHandoffRecord({
-          contact,
-          fromHandle: own.handle,
-          id: message.id,
-          now: Date.now(),
-          sentAt: message.sentAt,
-          text: message.text,
-        }),
-        sessions,
-        signal,
-        timeoutMs: 10_000,
+      const record = outgoingHandoffRecord({
+        contact,
+        fromHandle: own.handle,
+        id: message.id,
+        now: Date.now(),
+        sentAt: message.sentAt,
+        text: message.text,
       });
-      return holderPeerId;
+      const tryHolder = async (index: number): Promise<string | undefined> => {
+        const holderPeerId = holderPeerIds[index];
+        if (
+          holderPeerId === undefined ||
+          !isCurrentGeneration(jobGeneration) ||
+          signal?.aborted
+        ) {
+          return;
+        }
+        try {
+          await performHandoff({
+            composedBy: own.deviceKey,
+            endpoint: activeEndpoint,
+            holderPeerId,
+            own,
+            record,
+            sessions,
+            signal,
+            timeoutMs: 10_000,
+          });
+          return holderPeerId;
+        } catch (error) {
+          if (
+            error instanceof Error &&
+            error.message === HANDOFF_REJECTED_MESSAGE
+          ) {
+            throw error;
+          }
+          return tryHolder(index + 1);
+        }
+      };
+      return tryHolder(0);
     })();
     handoffJobs.set(jobKey, job);
     const removeWhenDone = async () => {
@@ -537,9 +557,10 @@ export const createP2pStore = ({
       return;
     }
     const needsFallback = messages.some((message) => !message.holderPeerId);
-    const fallbackHolderPeerId = needsFallback
-      ? await resolveHolderPeerId(activeEndpoint)
-      : undefined;
+    const orderedHolders = needsFallback
+      ? await resolveHolderPeerIds(activeEndpoint)
+      : [];
+    const [fallbackHolderPeerId] = orderedHolders;
     if (!isCurrentGeneration(jobGeneration)) {
       return;
     }
@@ -737,12 +758,23 @@ export const createP2pStore = ({
         jobGeneration
       );
       const remaining = await listOutgoingPending();
+      const activeEndpoint = endpoint;
+      const roster = new Set(
+        activeEndpoint ? await ownHolderPeerIds(activeEndpoint) : []
+      );
       await Promise.all(
         remaining
-          .filter(
-            (message) =>
-              message.status === "held" || message.status === "sending"
-          )
+          .filter((message) => {
+            if (message.status === "sending") {
+              return true;
+            }
+            // Re-home only when the accepting CLI left the roster.
+            return (
+              message.status === "held" &&
+              (message.holderPeerId === null ||
+                !roster.has(message.holderPeerId))
+            );
+          })
           .map(async (message) => {
             if (!isCurrentGeneration(jobGeneration)) {
               return;

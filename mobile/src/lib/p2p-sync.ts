@@ -57,12 +57,17 @@ export const otherOwnDevicePeerIds = (
     .filter((device) => device.peerId !== ownPeerId)
     .map((device) => device.peerId);
 
-export const pickHolderPeerId = (
+/** Connected holders first, roster order kept inside each group. */
+export const orderHolderPeerIds = (
   holderPeerIds: readonly string[],
   connectedPeerIds: readonly string[]
-) =>
-  holderPeerIds.find((peerId) => connectedPeerIds.includes(peerId)) ??
-  holderPeerIds[0];
+) => {
+  const connected = new Set(connectedPeerIds);
+  return [
+    ...holderPeerIds.filter((peerId) => connected.has(peerId)),
+    ...holderPeerIds.filter((peerId) => !connected.has(peerId)),
+  ];
+};
 
 /** Split poll ids so every held message is requested, not only the oldest 32. */
 export const chunkSyncPollIds = (ids: readonly string[]) => {
