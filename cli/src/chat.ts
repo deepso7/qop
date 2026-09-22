@@ -474,6 +474,7 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
             {
               enqueue: outbox.enqueue,
               getByIds: messages.getByIds,
+              inboxAfter: messages.inboxAfter,
             },
             guardSensitive,
             out

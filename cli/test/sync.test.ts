@@ -7,8 +7,13 @@ import {
   createPeerSessions,
   encodeSyncRequestV1,
   encodeSyncResponseV1,
+  MAX_SYNC_PAYLOAD_BYTES,
 } from "@qop/protocol";
-import type { OutboxRecordV1, RegistryAccount } from "@qop/protocol";
+import type {
+  InboxRecordV1,
+  OutboxRecordV1,
+  RegistryAccount,
+} from "@qop/protocol";
 import { Effect, Schema } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
@@ -64,6 +69,22 @@ const queued: OutboxRecordV1 = {
 
 const identity = { handle: "alice", qid: "42" };
 
+const inboxRecord = (
+  text: string,
+  messageId = crypto.randomUUID()
+): InboxRecordV1 => ({
+  frame: {
+    fromHandle: "bob",
+    id: messageId,
+    sentAt: 1_700_000_000_000,
+    text,
+    v: 1,
+  },
+  fromQid: "2",
+  receivedAt: 1_700_000_000_001,
+  v: 1,
+});
+
 const makeSessions = (account: RegistryAccount = aliceAccount) =>
   createPeerSessions({
     getContactByQid: () => Promise.resolve(null),
@@ -113,6 +134,7 @@ describe("CLI inbound sync", () => {
       handleInboundSyncStream(stream, makeSessions(), identity, {
         enqueue: () => Effect.succeed(queued),
         getByIds: () => Effect.succeed([]),
+        inboxAfter: () => Effect.succeed([]),
       })
     );
     expect(stream.replies).toEqual([
@@ -132,6 +154,7 @@ describe("CLI inbound sync", () => {
     const store: CliSyncStore = {
       enqueue,
       getByIds: () => Effect.succeed([]),
+      inboxAfter: () => Effect.succeed([]),
     };
     const stream = makeStream(
       await Effect.runPromise(
@@ -161,6 +184,7 @@ describe("CLI inbound sync", () => {
       enqueue: () =>
         Effect.fail(new CliOutboxStoreError({ operation: "write" })),
       getByIds: () => Effect.succeed([]),
+      inboxAfter: () => Effect.succeed([]),
     };
     const stream = makeStream(
       await Effect.runPromise(
@@ -186,6 +210,7 @@ describe("CLI inbound sync", () => {
       enqueue: () =>
         Effect.fail(new CliOutboxStoreError({ operation: "conflict" })),
       getByIds: () => Effect.succeed([]),
+      inboxAfter: () => Effect.succeed([]),
     };
     const stream = makeStream(
       await Effect.runPromise(
@@ -216,6 +241,7 @@ describe("CLI inbound sync", () => {
           queued,
           { ...queued, status: "sent" as const, updatedAt: 9 },
         ]),
+      inboxAfter: () => Effect.succeed([]),
     };
     const stream = makeStream(
       await Effect.runPromise(
@@ -237,6 +263,7 @@ describe("CLI inbound sync", () => {
     const store: CliSyncStore = {
       enqueue,
       getByIds: () => Effect.succeed([]),
+      inboxAfter: () => Effect.succeed([]),
     };
     const stream = makeStream(
       await Effect.runPromise(
@@ -260,6 +287,7 @@ describe("CLI inbound sync", () => {
     const store: CliSyncStore = {
       enqueue,
       getByIds: () => Effect.succeed([]),
+      inboxAfter: () => Effect.succeed([]),
     };
     const sessions = makeSessions();
     const bytes = await Effect.runPromise(
@@ -292,6 +320,7 @@ describe("CLI inbound sync", () => {
     const store: CliSyncStore = {
       enqueue,
       getByIds: () => Effect.succeed([]),
+      inboxAfter: () => Effect.succeed([]),
     };
     const stream = makeStream(
       await Effect.runPromise(
@@ -325,6 +354,7 @@ describe("CLI inbound sync", () => {
     const store: CliSyncStore = {
       enqueue,
       getByIds: () => Effect.succeed([]),
+      inboxAfter: () => Effect.succeed([]),
     };
     const stream = makeStream(
       await Effect.runPromise(
@@ -381,5 +411,164 @@ describe("CLI inbound sync", () => {
     } finally {
       await rm(root, { force: true, recursive: true });
     }
+  });
+
+  it("returns inbox rows after the cursor in seq order", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "qop-sync-catchup-"));
+    try {
+      await chmod(root, 0o700);
+      await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const store = yield* openCliOutboxStore(root);
+            const first = inboxRecord("one");
+            const second = inboxRecord("two");
+            const third = inboxRecord("three");
+            yield* store.putInbox(first);
+            yield* store.putInbox(second);
+            yield* store.putInbox(third);
+            const stream = makeStream(
+              yield* encodeSyncRequestV1({ after: 1, type: "catchup", v: 1 })
+            );
+            const response = yield* handleInboundSyncStream(
+              stream,
+              makeSessions(),
+              identity,
+              store
+            );
+            expect(response).toEqual({
+              records: [
+                { record: second, seq: 2 },
+                { record: third, seq: 3 },
+              ],
+              type: "inbox",
+              v: 1,
+            });
+            const done = makeStream(
+              yield* encodeSyncRequestV1({ after: 3, type: "catchup", v: 1 })
+            );
+            expect(
+              yield* handleInboundSyncStream(
+                done,
+                makeSessions(),
+                identity,
+                store
+              )
+            ).toEqual({ records: [], type: "inbox", v: 1 });
+          })
+        )
+      );
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it("packs catch-up pages by encoded size and stops on an empty page", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "qop-sync-pack-"));
+    try {
+      await chmod(root, 0o700);
+      await Effect.runPromise(
+        Effect.scoped(
+          Effect.gen(function* () {
+            const store = yield* openCliOutboxStore(root);
+            const text = "x".repeat(4000);
+            const total = 20;
+            for (let index = 0; index < total; index += 1) {
+              yield* store.putInbox(inboxRecord(text));
+            }
+            const pages: { readonly seq: number }[][] = [];
+            let after = 0;
+            for (;;) {
+              const stream = makeStream(
+                yield* encodeSyncRequestV1({ after, type: "catchup", v: 1 })
+              );
+              const response = yield* handleInboundSyncStream(
+                stream,
+                makeSessions(),
+                identity,
+                store
+              );
+              if (response.type !== "inbox") {
+                throw new Error("Expected an inbox page");
+              }
+              const encoded = yield* encodeSyncResponseV1(response);
+              expect(encoded.byteLength).toBeLessThanOrEqual(
+                MAX_SYNC_PAYLOAD_BYTES
+              );
+              if (response.records.length === 0) {
+                break;
+              }
+              pages.push([...response.records]);
+              const last = response.records.at(-1);
+              if (!last || last.seq <= after) {
+                throw new Error("Catch-up cursor did not advance");
+              }
+              after = last.seq;
+            }
+            const flat = pages.flat();
+            expect(pages[0]?.length).toBeGreaterThan(0);
+            expect(pages[0]?.length).toBeLessThan(total);
+            expect(flat.map((row) => row.seq)).toEqual(
+              Array.from({ length: total }, (_, index) => index + 1)
+            );
+          })
+        )
+      );
+    } finally {
+      await rm(root, { force: true, recursive: true });
+    }
+  });
+
+  it("resets an unverified catch-up stream without reading the inbox", async () => {
+    const inboxAfter = vi.fn(() => Effect.succeed([]));
+    const store: CliSyncStore = {
+      enqueue: () => Effect.succeed(queued),
+      getByIds: () => Effect.succeed([]),
+      inboxAfter,
+    };
+    const stream = makeStream(
+      await Effect.runPromise(
+        encodeSyncRequestV1({ after: 0, type: "catchup", v: 1 })
+      )
+    );
+    const result = await Effect.runPromise(
+      handleInboundSyncStream(
+        stream,
+        makeSessions(),
+        identity,
+        store,
+        () => false
+      ).pipe(Effect.result)
+    );
+    expect(result._tag).toBe("Failure");
+    expect(inboxAfter).not.toHaveBeenCalled();
+    expect(stream.write).not.toHaveBeenCalled();
+    expect(stream.reset).toHaveBeenCalledOnce();
+  });
+
+  it("resets the stream when inbox catch-up cannot be read", async () => {
+    const store: CliSyncStore = {
+      enqueue: () => Effect.succeed(queued),
+      getByIds: () => Effect.succeed([]),
+      inboxAfter: () =>
+        Effect.fail(new CliOutboxStoreError({ operation: "read" })),
+    };
+    const stream = makeStream(
+      await Effect.runPromise(
+        encodeSyncRequestV1({ after: 0, type: "catchup", v: 1 })
+      )
+    );
+    const result = await Effect.runPromise(
+      handleInboundSyncStream(stream, makeSessions(), identity, store).pipe(
+        Effect.result
+      )
+    );
+    expect(result._tag).toBe("Failure");
+    if (result._tag === "Failure") {
+      expect(result.failure).toBeInstanceOf(CliOutboxStoreError);
+      expect(result.failure.operation).toBe("read");
+    }
+    expect(stream.write).not.toHaveBeenCalled();
+    expect(stream.reset).toHaveBeenCalledOnce();
   });
 });
