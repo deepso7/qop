@@ -259,6 +259,17 @@ export const getContactByPeerId = async (
   return row ? contactFromRow(row) : null;
 };
 
+export const getContactByHandle = async (
+  handle: string
+): Promise<Contact | null> => {
+  const database = await getDatabase();
+  const row = await database.getFirstAsync<ContactRow>(
+    `${contactSelect} WHERE handle = ?`,
+    handle
+  );
+  return row ? contactFromRow(row) : null;
+};
+
 export const listConversations = async (): Promise<Conversation[]> => {
   const database = await getDatabase();
   const rows = await database.getAllAsync<ConversationRow>(`

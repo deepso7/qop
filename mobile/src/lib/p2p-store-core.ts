@@ -10,6 +10,7 @@ import {
   advanceMessageStatus,
   failInterruptedMessages,
   failRejectedHandoff,
+  getContactByHandle,
   getContactByQid,
   getHolderInboxCursor,
   getMessageById,
@@ -636,14 +637,25 @@ export const createP2pStore = ({
       // Handle reassigned or no devices: skip so one row cannot stall the cursor.
       return "skip";
     }
-    await upsertContact({
-      createdAt: Number(account.registeredAt) * 1000,
-      deviceKey: device.deviceKey,
-      handle: account.handle,
-      owner: account.owner,
-      peerId: device.peerId,
-      qid: account.qid.toString(),
-    });
+    try {
+      const handleOwner = await getContactByHandle(account.handle);
+      if (handleOwner && handleOwner.qid !== record.fromQid) {
+        // Stale local row still owns this handle. UNIQUE would throw and the
+        // outer catch would leave the holder cursor stuck on this seq.
+        return "skip";
+      }
+      await upsertContact({
+        createdAt: Number(account.registeredAt) * 1000,
+        deviceKey: device.deviceKey,
+        handle: account.handle,
+        owner: account.owner,
+        peerId: device.peerId,
+        qid: account.qid.toString(),
+      });
+    } catch {
+      // Storage failure is unresolvable for this row. Skip and advance.
+      return "skip";
+    }
     return "ready";
   };
 

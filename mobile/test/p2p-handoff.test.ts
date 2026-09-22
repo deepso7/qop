@@ -1159,4 +1159,106 @@ describe("inbox catch-up", () => {
     expect(await getContactByQid("99")).toBeNull();
     expect(await getMessageById(id)).toBeNull();
   });
+
+  it("skips a registry-matching sender whose handle is already taken and still advances", async () => {
+    const skipped = "c56a4180-65aa-42ec-a945-5fd21dec0609";
+    const later = "c56a4180-65aa-42ec-a945-5fd21dec0610";
+    const staleKey = `0x${"66".repeat(32)}`;
+    const stalePeer = "12D3KooWcarolstalecarolstalecarolstalecarolstalecarolst";
+    await upsertContact({
+      createdAt: 1,
+      deviceKey: staleKey,
+      handle: "carol",
+      owner: bobAccount.owner,
+      peerId: stalePeer,
+      qid: "50",
+    });
+    const carolDeviceKey = `0x${"55".repeat(32)}`;
+    const carolPeer = "12D3KooWcarolcarolcarolcarolcarolcarolcarolcarolcarolca";
+    lookupQid.mockImplementation((qid: bigint) =>
+      Effect.succeed(
+        qid === 99n
+          ? {
+              ...bobAccount,
+              deviceKey: carolDeviceKey,
+              devices: [{ deviceKey: carolDeviceKey, peerId: carolPeer }],
+              handle: "carol",
+              peerId: carolPeer,
+              qid: 99n,
+            }
+          : null
+      )
+    );
+    catchup.mockImplementation(({ after }) => {
+      if (after === 0) {
+        return Promise.resolve([
+          {
+            record: inboxRecord(skipped, "from the new carol", {
+              fromHandle: "carol",
+              fromQid: "99",
+            }),
+            seq: 7,
+          },
+        ]);
+      }
+      if (after === 7) {
+        return Promise.resolve([
+          { record: inboxRecord(later, "after the skip"), seq: 8 },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    await useP2pStore.getState().start();
+    await vi.waitFor(async () =>
+      expect(await getHolderInboxCursor(PEER_CLI)).toBe(8)
+    );
+    expect(await getMessageById(skipped)).toBeNull();
+    expect(await getContactByQid("99")).toBeNull();
+    expect(await getContactByQid("50")).toMatchObject({
+      deviceKey: staleKey,
+      handle: "carol",
+      peerId: stalePeer,
+    });
+    expect(await getMessageById(later, "1")).toMatchObject({
+      status: "received",
+      text: "after the skip",
+    });
+  });
+
+  it("drains inbox pages until the holder returns an empty page", async () => {
+    const first = "c56a4180-65aa-42ec-a945-5fd21dec0607";
+    const second = "c56a4180-65aa-42ec-a945-5fd21dec0608";
+    catchup.mockImplementation(({ after }) => {
+      if (after === 0) {
+        return Promise.resolve([
+          { record: inboxRecord(first, "page one"), seq: 2 },
+        ]);
+      }
+      if (after === 2) {
+        return Promise.resolve([
+          { record: inboxRecord(second, "page two"), seq: 9 },
+        ]);
+      }
+      return Promise.resolve([]);
+    });
+    await useP2pStore.getState().start();
+    await vi.waitFor(async () => {
+      expect(await getMessageById(first, "1")).toMatchObject({
+        text: "page one",
+      });
+      expect(await getMessageById(second, "1")).toMatchObject({
+        text: "page two",
+      });
+    });
+    expect(await getHolderInboxCursor(PEER_CLI)).toBe(9);
+    expect(catchup).toHaveBeenCalledWith(
+      expect.objectContaining({ after: 0, holderPeerId: PEER_CLI })
+    );
+    expect(catchup).toHaveBeenCalledWith(
+      expect.objectContaining({ after: 2, holderPeerId: PEER_CLI })
+    );
+    expect(catchup).toHaveBeenCalledWith(
+      expect.objectContaining({ after: 9, holderPeerId: PEER_CLI })
+    );
+  });
 });
