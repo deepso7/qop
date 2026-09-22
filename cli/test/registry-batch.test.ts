@@ -103,11 +103,27 @@ describe("CLI registry HTTP batch", () => {
         const decoded = decodeRpcBody(body);
         const batch = Array.isArray(decoded) ? decoded : [decoded];
         posts.push([...batch]);
-        const results = batch.map((call) => ({
-          id: call.id,
-          jsonrpc: "2.0" as const,
-          result: rpcResult(call),
-        }));
+        // `rpcResult` throws on unexpected input. This listener is async, so
+        // an uncaught throw becomes an unhandled exception and the client
+        // never gets a body. Answer that call with a JSON-RPC error instead.
+        const results = batch.map((call) => {
+          try {
+            return {
+              id: call.id,
+              jsonrpc: "2.0" as const,
+              result: rpcResult(call),
+            };
+          } catch (error) {
+            return {
+              error: {
+                code: -32_603,
+                message: error instanceof Error ? error.message : String(error),
+              },
+              id: call.id,
+              jsonrpc: "2.0" as const,
+            };
+          }
+        });
         response.writeHead(200, { "Content-Type": "application/json" });
         response.end(
           JSON.stringify(Array.isArray(decoded) ? results : results[0])
