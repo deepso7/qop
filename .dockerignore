@@ -1,0 +1,13 @@
+# Allowlist: only what api/Dockerfile needs enters the build context.
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!tsconfig.base.json
+!api
+!packages/identity
+**/node_modules
+**/dist
+**/test
+**/.env
+**/.env.*

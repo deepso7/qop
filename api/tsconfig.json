@@ -9,6 +9,12 @@
     "sourceMap": true,
     "types": ["node"]
   },
-  "include": ["drizzle.config.ts", "src/**/*", "test/**/*", "vitest.config.ts"],
+  "include": [
+    "build.ts",
+    "drizzle.config.ts",
+    "src/**/*",
+    "test/**/*",
+    "vitest.config.ts"
+  ],
   "exclude": ["node_modules", "dist"]
 }

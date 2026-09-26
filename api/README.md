@@ -36,3 +36,13 @@ pnpm --filter @qop/api db:push
 ```
 
 Schema changes use `db:push`; this package does not commit migration files. This development revision has no production backfill. Replace existing development databases before the next push if they contain the removed draft, device certificate, or device session tables.
+
+## Deployment
+
+`pnpm --filter @qop/api build` bundles the API into a single `dist/main.mjs`. `api/Dockerfile` builds it and ships only that bundle plus the node binary. Build it from the repo root:
+
+```sh
+docker build -f api/Dockerfile -t qop-api .
+```
+
+Pass the variables from `.env.example` as container environment variables. The container listens on `PORT`, which defaults to `3000`.

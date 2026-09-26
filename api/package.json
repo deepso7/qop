@@ -4,11 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --project tsconfig.json",
+    "build": "node build.ts",
     "admission:create": "node --env-file=.env src/create-admission-code.ts",
     "db:push": "drizzle-kit push",
     "dev": "node --watch --env-file=.env src/main.ts",
-    "start": "node --env-file=.env dist/src/main.js",
+    "start": "node --enable-source-maps --env-file-if-exists=.env dist/main.mjs",
     "test": "vitest run",
     "typecheck": "tsc --project tsconfig.json --noEmit"
   },
@@ -28,6 +28,7 @@
     "@types/node": "26.4.1",
     "@types/pg": "8.23.1",
     "drizzle-kit": "1.0.0-rc.5-ab785fc",
+    "esbuild": "0.28.2",
     "typescript": "catalog:",
     "vitest": "4.1.11"
   }
