@@ -13,13 +13,13 @@ const VARIANTS = {
   development: {
     backgroundColor: "#F2EEEA",
     identifier: "sh.qop.dev",
-    name: "qop Dev",
+    name: "qop dev",
     scheme: "qop-dev",
   },
   preview: {
     backgroundColor: "#F2EEEA",
     identifier: "sh.qop.preview",
-    name: "qop Preview",
+    name: "qop preview",
     scheme: "qop-preview",
   },
   production: {
