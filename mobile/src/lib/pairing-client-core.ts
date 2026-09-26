@@ -1,3 +1,4 @@
+import type { ConnectTarget } from "@minip2p/react-native";
 import { Hex32, peerIdFromDeviceKey, PeerId } from "@qop/identity";
 import {
   asHex,
@@ -12,7 +13,7 @@ import type {
   DeviceActionApprovalV1Encoded,
   PairingOfferV1,
 } from "@qop/protocol";
-import { Data, Effect, Result, Schema } from "effect";
+import { Data, Effect, Schema } from "effect";
 
 export class PhonePairingError extends Data.TaggedError("PhonePairingError")<{
   readonly operation:
@@ -35,13 +36,9 @@ export interface PairingStream {
 }
 
 export interface PairingTransport {
-  readonly connect?: (peerId: string) => Promise<{ readonly peerId: string }>;
-  readonly connectAddr: (
-    address: string
-  ) => Promise<{ readonly peerId: string }>;
-  readonly connectWithAddrs?: (
-    peerId: string,
-    addresses: readonly string[]
+  /** Starts one minip2p Connection attempt toward a peer ID or its addresses. */
+  readonly connect: (
+    target: ConnectTarget
   ) => Promise<{ readonly peerId: string }>;
   readonly openPairingStream: (peerId: string) => Promise<PairingStream>;
   readonly waitPeerReady: (peerId: string) => Promise<void>;
@@ -119,43 +116,23 @@ const dialOffer = Effect.fn("PhonePairing.dialOffer")(function* (
       ? waitReady
       : Effect.fail(pairingError("connect"));
 
-  const tryHinted = () => {
-    const { connect, connectWithAddrs } = transport;
-    if (connectWithAddrs !== undefined) {
-      return Effect.tryPromise({
-        catch: () => pairingError("connect"),
-        try: () => connectWithAddrs(peerId, offer.addrs),
-      }).pipe(Effect.flatMap(acceptPeer));
-    }
-    if (connect !== undefined) {
-      return Effect.tryPromise({
-        catch: () => pairingError("connect"),
-        try: () => connect(peerId),
-      }).pipe(Effect.flatMap(acceptPeer));
-    }
-    return Effect.fail(pairingError("connect"));
-  };
+  const connect = (target: ConnectTarget) =>
+    Effect.tryPromise({
+      catch: () => pairingError("connect"),
+      try: () => transport.connect(target),
+    }).pipe(Effect.flatMap(acceptPeer));
 
-  const tryAddr = (index: number): Effect.Effect<string, PhonePairingError> =>
-    Effect.gen(function* () {
-      const address = offer.addrs[index];
-      if (address === undefined) {
-        return yield* pairingError("connect");
-      }
-      if (address.includes("/p2p-circuit/")) {
-        return yield* tryAddr(index + 1);
-      }
-      const connected = yield* Effect.tryPromise({
-        catch: () => pairingError("connect"),
-        try: () => transport.connectAddr(address),
-      }).pipe(Effect.result);
-      if (Result.isFailure(connected) || connected.success.peerId !== peerId) {
-        return yield* tryAddr(index + 1);
-      }
-      return yield* waitReady;
-    });
-
-  return yield* tryHinted().pipe(Effect.catch(() => tryAddr(0)));
+  // minip2p rejects circuit addresses in an address target; the peer-ID
+  // target reaches the offerer through the endpoint's relay policy instead.
+  const [first, ...rest] = offer.addrs.filter(
+    (address) => !address.includes("/p2p-circuit")
+  );
+  if (first === undefined) {
+    return yield* connect(peerId);
+  }
+  return yield* connect([first, ...rest]).pipe(
+    Effect.catch(() => connect(peerId))
+  );
 });
 
 export const handshakePairing = Effect.fn("PhonePairing.handshake")(function* (

@@ -103,10 +103,6 @@ const useP2pStore = createP2pStore({
       activeReservation: () => {},
       close: () => {},
       connect: () => Promise.reject(new Error("No dial in handoff fixture")),
-      connectAddr: () =>
-        Promise.reject(new Error("No pairing dial in handoff fixture")),
-      connectWithAddrs: () =>
-        Promise.reject(new Error("No pairing dial in handoff fixture")),
       connectedPeers,
       disconnect: vi.fn(),
       on: captureEndpointEvent,

@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@expo/ui": "57.0.16",
-    "@minip2p/react-native": "0.5.3",
+    "@minip2p/react-native": "0.7.0",
     "@qop/identity": "workspace:*",
     "@qop/protocol": "workspace:*",
     "@rn-primitives/accordion": "1.5.2",

@@ -252,8 +252,8 @@ importers:
         specifier: 4.0.0-rc.112
         version: 4.0.0-rc.112(effect@4.0.0-rc.112)(redis@6.2.1)
       '@minip2p/node':
-        specifier: 0.5.3
-        version: 0.5.3
+        specifier: 0.7.0
+        version: 0.7.0
       '@qop/identity':
         specifier: workspace:*
         version: link:../packages/identity
@@ -286,8 +286,8 @@ importers:
         specifier: 57.0.16
         version: 57.0.16(@babel/core@7.29.7(supports-color@8.1.1))(@types/react@19.2.18)(expo@57.0.20)(react-dom@19.2.3(react@19.2.3))(react-native-worklets@0.10.1(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)(supports-color@8.1.1))(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
       '@minip2p/react-native':
-        specifier: 0.5.3
-        version: 0.5.3(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
+        specifier: 0.7.0
+        version: 0.7.0(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)
       '@qop/identity':
         specifier: workspace:*
         version: link:../packages/identity
@@ -1551,61 +1551,61 @@ packages:
     resolution: {integrity: sha512-hloP58zRVCRSpgDxmqCWJNlizAlUgJFqG2ypq79DCvyv9tHjRYMDOcPFjzfl/A1/YxDvRCZz8wvZvmapQnKwFQ==}
     engines: {node: '>=12'}
 
-  '@minip2p/core@0.5.3':
-    resolution: {integrity: sha512-GZz0hyJKrtWTtP4xt9240co4bYwV4Gici199tN71e/8n6p6eUpZIxD8wHBhSGjWVEe7CHXdlDGHtbKjSxvovWg==}
+  '@minip2p/core@0.7.0':
+    resolution: {integrity: sha512-SYfG8YJP5uzXIPVpOVgRSOn3YjV8LHrVPvyulzziGNpG3HadI4k/jfgeWiRoHBE9zEvaleDh4H/0D1X2cxN0bg==}
 
-  '@minip2p/node-darwin-arm64@0.5.3':
-    resolution: {integrity: sha512-FwgK4ORNpJyP7dUgIh483HAhS7tX2SXz//ac852Lj6zax3+h0UGKKhX2XMDvdmzswoRfuHvCUxUnR2BB1BPbBQ==}
+  '@minip2p/node-darwin-arm64@0.7.0':
+    resolution: {integrity: sha512-mq7Cn5rWT0rdZ8bttYz/D1X7Se7TM37ht3QqBFzSOINYcD/DbB/EzQ4G0X9twIaLpNA2Mp+kRuq0a5CuKN+qqg==}
     engines: {node: '>=24'}
     cpu: [arm64]
     os: [darwin]
 
-  '@minip2p/node-darwin-x64@0.5.3':
-    resolution: {integrity: sha512-FyXofxApUJUEUJFBVfDNbakOc3rsTNmeKztIXWUiE9tXuoIZlc4NAdWxrKyXpl4wItMwhlmfx0F/Xcs5k56YNQ==}
+  '@minip2p/node-darwin-x64@0.7.0':
+    resolution: {integrity: sha512-F69OucvrOyzqgP06FyTUfhX7mBHP6hLATG0APTMljDMZY3sZ7FqOwXzCFlH3mdTSYqInq+rw6wlUqWgAdLnUyg==}
     engines: {node: '>=24'}
     cpu: [x64]
     os: [darwin]
 
-  '@minip2p/node-linux-arm64-gnu@0.5.3':
-    resolution: {integrity: sha512-c9cHtXjsZ52A+FEvuLp5jThyvPi8l5JjRyp6kSG3kA5R+lN7zb0qB9826XcQgEMtAykzwwuKuH3O/e+lrnD5fw==}
+  '@minip2p/node-linux-arm64-gnu@0.7.0':
+    resolution: {integrity: sha512-DkTgO+J+ch0VMcxpcaG2EnJdmnddGNsxIhFyf9axaIx7PSMU/XBUB2UP+fGdvI4kFp4BKApvlCAw2fPYCJ64KQ==}
     engines: {node: '>=24'}
     cpu: [arm64]
     os: [linux]
     libc: [glibc]
 
-  '@minip2p/node-linux-arm64-musl@0.5.3':
-    resolution: {integrity: sha512-z3bHZksQvL3C2TBvY0vQ0qtvdEyHmoNIDbfKwam6ouJ95h+XUc8qR9McVYgsU5rfltCY8Fgw5ukoMunz0wlPSg==}
+  '@minip2p/node-linux-arm64-musl@0.7.0':
+    resolution: {integrity: sha512-KvZ5ym2Mo/KOnbbEuaMaWG67HxCLkl4j9Gp+PrGnkLXCf9zMavrN9+X/8was5fsx2Kpst38nkZEW/NA2mv+G1g==}
     engines: {node: '>=24'}
     cpu: [arm64]
     os: [linux]
     libc: [musl]
 
-  '@minip2p/node-linux-x64-gnu@0.5.3':
-    resolution: {integrity: sha512-xKCgBrLqIlUIl2Uv4pRi/NIkfNW5w0D8I4e3+3fMK5ncMIrRojc+iJC3vSiPVHiYd8ORwXAmUNmukCuQsRb5jg==}
+  '@minip2p/node-linux-x64-gnu@0.7.0':
+    resolution: {integrity: sha512-BpVvvBWD+QXSNWwkfK2HVZx48Vpfv9L8OQFvLBHwzGkHjR12RJUsGoS36gUYefYdqIwj5fWWDq4DLtSVGfrgWA==}
     engines: {node: '>=24'}
     cpu: [x64]
     os: [linux]
     libc: [glibc]
 
-  '@minip2p/node-linux-x64-musl@0.5.3':
-    resolution: {integrity: sha512-jSr2oSRcLtxT1uPOBgAXQxSOkyyMjcyTG4UdActM0c9ckxBEIqdAJwZ9h1vn0ds2tUOpKtQ1/4HGxGhIAdoHJA==}
+  '@minip2p/node-linux-x64-musl@0.7.0':
+    resolution: {integrity: sha512-c+IV/gCn7M7sQmDKICx3VCIRLhOsvlWs+2+10qL6QWuUJ/cwllHFYQ4b4PvLNLrb2jVsozeGs0FViIdj356gQA==}
     engines: {node: '>=24'}
     cpu: [x64]
     os: [linux]
     libc: [musl]
 
-  '@minip2p/node-win32-x64-msvc@0.5.3':
-    resolution: {integrity: sha512-TxKJG3wgmTyk6DJxSq7iuJebwNbGz43t9TCgiecHMzxC28TIfioZ/q2cUedIabeRgkW4ajMND3+fiK/c8dO+Xw==}
+  '@minip2p/node-win32-x64-msvc@0.7.0':
+    resolution: {integrity: sha512-wlbvE+1ictiORa59MRbZCmmfmuolscpE6xLc6QEwYHOXccP8/GkMnxaOPvJPN6KgLNdMzos/uPpFyWM3/jMmhQ==}
     engines: {node: '>=24'}
     cpu: [x64]
     os: [win32]
 
-  '@minip2p/node@0.5.3':
-    resolution: {integrity: sha512-OniBG8JRe0Wc1yE8BwQsIgaVhwQbrG1mD7C43e3QwtFtqMS62kHnTcQ3Ufc5cFHEkLoB8Y8GrxaERRWFtwZkZg==}
+  '@minip2p/node@0.7.0':
+    resolution: {integrity: sha512-u/r+Ec+a7WvtYwPHwAbAfZ57zx5IJNVVkuUvEGHp3RWuWUKIIgozAqXHCJeABFp6IB4/I4xOxhJVw2kwfAs0LQ==}
     engines: {node: '>=24'}
 
-  '@minip2p/react-native@0.5.3':
-    resolution: {integrity: sha512-4INHUn/nIevIM5XC5w9yQAUtod4QhHWb50NMh7IOsYI4iaHp6EOUO1zemv+DfV+ryA79CcbnPArCGbEm26j7nA==}
+  '@minip2p/react-native@0.7.0':
+    resolution: {integrity: sha512-m85Am3ePZxdrLAWdCxPP6u3YL9iANrWXYjb7kcfyUarYKQHB1Rz9HsoOramXDtW2yljaJIl7L6qLZSpLqUbshw==}
     peerDependencies:
       react: '*'
       react-native: '*'
@@ -8647,44 +8647,44 @@ snapshots:
     dependencies:
       jsbi: 4.3.2
 
-  '@minip2p/core@0.5.3': {}
+  '@minip2p/core@0.7.0': {}
 
-  '@minip2p/node-darwin-arm64@0.5.3':
+  '@minip2p/node-darwin-arm64@0.7.0':
     optional: true
 
-  '@minip2p/node-darwin-x64@0.5.3':
+  '@minip2p/node-darwin-x64@0.7.0':
     optional: true
 
-  '@minip2p/node-linux-arm64-gnu@0.5.3':
+  '@minip2p/node-linux-arm64-gnu@0.7.0':
     optional: true
 
-  '@minip2p/node-linux-arm64-musl@0.5.3':
+  '@minip2p/node-linux-arm64-musl@0.7.0':
     optional: true
 
-  '@minip2p/node-linux-x64-gnu@0.5.3':
+  '@minip2p/node-linux-x64-gnu@0.7.0':
     optional: true
 
-  '@minip2p/node-linux-x64-musl@0.5.3':
+  '@minip2p/node-linux-x64-musl@0.7.0':
     optional: true
 
-  '@minip2p/node-win32-x64-msvc@0.5.3':
+  '@minip2p/node-win32-x64-msvc@0.7.0':
     optional: true
 
-  '@minip2p/node@0.5.3':
+  '@minip2p/node@0.7.0':
     dependencies:
-      '@minip2p/core': 0.5.3
+      '@minip2p/core': 0.7.0
     optionalDependencies:
-      '@minip2p/node-darwin-arm64': 0.5.3
-      '@minip2p/node-darwin-x64': 0.5.3
-      '@minip2p/node-linux-arm64-gnu': 0.5.3
-      '@minip2p/node-linux-arm64-musl': 0.5.3
-      '@minip2p/node-linux-x64-gnu': 0.5.3
-      '@minip2p/node-linux-x64-musl': 0.5.3
-      '@minip2p/node-win32-x64-msvc': 0.5.3
+      '@minip2p/node-darwin-arm64': 0.7.0
+      '@minip2p/node-darwin-x64': 0.7.0
+      '@minip2p/node-linux-arm64-gnu': 0.7.0
+      '@minip2p/node-linux-arm64-musl': 0.7.0
+      '@minip2p/node-linux-x64-gnu': 0.7.0
+      '@minip2p/node-linux-x64-musl': 0.7.0
+      '@minip2p/node-win32-x64-msvc': 0.7.0
 
-  '@minip2p/react-native@0.5.3(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)':
+  '@minip2p/react-native@0.7.0(react-native@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1))(react@19.2.3)':
     dependencies:
-      '@minip2p/core': 0.5.3
+      '@minip2p/core': 0.7.0
       '@ubjs/core': 0.31.0-5
       react: 19.2.3
       react-native: 0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(@react-native/metro-config@0.86.3(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(@types/react@19.2.18)(react@19.2.3)(supports-color@8.1.1)

@@ -1,4 +1,9 @@
-import type { Minip2p, Stream, Unsubscribe } from "@minip2p/react-native";
+import type {
+  ConnectTarget,
+  Minip2p,
+  Stream,
+  Unsubscribe,
+} from "@minip2p/react-native";
 import { PAIR_PROTOCOL, SYNC_PROTOCOL } from "@qop/protocol";
 import { Effect } from "effect";
 import { create } from "zustand";
@@ -61,14 +66,7 @@ interface P2pActions {
     | undefined
   >;
   readonly pairConnect: (
-    peerId: string
-  ) => Promise<{ readonly peerId: string } | undefined>;
-  readonly pairConnectAddr: (
-    address: string
-  ) => Promise<{ readonly peerId: string } | undefined>;
-  readonly pairConnectWithAddrs: (
-    peerId: string,
-    addresses: readonly string[]
+    target: ConnectTarget
   ) => Promise<{ readonly peerId: string } | undefined>;
   readonly pairWaitPeerReady: (peerId: string) => Promise<void>;
   readonly retryMessage: (id: string, contactQid?: string) => Promise<void>;
@@ -92,8 +90,6 @@ export type P2pEndpoint = Pick<
   | "close"
   | "connectedPeers"
   | "connect"
-  | "connectAddr"
-  | "connectWithAddrs"
   | "disconnect"
   | "on"
   | "onClose"
@@ -796,28 +792,13 @@ export const createP2pStore = ({
       return stream;
     },
 
-    pairConnect: async (peerId) => {
+    pairConnect: async (target) => {
       const activeEndpoint = endpoint;
       if (!activeEndpoint) {
         return;
       }
-      return await activeEndpoint.connect(peerId, { timeoutMs: 15_000 });
-    },
-
-    pairConnectAddr: async (address) => {
-      const activeEndpoint = endpoint;
-      if (!activeEndpoint) {
-        return;
-      }
-      return await activeEndpoint.connectAddr(address, { timeoutMs: 15_000 });
-    },
-
-    pairConnectWithAddrs: async (peerId, addresses) => {
-      const activeEndpoint = endpoint;
-      if (!activeEndpoint) {
-        return;
-      }
-      return await activeEndpoint.connectWithAddrs(peerId, addresses, {
+      return await activeEndpoint.connect(target, {
+        cancelOnTimeout: true,
         timeoutMs: 15_000,
       });
     },

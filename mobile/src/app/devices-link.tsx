@@ -1,3 +1,4 @@
+import type { ConnectTarget } from "@minip2p/react-native";
 import { asHex, pairingFingerprint } from "@qop/protocol";
 import type { PairingOfferV1 } from "@qop/protocol";
 import { Effect, Result } from "effect";
@@ -24,10 +25,6 @@ const DevicesLinkScreen = () => {
   const identity = useIdentityStore((state) => state.identity);
   const registration = useIdentityStore((state) => state.registration);
   const pairConnect = useP2pStore((state) => state.pairConnect);
-  const pairConnectAddr = useP2pStore((state) => state.pairConnectAddr);
-  const pairConnectWithAddrs = useP2pStore(
-    (state) => state.pairConnectWithAddrs
-  );
   const pairWaitPeerReady = useP2pStore((state) => state.pairWaitPeerReady);
   const openPairingStream = useP2pStore((state) => state.openPairingStream);
   const invalidateOwnHolders = useP2pStore(
@@ -42,22 +39,8 @@ const DevicesLinkScreen = () => {
 
   const transport = React.useMemo(
     () => ({
-      connect: async (id: string) => {
-        const connected = await pairConnect(id);
-        if (!connected) {
-          throw new Error("Could not connect");
-        }
-        return connected;
-      },
-      connectAddr: async (address: string) => {
-        const connected = await pairConnectAddr(address);
-        if (!connected) {
-          throw new Error("Could not connect");
-        }
-        return connected;
-      },
-      connectWithAddrs: async (id: string, addresses: readonly string[]) => {
-        const connected = await pairConnectWithAddrs(id, addresses);
+      connect: async (target: ConnectTarget) => {
+        const connected = await pairConnect(target);
         if (!connected) {
           throw new Error("Could not connect");
         }
@@ -72,13 +55,7 @@ const DevicesLinkScreen = () => {
       },
       waitPeerReady: pairWaitPeerReady,
     }),
-    [
-      openPairingStream,
-      pairConnect,
-      pairConnectAddr,
-      pairConnectWithAddrs,
-      pairWaitPeerReady,
-    ]
+    [openPairingStream, pairConnect, pairWaitPeerReady]
   );
 
   const paste = React.useCallback(async () => {

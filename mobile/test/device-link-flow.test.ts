@@ -148,7 +148,7 @@ describe("completeDeviceLink", () => {
         peerId: "12D3KooWaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         qid: 42n,
         transport: {
-          connectAddr: () => Promise.reject(new Error("unused")),
+          connect: () => Promise.reject(new Error("unused")),
           openPairingStream: () => Promise.reject(new Error("unused")),
           waitPeerReady: () => Promise.resolve(),
         },
