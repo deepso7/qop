@@ -46,7 +46,7 @@ const helloAckChunks = () => [
 
 const handshakeTransport = (
   peerId: string,
-  extras: Partial<PairingTransport> & Pick<PairingTransport, "connectAddr">
+  extras: Partial<PairingTransport> & Pick<PairingTransport, "connect">
 ): PairingTransport => {
   const chunks = helloAckChunks();
   return {
@@ -80,7 +80,7 @@ describe("phone pairing handshake", () => {
       const result = await Effect.runPromise(
         handshakePairing(
           handshakeTransport(peerId, {
-            connectAddr: () => Promise.resolve({ peerId }),
+            connect: () => Promise.resolve({ peerId }),
             openPairingStream: () =>
               Promise.resolve({
                 closeWrite: () => {},
@@ -120,7 +120,7 @@ describe("phone pairing handshake", () => {
     const result = await Effect.runPromise(
       handshakePairing(
         {
-          connectAddr: () => Promise.reject(new Error("unused")),
+          connect: () => Promise.reject(new Error("unused")),
           openPairingStream: () => Promise.reject(new Error("unused")),
           waitPeerReady: () => Promise.resolve(),
         },
@@ -139,28 +139,17 @@ describe("phone pairing handshake", () => {
     }
   });
 
-  it("tries the next advertised address when connectAddr rejects", async () => {
+  const handshakeWith = async (
+    addrs: readonly string[],
+    connect: PairingTransport["connect"]
+  ) => {
     const offer = await Effect.runPromise(
-      Schema.decodeUnknownEffect(PairingOfferV1)({
-        ...encodedOffer,
-        addrs: [LAN, "/ip4/10.0.0.8/udp/4001/quic-v1"],
-      })
+      Schema.decodeUnknownEffect(PairingOfferV1)({ ...encodedOffer, addrs })
     );
     const peerId = await Effect.runPromise(expectedPeerId());
-    const attempted: string[] = [];
-    const result = await Effect.runPromise(
+    return Effect.runPromise(
       handshakePairing(
-        handshakeTransport(peerId, {
-          connectAddr: (address) => {
-            attempted.push(address);
-            if (address === LAN) {
-              return Promise.reject(
-                new Error("peer id protocol must be terminal")
-              );
-            }
-            return Promise.resolve({ peerId });
-          },
-        }),
+        handshakeTransport(peerId, { connect }),
         offer,
         {
           chainId: encodedOffer.chainId,
@@ -170,103 +159,21 @@ describe("phone pairing handshake", () => {
         () => Promise.resolve(new Uint8Array(32).fill(7))
       )
     );
-    expect(result.peerId).toBe(peerId);
-    expect(attempted).toEqual([LAN, "/ip4/10.0.0.8/udp/4001/quic-v1"]);
-  });
+  };
 
-  it("dials by expected peer id instead of connectAddr for circuit offers", async () => {
-    const offer = await Effect.runPromise(
-      Schema.decodeUnknownEffect(PairingOfferV1)({
-        ...encodedOffer,
-        addrs: [CIRCUIT, LAN],
-      })
-    );
+  it("dials the direct offer addresses as one target without circuits", async () => {
     const peerId = await Effect.runPromise(expectedPeerId());
-    const connectAddr = vi.fn(() =>
-      Promise.reject(new Error("peer id protocol must be terminal"))
-    );
     const connect = vi.fn(() => Promise.resolve({ peerId }));
-    const result = await Effect.runPromise(
-      handshakePairing(
-        handshakeTransport(peerId, {
-          connect,
-          connectAddr,
-        }),
-        offer,
-        {
-          chainId: encodedOffer.chainId,
-          qid: encodedOffer.qid,
-          registry: encodedOffer.registry,
-        },
-        () => Promise.resolve(new Uint8Array(32).fill(7))
-      )
-    );
+    const result = await handshakeWith([CIRCUIT, LAN], connect);
     expect(result.peerId).toBe(peerId);
-    expect(connect).toHaveBeenCalledOnce();
-    expect(connect).toHaveBeenCalledWith(peerId);
-    expect(connectAddr).not.toHaveBeenCalled();
+    expect(connect).toHaveBeenCalledExactlyOnceWith([LAN]);
   });
 
-  it("uses advertised addresses as hints when connectWithAddrs is available", async () => {
-    const offer = await Effect.runPromise(
-      Schema.decodeUnknownEffect(PairingOfferV1)({
-        ...encodedOffer,
-        addrs: [CIRCUIT, LAN],
-      })
-    );
+  it("dials by peer id when the offer only has circuit addresses", async () => {
     const peerId = await Effect.runPromise(expectedPeerId());
-    const connectAddr = vi.fn(() => Promise.reject(new Error("unused")));
-    const connectWithAddrs = vi.fn(() => Promise.resolve({ peerId }));
-    const result = await Effect.runPromise(
-      handshakePairing(
-        handshakeTransport(peerId, {
-          connectAddr,
-          connectWithAddrs,
-        }),
-        offer,
-        {
-          chainId: encodedOffer.chainId,
-          qid: encodedOffer.qid,
-          registry: encodedOffer.registry,
-        },
-        () => Promise.resolve(new Uint8Array(32).fill(7))
-      )
-    );
+    const connect = vi.fn(() => Promise.resolve({ peerId }));
+    const result = await handshakeWith([CIRCUIT], connect);
     expect(result.peerId).toBe(peerId);
-    expect(connectWithAddrs).toHaveBeenCalledExactlyOnceWith(peerId, [
-      CIRCUIT,
-      LAN,
-    ]);
-    expect(connectAddr).not.toHaveBeenCalled();
-  });
-
-  it("skips circuit connectAddr and still reaches a later LAN address", async () => {
-    const offer = await Effect.runPromise(
-      Schema.decodeUnknownEffect(PairingOfferV1)({
-        ...encodedOffer,
-        addrs: [CIRCUIT, LAN],
-      })
-    );
-    const peerId = await Effect.runPromise(expectedPeerId());
-    const attempted: string[] = [];
-    const result = await Effect.runPromise(
-      handshakePairing(
-        handshakeTransport(peerId, {
-          connectAddr: (address) => {
-            attempted.push(address);
-            return Promise.resolve({ peerId });
-          },
-        }),
-        offer,
-        {
-          chainId: encodedOffer.chainId,
-          qid: encodedOffer.qid,
-          registry: encodedOffer.registry,
-        },
-        () => Promise.resolve(new Uint8Array(32).fill(7))
-      )
-    );
-    expect(result.peerId).toBe(peerId);
-    expect(attempted).toEqual([LAN]);
+    expect(connect).toHaveBeenCalledExactlyOnceWith(peerId);
   });
 });

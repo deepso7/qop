@@ -117,10 +117,6 @@ const useP2pStore = createP2pStore({
       activeReservation: () => {},
       close: () => {},
       connect: () => Promise.reject(new Error("No dial in lifecycle fixture")),
-      connectAddr: () =>
-        Promise.reject(new Error("No pairing dial in lifecycle fixture")),
-      connectWithAddrs: () =>
-        Promise.reject(new Error("No pairing dial in lifecycle fixture")),
       connectedPeers,
       disconnect,
       on: captureEndpointEvent,
