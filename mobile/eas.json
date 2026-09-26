@@ -9,8 +9,8 @@
       "env": {
         "APP_VARIANT": "development"
       },
-      "node": "24.20.0",
-      "pnpm": "12.3.4"
+      "node": "24.21.0",
+      "pnpm": "12.5.1"
     },
     "preview": {
       "autoIncrement": true,
@@ -24,20 +24,24 @@
       "env": {
         "APP_VARIANT": "preview"
       },
-      "node": "24.20.0",
-      "pnpm": "12.3.4"
+      "node": "24.21.0",
+      "pnpm": "12.5.1"
     },
     "production": {
       "autoIncrement": true,
       "env": {
         "APP_VARIANT": "production"
       },
-      "node": "24.20.0",
-      "pnpm": "12.3.4"
+      "node": "24.21.0",
+      "pnpm": "12.5.1"
     }
   },
   "submit": {
-    "preview": {},
+    "preview": {
+      "ios": {
+        "ascAppId": "6816326154"
+      }
+    },
     "production": {}
   }
 }

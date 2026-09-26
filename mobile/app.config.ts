@@ -66,6 +66,11 @@ export default {
     reactCompiler: true,
     typedRoutes: true,
   },
+  extra: {
+    eas: {
+      projectId: "64318cc0-3870-4d04-a70a-93a49a0e78d7",
+    },
+  },
   icon: `${iconRoot}/ios.png`,
   ios: {
     bundleIdentifier: variant.identifier,
@@ -74,6 +79,7 @@ export default {
       light: `${iconRoot}/ios-light.png`,
     },
     infoPlist: {
+      ITSAppUsesNonExemptEncryption: false,
       NSBonjourServices: ["_p2p._udp"],
       NSLocalNetworkUsageDescription:
         "Discover nearby minip2p peers on your local network.",
