@@ -1,4 +1,3 @@
-import type { ConnectTarget } from "@minip2p/react-native";
 import { Hex32, PeerId, peerIdFromDeviceKey } from "@qop/identity";
 import { PAIR_PROTOCOL, PairingOfferV1 } from "@qop/protocol";
 import { Effect, Schema } from "effect";
@@ -168,18 +167,6 @@ describe("phone pairing handshake", () => {
     const result = await handshakeWith([CIRCUIT, LAN], connect);
     expect(result.peerId).toBe(peerId);
     expect(connect).toHaveBeenCalledExactlyOnceWith([LAN]);
-  });
-
-  it("falls back to the peer id when the direct addresses fail", async () => {
-    const peerId = await Effect.runPromise(expectedPeerId());
-    const connect = vi.fn((target: ConnectTarget) =>
-      target === peerId
-        ? Promise.resolve({ peerId })
-        : Promise.reject(new Error("unreachable"))
-    );
-    const result = await handshakeWith([LAN, CIRCUIT], connect);
-    expect(result.peerId).toBe(peerId);
-    expect(connect.mock.calls).toEqual([[[LAN]], [peerId]]);
   });
 
   it("dials by peer id when the offer only has circuit addresses", async () => {

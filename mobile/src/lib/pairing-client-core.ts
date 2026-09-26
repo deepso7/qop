@@ -106,33 +106,25 @@ const dialOffer = Effect.fn("PhonePairing.dialOffer")(function* (
   offer: PairingOfferV1,
   peerId: string
 ) {
-  const waitReady = Effect.tryPromise({
-    catch: () => pairingError("connect"),
-    try: () => transport.waitPeerReady(peerId),
-  }).pipe(Effect.as(peerId));
-
-  const acceptPeer = (connected: { readonly peerId: string }) =>
-    connected.peerId === peerId
-      ? waitReady
-      : Effect.fail(pairingError("connect"));
-
-  const connect = (target: ConnectTarget) =>
-    Effect.tryPromise({
-      catch: () => pairingError("connect"),
-      try: () => transport.connect(target),
-    }).pipe(Effect.flatMap(acceptPeer));
-
-  // minip2p rejects circuit addresses in an address target; the peer-ID
-  // target reaches the offerer through the endpoint's relay policy instead.
+  // minip2p rejects circuit addresses in an address target. Every connect
+  // races its direct candidates against the endpoint's relay leg, so the
+  // offer's circuit route stays covered without dialing it explicitly.
   const [first, ...rest] = offer.addrs.filter(
     (address) => !address.includes("/p2p-circuit")
   );
-  if (first === undefined) {
-    return yield* connect(peerId);
+  const connected = yield* Effect.tryPromise({
+    catch: () => pairingError("connect"),
+    try: () =>
+      transport.connect(first === undefined ? peerId : [first, ...rest]),
+  });
+  if (connected.peerId !== peerId) {
+    return yield* pairingError("connect");
   }
-  return yield* connect([first, ...rest]).pipe(
-    Effect.catch(() => connect(peerId))
-  );
+  yield* Effect.tryPromise({
+    catch: () => pairingError("connect"),
+    try: () => transport.waitPeerReady(peerId),
+  });
+  return peerId;
 });
 
 export const handshakePairing = Effect.fn("PhonePairing.handshake")(function* (
