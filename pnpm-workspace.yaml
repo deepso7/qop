@@ -16,5 +16,7 @@ overrides:
   "@react-native/metro-config": 0.86.3
 
 allowBuilds:
+  dtrace-provider: true
   esbuild: true
   msgpackr-extract: false
+  protobufjs: true
