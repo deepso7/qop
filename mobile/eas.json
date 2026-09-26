@@ -21,6 +21,7 @@
       "ios": {
         "distribution": "store"
       },
+      "environment": "preview",
       "env": {
         "APP_VARIANT": "preview"
       },
