@@ -172,6 +172,8 @@ export const createP2pStore = ({
     { readonly controller: AbortController; readonly job: Promise<void> }
   >();
   let cachedHolderPeerIds: readonly string[] | undefined;
+  /** Last adopted roster; survives invalidation so a failed re-read can use it. */
+  let lastKnownHolderPeerIds: readonly string[] | undefined;
   let holderLookup: Promise<readonly string[] | undefined> | undefined;
   let holderDiscoverLookup:
     | {
@@ -215,6 +217,7 @@ export const createP2pStore = ({
     sessions.clear();
     holderCacheEpoch += 1;
     cachedHolderPeerIds = undefined;
+    lastKnownHolderPeerIds = undefined;
     holderLookup = undefined;
     holderDiscoverLookup = undefined;
     holderDiscoverMisses.clear();
@@ -340,6 +343,7 @@ export const createP2pStore = ({
     }
     const previous = cachedHolderPeerIds;
     cachedHolderPeerIds = ids;
+    lastKnownHolderPeerIds = ids;
     if (holderRosterChanged(previous, ids)) {
       holderDiscoverMisses.clear();
     } else {
@@ -378,6 +382,13 @@ export const createP2pStore = ({
         const ids = await readOwnHolderPeerIds(jobGeneration);
         adoptOwnHolderPeerIds(ids, epoch);
         return ids;
+      } catch (error) {
+        // Reconcile re-reads the roster every run; a registry blip must not
+        // stall re-homing and catch-up. Not cached, so the next call retries.
+        if (lastKnownHolderPeerIds !== undefined) {
+          return lastKnownHolderPeerIds;
+        }
+        throw error;
       } finally {
         if (epoch === holderCacheEpoch) {
           holderLookup = undefined;

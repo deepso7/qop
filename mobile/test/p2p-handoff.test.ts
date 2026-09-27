@@ -1,3 +1,4 @@
+import { RegistryReaderError } from "@qop/protocol";
 import type { SyncInboxItem } from "@qop/protocol";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -1420,6 +1421,31 @@ describe("inbox catch-up", () => {
     await vi.waitFor(async () =>
       expect(await getMessageById(reply, "1")).toMatchObject({
         text: "from the other cli",
+      })
+    );
+  });
+
+  it("still catches up when the roster refresh fails", async () => {
+    await useP2pStore.getState().start();
+    await vi.waitFor(() => expect(catchup).toHaveBeenCalled());
+    // The next reconcile's registry read fails; the cached roster carries it.
+    lookupHandle.mockImplementation((handle: string) =>
+      handle === "alice"
+        ? Effect.fail(new RegistryReaderError({ operation: "rpc" }))
+        : Effect.succeed(bobAccount)
+    );
+    const reply = "c56a4180-65aa-42ec-a945-5fd21dec0707";
+    mockCatchupRecords(({ after }) =>
+      Promise.resolve(
+        after === 0
+          ? [{ record: inboxRecord(reply, "after blip"), seq: 1 }]
+          : []
+      )
+    );
+    connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(reply, "1")).toMatchObject({
+        text: "after blip",
       })
     );
   });
