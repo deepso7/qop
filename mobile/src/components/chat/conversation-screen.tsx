@@ -1,3 +1,4 @@
+import moreVertIcon from "@expo/material-symbols/more_vert.xml";
 import type { Path } from "@minip2p/react-native";
 import type { ListRenderItem } from "@shopify/flash-list";
 import { Effect, Fiber, Schedule } from "effect";
@@ -317,7 +318,10 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
       </Stack.Title>
       {/* Connection diagnostics stay out of the way behind the header menu. */}
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Menu icon="ellipsis" title="Connection">
+        <Stack.Toolbar.Menu
+          icon={Platform.OS === "ios" ? "ellipsis" : moreVertIcon}
+          title="Connection"
+        >
           {/* Every row has an icon so iOS keeps titles aligned. Info rows stay
               enabled (tapping just closes the menu) so iOS doesn't grey them. */}
           <Stack.Toolbar.MenuAction

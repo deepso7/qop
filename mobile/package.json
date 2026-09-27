@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@expo/material-symbols": "0.1.1",
     "@expo/ui": "57.0.16",
     "@minip2p/react-native": "0.7.0",
     "@qop/identity": "workspace:*",
