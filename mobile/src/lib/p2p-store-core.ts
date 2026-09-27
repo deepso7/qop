@@ -780,7 +780,11 @@ export const createP2pStore = ({
                   timeoutMs: 10_000,
                 });
               } catch {
-                activeEndpoint.disconnect(peerId);
+                // The wait can time out just as Identify lands; never drop a
+                // peer that is ready by now.
+                if (!activeEndpoint.isPeerReady(peerId)) {
+                  activeEndpoint.disconnect(peerId);
+                }
               }
             }
             if (!activeEndpoint.isPeerReady(peerId)) {
