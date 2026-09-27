@@ -62,6 +62,20 @@ export const readSyncResponse = Effect.fn("@qop/protocol/readSyncResponse")(
     readChunks(read).pipe(Effect.flatMap(decodeSyncResponseV1))
 );
 
+/** A closed stream throws from write/closeWrite; keep that a typed failure, not a defect. */
+const sendFrame = (
+  write: (data: Uint8Array) => void,
+  closeWrite: () => void,
+  bytes: Uint8Array
+) =>
+  Effect.try({
+    catch: () => new SyncCodecError({ operation: "frame" }),
+    try: () => {
+      write(bytes);
+      closeWrite();
+    },
+  });
+
 export const writeSyncRequest = Effect.fn("@qop/protocol/writeSyncRequest")(
   function* (
     write: (data: Uint8Array) => void,
@@ -69,8 +83,7 @@ export const writeSyncRequest = Effect.fn("@qop/protocol/writeSyncRequest")(
     frame: SyncRequestV1
   ) {
     const bytes = yield* encodeSyncRequestV1(frame);
-    write(bytes);
-    closeWrite();
+    yield* sendFrame(write, closeWrite, bytes);
   }
 );
 
@@ -81,8 +94,7 @@ export const writeSyncResponse = Effect.fn("@qop/protocol/writeSyncResponse")(
     frame: SyncResponseV1
   ) {
     const bytes = yield* encodeSyncResponseV1(frame);
-    write(bytes);
-    closeWrite();
+    yield* sendFrame(write, closeWrite, bytes);
   }
 );
 

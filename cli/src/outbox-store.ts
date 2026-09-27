@@ -9,6 +9,7 @@ import {
   inboxRecordsConflict,
   outboxRecordsConflict,
 } from "@qop/protocol";
+import type { SyncInboxV1 } from "@qop/protocol";
 import { Data, Effect, Schema } from "effect";
 import type { Scope } from "effect";
 
@@ -40,6 +41,9 @@ export interface PutInboxResult {
   readonly record: InboxRecordV1;
 }
 
+/** Catch-up page: rows with their rowid `seq`, plus the inbox's highest rowid. */
+export type InboxPage = Pick<SyncInboxV1, "lastSeq" | "records">;
+
 export interface CliOutboxStore {
   readonly enqueue: (
     record: OutboxRecordV1
@@ -47,6 +51,17 @@ export interface CliOutboxStore {
   readonly getByIds: (
     ids: readonly string[]
   ) => Effect.Effect<readonly OutboxRecordV1[], CliOutboxStoreError>;
+  /**
+   * Inbox rows with `rowid > seq`, oldest first, and the current `MAX(rowid)`.
+   * `seq` is the holder's catch-up cursor. The inbox is append-only: future
+   * retention must delete only rows with `rowid < MAX(rowid)`, or switch to
+   * `AUTOINCREMENT` first. Deleting the highest rowid lets SQLite reuse it
+   * and the phone would skip or replay that cursor.
+   */
+  readonly inboxAfter: (
+    seq: number,
+    limit: number
+  ) => Effect.Effect<InboxPage, CliOutboxStoreError>;
   readonly loadInbox: () => Effect.Effect<
     readonly InboxRecordV1[],
     CliOutboxStoreError
@@ -160,6 +175,7 @@ CREATE TABLE outbox (
 ) STRICT;
 CREATE INDEX outbox_queued_idx ON outbox (next_attempt_at) WHERE status = 'queued';
 CREATE TABLE inbox (
+  -- rowid is the catch-up cursor (see inboxAfter).
   from_qid    TEXT    NOT NULL,
   id          TEXT    NOT NULL,
   from_handle TEXT    NOT NULL,
@@ -214,6 +230,17 @@ const decodeOutboxRow = (row: Record<string, SQLOutputValue>) => {
     updatedAt: row.updatedAt,
     v: 1,
   });
+  if (decoded._tag === "None") {
+    throw storeError("decode");
+  }
+  return decoded.value;
+};
+
+const InboxSeq = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0));
+const decodeInboxSeqOption = Schema.decodeUnknownOption(InboxSeq);
+
+const decodeInboxSeq = (value: SQLOutputValue | undefined) => {
+  const decoded = decodeInboxSeqOption(value);
   if (decoded._tag === "None") {
     throw storeError("decode");
   }
@@ -396,6 +423,14 @@ const makeStore = (db: DatabaseSync): CliOutboxStore => {
     from_qid, id, from_handle, sent_at, text, received_at
   ) VALUES (?, ?, ?, ?, ?, ?)`);
   const selectInboxAll = db.prepare(`${INBOX_SELECT} ORDER BY rowid`);
+  const selectInboxAfter = db.prepare(
+    `SELECT rowid AS seq, from_qid AS fromQid, id, from_handle AS fromHandle,
+      sent_at AS sentAt, text, received_at AS receivedAt
+     FROM inbox WHERE rowid > ? ORDER BY rowid LIMIT ?`
+  );
+  const selectInboxLastSeq = db.prepare(
+    "SELECT COALESCE(MAX(rowid), 0) AS seq FROM inbox"
+  );
 
   const enqueue = Effect.fn("CliOutbox.enqueue")(function* (
     record: OutboxRecordV1
@@ -469,6 +504,22 @@ const makeStore = (db: DatabaseSync): CliOutboxStore => {
     });
   });
 
+  const inboxAfter = Effect.fn("CliOutbox.inboxAfter")(function* (
+    seq: number,
+    limit: number
+  ) {
+    return yield* runSync("read", () => ({
+      lastSeq: decodeInboxSeq(selectInboxLastSeq.get()?.seq),
+      records:
+        Number.isInteger(limit) && limit >= 1
+          ? selectInboxAfter.all(seq, limit).map((row) => ({
+              record: decodeInboxRow(row),
+              seq: decodeInboxSeq(row.seq),
+            }))
+          : [],
+    }));
+  });
+
   const loadInbox = Effect.fn("CliOutbox.loadInbox")(function* () {
     return yield* runSync("read", () =>
       selectInboxAll.all().map((row) => decodeInboxRow(row))
@@ -495,6 +546,7 @@ const makeStore = (db: DatabaseSync): CliOutboxStore => {
   return {
     enqueue,
     getByIds,
+    inboxAfter,
     loadInbox,
     loadRecords,
     put,

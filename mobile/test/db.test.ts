@@ -5,12 +5,14 @@ import {
   failInterruptedMessages,
   failRejectedHandoff,
   getContactByQid,
+  getHolderInboxCursor,
   getMessageById,
   insertMessage,
   listConversations,
   listMessages,
   markConversationRead,
   markMessageHeld,
+  setHolderInboxCursor,
   upsertContact,
   advanceMessageStatus,
 } from "@/lib/db";
@@ -523,5 +525,67 @@ describe("message id dedupe", () => {
     expect(await getMessageById(sharedId, "2")).toMatchObject({
       status: "sending",
     });
+  });
+});
+
+describe("holder inbox cursors", () => {
+  it("upserts a cursor without moving it backward", async () => {
+    expect(await getHolderInboxCursor("cli-peer")).toBe(0);
+    await setHolderInboxCursor("cli-peer", 4);
+    await setHolderInboxCursor("cli-peer", 2);
+    expect(await getHolderInboxCursor("cli-peer")).toBe(4);
+    await setHolderInboxCursor("cli-peer", 9);
+    expect(await getHolderInboxCursor("cli-peer")).toBe(9);
+    expect(await getHolderInboxCursor("other")).toBe(0);
+  });
+
+  it("keeps v4 messages when migrating to holder cursors", async () => {
+    const sqlite = await import("expo-sqlite");
+    const database = await sqlite.openDatabaseAsync("migration");
+    await database.execAsync(`
+      PRAGMA foreign_keys = ON;
+      CREATE TABLE contacts(
+        qid TEXT PRIMARY KEY,
+        handle TEXT NOT NULL UNIQUE,
+        owner TEXT NOT NULL,
+        device_key TEXT NOT NULL,
+        peer_id TEXT NOT NULL,
+        key_changed INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        last_read_at INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE TABLE messages(
+        contact_qid TEXT NOT NULL REFERENCES contacts(qid) ON DELETE CASCADE,
+        id TEXT NOT NULL,
+        direction TEXT NOT NULL CHECK (direction IN ('in','out')),
+        text TEXT NOT NULL,
+        sent_at INTEGER NOT NULL,
+        received_at INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('sending','sent','failed','received','held')),
+        holder_peer_id TEXT,
+        PRIMARY KEY (contact_qid, id)
+      );
+      INSERT INTO contacts(
+        qid, handle, owner, device_key, peer_id, created_at
+      ) VALUES ('1', 'alice', 'owner', 'device', 'peer', 1);
+      INSERT INTO messages(
+        contact_qid, id, direction, text, sent_at, received_at, status
+      ) VALUES ('1', 'kept', 'in', 'stay', 10, 11, 'received');
+      PRAGMA user_version = 4;
+    `);
+    vi.resetModules();
+    const restartedSqlite = await import("expo-sqlite");
+    vi.spyOn(restartedSqlite, "openDatabaseAsync").mockResolvedValue(database);
+    const migrated = await import("@/lib/db");
+    expect(await migrated.getMessageById("kept", "1")).toMatchObject({
+      status: "received",
+      text: "stay",
+    });
+    expect(await migrated.getHolderInboxCursor("holder")).toBe(0);
+    await migrated.setHolderInboxCursor("holder", 3);
+    await migrated.setHolderInboxCursor("holder", 1);
+    expect(await migrated.getHolderInboxCursor("holder")).toBe(3);
+    vi.restoreAllMocks();
+    vi.resetModules();
   });
 });

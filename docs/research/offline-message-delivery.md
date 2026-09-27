@@ -8,7 +8,7 @@
 
 **Locked auth model:** on-chain multi-device keys (`addDevice` / `removeDevice`) under existing `owner` custody. Breaking registry/client changes are OK (hard-cut; no soft migration / dual-read of single `deviceKey`). The repo-local [multi-device authorization plan](multi-device-auth-plan.md) defines the implementation sequence, acceptance checks, and remaining decisions.
 
-**Still open:** completion retention / `expired`, inbox→phone sync, and device E2E of the handoff acceptance demo. The v1 phone↔CLI sync contract is locked in [`packages/protocol/src/sync.ts`](../../packages/protocol/src/sync.ts) (`/qop/sync/1`, handoff→held→receipt). Finality and RPC-failure defaults remain **proposal**. Max auth age is **implemented** at **60s** monotonic elapsed time (`MAX_AUTH_AGE_MS`). **Sequencing (proposal — not locked):** land auth including live-connection revoke **before** phone↔CLI outbox sync.
+**Still open:** completion retention / `expired`, and device E2E of the handoff acceptance demo (phone off → Bob replies to the CLI → phone on → reply visible). Inbox→phone catch-up is **shipped** on [`packages/protocol/src/sync.ts`](../../packages/protocol/src/sync.ts) (`/qop/sync/1` `catchup` → `inbox`, phone `holder_cursors`). The v1 phone↔CLI sync contract is that same protocol: handoff→held→receipt, plus catch-up. Finality and RPC-failure defaults remain **proposal**. Max auth age is **implemented** at **60s** monotonic elapsed time (`MAX_AUTH_AGE_MS`). **Sequencing (proposal — not locked):** land auth including live-connection revoke **before** phone↔CLI outbox sync.
 
 ## Overview
 
@@ -469,7 +469,7 @@ Measure missing messages, acceptance and delivery latency, complete-backlog retr
 | Contact/`keyChanged` tightenings, device cap details | Proposal defaults in Project decisions sheet / auth plan |
 | Preserve history on device remove | Strong proposal (treat as requirement unless overridden) |
 | Auth before phone↔CLI outbox sync | **Recommended sequencing — not locked** |
-| Phone↔CLI sync contract | **v1 locked** in `packages/protocol/src/sync.ts`: `/qop/sync/1`, own-device auth, `handoff`→`held` after durable persist, `poll`→`receipts` after Bob ACK. Disk stays `OutboxRecordV1` JSON. `expired`, inbox sync, and disk V2 deferred. |
+| Phone↔CLI sync contract | **Shipped** in `packages/protocol/src/sync.ts`: `/qop/sync/1`, own-device auth, `handoff`→`held` after durable persist, `poll`→`receipts` after Bob ACK, `catchup`→`inbox` for replies the CLI stored while the phone was away. Disk stays `OutboxRecordV1` / `InboxRecordV1` JSON. Phone cursors are schema v5 `holder_cursors`. `expired` and disk V2 remain deferred. |
 | Offline retention window, attachments, notifications, Bob multi-device | Deferred / later |
 
 The sources do not settle QOP's actual node availability, operator diversity, encryption library, SDK compatibility, or delivery targets for the comparison architectures. Prototype results are needed before revisiting mailbox/DHT as product options.

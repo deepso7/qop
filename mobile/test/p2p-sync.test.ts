@@ -18,6 +18,9 @@ import { createPeerSessions } from "@/lib/p2p-sessions";
 import {
   chunkSyncPollIds,
   HANDOFF_REJECTED_MESSAGE,
+  HandoffUndeliveredError,
+  orderHolderPeerIds,
+  performCatchup,
   performHandoff,
   performPoll,
 } from "@/lib/p2p-sync";
@@ -124,6 +127,16 @@ const encodeReceipts = (chunk: readonly string[]) =>
       v: 1,
     })
   );
+
+describe("orderHolderPeerIds", () => {
+  it("lists connected holders first and keeps roster order", () => {
+    expect(orderHolderPeerIds(["a", "b", "c"], ["c", "a"])).toEqual([
+      "a",
+      "c",
+      "b",
+    ]);
+  });
+});
 
 describe("performHandoff", () => {
   it("writes a handoff on /qop/sync/1 and accepts held", async () => {
@@ -291,6 +304,119 @@ describe("performHandoff", () => {
     expect(stream.reset).not.toHaveBeenCalled();
   });
 
+  it("marks a failure before the request is written as undelivered", async () => {
+    const { endpoint, sessions, stream } = makeEndpoint(async () => {
+      await Promise.resolve();
+    });
+    endpoint.connect.mockRejectedValue(new Error("dial failed"));
+    await expect(
+      performHandoff({
+        composedBy: own.deviceKey,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        record,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).rejects.toBeInstanceOf(HandoffUndeliveredError);
+    expect(stream.write).not.toHaveBeenCalled();
+  });
+
+  it("marks a stream that closes before the request is sent as undelivered", async () => {
+    const { endpoint, sessions, stream } = makeEndpoint(async () => {
+      await Promise.resolve();
+    });
+    stream.write.mockImplementation(() => {
+      throw new Error("The stream closed");
+    });
+    await expect(
+      performHandoff({
+        composedBy: own.deviceKey,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        record,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).rejects.toBeInstanceOf(HandoffUndeliveredError);
+  });
+
+  it("does not mark a failure after the request is written as undelivered", async () => {
+    const { endpoint, sessions, stream } = makeEndpoint(async () => {
+      await Promise.resolve();
+    });
+    await expect(
+      performHandoff({
+        composedBy: own.deviceKey,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        record,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).rejects.not.toBeInstanceOf(HandoffUndeliveredError);
+    expect(stream.write).toHaveBeenCalled();
+  });
+
+  it("keeps a lost held ambiguous even if the retry answers unavailable", async () => {
+    const unavailable = await Effect.runPromise(
+      encodeSyncResponseV1({ reason: "unavailable", type: "error", v: 1 })
+    );
+    // First attempt: request sent, reply lost (EOF). The CLI may hold it.
+    const lostReply = {
+      closeWrite: vi.fn(),
+      connId: 3,
+      peerId: PEER_CLI,
+      read: vi.fn(async () => {
+        await Promise.resolve();
+      }),
+      reset: vi.fn(),
+      write: vi.fn(),
+    };
+    const { endpoint, sessions } = makeEndpoint(responseReader(unavailable));
+    endpoint.openStream.mockResolvedValueOnce(lostReply);
+    await expect(
+      performHandoff({
+        composedBy: own.deviceKey,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        record,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).rejects.not.toBeInstanceOf(HandoffUndeliveredError);
+    expect(endpoint.openStream).toHaveBeenCalledTimes(2);
+  });
+
+  it("marks a CLI that could not store the handoff as undelivered", async () => {
+    const unavailable = await Effect.runPromise(
+      encodeSyncResponseV1({ reason: "unavailable", type: "error", v: 1 })
+    );
+    // Every attempt (including the transient retry) gets the same answer.
+    const chunks: (Uint8Array | undefined)[] = [];
+    const { endpoint, sessions } = makeEndpoint(() => {
+      if (chunks.length === 0) {
+        chunks.push(unavailable, undefined);
+      }
+      return Promise.resolve(chunks.shift());
+    });
+    await expect(
+      performHandoff({
+        composedBy: own.deviceKey,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        record,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).rejects.toBeInstanceOf(HandoffUndeliveredError);
+  });
+
   it("does not retry a permanent CLI reject", async () => {
     const rejected = await Effect.runPromise(
       encodeSyncResponseV1({ reason: "invalid", type: "error", v: 1 })
@@ -400,6 +526,53 @@ describe("performHandoff", () => {
 
     expect(await getContactByQid(own.qid)).toBeNull();
     expect(await listConversations()).toEqual([]);
+  });
+});
+
+describe("performCatchup", () => {
+  it("writes a catchup request and accepts an empty inbox", async () => {
+    const encoded = await Effect.runPromise(
+      encodeSyncResponseV1({ lastSeq: 0, records: [], type: "inbox", v: 1 })
+    );
+    const { endpoint, sessions, stream } = makeEndpoint(
+      responseReader(encoded)
+    );
+    await expect(
+      performCatchup({
+        after: 4,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).resolves.toEqual({ lastSeq: 0, records: [], type: "inbox", v: 1 });
+    const bytes = stream.write.mock.calls[0]?.[0];
+    if (!(bytes instanceof Uint8Array)) {
+      throw new Error("expected a catchup frame");
+    }
+    expect(await Effect.runPromise(decodeSyncRequestV1(bytes))).toEqual({
+      after: 4,
+      type: "catchup",
+      v: 1,
+    });
+  });
+
+  it("surfaces a permanent error response", async () => {
+    const encoded = await Effect.runPromise(
+      encodeSyncResponseV1({ reason: "invalid", type: "error", v: 1 })
+    );
+    const { endpoint, sessions } = makeEndpoint(responseReader(encoded));
+    await expect(
+      performCatchup({
+        after: 0,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).rejects.toThrow("CLI rejected inbox catch-up");
   });
 });
 

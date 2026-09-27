@@ -15,3 +15,5 @@ QOP accounts can authorize several independent devices to exchange messages as t
 **Enrollment**: The addition of a device to an account's authorized devices.
 
 **Revocation**: The removal of a device's authority to exchange future messages for an account. It does not erase conversation history already accepted by other devices.
+
+**Catch-up**: The phone reading replies a linked device stored while the phone was away, so those messages show up in the conversation when the phone returns.

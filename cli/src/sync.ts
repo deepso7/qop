@@ -1,5 +1,6 @@
 import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
 import {
+  encodeSyncResponseV1,
   PeerVerificationError,
   readSyncRequestFrom,
   writeSyncResponseTo,
@@ -9,17 +10,21 @@ import type {
   PeerConnection,
   SessionContact,
   SyncErrorV1,
+  SyncInboxItemV1,
   SyncResponseV1,
   SyncStream,
 } from "@qop/protocol";
 import { Effect, Schema } from "effect";
 
-import type { CliOutboxStoreError } from "./outbox-store.ts";
+import type { CliOutboxStoreError, InboxPage } from "./outbox-store.ts";
 
 export interface CliSyncIdentity {
   readonly handle: string;
   readonly qid: string;
 }
+
+/** Row cap before the byte packer trims a catch-up page. */
+const INBOX_CATCHUP_ROW_LIMIT = 64;
 
 export interface CliSyncStore {
   readonly enqueue: (
@@ -28,6 +33,10 @@ export interface CliSyncStore {
   readonly getByIds: (
     ids: readonly string[]
   ) => Effect.Effect<readonly OutboxRecordV1[], CliOutboxStoreError>;
+  readonly inboxAfter: (
+    seq: number,
+    limit: number
+  ) => Effect.Effect<InboxPage, CliOutboxStoreError>;
 }
 
 interface SyncSessions {
@@ -41,6 +50,11 @@ interface SyncSessions {
 
 const invalid: SyncErrorV1 = { reason: "invalid", type: "error", v: 1 };
 const conflict: SyncErrorV1 = { reason: "conflict", type: "error", v: 1 };
+const unavailable: SyncErrorV1 = {
+  reason: "unavailable",
+  type: "error",
+  v: 1,
+};
 
 const reply = (stream: SyncStream, frame: SyncResponseV1) =>
   writeSyncResponseTo(stream, frame);
@@ -51,6 +65,34 @@ const deviceKeyHexForPeer = (peerId: string) =>
     Effect.flatMap((deviceKey) => Schema.encodeEffect(Hex32)(deviceKey)),
     Effect.mapError(() => new PeerVerificationError({ operation: "identity" }))
   );
+
+const inboxFrame = ({ lastSeq, records }: InboxPage) => ({
+  lastSeq,
+  records,
+  type: "inbox" as const,
+  v: 1 as const,
+});
+
+/** Greedy by encoded size. Always keeps the first row; later rows stop at 64 KB. */
+const packInbox = Effect.fn("qop.sync.packInbox")(function* ({
+  lastSeq,
+  records,
+}: InboxPage) {
+  const packed: SyncInboxItemV1[] = [];
+  for (const row of records) {
+    const encoded = yield* encodeSyncResponseV1(
+      inboxFrame({ lastSeq, records: [...packed, row] })
+    ).pipe(Effect.result);
+    if (encoded._tag === "Failure") {
+      if (encoded.failure.operation === "oversized" && packed.length > 0) {
+        break;
+      }
+      return yield* encoded.failure;
+    }
+    packed.push(row);
+  }
+  return inboxFrame({ lastSeq, records: packed });
+});
 
 const acceptHandoff = Effect.fn("qop.sync.acceptHandoff")(function* (
   identity: CliSyncIdentity,
@@ -80,10 +122,10 @@ const acceptHandoff = Effect.fn("qop.sync.acceptHandoff")(function* (
         v: 1 as const,
       };
     }),
+    // Say so instead of resetting: a reset after the request looks like a
+    // lost `held`, and the phone would treat this CLI as holding it.
     Effect.catchTag("CliOutboxStoreError", (error) =>
-      error.operation === "conflict"
-        ? Effect.succeed(conflict)
-        : Effect.fail(error)
+      Effect.succeed(error.operation === "conflict" ? conflict : unavailable)
     )
   );
 });
@@ -121,6 +163,20 @@ export const handleInboundSyncStream = Effect.fn("qop.handleInboundSyncStream")(
         peerDeviceKey,
         store
       );
+      yield* reply(stream, response);
+      return response;
+    }
+    if (request.type === "catchup") {
+      const page = yield* store
+        .inboxAfter(request.after, INBOX_CATCHUP_ROW_LIMIT)
+        .pipe(
+          Effect.tapError(() =>
+            Effect.sync(() => {
+              stream.reset();
+            })
+          )
+        );
+      const response = yield* packInbox(page);
       yield* reply(stream, response);
       return response;
     }

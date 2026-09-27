@@ -6,6 +6,7 @@ import {
 } from "@qop/protocol";
 import type {
   OutboxRecordV1,
+  SyncInboxV1,
   SyncReceiptV1,
   SyncRequestV1,
   SyncStream,
@@ -56,12 +57,17 @@ export const otherOwnDevicePeerIds = (
     .filter((device) => device.peerId !== ownPeerId)
     .map((device) => device.peerId);
 
-export const pickHolderPeerId = (
+/** Connected holders first, roster order kept inside each group. */
+export const orderHolderPeerIds = (
   holderPeerIds: readonly string[],
   connectedPeerIds: readonly string[]
-) =>
-  holderPeerIds.find((peerId) => connectedPeerIds.includes(peerId)) ??
-  holderPeerIds[0];
+) => {
+  const connected = new Set(connectedPeerIds);
+  return [
+    ...holderPeerIds.filter((peerId) => connected.has(peerId)),
+    ...holderPeerIds.filter((peerId) => !connected.has(peerId)),
+  ];
+};
 
 /** Split poll ids so every held message is requested, not only the oldest 32. */
 export const chunkSyncPollIds = (ids: readonly string[]) => {
@@ -74,6 +80,16 @@ export const chunkSyncPollIds = (ids: readonly string[]) => {
 
 /** Permanent CLI reject — do not auto-retry; the phone should leave `held`. */
 export const HANDOFF_REJECTED_MESSAGE = "CLI did not accept the handoff";
+
+/**
+ * The handoff failed before its request was fully sent (write + closeWrite),
+ * or the CLI answered `unavailable`, so no CLI can hold it.
+ * Only this error is safe to retry on a different holder; anything later is
+ * ambiguous and another CLI would send a second copy.
+ */
+export class HandoffUndeliveredError extends Error {
+  override name = "HandoffUndeliveredError";
+}
 
 const HANDOFF_TRANSIENT_RETRIES = 1;
 
@@ -204,8 +220,12 @@ export const performHandoff = ({
 }: PerformSyncInput & {
   readonly composedBy: string;
   readonly record: OutboxRecordV1;
-}): Promise<void> =>
-  Effect.runPromise(
+}): Promise<void> => {
+  // True once any attempt sent the request without a definite `unavailable`
+  // answer. Stays true across the transient retry: a later `unavailable` does
+  // not prove an earlier attempt's lost `held` never persisted.
+  let mayHold = false;
+  return Effect.runPromise(
     withAuthorizedSyncStream(
       endpoint,
       holderPeerId,
@@ -214,12 +234,24 @@ export const performHandoff = ({
       timeoutMs,
       (stream) =>
         Effect.gen(function* () {
-          const response = yield* exchangeSyncRequest(stream, {
+          yield* writeSyncRequestTo(stream, {
             composedBy,
             record,
             type: "handoff",
             v: 1,
           });
+          // The CLI decodes only after closeWrite's EOF, so a throw from
+          // write/closeWrite above means it saw no request.
+          const earlierMayHold = mayHold;
+          mayHold = true;
+          const response = yield* readSyncResponseFrom(stream);
+          if (response.type === "error" && response.reason === "unavailable") {
+            // This attempt definitely did not persist; earlier ones still count.
+            mayHold = earlierMayHold;
+            return yield* Effect.fail(
+              new Error("CLI could not store the handoff")
+            );
+          }
           if (response.type !== "held") {
             return yield* Effect.fail(new Error(HANDOFF_REJECTED_MESSAGE));
           }
@@ -242,10 +274,14 @@ export const performHandoff = ({
         duration: timeoutMs,
         orElse: () =>
           Effect.fail(new Error("Timed out waiting for sync response")),
-      })
+      }),
+      Effect.mapError((error) =>
+        mayHold ? error : new HandoffUndeliveredError(error.message)
+      )
     ),
     { signal }
   );
+};
 
 const pollHeldChunk = ({
   endpoint,
@@ -276,6 +312,49 @@ const pollHeldChunk = ({
             return yield* Effect.fail(new Error("CLI did not return receipts"));
           }
           return response.receipts;
+        })
+    ).pipe(
+      Effect.timeoutOrElse({
+        duration: timeoutMs,
+        orElse: () =>
+          Effect.fail(new Error("Timed out waiting for sync response")),
+      })
+    ),
+    { signal }
+  );
+
+export const performCatchup = ({
+  after,
+  endpoint,
+  holderPeerId,
+  own,
+  sessions,
+  signal,
+  timeoutMs,
+}: PerformSyncInput & {
+  readonly after: number;
+}): Promise<SyncInboxV1> =>
+  Effect.runPromise(
+    withAuthorizedSyncStream(
+      endpoint,
+      holderPeerId,
+      own,
+      sessions,
+      timeoutMs,
+      (stream) =>
+        Effect.gen(function* () {
+          const response = yield* exchangeSyncRequest(stream, {
+            after,
+            type: "catchup",
+            v: 1,
+          });
+          if (response.type === "error") {
+            return yield* Effect.fail(new Error("CLI rejected inbox catch-up"));
+          }
+          if (response.type !== "inbox") {
+            return yield* Effect.fail(new Error("CLI did not return inbox"));
+          }
+          return response;
         })
     ).pipe(
       Effect.timeoutOrElse({
