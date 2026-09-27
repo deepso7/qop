@@ -60,6 +60,9 @@ let pathUpgraded: (() => void) | undefined;
 const disconnect = vi.fn();
 const connectedPeers = vi.fn((): string[] => [PEER_BOB]);
 const path = vi.fn<P2pEndpoint["path"]>();
+const isPeerReady = vi.fn<P2pEndpoint["isPeerReady"]>();
+const connect = vi.fn<P2pEndpoint["connect"]>();
+const waitPeerReady = vi.fn<P2pEndpoint["waitPeerReady"]>();
 const send = vi.fn<typeof performSend>();
 const lookupDeviceKey = vi.fn((): ReturnType<typeof LookupDeviceKey> =>
   Effect.succeed(bobAccount)
@@ -125,9 +128,10 @@ const useP2pStore = createP2pStore({
     endpoint: {
       activeReservation: () => {},
       close: () => {},
-      connect: () => Promise.reject(new Error("No dial in lifecycle fixture")),
+      connect,
       connectedPeers,
       disconnect,
+      isPeerReady,
       on: captureEndpointEvent,
       onClose: (callback) => {
         closed = callback;
@@ -139,8 +143,7 @@ const useP2pStore = createP2pStore({
         Promise.reject(new Error("No stream in lifecycle fixture")),
       path,
       peerId: () => "peer-alice",
-      waitPeerReady: () =>
-        Promise.reject(new Error("No pairing wait in lifecycle fixture")),
+      waitPeerReady,
     },
   }),
   getIdentityHandle: () => "alice",
@@ -165,6 +168,13 @@ beforeEach(async () => {
   disconnect.mockReset();
   connectedPeers.mockReset().mockReturnValue([PEER_BOB]);
   path.mockReset();
+  isPeerReady.mockReset().mockReturnValue(true);
+  connect
+    .mockReset()
+    .mockRejectedValue(new Error("No dial in lifecycle fixture"));
+  waitPeerReady
+    .mockReset()
+    .mockRejectedValue(new Error("No pairing wait in lifecycle fixture"));
   closed = undefined;
   driverFailed = undefined;
   connectionEstablished = undefined;
@@ -494,5 +504,29 @@ describe("peer paths", () => {
     expect(useP2pStore.getState().peerPaths[PEER_BOB]?.kind).toBe(
       "directPunched"
     );
+  });
+});
+
+describe("connectTo", () => {
+  it("replaces a connection that never finishes Identify", async () => {
+    await useP2pStore.getState().start();
+    isPeerReady.mockReturnValue(false);
+    connect.mockResolvedValue({
+      connectId: 1,
+      path: { kind: "directDialed" },
+      peerId: PEER_BOB,
+    });
+    const peerId = await useP2pStore
+      .getState()
+      .connectTo({ handle: "bob", qid: "1" });
+    expect(disconnect).toHaveBeenCalledWith(PEER_BOB);
+    expect(connect).toHaveBeenCalledWith(PEER_BOB, { timeoutMs: 15_000 });
+    expect(peerId).toBe(PEER_BOB);
+  });
+
+  it("only reports peers that finished Identify as connected", async () => {
+    isPeerReady.mockReturnValue(false);
+    await useP2pStore.getState().start();
+    expect(useP2pStore.getState().connectedPeerIds).toEqual([]);
   });
 });

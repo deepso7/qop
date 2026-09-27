@@ -41,6 +41,7 @@ import type { lookupDeviceKey, lookupHandle } from "./registry";
 type P2pStatus = "failed" | "running" | "starting" | "stopped";
 
 interface P2pState {
+  /** Peers that finished Identify (usable for streams), not just connected. */
   readonly connectedPeerIds: readonly string[];
   readonly error?: string;
   readonly peerId?: string;
@@ -95,6 +96,7 @@ export type P2pEndpoint = Pick<
   | "connectedPeers"
   | "connect"
   | "disconnect"
+  | "isPeerReady"
   | "on"
   | "onClose"
   | "openStream"
@@ -767,7 +769,21 @@ export const createP2pStore = ({
             return;
           }
           try {
-            if (!activeEndpoint.connectedPeers().includes(peerId)) {
+            if (
+              activeEndpoint.connectedPeers().includes(peerId) &&
+              !activeEndpoint.isPeerReady(peerId)
+            ) {
+              // Transport is up but Identify has not finished. Give it a
+              // moment, then replace the stalled connection with a fresh dial.
+              try {
+                await activeEndpoint.waitPeerReady(peerId, {
+                  timeoutMs: 10_000,
+                });
+              } catch {
+                activeEndpoint.disconnect(peerId);
+              }
+            }
+            if (!activeEndpoint.isPeerReady(peerId)) {
               await activeEndpoint.connect(peerId, { timeoutMs: 15_000 });
             }
             return peerId;
@@ -991,8 +1007,12 @@ export const createP2pStore = ({
           return;
         }
         endpoint = created;
+        // Online means Identify finished, not just a transport path: streams
+        // cannot open before peerReady.
         const readPeers = () => {
-          const connectedPeerIds = created.connectedPeers();
+          const connectedPeerIds = created
+            .connectedPeers()
+            .filter((peerId) => created.isPeerReady(peerId));
           const peerPaths: Record<string, Path> = {};
           for (const peerId of connectedPeerIds) {
             const path = created.path(peerId);

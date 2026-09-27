@@ -105,6 +105,7 @@ const useP2pStore = createP2pStore({
       connect: () => Promise.reject(new Error("No dial in handoff fixture")),
       connectedPeers,
       disconnect: vi.fn(),
+      isPeerReady: () => true,
       on: captureEndpointEvent,
       onClose: () => () => {},
       openStream: () =>
