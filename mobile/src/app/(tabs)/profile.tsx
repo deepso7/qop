@@ -1,4 +1,12 @@
-import { FieldGroup, Host, ListItem, Text as UIText } from "@expo/ui";
+import {
+  Column,
+  FieldGroup,
+  Host,
+  ListItem,
+  Row,
+  Spacer,
+  Text as UIText,
+} from "@expo/ui";
 import { pairingFingerprint } from "@qop/protocol";
 import { Result } from "effect";
 import * as Clipboard from "expo-clipboard";
@@ -21,14 +29,47 @@ import { useDeviceRoster } from "@/hooks/use-device-roster";
 import { selectionHaptic } from "@/lib/haptics";
 import { useIdentityStore } from "@/lib/identity-store";
 
-// On Android each FieldGroup.Section row is already a Compose ListItem, so
-// make ours transparent instead of drawing a second card inside it.
-const transparentRow = { containerColor: "transparent" };
+interface SettingsRowProps {
+  /** Row label as a text element (`UIText` / `Secondary`). */
+  readonly children: React.ReactElement;
+  readonly onPress?: () => void;
+  readonly supportingText?: React.ReactNode;
+  readonly trailing?: React.ReactNode;
+}
 
-/** A settings row; see `transparentRow` for the Android nesting. */
-const SettingsRow = (props: React.ComponentProps<typeof ListItem>) => (
-  <ListItem colors={transparentRow} {...props} />
-);
+/**
+ * A settings row. iOS uses a native ListItem. On Android each
+ * FieldGroup.Section row is already a Compose ListItem (card, padding), so
+ * render bare content instead of a second list item inside it.
+ */
+const SettingsRow = ({
+  children,
+  onPress,
+  supportingText,
+  trailing,
+}: SettingsRowProps) => {
+  if (Platform.OS === "ios") {
+    return (
+      <ListItem
+        onPress={onPress}
+        supportingText={supportingText}
+        trailing={trailing}
+      >
+        {children}
+      </ListItem>
+    );
+  }
+  return (
+    <Row alignment="center" onPress={onPress}>
+      <Column spacing={2}>
+        {children}
+        {supportingText}
+      </Column>
+      <Spacer flexible />
+      {trailing}
+    </Row>
+  );
+};
 
 /** Secondary text for a settings row's value or subtitle. */
 const Secondary = ({ children }: { children: string }) => {
@@ -191,7 +232,11 @@ const ProfileScreen = () => {
       </Text>
       <Host
         colorScheme={colorScheme}
-        seedColor={colors.primary}
+        // Android derives its whole surface palette from the seed; a neutral
+        // seed keeps cards close to the app's background instead of pink.
+        seedColor={
+          Platform.OS === "android" ? colors.backgroundElement : colors.primary
+        }
         style={{ backgroundColor: colors.background, flex: 1 }}
       >
         <FieldGroup
@@ -209,7 +254,7 @@ const ProfileScreen = () => {
             <SettingsRow
               trailing={<Secondary>{registration?.qid ?? "—"}</Secondary>}
             >
-              QID
+              <UIText>QID</UIText>
             </SettingsRow>
             <SettingsRow
               onPress={copyPeerId}
@@ -221,13 +266,13 @@ const ProfileScreen = () => {
                 </Secondary>
               }
             >
-              Peer ID
+              <UIText>Peer ID</UIText>
             </SettingsRow>
           </FieldGroup.Section>
 
           <FieldGroup.Section title="Recovery key">
             <SettingsRow trailing={<Secondary>{recovery.status}</Secondary>}>
-              Status
+              <UIText>Status</UIText>
             </SettingsRow>
             <SettingsRow
               onPress={submitRecoveryExport}
@@ -269,7 +314,7 @@ const ProfileScreen = () => {
                   <UIText textStyle={{ color: colors.primary }}>Retry</UIText>
                 }
               >
-                Could not load devices
+                <UIText>Could not load devices</UIText>
               </SettingsRow>
             ) : null}
             {roster.status === "ready"
@@ -281,7 +326,7 @@ const ProfileScreen = () => {
                         <Secondary>{`…${device.peerId.slice(-8)}`}</Secondary>
                       }
                     >
-                      This device
+                      <UIText>This device</UIText>
                     </SettingsRow>
                   ) : (
                     <SettingsRow
@@ -300,7 +345,7 @@ const ProfileScreen = () => {
                         </UIText>
                       }
                     >
-                      {pairingFingerprint(device.deviceKey)}
+                      <UIText>{pairingFingerprint(device.deviceKey)}</UIText>
                     </SettingsRow>
                   )
                 )
