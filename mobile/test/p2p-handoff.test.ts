@@ -1349,6 +1349,40 @@ describe("inbox catch-up", () => {
     );
   });
 
+  it("still catches up other holders when one holder's poll fails", async () => {
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(handle === "alice" ? bothCliAccount() : bobAccount)
+    );
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      holderPeerId: PEER_CLI,
+      id: "c56a4180-65aa-42ec-a945-5fd21dec0704",
+      sentAt: 1,
+      status: "held",
+      text: "waiting",
+    });
+    poll.mockRejectedValue(new Error("offline"));
+    const reply = "c56a4180-65aa-42ec-a945-5fd21dec0705";
+    catchup.mockImplementation(({ after, holderPeerId }) =>
+      Promise.resolve({
+        lastSeq: 1,
+        records:
+          after === 0 && holderPeerId === PEER_CLI_OTHER
+            ? [{ record: inboxRecord(reply, "from the other cli"), seq: 1 }]
+            : [],
+        type: "inbox",
+        v: 1,
+      })
+    );
+    await useP2pStore.getState().start();
+    await vi.waitFor(async () =>
+      expect(await getMessageById(reply, "1")).toMatchObject({
+        text: "from the other cli",
+      })
+    );
+  });
+
   it("restarts from 0 when the holder's inbox was wiped", async () => {
     const id = "c56a4180-65aa-42ec-a945-5fd21dec0611";
     await setHolderInboxCursor(PEER_CLI, 50);

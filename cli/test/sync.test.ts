@@ -180,7 +180,7 @@ describe("CLI inbound sync", () => {
     expect(stream.reset).not.toHaveBeenCalled();
   });
 
-  it("does not reply held when persist fails", async () => {
+  it("replies unavailable, not held, when persist fails", async () => {
     const store: CliSyncStore = {
       enqueue: () =>
         Effect.fail(new CliOutboxStoreError({ operation: "write" })),
@@ -197,13 +197,12 @@ describe("CLI inbound sync", () => {
         })
       )
     );
-    const result = await Effect.runPromise(
-      handleInboundSyncStream(stream, makeSessions(), identity, store).pipe(
-        Effect.result
-      )
+    const response = await Effect.runPromise(
+      handleInboundSyncStream(stream, makeSessions(), identity, store)
     );
-    expect(result._tag).toBe("Failure");
-    expect(stream.write).not.toHaveBeenCalled();
+    // An explicit answer, so the phone knows this CLI holds nothing.
+    expect(response).toEqual({ reason: "unavailable", type: "error", v: 1 });
+    expect(stream.reset).not.toHaveBeenCalled();
   });
 
   it("replies conflict without enqueueing different content under the same id", async () => {

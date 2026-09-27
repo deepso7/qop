@@ -361,6 +361,31 @@ describe("performHandoff", () => {
     expect(stream.write).toHaveBeenCalled();
   });
 
+  it("marks a CLI that could not store the handoff as undelivered", async () => {
+    const unavailable = await Effect.runPromise(
+      encodeSyncResponseV1({ reason: "unavailable", type: "error", v: 1 })
+    );
+    // Every attempt (including the transient retry) gets the same answer.
+    const chunks: (Uint8Array | undefined)[] = [];
+    const { endpoint, sessions } = makeEndpoint(() => {
+      if (chunks.length === 0) {
+        chunks.push(unavailable, undefined);
+      }
+      return Promise.resolve(chunks.shift());
+    });
+    await expect(
+      performHandoff({
+        composedBy: own.deviceKey,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        record,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).rejects.toBeInstanceOf(HandoffUndeliveredError);
+  });
+
   it("does not retry a permanent CLI reject", async () => {
     const rejected = await Effect.runPromise(
       encodeSyncResponseV1({ reason: "invalid", type: "error", v: 1 })

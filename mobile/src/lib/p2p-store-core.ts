@@ -605,6 +605,8 @@ export const createP2pStore = ({
         if (!isCurrentGeneration(jobGeneration)) {
           return;
         }
+        // One offline holder must not abort reconcile: re-homing and inbox
+        // catch-up for the other holders run after this.
         const receipts = await performPoll({
           endpoint: activeEndpoint,
           holderPeerId,
@@ -612,7 +614,7 @@ export const createP2pStore = ({
           own,
           sessions,
           timeoutMs: 10_000,
-        });
+        }).catch(() => []);
         if (!isCurrentGeneration(jobGeneration)) {
           return;
         }

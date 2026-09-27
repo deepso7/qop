@@ -83,7 +83,7 @@ export const HANDOFF_REJECTED_MESSAGE = "CLI did not accept the handoff";
 
 /**
  * The handoff failed before its request was fully sent (write + closeWrite),
- * so no CLI can hold it.
+ * or the CLI answered `unavailable`, so no CLI can hold it.
  * Only this error is safe to retry on a different holder; anything later is
  * ambiguous and another CLI would send a second copy.
  */
@@ -243,6 +243,12 @@ export const performHandoff = ({
           // write/closeWrite above means it saw no request.
           requestSent = true;
           const response = yield* readSyncResponseFrom(stream);
+          if (response.type === "error" && response.reason === "unavailable") {
+            // The CLI answered that it did not persist it: safe to try another.
+            return yield* Effect.fail(
+              new HandoffUndeliveredError("CLI could not store the handoff")
+            );
+          }
           if (response.type !== "held") {
             return yield* Effect.fail(new Error(HANDOFF_REJECTED_MESSAGE));
           }

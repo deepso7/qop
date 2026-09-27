@@ -50,6 +50,11 @@ interface SyncSessions {
 
 const invalid: SyncErrorV1 = { reason: "invalid", type: "error", v: 1 };
 const conflict: SyncErrorV1 = { reason: "conflict", type: "error", v: 1 };
+const unavailable: SyncErrorV1 = {
+  reason: "unavailable",
+  type: "error",
+  v: 1,
+};
 
 const reply = (stream: SyncStream, frame: SyncResponseV1) =>
   writeSyncResponseTo(stream, frame);
@@ -117,10 +122,10 @@ const acceptHandoff = Effect.fn("qop.sync.acceptHandoff")(function* (
         v: 1 as const,
       };
     }),
+    // Say so instead of resetting: a reset after the request looks like a
+    // lost `held`, and the phone would treat this CLI as holding it.
     Effect.catchTag("CliOutboxStoreError", (error) =>
-      error.operation === "conflict"
-        ? Effect.succeed(conflict)
-        : Effect.fail(error)
+      Effect.succeed(error.operation === "conflict" ? conflict : unavailable)
     )
   );
 });

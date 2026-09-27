@@ -160,7 +160,8 @@ export { SyncInboxV1Schema as SyncInboxV1 };
 export type SyncInboxV1 = typeof SyncInboxV1Schema.Type;
 
 export const SyncErrorV1Schema = Schema.Struct({
-  reason: Schema.Literals(["conflict", "invalid"]),
+  /** `unavailable`: the CLI could not persist the handoff; it holds nothing. */
+  reason: Schema.Literals(["conflict", "invalid", "unavailable"]),
   type: Schema.Literal("error"),
   v: Schema.Literal(1),
 }).annotate({
