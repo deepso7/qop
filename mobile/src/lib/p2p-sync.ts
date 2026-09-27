@@ -82,7 +82,8 @@ export const chunkSyncPollIds = (ids: readonly string[]) => {
 export const HANDOFF_REJECTED_MESSAGE = "CLI did not accept the handoff";
 
 /**
- * The handoff failed before its request was written, so no CLI can hold it.
+ * The handoff failed before its request was fully sent (write + closeWrite),
+ * so no CLI can hold it.
  * Only this error is safe to retry on a different holder; anything later is
  * ambiguous and another CLI would send a second copy.
  */
@@ -220,9 +221,9 @@ export const performHandoff = ({
   readonly composedBy: string;
   readonly record: OutboxRecordV1;
 }): Promise<void> => {
-  // Stays true across the transient retry: once any attempt started writing,
+  // Stays true across the transient retry: once any attempt sent the request,
   // this CLI may hold the record.
-  let requestStarted = false;
+  let requestSent = false;
   return Effect.runPromise(
     withAuthorizedSyncStream(
       endpoint,
@@ -232,13 +233,16 @@ export const performHandoff = ({
       timeoutMs,
       (stream) =>
         Effect.gen(function* () {
-          requestStarted = true;
-          const response = yield* exchangeSyncRequest(stream, {
+          yield* writeSyncRequestTo(stream, {
             composedBy,
             record,
             type: "handoff",
             v: 1,
           });
+          // The CLI decodes only after closeWrite's EOF, so a throw from
+          // write/closeWrite above means it saw no request.
+          requestSent = true;
+          const response = yield* readSyncResponseFrom(stream);
           if (response.type !== "held") {
             return yield* Effect.fail(new Error(HANDOFF_REJECTED_MESSAGE));
           }
@@ -263,7 +267,7 @@ export const performHandoff = ({
           Effect.fail(new Error("Timed out waiting for sync response")),
       }),
       Effect.mapError((error) =>
-        requestStarted ? error : new HandoffUndeliveredError(error.message)
+        requestSent ? error : new HandoffUndeliveredError(error.message)
       )
     ),
     { signal }

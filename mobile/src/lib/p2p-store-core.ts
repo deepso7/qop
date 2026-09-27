@@ -656,7 +656,10 @@ export const createP2pStore = ({
     return "ready";
   };
 
-  const catchUpHolder = async (holderPeerId: string, jobGeneration: number) => {
+  const pullHolderInbox = async (
+    holderPeerId: string,
+    jobGeneration: number
+  ) => {
     const own = getOwnDevice?.();
     const activeEndpoint = endpoint;
     if (!own || !performCatchup || !activeEndpoint) {
@@ -732,6 +735,30 @@ export const createP2pStore = ({
     if (touched && isCurrentGeneration(jobGeneration)) {
       storeBridge.setState((state) => ({ revision: state.revision + 1 }));
     }
+  };
+
+  /**
+   * One catch-up per holder at a time, across generations. `stop` stops
+   * waiting after 5s and `cleanupEndpoint` does not clear this map, so a
+   * stalled older run finishes before a new one reads or resets the cursor.
+   */
+  const holderCatchups = new Map<string, Promise<void>>();
+
+  const catchUpHolder = (holderPeerId: string, jobGeneration: number) => {
+    const previous = holderCatchups.get(holderPeerId);
+    const job = (async () => {
+      await Promise.allSettled([previous]);
+      await pullHolderInbox(holderPeerId, jobGeneration);
+    })();
+    holderCatchups.set(holderPeerId, job);
+    const removeWhenDone = async () => {
+      await Promise.allSettled([job]);
+      if (holderCatchups.get(holderPeerId) === job) {
+        holderCatchups.delete(holderPeerId);
+      }
+    };
+    void removeWhenDone();
+    return job;
   };
 
   const catchUpInboxes = async (jobGeneration: number) => {

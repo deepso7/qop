@@ -323,6 +323,26 @@ describe("performHandoff", () => {
     expect(stream.write).not.toHaveBeenCalled();
   });
 
+  it("marks a stream that closes before the request is sent as undelivered", async () => {
+    const { endpoint, sessions, stream } = makeEndpoint(async () => {
+      await Promise.resolve();
+    });
+    stream.write.mockImplementation(() => {
+      throw new Error("The stream closed");
+    });
+    await expect(
+      performHandoff({
+        composedBy: own.deviceKey,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        record,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).rejects.toBeInstanceOf(HandoffUndeliveredError);
+  });
+
   it("does not mark a failure after the request is written as undelivered", async () => {
     const { endpoint, sessions, stream } = makeEndpoint(async () => {
       await Promise.resolve();
