@@ -91,6 +91,8 @@ const AppStack = () => {
           screenOptions={{
             contentStyle: { backgroundColor: colors.background },
             headerBackButtonDisplayMode: "minimal",
+            // The stack is shallow; the long-press history menu adds nothing.
+            headerBackButtonMenuEnabled: false,
             headerShadowVisible: false,
             headerStyle: { backgroundColor: colors.background },
             headerTintColor: colors.text,
@@ -101,11 +103,7 @@ const AppStack = () => {
           </Stack.Protected>
           <Stack.Protected guard={isReady}>
             <Stack.Screen name="index" options={{ headerShown: false }} />
-            {/* Title labels this screen in the back button's long-press menu. */}
-            <Stack.Screen
-              name="(tabs)"
-              options={{ headerShown: false, title: "Chats" }}
-            />
+            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="chat/[id]" options={{ title: "Chat" }} />
             <Stack.Screen name="new-chat" options={{ title: "New chat" }} />
             <Stack.Screen name="devices" options={{ title: "Devices" }} />
