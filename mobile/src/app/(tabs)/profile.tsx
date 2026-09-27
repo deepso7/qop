@@ -55,7 +55,7 @@ const ProfileCard = ({
   const colors = useTheme();
   const secondary = { color: colors.textSecondary };
   return (
-    <Row alignment="center" spacing={14}>
+    <Row alignment="center" spacing={16} style={{ paddingVertical: 12 }}>
       <Column
         alignment="center"
         style={{
@@ -71,7 +71,7 @@ const ProfileCard = ({
         </UIText>
         <Spacer flexible />
       </Column>
-      <Column spacing={3}>
+      <Column spacing={6}>
         <UIText textStyle={{ fontSize: 22, fontWeight: "600" }}>
           {`@${handle}`}
         </UIText>
