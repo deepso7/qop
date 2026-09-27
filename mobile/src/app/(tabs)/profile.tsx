@@ -66,7 +66,9 @@ const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
   const colors = useTheme();
   const [tint, ink] = avatarTint(handle);
   return (
-    <Row alignment="center" spacing={16} style={{ paddingVertical: 14 }}>
+    // No row-wide spacing: it would also pad around the flexible spacer and
+    // squeeze the QR circle when the handle is long.
+    <Row alignment="center" style={{ paddingVertical: 14 }}>
       <Column
         alignment="center"
         style={{
@@ -82,6 +84,7 @@ const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
         </UIText>
         <Spacer flexible />
       </Column>
+      <Spacer size={16} />
       <Column spacing={4}>
         <UIText
           numberOfLines={1}
@@ -93,6 +96,7 @@ const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
           {`QID ${qid}`}
         </UIText>
       </Column>
+      <Spacer size={12} />
       <Spacer flexible />
       <Column
         alignment="center"
