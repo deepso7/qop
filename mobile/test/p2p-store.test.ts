@@ -56,8 +56,13 @@ let driverFailed: ((event: { detail: string }) => void) | undefined;
 let connectionEstablished: ((connection: Connection) => void) | undefined;
 let onStream: ((stream: InboundStream) => void) | undefined;
 let queueOverflow: (() => void) | undefined;
+let pathUpgraded: (() => void) | undefined;
 const disconnect = vi.fn();
 const connectedPeers = vi.fn((): string[] => [PEER_BOB]);
+const path = vi.fn<P2pEndpoint["path"]>();
+const isPeerReady = vi.fn<P2pEndpoint["isPeerReady"]>();
+const connect = vi.fn<P2pEndpoint["connect"]>();
+const waitPeerReady = vi.fn<P2pEndpoint["waitPeerReady"]>();
 const send = vi.fn<typeof performSend>();
 const lookupDeviceKey = vi.fn((): ReturnType<typeof LookupDeviceKey> =>
   Effect.succeed(bobAccount)
@@ -96,6 +101,13 @@ const captureEndpointEvent: P2pEndpoint["on"] = (
       onStream = undefined;
     };
   }
+  if (typeOrHandler === "pathUpgraded") {
+    // SAFETY: The store's path handlers re-read paths and ignore the payload.
+    pathUpgraded = maybeHandler as () => void;
+    return () => {
+      pathUpgraded = undefined;
+    };
+  }
   if (typeOrHandler === "queueOverflow") {
     // SAFETY: The store's queue-overflow handler discards the payload.
     queueOverflow = () =>
@@ -116,9 +128,10 @@ const useP2pStore = createP2pStore({
     endpoint: {
       activeReservation: () => {},
       close: () => {},
-      connect: () => Promise.reject(new Error("No dial in lifecycle fixture")),
+      connect,
       connectedPeers,
       disconnect,
+      isPeerReady,
       on: captureEndpointEvent,
       onClose: (callback) => {
         closed = callback;
@@ -128,9 +141,9 @@ const useP2pStore = createP2pStore({
       },
       openStream: () =>
         Promise.reject(new Error("No stream in lifecycle fixture")),
+      path,
       peerId: () => "peer-alice",
-      waitPeerReady: () =>
-        Promise.reject(new Error("No pairing wait in lifecycle fixture")),
+      waitPeerReady,
     },
   }),
   getIdentityHandle: () => "alice",
@@ -154,11 +167,20 @@ beforeEach(async () => {
   lookupHandle.mockReset().mockReturnValue(Effect.succeed(bobAccount));
   disconnect.mockReset();
   connectedPeers.mockReset().mockReturnValue([PEER_BOB]);
+  path.mockReset();
+  isPeerReady.mockReset().mockReturnValue(true);
+  connect
+    .mockReset()
+    .mockRejectedValue(new Error("No dial in lifecycle fixture"));
+  waitPeerReady
+    .mockReset()
+    .mockRejectedValue(new Error("No pairing wait in lifecycle fixture"));
   closed = undefined;
   driverFailed = undefined;
   connectionEstablished = undefined;
   onStream = undefined;
   queueOverflow = undefined;
+  pathUpgraded = undefined;
   await deleteAll();
   const bobDeviceKey = bobAccount.deviceKey;
   if (bobDeviceKey === null) {
@@ -469,5 +491,54 @@ describe("inbound chat streams", () => {
     connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
     queueOverflow?.();
     expect(disconnect).toHaveBeenCalledWith(PEER_BOB);
+  });
+});
+
+describe("peer paths", () => {
+  it("tracks a relayed path upgrading to hole-punched", async () => {
+    path.mockReturnValue({ kind: "relayed", relayPeerId: "relay" });
+    await useP2pStore.getState().start();
+    expect(useP2pStore.getState().peerPaths[PEER_BOB]?.kind).toBe("relayed");
+    path.mockReturnValue({ kind: "directPunched" });
+    pathUpgraded?.();
+    expect(useP2pStore.getState().peerPaths[PEER_BOB]?.kind).toBe(
+      "directPunched"
+    );
+  });
+});
+
+describe("connectTo", () => {
+  it("replaces a connection that never finishes Identify", async () => {
+    await useP2pStore.getState().start();
+    isPeerReady.mockReturnValue(false);
+    connect.mockResolvedValue({
+      connectId: 1,
+      path: { kind: "directDialed" },
+      peerId: PEER_BOB,
+    });
+    const peerId = await useP2pStore
+      .getState()
+      .connectTo({ handle: "bob", qid: "1" });
+    expect(disconnect).toHaveBeenCalledWith(PEER_BOB);
+    expect(connect).toHaveBeenCalledWith(PEER_BOB, { timeoutMs: 15_000 });
+    expect(peerId).toBe(PEER_BOB);
+  });
+
+  it("keeps a peer that becomes ready as the Identify wait times out", async () => {
+    await useP2pStore.getState().start();
+    isPeerReady.mockReturnValueOnce(false).mockReturnValue(true);
+    waitPeerReady.mockRejectedValue(new Error("Identify timeout"));
+    const peerId = await useP2pStore
+      .getState()
+      .connectTo({ handle: "bob", qid: "1" });
+    expect(disconnect).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
+    expect(peerId).toBe(PEER_BOB);
+  });
+
+  it("only reports peers that finished Identify as connected", async () => {
+    isPeerReady.mockReturnValue(false);
+    await useP2pStore.getState().start();
+    expect(useP2pStore.getState().connectedPeerIds).toEqual([]);
   });
 });
