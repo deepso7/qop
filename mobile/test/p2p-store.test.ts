@@ -56,8 +56,10 @@ let driverFailed: ((event: { detail: string }) => void) | undefined;
 let connectionEstablished: ((connection: Connection) => void) | undefined;
 let onStream: ((stream: InboundStream) => void) | undefined;
 let queueOverflow: (() => void) | undefined;
+let pathUpgraded: (() => void) | undefined;
 const disconnect = vi.fn();
 const connectedPeers = vi.fn((): string[] => [PEER_BOB]);
+const path = vi.fn<P2pEndpoint["path"]>();
 const send = vi.fn<typeof performSend>();
 const lookupDeviceKey = vi.fn((): ReturnType<typeof LookupDeviceKey> =>
   Effect.succeed(bobAccount)
@@ -96,6 +98,13 @@ const captureEndpointEvent: P2pEndpoint["on"] = (
       onStream = undefined;
     };
   }
+  if (typeOrHandler === "pathUpgraded") {
+    // SAFETY: The store's path handlers re-read paths and ignore the payload.
+    pathUpgraded = maybeHandler as () => void;
+    return () => {
+      pathUpgraded = undefined;
+    };
+  }
   if (typeOrHandler === "queueOverflow") {
     // SAFETY: The store's queue-overflow handler discards the payload.
     queueOverflow = () =>
@@ -128,6 +137,7 @@ const useP2pStore = createP2pStore({
       },
       openStream: () =>
         Promise.reject(new Error("No stream in lifecycle fixture")),
+      path,
       peerId: () => "peer-alice",
       waitPeerReady: () =>
         Promise.reject(new Error("No pairing wait in lifecycle fixture")),
@@ -154,11 +164,13 @@ beforeEach(async () => {
   lookupHandle.mockReset().mockReturnValue(Effect.succeed(bobAccount));
   disconnect.mockReset();
   connectedPeers.mockReset().mockReturnValue([PEER_BOB]);
+  path.mockReset();
   closed = undefined;
   driverFailed = undefined;
   connectionEstablished = undefined;
   onStream = undefined;
   queueOverflow = undefined;
+  pathUpgraded = undefined;
   await deleteAll();
   const bobDeviceKey = bobAccount.deviceKey;
   if (bobDeviceKey === null) {
@@ -469,5 +481,18 @@ describe("inbound chat streams", () => {
     connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
     queueOverflow?.();
     expect(disconnect).toHaveBeenCalledWith(PEER_BOB);
+  });
+});
+
+describe("peer paths", () => {
+  it("tracks a relayed path upgrading to hole-punched", async () => {
+    path.mockReturnValue({ kind: "relayed", relayPeerId: "relay" });
+    await useP2pStore.getState().start();
+    expect(useP2pStore.getState().peerPaths[PEER_BOB]?.kind).toBe("relayed");
+    path.mockReturnValue({ kind: "directPunched" });
+    pathUpgraded?.();
+    expect(useP2pStore.getState().peerPaths[PEER_BOB]?.kind).toBe(
+      "directPunched"
+    );
   });
 });

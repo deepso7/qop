@@ -1,5 +1,7 @@
+import type { Path } from "@minip2p/react-native";
 import type { ListRenderItem } from "@shopify/flash-list";
-import { useFocusEffect } from "expo-router";
+import * as Clipboard from "expo-clipboard";
+import { Stack, useFocusEffect } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import * as React from "react";
 import { View } from "react-native";
@@ -38,6 +40,8 @@ import { listMessages, markConversationRead } from "@/lib/db";
 import type { Contact, StoredMessage } from "@/lib/db";
 import { selectionHaptic } from "@/lib/haptics";
 import { useP2pStore } from "@/lib/p2p-store";
+
+const REDIAL_INTERVAL_MS = 15_000;
 
 const timeFormatter = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
@@ -117,6 +121,39 @@ const EmptyConversation = () => (
   </Empty>
 );
 
+/** Header title: handle plus an "online" line while the contact is connected. */
+const ConversationTitle = ({
+  handle,
+  online,
+}: {
+  handle: string;
+  online: boolean;
+}) => (
+  <View className="items-center">
+    <Text className="text-foreground text-[17px] font-semibold">@{handle}</Text>
+    {online ? (
+      <Text className="text-foreground-secondary text-xs">online</Text>
+    ) : null}
+  </View>
+);
+
+const pathLabel = (path: Path | undefined) => {
+  switch (path?.kind) {
+    case "directDialed": {
+      return "Direct";
+    }
+    case "directPunched": {
+      return "Direct (hole-punched)";
+    }
+    case "relayed": {
+      return "Relayed";
+    }
+    default: {
+      return "None";
+    }
+  }
+};
+
 const ConversationScreen = ({ contact }: { contact: Contact }) => {
   const headerHeight = useHeaderHeight();
   const insets = useSafeAreaInsets();
@@ -139,6 +176,9 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
   const revision = useP2pStore((state) => state.revision);
   const sendMessage = useP2pStore((state) => state.sendMessage);
   const status = useP2pStore((state) => state.status);
+  const relayReserved = useP2pStore((state) => state.relayReserved);
+  const peerPaths = useP2pStore((state) => state.peerPaths);
+  const p2pError = useP2pStore((state) => state.error);
   const dialPeerId =
     dialTarget.contactPeerId === contact.peerId
       ? dialTarget.peerId
@@ -179,24 +219,33 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
   );
 
   const reachable = connectedPeerIds.includes(dialPeerId);
-  // Redial when focus is active, P2P is up, and this peer is not connected.
+  // While focused, P2P is up, and this peer is not connected, dial now and
+  // every REDIAL_INTERVAL_MS after the previous attempt settles, so the
+  // header flips to online soon after the contact opens qop.
   useFocusEffect(
     React.useCallback(() => {
       if (status !== "running" || reachable) {
         return;
       }
       let cancelled = false;
-      void (async () => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const dial = async () => {
         const peerId = await connectTo({
           handle: contact.handle,
           qid: contact.qid,
         });
-        if (!cancelled && peerId) {
+        if (cancelled) {
+          return;
+        }
+        if (peerId) {
           setDialTarget({ contactPeerId: contact.peerId, peerId });
         }
-      })();
+        timer = setTimeout(dial, REDIAL_INTERVAL_MS);
+      };
+      void dial();
       return () => {
         cancelled = true;
+        clearTimeout(timer);
       };
     }, [
       connectTo,
@@ -229,16 +278,17 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
     void sendMessage(contact, text);
   }, [contact, draft, sendMessage, status]);
 
-  const unavailable = status === "failed" || status === "stopped";
-  let statusLabel = "Not connected";
-  let statusClassName = "bg-amber-500";
-  if (unavailable) {
-    statusLabel = "P2P unavailable";
-    statusClassName = "bg-destructive";
+  let connectionLabel = "Not connected";
+  if (status === "failed" || status === "stopped") {
+    connectionLabel = "P2P unavailable";
+  } else if (status === "starting") {
+    connectionLabel = "Starting P2P";
   } else if (reachable) {
-    statusLabel = "Reachable";
-    statusClassName = "bg-green-500";
+    connectionLabel = "Connected";
   }
+  const copyPeerId = React.useCallback(async () => {
+    await Clipboard.setStringAsync(dialPeerId);
+  }, [dialPeerId]);
   const canSend = status === "running" && draft.trim().length > 0;
   const composerStyle = useAnimatedStyle(
     () => ({
@@ -257,12 +307,54 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
       className="bg-background flex-1"
       keyboardVerticalOffset={headerHeight}
     >
-      <View className="border-border flex-row items-center gap-2 border-b px-4 py-2">
-        <View className={`size-2 rounded-full ${statusClassName}`} />
-        <Text className="text-foreground-secondary text-xs" selectable>
-          {statusLabel}
-        </Text>
-      </View>
+      <Stack.Title asChild>
+        <ConversationTitle handle={contact.handle} online={reachable} />
+      </Stack.Title>
+      {/* Connection diagnostics stay out of the way behind the header menu. */}
+      <Stack.Toolbar placement="right">
+        <Stack.Toolbar.Menu icon="ellipsis" title="Connection">
+          {/* Every row has an icon so iOS keeps titles aligned. */}
+          <Stack.Toolbar.MenuAction
+            disabled
+            icon="antenna.radiowaves.left.and.right"
+            subtitle={connectionLabel}
+          >
+            Status
+          </Stack.Toolbar.MenuAction>
+          <Stack.Toolbar.MenuAction
+            disabled
+            icon="arrow.triangle.branch"
+            subtitle={pathLabel(peerPaths[dialPeerId])}
+          >
+            Path
+          </Stack.Toolbar.MenuAction>
+          <Stack.Toolbar.MenuAction
+            disabled
+            icon="server.rack"
+            subtitle={relayReserved ? "Reserved" : "Not reserved"}
+          >
+            Relay
+          </Stack.Toolbar.MenuAction>
+          {p2pError ? (
+            <Stack.Toolbar.MenuAction
+              disabled
+              icon="exclamationmark.triangle"
+              subtitle={p2pError}
+            >
+              Error
+            </Stack.Toolbar.MenuAction>
+          ) : null}
+          <Stack.Toolbar.Menu inline>
+            <Stack.Toolbar.MenuAction
+              icon="doc.on.doc"
+              onPress={copyPeerId}
+              subtitle={`…${dialPeerId.slice(-8)}`}
+            >
+              Copy peer ID
+            </Stack.Toolbar.MenuAction>
+          </Stack.Toolbar.Menu>
+        </Stack.Toolbar.Menu>
+      </Stack.Toolbar>
       {loadError ? (
         <View className="gap-3 p-4">
           <Text>Could not load messages.</Text>

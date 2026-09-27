@@ -1,6 +1,7 @@
 import type {
   ConnectTarget,
   Minip2p,
+  Path,
   Stream,
   Unsubscribe,
 } from "@minip2p/react-native";
@@ -43,6 +44,8 @@ interface P2pState {
   readonly connectedPeerIds: readonly string[];
   readonly error?: string;
   readonly peerId?: string;
+  /** Transport path (direct, hole-punched, relayed) per connected peer. */
+  readonly peerPaths: Readonly<Record<string, Path>>;
   readonly relayReserved: boolean;
   readonly revision: number;
   readonly status: P2pStatus;
@@ -79,6 +82,7 @@ type P2pStore = P2pActions & P2pState;
 
 const initialState: P2pState = {
   connectedPeerIds: [],
+  peerPaths: {},
   relayReserved: false,
   revision: 0,
   status: "stopped",
@@ -94,6 +98,7 @@ export type P2pEndpoint = Pick<
   | "on"
   | "onClose"
   | "openStream"
+  | "path"
   | "peerId"
   | "waitPeerReady"
 >;
@@ -986,9 +991,20 @@ export const createP2pStore = ({
           return;
         }
         endpoint = created;
+        const readPeers = () => {
+          const connectedPeerIds = created.connectedPeers();
+          const peerPaths: Record<string, Path> = {};
+          for (const peerId of connectedPeerIds) {
+            const path = created.path(peerId);
+            if (path) {
+              peerPaths[peerId] = path;
+            }
+          }
+          return { connectedPeerIds, peerPaths };
+        };
         const refreshPeers = () => {
           if (generation === startGeneration) {
-            set({ connectedPeerIds: created.connectedPeers() });
+            set(readPeers());
           }
         };
         const invalidateConnections = () => {
@@ -1014,6 +1030,7 @@ export const createP2pStore = ({
             connectedPeerIds: [],
             error,
             peerId: undefined,
+            peerPaths: {},
             relayReserved: false,
             status: "failed",
           });
@@ -1061,6 +1078,9 @@ export const createP2pStore = ({
             }
           }),
           created.on("peerReady", refreshPeers),
+          created.on("pathEstablished", refreshPeers),
+          created.on("inboundPathEstablished", refreshPeers),
+          created.on("pathUpgraded", refreshPeers),
           created.on("connectionClosed", (connection) => {
             if (generation === startGeneration) {
               sessions.closed(connection);
@@ -1089,7 +1109,7 @@ export const createP2pStore = ({
           return;
         }
         set({
-          connectedPeerIds: created.connectedPeers(),
+          ...readPeers(),
           error: undefined,
           peerId: created.peerId(),
           relayReserved: created.activeReservation() !== undefined,
