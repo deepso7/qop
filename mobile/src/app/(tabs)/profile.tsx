@@ -2,6 +2,7 @@ import {
   Column,
   FieldGroup,
   Host,
+  Icon,
   ListItem,
   Row,
   Spacer,
@@ -14,6 +15,7 @@ import { useRouter } from "expo-router";
 import * as React from "react";
 import {
   ActivityIndicator,
+  Alert,
   Platform,
   Share,
   useColorScheme,
@@ -21,6 +23,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import qrCodeIcon from "@/assets/images/qr-code.xml";
 import { NativeAlert } from "@/components/ui/native-alert";
 import { settingsFormModifiers } from "@/components/ui/settings-form-modifiers";
 import { SettingsPalette } from "@/components/ui/settings-palette";
@@ -29,6 +32,76 @@ import { useTheme } from "@/constants/theme";
 import { useDeviceRoster } from "@/hooks/use-device-roster";
 import { selectionHaptic } from "@/lib/haptics";
 import { useIdentityStore } from "@/lib/identity-store";
+
+interface ProfileCardProps {
+  readonly handle: string;
+  readonly onCopyPeerId: () => void;
+  readonly peerLabel: string;
+  readonly qid: string;
+}
+
+// Placeholder until the QR code for adding contacts exists.
+const showQrCode = () => {
+  Alert.alert("QR code", "Coming soon.");
+};
+
+/** Contact-card header: initials avatar, handle, QID, peer ID (tap to copy), QR. */
+const ProfileCard = ({
+  handle,
+  onCopyPeerId,
+  peerLabel,
+  qid,
+}: ProfileCardProps) => {
+  const colors = useTheme();
+  const secondary = { color: colors.textSecondary };
+  return (
+    <Row alignment="center" spacing={14}>
+      <Column
+        alignment="center"
+        style={{
+          backgroundColor: colors.backgroundElement,
+          borderRadius: 32,
+          height: 64,
+          width: 64,
+        }}
+      >
+        <Spacer flexible />
+        <UIText textStyle={{ fontSize: 22, fontWeight: "600" }}>
+          {handle.slice(0, 2).toUpperCase()}
+        </UIText>
+        <Spacer flexible />
+      </Column>
+      <Column spacing={3}>
+        <UIText textStyle={{ fontSize: 22, fontWeight: "600" }}>
+          {`@${handle}`}
+        </UIText>
+        <UIText textStyle={secondary}>{`QID ${qid}`}</UIText>
+        <UIText onPress={onCopyPeerId} textStyle={secondary}>
+          {peerLabel}
+        </UIText>
+      </Column>
+      <Spacer flexible />
+      <Column
+        alignment="center"
+        onPress={showQrCode}
+        style={{
+          backgroundColor: colors.backgroundElement,
+          borderRadius: 22,
+          height: 44,
+          width: 44,
+        }}
+      >
+        <Spacer flexible />
+        <Icon
+          color={colors.text}
+          name={Platform.OS === "ios" ? "qrcode" : qrCodeIcon}
+          size={22}
+        />
+        <Spacer flexible />
+      </Column>
+    </Row>
+  );
+};
 
 interface SettingsRowProps {
   /** Row label as a text element (`UIText` / `Secondary`). */
@@ -242,28 +315,16 @@ const ProfileScreen = () => {
             style={{ backgroundColor: colors.background }}
           >
             <FieldGroup.Section title="Account">
-              <SettingsRow>
-                <UIText textStyle={{ fontSize: 20, fontWeight: "600" }}>
-                  {`@${identity?.handle ?? ""}`}
-                </UIText>
-              </SettingsRow>
-              <SettingsRow
-                trailing={<Secondary>{registration?.qid ?? "—"}</Secondary>}
-              >
-                <UIText>QID</UIText>
-              </SettingsRow>
-              <SettingsRow
-                onPress={copyPeerId}
-                trailing={
-                  <Secondary>
-                    {peerIdCopied
-                      ? "Copied"
-                      : `…${identity?.peerId.slice(-8) ?? ""}`}
-                  </Secondary>
+              <ProfileCard
+                handle={identity?.handle ?? ""}
+                onCopyPeerId={copyPeerId}
+                peerLabel={
+                  peerIdCopied
+                    ? "Peer ID copied"
+                    : `Peer …${identity?.peerId.slice(-8) ?? ""}`
                 }
-              >
-                <UIText>Peer ID</UIText>
-              </SettingsRow>
+                qid={registration?.qid ?? "—"}
+              />
             </FieldGroup.Section>
 
             <FieldGroup.Section title="Recovery key">
