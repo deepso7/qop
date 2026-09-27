@@ -375,6 +375,20 @@ const ProfileScreen = () => {
             </FieldGroup.Section>
 
             <FieldGroup.Section title="Devices">
+              {/* From the local identity, so it (and peer ID copy) never waits
+                  on the on-chain roster lookup. */}
+              <SettingsRow
+                onPress={copyPeerId}
+                supportingText={
+                  <Secondary>
+                    {peerIdCopied
+                      ? "Peer ID copied"
+                      : `…${identity?.peerId.slice(-8) ?? ""}`}
+                  </Secondary>
+                }
+              >
+                <UIText>This device</UIText>
+              </SettingsRow>
               {roster.status === "loading" ? (
                 <SettingsRow>
                   <Secondary>Loading devices…</Secondary>
@@ -391,22 +405,11 @@ const ProfileScreen = () => {
                 </SettingsRow>
               ) : null}
               {roster.status === "ready"
-                ? roster.devices.map((device) =>
-                    device.deviceKey === roster.thisDeviceKey ? (
-                      <SettingsRow
-                        key={device.deviceKey}
-                        onPress={copyPeerId}
-                        supportingText={
-                          <Secondary>
-                            {peerIdCopied
-                              ? "Peer ID copied"
-                              : `…${device.peerId.slice(-8)}`}
-                          </Secondary>
-                        }
-                      >
-                        <UIText>This device</UIText>
-                      </SettingsRow>
-                    ) : (
+                ? roster.devices
+                    .filter(
+                      (device) => device.deviceKey !== roster.thisDeviceKey
+                    )
+                    .map((device) => (
                       <SettingsRow
                         key={device.deviceKey}
                         onPress={() => {
@@ -425,8 +428,7 @@ const ProfileScreen = () => {
                       >
                         <UIText>{pairingFingerprint(device.deviceKey)}</UIText>
                       </SettingsRow>
-                    )
-                  )
+                    ))
                 : null}
               <SettingsRow onPress={() => push("/link-device")}>
                 <UIText textStyle={{ color: colors.primary }}>
