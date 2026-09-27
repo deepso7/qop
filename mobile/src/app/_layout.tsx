@@ -103,7 +103,11 @@ const AppStack = () => {
           </Stack.Protected>
           <Stack.Protected guard={isReady}>
             <Stack.Screen name="index" options={{ headerShown: false }} />
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+            {/* Title shows wherever iOS names the previous screen. */}
+            <Stack.Screen
+              name="(tabs)"
+              options={{ headerShown: false, title: "Chats" }}
+            />
             <Stack.Screen name="chat/[id]" options={{ title: "Chat" }} />
             <Stack.Screen name="new-chat" options={{ title: "New chat" }} />
             <Stack.Screen name="devices" options={{ title: "Devices" }} />
