@@ -5,7 +5,7 @@ import * as Clipboard from "expo-clipboard";
 import { Stack, useFocusEffect } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
 import * as React from "react";
-import { View } from "react-native";
+import { Platform, View } from "react-native";
 import {
   KeyboardAvoidingView,
   useReanimatedKeyboardAnimation,
@@ -154,6 +154,13 @@ const pathLabel = (path: Path | undefined) => {
     }
   }
 };
+
+// Menu row text. Android ignores MenuAction subtitles, so fold the value into
+// the title there.
+const menuRow = (label: string, value: string) =>
+  Platform.OS === "ios"
+    ? { children: label, subtitle: value }
+    : { children: `${label}: ${value}` };
 
 const ConversationScreen = ({ contact }: { contact: Contact }) => {
   const headerHeight = useHeaderHeight();
@@ -315,41 +322,31 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
           <Stack.Toolbar.MenuAction
             disabled
             icon="antenna.radiowaves.left.and.right"
-            subtitle={connectionLabel}
-          >
-            Status
-          </Stack.Toolbar.MenuAction>
+            {...menuRow("Status", connectionLabel)}
+          />
           <Stack.Toolbar.MenuAction
             disabled
             icon="arrow.triangle.branch"
-            subtitle={pathLabel(peerPaths[dialPeerId])}
-          >
-            Path
-          </Stack.Toolbar.MenuAction>
+            {...menuRow("Path", pathLabel(peerPaths[dialPeerId]))}
+          />
           <Stack.Toolbar.MenuAction
             disabled
             icon="server.rack"
-            subtitle={relayReserved ? "Reserved" : "Not reserved"}
-          >
-            Relay
-          </Stack.Toolbar.MenuAction>
+            {...menuRow("Relay", relayReserved ? "Reserved" : "Not reserved")}
+          />
           {status === "failed" && p2pError ? (
             <Stack.Toolbar.MenuAction
               disabled
               icon="exclamationmark.triangle"
-              subtitle={p2pError}
-            >
-              Error
-            </Stack.Toolbar.MenuAction>
+              {...menuRow("Error", p2pError)}
+            />
           ) : null}
           <Stack.Toolbar.Menu inline>
             <Stack.Toolbar.MenuAction
               icon="doc.on.doc"
               onPress={copyPeerId}
-              subtitle={`…${dialPeerId.slice(-8)}`}
-            >
-              Copy peer ID
-            </Stack.Toolbar.MenuAction>
+              {...menuRow("Copy peer ID", `…${dialPeerId.slice(-8)}`)}
+            />
           </Stack.Toolbar.Menu>
         </Stack.Toolbar.Menu>
       </Stack.Toolbar>
