@@ -6,7 +6,7 @@ import * as Clipboard from "expo-clipboard";
 import * as Crypto from "expo-crypto";
 import { useRouter } from "expo-router";
 import * as React from "react";
-import { ActivityIndicator, ScrollView, View } from "react-native";
+import { ActivityIndicator, Platform, ScrollView, View } from "react-native";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -236,6 +236,12 @@ const LinkDeviceSheet = () => {
       contentInsetAdjustmentBehavior="automatic"
       keyboardShouldPersistTaps="handled"
     >
+      {/* Android form sheets have no navigation header to show the title. */}
+      {Platform.OS === "android" ? (
+        <Text className="pt-4" variant="large">
+          Link a device
+        </Text>
+      ) : null}
       <Text className="text-foreground-secondary">
         On your computer, run{" "}
         <Text className="font-mono">qop link --account {identity?.handle}</Text>{" "}

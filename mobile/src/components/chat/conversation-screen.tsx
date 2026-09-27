@@ -16,6 +16,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import moreVertIcon from "@/assets/images/more-vert.xml";
 import { Button } from "@/components/ui/button";
 import {
   ChatComposer,
@@ -317,7 +318,10 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
       </Stack.Title>
       {/* Connection diagnostics stay out of the way behind the header menu. */}
       <Stack.Toolbar placement="right">
-        <Stack.Toolbar.Menu icon="ellipsis" title="Connection">
+        <Stack.Toolbar.Menu
+          icon={Platform.OS === "ios" ? "ellipsis" : moreVertIcon}
+          title="Connection"
+        >
           {/* Every row has an icon so iOS keeps titles aligned. Info rows stay
               enabled (tapping just closes the menu) so iOS doesn't grey them. */}
           <Stack.Toolbar.MenuAction

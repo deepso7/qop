@@ -21,6 +21,15 @@ import { useDeviceRoster } from "@/hooks/use-device-roster";
 import { selectionHaptic } from "@/lib/haptics";
 import { useIdentityStore } from "@/lib/identity-store";
 
+// On Android each FieldGroup.Section row is already a Compose ListItem, so
+// make ours transparent instead of drawing a second card inside it.
+const transparentRow = { containerColor: "transparent" };
+
+/** A settings row; see `transparentRow` for the Android nesting. */
+const SettingsRow = (props: React.ComponentProps<typeof ListItem>) => (
+  <ListItem colors={transparentRow} {...props} />
+);
+
 /** Secondary text for a settings row's value or subtitle. */
 const Secondary = ({ children }: { children: string }) => {
   const colors = useTheme();
@@ -185,19 +194,24 @@ const ProfileScreen = () => {
         seedColor={colors.primary}
         style={{ backgroundColor: colors.background, flex: 1 }}
       >
-        <FieldGroup modifiers={settingsFormModifiers}>
+        <FieldGroup
+          modifiers={settingsFormModifiers}
+          style={{ backgroundColor: colors.background }}
+        >
           <FieldGroup.Section title="Account">
-            <ListItem supportingText={<Secondary>Permanent handle</Secondary>}>
+            <SettingsRow
+              supportingText={<Secondary>Permanent handle</Secondary>}
+            >
               <UIText textStyle={{ fontSize: 20, fontWeight: "600" }}>
                 {`@${identity?.handle ?? ""}`}
               </UIText>
-            </ListItem>
-            <ListItem
+            </SettingsRow>
+            <SettingsRow
               trailing={<Secondary>{registration?.qid ?? "—"}</Secondary>}
             >
               QID
-            </ListItem>
-            <ListItem
+            </SettingsRow>
+            <SettingsRow
               onPress={copyPeerId}
               trailing={
                 <Secondary>
@@ -208,14 +222,14 @@ const ProfileScreen = () => {
               }
             >
               Peer ID
-            </ListItem>
+            </SettingsRow>
           </FieldGroup.Section>
 
           <FieldGroup.Section title="Recovery key">
-            <ListItem trailing={<Secondary>{recovery.status}</Secondary>}>
+            <SettingsRow trailing={<Secondary>{recovery.status}</Secondary>}>
               Status
-            </ListItem>
-            <ListItem
+            </SettingsRow>
+            <SettingsRow
               onPress={submitRecoveryExport}
               trailing={
                 exportingRecoveryKey ? (
@@ -226,51 +240,51 @@ const ProfileScreen = () => {
               <UIText textStyle={{ color: colors.primary }}>
                 {recovery.buttonLabel}
               </UIText>
-            </ListItem>
+            </SettingsRow>
             {awaitingBackupConfirmation ? (
-              <ListItem onPress={confirmRecoveryBackup}>
+              <SettingsRow onPress={confirmRecoveryBackup}>
                 <UIText textStyle={{ color: colors.primary }}>
                   I saved the recovery key
                 </UIText>
-              </ListItem>
+              </SettingsRow>
             ) : null}
             <FieldGroup.SectionFooter>
-              <UIText>
+              <Secondary>
                 {recoveryMessage ??
                   "Anyone with this key controls your qop. Keep it somewhere private."}
-              </UIText>
+              </Secondary>
             </FieldGroup.SectionFooter>
           </FieldGroup.Section>
 
           <FieldGroup.Section title="Devices">
             {roster.status === "loading" ? (
-              <ListItem>
+              <SettingsRow>
                 <Secondary>Loading devices…</Secondary>
-              </ListItem>
+              </SettingsRow>
             ) : null}
             {roster.status === "error" ? (
-              <ListItem
+              <SettingsRow
                 onPress={retryRoster}
                 trailing={
                   <UIText textStyle={{ color: colors.primary }}>Retry</UIText>
                 }
               >
                 Could not load devices
-              </ListItem>
+              </SettingsRow>
             ) : null}
             {roster.status === "ready"
               ? roster.devices.map((device) =>
                   device.deviceKey === roster.thisDeviceKey ? (
-                    <ListItem
+                    <SettingsRow
                       key={device.deviceKey}
                       supportingText={
                         <Secondary>{`…${device.peerId.slice(-8)}`}</Secondary>
                       }
                     >
                       This device
-                    </ListItem>
+                    </SettingsRow>
                   ) : (
-                    <ListItem
+                    <SettingsRow
                       key={device.deviceKey}
                       onPress={() => {
                         if (!roster.removing) {
@@ -287,31 +301,31 @@ const ProfileScreen = () => {
                       }
                     >
                       {pairingFingerprint(device.deviceKey)}
-                    </ListItem>
+                    </SettingsRow>
                   )
                 )
               : null}
-            <ListItem onPress={() => push("/link-device")}>
+            <SettingsRow onPress={() => push("/link-device")}>
               <UIText textStyle={{ color: colors.primary }}>
                 Link a device
               </UIText>
-            </ListItem>
+            </SettingsRow>
             <FieldGroup.SectionFooter>
-              <UIText>
+              <Secondary>
                 {roster.message ??
                   "Linked devices can send and receive messages as you."}
-              </UIText>
+              </Secondary>
             </FieldGroup.SectionFooter>
           </FieldGroup.Section>
 
           <FieldGroup.Section>
-            <ListItem onPress={openLogoutAlert}>
+            <SettingsRow onPress={openLogoutAlert}>
               <UIText textStyle={{ color: colors.destructive }}>Log out</UIText>
-            </ListItem>
+            </SettingsRow>
             <FieldGroup.SectionFooter>
-              <UIText>
+              <Secondary>
                 You will need your recovery key to restore this identity.
-              </UIText>
+              </Secondary>
             </FieldGroup.SectionFooter>
           </FieldGroup.Section>
         </FieldGroup>
