@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { NativeAlert } from "@/components/ui/native-alert";
 import { settingsFormModifiers } from "@/components/ui/settings-form-modifiers";
+import { SettingsPalette } from "@/components/ui/settings-palette";
 import { Text } from "@/components/ui/text";
 import { useTheme } from "@/constants/theme";
 import { useDeviceRoster } from "@/hooks/use-device-roster";
@@ -232,148 +233,148 @@ const ProfileScreen = () => {
       </Text>
       <Host
         colorScheme={colorScheme}
-        // Android derives its whole surface palette from the seed; a neutral
-        // seed keeps cards close to the app's background instead of pink.
-        seedColor={
-          Platform.OS === "android" ? colors.backgroundElement : colors.primary
-        }
+        seedColor={colors.primary}
         style={{ backgroundColor: colors.background, flex: 1 }}
       >
-        <FieldGroup
-          modifiers={settingsFormModifiers}
-          style={{ backgroundColor: colors.background }}
-        >
-          <FieldGroup.Section title="Account">
-            <SettingsRow
-              supportingText={<Secondary>Permanent handle</Secondary>}
-            >
-              <UIText textStyle={{ fontSize: 20, fontWeight: "600" }}>
-                {`@${identity?.handle ?? ""}`}
-              </UIText>
-            </SettingsRow>
-            <SettingsRow
-              trailing={<Secondary>{registration?.qid ?? "—"}</Secondary>}
-            >
-              <UIText>QID</UIText>
-            </SettingsRow>
-            <SettingsRow
-              onPress={copyPeerId}
-              trailing={
-                <Secondary>
-                  {peerIdCopied
-                    ? "Copied"
-                    : `…${identity?.peerId.slice(-8) ?? ""}`}
-                </Secondary>
-              }
-            >
-              <UIText>Peer ID</UIText>
-            </SettingsRow>
-          </FieldGroup.Section>
-
-          <FieldGroup.Section title="Recovery key">
-            <SettingsRow trailing={<Secondary>{recovery.status}</Secondary>}>
-              <UIText>Status</UIText>
-            </SettingsRow>
-            <SettingsRow
-              onPress={submitRecoveryExport}
-              trailing={
-                exportingRecoveryKey ? (
-                  <ActivityIndicator color={colors.textSecondary} />
-                ) : undefined
-              }
-            >
-              <UIText textStyle={{ color: colors.primary }}>
-                {recovery.buttonLabel}
-              </UIText>
-            </SettingsRow>
-            {awaitingBackupConfirmation ? (
-              <SettingsRow onPress={confirmRecoveryBackup}>
-                <UIText textStyle={{ color: colors.primary }}>
-                  I saved the recovery key
+        <SettingsPalette>
+          <FieldGroup
+            modifiers={settingsFormModifiers}
+            style={{ backgroundColor: colors.background }}
+          >
+            <FieldGroup.Section title="Account">
+              <SettingsRow
+                supportingText={<Secondary>Permanent handle</Secondary>}
+              >
+                <UIText textStyle={{ fontSize: 20, fontWeight: "600" }}>
+                  {`@${identity?.handle ?? ""}`}
                 </UIText>
               </SettingsRow>
-            ) : null}
-            <FieldGroup.SectionFooter>
-              <Secondary>
-                {recoveryMessage ??
-                  "Anyone with this key controls your qop. Keep it somewhere private."}
-              </Secondary>
-            </FieldGroup.SectionFooter>
-          </FieldGroup.Section>
-
-          <FieldGroup.Section title="Devices">
-            {roster.status === "loading" ? (
-              <SettingsRow>
-                <Secondary>Loading devices…</Secondary>
-              </SettingsRow>
-            ) : null}
-            {roster.status === "error" ? (
               <SettingsRow
-                onPress={retryRoster}
+                trailing={<Secondary>{registration?.qid ?? "—"}</Secondary>}
+              >
+                <UIText>QID</UIText>
+              </SettingsRow>
+              <SettingsRow
+                onPress={copyPeerId}
                 trailing={
-                  <UIText textStyle={{ color: colors.primary }}>Retry</UIText>
+                  <Secondary>
+                    {peerIdCopied
+                      ? "Copied"
+                      : `…${identity?.peerId.slice(-8) ?? ""}`}
+                  </Secondary>
                 }
               >
-                <UIText>Could not load devices</UIText>
+                <UIText>Peer ID</UIText>
               </SettingsRow>
-            ) : null}
-            {roster.status === "ready"
-              ? roster.devices.map((device) =>
-                  device.deviceKey === roster.thisDeviceKey ? (
-                    <SettingsRow
-                      key={device.deviceKey}
-                      supportingText={
-                        <Secondary>{`…${device.peerId.slice(-8)}`}</Secondary>
-                      }
-                    >
-                      <UIText>This device</UIText>
-                    </SettingsRow>
-                  ) : (
-                    <SettingsRow
-                      key={device.deviceKey}
-                      onPress={() => {
-                        if (!roster.removing) {
-                          setRemoveKey(device.deviceKey);
-                        }
-                      }}
-                      supportingText={
-                        <Secondary>{`…${device.peerId.slice(-8)}`}</Secondary>
-                      }
-                      trailing={
-                        <UIText textStyle={{ color: colors.destructive }}>
-                          Remove
-                        </UIText>
-                      }
-                    >
-                      <UIText>{pairingFingerprint(device.deviceKey)}</UIText>
-                    </SettingsRow>
-                  )
-                )
-              : null}
-            <SettingsRow onPress={() => push("/link-device")}>
-              <UIText textStyle={{ color: colors.primary }}>
-                Link a device
-              </UIText>
-            </SettingsRow>
-            <FieldGroup.SectionFooter>
-              <Secondary>
-                {roster.message ??
-                  "Linked devices can send and receive messages as you."}
-              </Secondary>
-            </FieldGroup.SectionFooter>
-          </FieldGroup.Section>
+            </FieldGroup.Section>
 
-          <FieldGroup.Section>
-            <SettingsRow onPress={openLogoutAlert}>
-              <UIText textStyle={{ color: colors.destructive }}>Log out</UIText>
-            </SettingsRow>
-            <FieldGroup.SectionFooter>
-              <Secondary>
-                You will need your recovery key to restore this identity.
-              </Secondary>
-            </FieldGroup.SectionFooter>
-          </FieldGroup.Section>
-        </FieldGroup>
+            <FieldGroup.Section title="Recovery key">
+              <SettingsRow trailing={<Secondary>{recovery.status}</Secondary>}>
+                <UIText>Status</UIText>
+              </SettingsRow>
+              <SettingsRow
+                onPress={submitRecoveryExport}
+                trailing={
+                  exportingRecoveryKey ? (
+                    <ActivityIndicator color={colors.textSecondary} />
+                  ) : undefined
+                }
+              >
+                <UIText textStyle={{ color: colors.primary }}>
+                  {recovery.buttonLabel}
+                </UIText>
+              </SettingsRow>
+              {awaitingBackupConfirmation ? (
+                <SettingsRow onPress={confirmRecoveryBackup}>
+                  <UIText textStyle={{ color: colors.primary }}>
+                    I saved the recovery key
+                  </UIText>
+                </SettingsRow>
+              ) : null}
+              <FieldGroup.SectionFooter>
+                <Secondary>
+                  {recoveryMessage ??
+                    "Anyone with this key controls your qop. Keep it somewhere private."}
+                </Secondary>
+              </FieldGroup.SectionFooter>
+            </FieldGroup.Section>
+
+            <FieldGroup.Section title="Devices">
+              {roster.status === "loading" ? (
+                <SettingsRow>
+                  <Secondary>Loading devices…</Secondary>
+                </SettingsRow>
+              ) : null}
+              {roster.status === "error" ? (
+                <SettingsRow
+                  onPress={retryRoster}
+                  trailing={
+                    <UIText textStyle={{ color: colors.primary }}>Retry</UIText>
+                  }
+                >
+                  <UIText>Could not load devices</UIText>
+                </SettingsRow>
+              ) : null}
+              {roster.status === "ready"
+                ? roster.devices.map((device) =>
+                    device.deviceKey === roster.thisDeviceKey ? (
+                      <SettingsRow
+                        key={device.deviceKey}
+                        supportingText={
+                          <Secondary>{`…${device.peerId.slice(-8)}`}</Secondary>
+                        }
+                      >
+                        <UIText>This device</UIText>
+                      </SettingsRow>
+                    ) : (
+                      <SettingsRow
+                        key={device.deviceKey}
+                        onPress={() => {
+                          if (!roster.removing) {
+                            setRemoveKey(device.deviceKey);
+                          }
+                        }}
+                        supportingText={
+                          <Secondary>{`…${device.peerId.slice(-8)}`}</Secondary>
+                        }
+                        trailing={
+                          <UIText textStyle={{ color: colors.destructive }}>
+                            Remove
+                          </UIText>
+                        }
+                      >
+                        <UIText>{pairingFingerprint(device.deviceKey)}</UIText>
+                      </SettingsRow>
+                    )
+                  )
+                : null}
+              <SettingsRow onPress={() => push("/link-device")}>
+                <UIText textStyle={{ color: colors.primary }}>
+                  Link a device
+                </UIText>
+              </SettingsRow>
+              <FieldGroup.SectionFooter>
+                <Secondary>
+                  {roster.message ??
+                    "Linked devices can send and receive messages as you."}
+                </Secondary>
+              </FieldGroup.SectionFooter>
+            </FieldGroup.Section>
+
+            <FieldGroup.Section>
+              <SettingsRow onPress={openLogoutAlert}>
+                <UIText textStyle={{ color: colors.destructive }}>
+                  Log out
+                </UIText>
+              </SettingsRow>
+              <FieldGroup.SectionFooter>
+                <Secondary>
+                  You will need your recovery key to restore this identity.
+                </Secondary>
+              </FieldGroup.SectionFooter>
+            </FieldGroup.Section>
+          </FieldGroup>
+        </SettingsPalette>
       </Host>
       <NativeAlert
         confirmLabel="Remove"
