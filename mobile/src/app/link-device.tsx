@@ -69,6 +69,7 @@ const LinkDeviceSheet = () => {
   const [editedAtSeconds, setEditedAtSeconds] = React.useState(0n);
   const [progress, setProgress] = React.useState<string>();
   const [error, setError] = React.useState<string>();
+  const linking = React.useRef(false);
 
   const transport = React.useMemo(
     () => ({
@@ -134,81 +135,93 @@ const LinkDeviceSheet = () => {
     changeText(pasted.trim());
   }, [changeText]);
 
+  /** Connect to the CLI, then approve its enrollment and wait for it. */
+  const approve = React.useCallback(
+    async (
+      offer: PairingOfferV1,
+      expectedOwner: NonNullable<typeof identity>["ownerAddress"],
+      qid: string
+    ) => {
+      const domain = trustedIdentityDomain();
+      setError(undefined);
+      setProgress("Connecting to your computer…");
+      const handshake = await Effect.runPromise(
+        handshakePairing(
+          transport,
+          offer,
+          {
+            chainId: domain.chainId,
+            qid,
+            registry: domain.verifyingContract,
+          },
+          () => Crypto.getRandomBytesAsync(32)
+        ).pipe(Effect.result)
+      );
+      if (Result.isFailure(handshake)) {
+        setError(
+          "Could not reach your computer. Keep the link command running and try again."
+        );
+        return;
+      }
+      setProgress("Approving…");
+      const result = await Effect.runPromise(
+        completeDeviceLink({
+          deviceKey: asHex(offer.deviceKey),
+          expectedOwner,
+          offer,
+          peerId: handshake.success.peerId,
+          qid: BigInt(qid),
+          transport,
+        }).pipe(Effect.result)
+      );
+      if (Result.isFailure(result)) {
+        const { failure } = result;
+        setError(
+          linkFailureMessage(
+            failure instanceof LocalDeviceActionError
+              ? failure.operation
+              : undefined
+          )
+        );
+        return;
+      }
+      if (result.success?.membership !== "linked") {
+        setError(
+          result.success?.membership === "removed"
+            ? "This device was linked and later removed. Run the link command again."
+            : "The approval finished, but the device did not become active."
+        );
+        return;
+      }
+      invalidateOwnHolders();
+      void successHaptic();
+      router.back();
+    },
+    [invalidateOwnHolders, router, transport]
+  );
+
   const link = React.useCallback(async () => {
     if (
       payload.kind !== "valid" ||
       !identity ||
       !registration?.qid ||
-      progress
+      linking.current
     ) {
       return;
     }
     const { offer } = payload;
-    const domain = trustedIdentityDomain();
-    setError(undefined);
-    setProgress("Connecting to your computer…");
-    const handshake = await Effect.runPromise(
-      handshakePairing(
-        transport,
-        offer,
-        {
-          chainId: domain.chainId,
-          qid: registration.qid,
-          registry: domain.verifyingContract,
-        },
-        () => Crypto.getRandomBytesAsync(32)
-      ).pipe(Effect.result)
-    );
-    if (Result.isFailure(handshake)) {
-      setProgress(undefined);
-      setError(
-        "Could not reach your computer. Keep the link command running and try again."
-      );
+    // The sheet may have stayed open past the offer's expiry.
+    if (BigInt(offer.expiresAt) <= BigInt(Math.floor(Date.now() / 1000))) {
+      setError("This payload has expired. Run the link command again.");
       return;
     }
-    setProgress("Approving…");
-    const result = await Effect.runPromise(
-      completeDeviceLink({
-        deviceKey: asHex(offer.deviceKey),
-        expectedOwner: identity.ownerAddress,
-        offer,
-        peerId: handshake.success.peerId,
-        qid: BigInt(registration.qid),
-        transport,
-      }).pipe(Effect.result)
-    );
+    // A ref, not state: a second tap can land before the re-render.
+    // approve() reports failures via setError and never throws.
+    linking.current = true;
+    await approve(offer, identity.ownerAddress, registration.qid);
+    linking.current = false;
     setProgress(undefined);
-    if (Result.isFailure(result)) {
-      const { failure } = result;
-      setError(
-        linkFailureMessage(
-          failure instanceof LocalDeviceActionError
-            ? failure.operation
-            : undefined
-        )
-      );
-      return;
-    }
-    if (result.success?.membership !== "linked") {
-      setError(
-        result.success?.membership === "removed"
-          ? "This device was linked and later removed. Run the link command again."
-          : "The approval finished, but the device did not become active."
-      );
-      return;
-    }
-    invalidateOwnHolders();
-    void successHaptic();
-    router.back();
-  }, [
-    identity,
-    invalidateOwnHolders,
-    payload,
-    progress,
-    registration,
-    router,
-    transport,
-  ]);
+  }, [approve, identity, payload, registration]);
 
   const p2pReady = p2pStatus === "running";
   const fingerprint =
@@ -248,7 +261,8 @@ const LinkDeviceSheet = () => {
             displayMode="labelOnly"
             foregroundColor={colors.text}
             onPress={(data) => {
-              if (data.type === "text") {
+              // The native control stays tappable during approval.
+              if (!linking.current && data.type === "text") {
                 changeText(data.text.trim());
               }
             }}

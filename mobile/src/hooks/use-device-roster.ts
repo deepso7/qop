@@ -46,35 +46,37 @@ export const useDeviceRoster = () => {
   const [message, setMessage] = React.useState<string>();
   const qid = registration?.qid;
 
-  const load = React.useCallback(
-    async (isActive: () => boolean = () => true) => {
-      if (!qid) {
-        setDevices([]);
-        setStatus("ready");
-        return;
-      }
-      const account = await Effect.runPromise(
-        lookupQid(BigInt(qid)).pipe(Effect.result)
-      );
-      if (!isActive()) {
-        return;
-      }
-      if (Result.isSuccess(account) && account.success) {
-        setDevices(account.success.devices);
-        setStatus("ready");
-      } else {
-        setStatus("error");
-      }
-    },
-    [qid]
-  );
+  // Only the newest load may write; focus cleanup also invalidates in-flight
+  // loads. Overlapping reads can see different registry heads.
+  const loadSeq = React.useRef(0);
+
+  const load = React.useCallback(async () => {
+    loadSeq.current += 1;
+    const seq = loadSeq.current;
+    if (!qid) {
+      setDevices([]);
+      setStatus("ready");
+      return;
+    }
+    const account = await Effect.runPromise(
+      lookupQid(BigInt(qid)).pipe(Effect.result)
+    );
+    if (seq !== loadSeq.current) {
+      return;
+    }
+    if (Result.isSuccess(account) && account.success) {
+      setDevices(account.success.devices);
+      setStatus("ready");
+    } else {
+      setStatus("error");
+    }
+  }, [qid]);
 
   useFocusEffect(
     React.useCallback(() => {
-      let active = true;
-      void load(() => active);
+      void load();
       return () => {
-        active = false;
+        loadSeq.current += 1;
       };
     }, [load])
   );
