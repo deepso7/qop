@@ -242,9 +242,7 @@ const ProfileScreen = () => {
             style={{ backgroundColor: colors.background }}
           >
             <FieldGroup.Section title="Account">
-              <SettingsRow
-                supportingText={<Secondary>Permanent handle</Secondary>}
-              >
+              <SettingsRow>
                 <UIText textStyle={{ fontSize: 20, fontWeight: "600" }}>
                   {`@${identity?.handle ?? ""}`}
                 </UIText>
