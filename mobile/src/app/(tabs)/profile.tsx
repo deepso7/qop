@@ -1,3 +1,4 @@
+import qrCodeIcon from "@expo/material-symbols/qr_code.xml";
 import {
   Column,
   FieldGroup,
@@ -23,7 +24,6 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import qrCodeIcon from "@/assets/images/qr-code.xml";
 import { NativeAlert } from "@/components/ui/native-alert";
 import { settingsFormModifiers } from "@/components/ui/settings-form-modifiers";
 import { SettingsPalette } from "@/components/ui/settings-palette";
@@ -111,7 +111,7 @@ const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
         <Spacer flexible />
         <Icon
           color={colors.background}
-          name={Platform.OS === "ios" ? "qrcode" : qrCodeIcon}
+          name={Icon.select({ android: qrCodeIcon, ios: "qrcode" })}
           size={26}
         />
         <Spacer flexible />

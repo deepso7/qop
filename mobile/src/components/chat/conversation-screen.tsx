@@ -1,3 +1,4 @@
+import moreVertIcon from "@expo/material-symbols/more_vert.xml";
 import type { Path } from "@minip2p/react-native";
 import type { ListRenderItem } from "@shopify/flash-list";
 import { Effect, Fiber, Schedule } from "effect";
@@ -16,7 +17,6 @@ import Animated, {
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import moreVertIcon from "@/assets/images/more-vert.xml";
 import { Button } from "@/components/ui/button";
 import {
   ChatComposer,
