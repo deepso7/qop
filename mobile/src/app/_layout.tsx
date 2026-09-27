@@ -104,10 +104,14 @@ const AppStack = () => {
             <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="chat/[id]" options={{ title: "Chat" }} />
             <Stack.Screen name="new-chat" options={{ title: "New chat" }} />
-            <Stack.Screen name="devices" options={{ title: "Devices" }} />
             <Stack.Screen
-              name="devices-link"
-              options={{ title: "Link device" }}
+              name="link-device"
+              options={{
+                presentation: "formSheet",
+                sheetAllowedDetents: [0.6, 1],
+                sheetGrabberVisible: true,
+                title: "Link a device",
+              }}
             />
           </Stack.Protected>
         </Stack>

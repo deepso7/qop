@@ -1,32 +1,38 @@
+import { FieldGroup, Host, ListItem, Text as UIText } from "@expo/ui";
+import { pairingFingerprint } from "@qop/protocol";
 import { Result } from "effect";
+import * as Clipboard from "expo-clipboard";
 import { useRouter } from "expo-router";
 import * as React from "react";
-import { ActivityIndicator, Platform, Share, View } from "react-native";
+import {
+  ActivityIndicator,
+  Platform,
+  Share,
+  useColorScheme,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Screen } from "@/components/screen";
-import { Button } from "@/components/ui/button";
 import { NativeAlert } from "@/components/ui/native-alert";
-import { SectionLabel } from "@/components/ui/section-label";
-import { Surface } from "@/components/ui/surface";
+import { settingsFormModifiers } from "@/components/ui/settings-form-modifiers";
 import { Text } from "@/components/ui/text";
+import { useTheme } from "@/constants/theme";
+import { useDeviceRoster } from "@/hooks/use-device-roster";
+import { selectionHaptic } from "@/lib/haptics";
 import { useIdentityStore } from "@/lib/identity-store";
 
-const recoveryPresentation = (needsBackup: boolean) => {
-  if (needsBackup) {
-    return {
-      activityColor: "accent-primary-foreground",
-      buttonLabel: "Back up recovery key",
-      buttonVariant: "default",
-      status: "Recovery key not backed up",
-    } as const;
-  }
-  return {
-    activityColor: "accent-foreground-secondary",
-    buttonLabel: "Export again",
-    buttonVariant: "outline",
-    status: "Recovery key exported",
-  } as const;
+/** Secondary text for a settings row's value or subtitle. */
+const Secondary = ({ children }: { children: string }) => {
+  const colors = useTheme();
+  return (
+    <UIText textStyle={{ color: colors.textSecondary }}>{children}</UIText>
+  );
 };
+
+const recoveryPresentation = (needsBackup: boolean) =>
+  needsBackup
+    ? { buttonLabel: "Back up recovery key", status: "Not backed up" }
+    : { buttonLabel: "Export again", status: "Backed up" };
 
 const logoutPresentation = (needsBackup: boolean) => {
   if (needsBackup) {
@@ -45,6 +51,12 @@ const logoutPresentation = (needsBackup: boolean) => {
 
 const ProfileScreen = () => {
   const { push } = useRouter();
+  const roster = useDeviceRoster();
+  const [removeKey, setRemoveKey] = React.useState<string>();
+  const insets = useSafeAreaInsets();
+  const colors = useTheme();
+  const colorScheme = useColorScheme() === "dark" ? "dark" : "light";
+  const [peerIdCopied, setPeerIdCopied] = React.useState(false);
   const identity = useIdentityStore((state) => state.identity);
   const registration = useIdentityStore((state) => state.registration);
   const revealRecoveryKey = useIdentityStore(
@@ -132,122 +144,201 @@ const ProfileScreen = () => {
     void resetIdentity();
   }, [resetIdentity]);
 
+  const { remove, retry: retryRoster } = roster;
+  const confirmRemove = React.useCallback(() => {
+    const deviceKey = removeKey;
+    setRemoveKey(undefined);
+    if (deviceKey) {
+      void remove(deviceKey);
+    }
+  }, [remove, removeKey]);
+
   const openLogoutAlert = React.useCallback(() => {
     setLogoutAlertOpen(true);
   }, []);
 
+  const copyPeerId = React.useCallback(async () => {
+    if (!identity) {
+      return;
+    }
+    await Clipboard.setStringAsync(identity.peerId);
+    void selectionHaptic();
+    setPeerIdCopied(true);
+  }, [identity]);
+
+  // Revert the "Copied" confirmation after a moment.
+  React.useEffect(() => {
+    if (!peerIdCopied) {
+      return;
+    }
+    const timer = setTimeout(() => setPeerIdCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [peerIdCopied]);
+
   return (
-    <Screen bounces={false}>
-      <View className="gap-1">
-        <Text variant="title">Profile</Text>
-        <Text className="text-foreground-secondary" variant="caption">
-          Manage your identity on this device.
-        </Text>
-      </View>
-
-      <View className="gap-2">
-        <SectionLabel>Identity</SectionLabel>
-        <Surface
-          className="border-background-selected rounded-xl border p-4"
-          tone="element"
-        >
-          <View className="gap-1">
-            <Text selectable variant="large">
-              @{identity?.handle}
-            </Text>
-            <Text className="text-foreground-secondary" variant="caption">
-              Permanent registered handle
-            </Text>
-            <Text
-              className="text-foreground-secondary font-mono"
-              selectable
-              variant="caption"
-            >
-              QID {registration?.qid ?? "—"} · Peer{" "}
-              {identity?.peerId.slice(0, 12)}…
-            </Text>
-          </View>
-        </Surface>
-      </View>
-
-      <View className="gap-2">
-        <SectionLabel>Recovery</SectionLabel>
-        <Surface
-          className="border-background-selected gap-4 rounded-xl border p-4"
-          tone="element"
-        >
-          <View className="gap-1">
-            <Text variant="label">{recovery.status}</Text>
-            <Text className="text-foreground-secondary" variant="caption">
-              Export it somewhere private. Anyone with this key controls your
-              qop.
-            </Text>
-          </View>
-          <Button
-            disabled={exportingRecoveryKey}
-            onPress={submitRecoveryExport}
-            variant={recovery.buttonVariant}
-          >
-            {exportingRecoveryKey ? (
-              <ActivityIndicator colorClassName={recovery.activityColor} />
-            ) : null}
-            <Text>{recovery.buttonLabel}</Text>
-          </Button>
-          {awaitingBackupConfirmation ? (
-            <Button
-              accessibilityHint="Confirms that the recovery key was saved outside qop"
-              disabled={exportingRecoveryKey}
-              onPress={confirmRecoveryBackup}
-              variant="outline"
-            >
-              <Text>I saved the recovery key</Text>
-            </Button>
-          ) : null}
-          {recoveryMessage ? (
-            <Text
-              className="text-foreground-secondary text-center"
-              selectable
-              variant="caption"
-            >
-              {recoveryMessage}
-            </Text>
-          ) : null}
-        </Surface>
-      </View>
-
-      <Button
-        className="h-12 rounded-xl"
-        onPress={() => push("/devices")}
-        variant="outline"
+    <View className="bg-background flex-1" style={{ paddingTop: insets.top }}>
+      <Text className="px-5 pt-10 pb-2" variant="title">
+        Profile
+      </Text>
+      <Host
+        colorScheme={colorScheme}
+        seedColor={colors.primary}
+        style={{ backgroundColor: colors.background, flex: 1 }}
       >
-        <Text>Devices</Text>
-      </Button>
+        <FieldGroup modifiers={settingsFormModifiers}>
+          <FieldGroup.Section title="Account">
+            <ListItem supportingText={<Secondary>Permanent handle</Secondary>}>
+              <UIText textStyle={{ fontSize: 20, fontWeight: "600" }}>
+                {`@${identity?.handle ?? ""}`}
+              </UIText>
+            </ListItem>
+            <ListItem
+              trailing={<Secondary>{registration?.qid ?? "—"}</Secondary>}
+            >
+              QID
+            </ListItem>
+            <ListItem
+              onPress={copyPeerId}
+              trailing={
+                <Secondary>
+                  {peerIdCopied
+                    ? "Copied"
+                    : `…${identity?.peerId.slice(-8) ?? ""}`}
+                </Secondary>
+              }
+            >
+              Peer ID
+            </ListItem>
+          </FieldGroup.Section>
 
-      <View className="gap-2">
-        <Button
-          className="h-12 rounded-xl"
-          onPress={openLogoutAlert}
-          variant="outline"
-        >
-          <Text className="text-destructive">Log out</Text>
-        </Button>
-        <NativeAlert
-          confirmLabel="Log out"
-          description={logout.description}
-          destructive
-          onConfirm={confirmReset}
-          onOpenChange={setLogoutAlertOpen}
-          open={logoutAlertOpen}
-          title={logout.title}
-        />
-        <Text
-          className="text-foreground-secondary text-center"
-          variant="caption"
-        >
-          You will need your recovery key to restore this identity.
-        </Text>
-      </View>
-    </Screen>
+          <FieldGroup.Section title="Recovery key">
+            <ListItem trailing={<Secondary>{recovery.status}</Secondary>}>
+              Status
+            </ListItem>
+            <ListItem
+              onPress={submitRecoveryExport}
+              trailing={
+                exportingRecoveryKey ? (
+                  <ActivityIndicator color={colors.textSecondary} />
+                ) : undefined
+              }
+            >
+              <UIText textStyle={{ color: colors.primary }}>
+                {recovery.buttonLabel}
+              </UIText>
+            </ListItem>
+            {awaitingBackupConfirmation ? (
+              <ListItem onPress={confirmRecoveryBackup}>
+                <UIText textStyle={{ color: colors.primary }}>
+                  I saved the recovery key
+                </UIText>
+              </ListItem>
+            ) : null}
+            <FieldGroup.SectionFooter>
+              <UIText>
+                {recoveryMessage ??
+                  "Anyone with this key controls your qop. Keep it somewhere private."}
+              </UIText>
+            </FieldGroup.SectionFooter>
+          </FieldGroup.Section>
+
+          <FieldGroup.Section title="Devices">
+            {roster.status === "loading" ? (
+              <ListItem>
+                <Secondary>Loading devices…</Secondary>
+              </ListItem>
+            ) : null}
+            {roster.status === "error" ? (
+              <ListItem
+                onPress={retryRoster}
+                trailing={
+                  <UIText textStyle={{ color: colors.primary }}>Retry</UIText>
+                }
+              >
+                Could not load devices
+              </ListItem>
+            ) : null}
+            {roster.status === "ready"
+              ? roster.devices.map((device) =>
+                  device.deviceKey === roster.thisDeviceKey ? (
+                    <ListItem
+                      key={device.deviceKey}
+                      supportingText={
+                        <Secondary>{`…${device.peerId.slice(-8)}`}</Secondary>
+                      }
+                    >
+                      This device
+                    </ListItem>
+                  ) : (
+                    <ListItem
+                      key={device.deviceKey}
+                      onPress={() => {
+                        if (!roster.removing) {
+                          setRemoveKey(device.deviceKey);
+                        }
+                      }}
+                      supportingText={
+                        <Secondary>{`…${device.peerId.slice(-8)}`}</Secondary>
+                      }
+                      trailing={
+                        <UIText textStyle={{ color: colors.destructive }}>
+                          Remove
+                        </UIText>
+                      }
+                    >
+                      {pairingFingerprint(device.deviceKey)}
+                    </ListItem>
+                  )
+                )
+              : null}
+            <ListItem onPress={() => push("/link-device")}>
+              <UIText textStyle={{ color: colors.primary }}>
+                Link a device
+              </UIText>
+            </ListItem>
+            <FieldGroup.SectionFooter>
+              <UIText>
+                {roster.message ??
+                  "Linked devices can send and receive messages as you."}
+              </UIText>
+            </FieldGroup.SectionFooter>
+          </FieldGroup.Section>
+
+          <FieldGroup.Section>
+            <ListItem onPress={openLogoutAlert}>
+              <UIText textStyle={{ color: colors.destructive }}>Log out</UIText>
+            </ListItem>
+            <FieldGroup.SectionFooter>
+              <UIText>
+                You will need your recovery key to restore this identity.
+              </UIText>
+            </FieldGroup.SectionFooter>
+          </FieldGroup.Section>
+        </FieldGroup>
+      </Host>
+      <NativeAlert
+        confirmLabel="Remove"
+        description="It will no longer be able to send or receive as you. Conversation history stays."
+        destructive
+        onConfirm={confirmRemove}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRemoveKey(undefined);
+          }
+        }}
+        open={removeKey !== undefined}
+        title={`Remove ${removeKey ? pairingFingerprint(removeKey) : "device"}?`}
+      />
+      <NativeAlert
+        confirmLabel="Log out"
+        description={logout.description}
+        destructive
+        onConfirm={confirmReset}
+        onOpenChange={setLogoutAlertOpen}
+        open={logoutAlertOpen}
+        title={logout.title}
+      />
+    </View>
   );
 };
 
