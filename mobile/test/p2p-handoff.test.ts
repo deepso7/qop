@@ -1027,6 +1027,47 @@ describe("multi-holder picker", () => {
     );
   });
 
+  it("re-homes a held message when its holder is unlinked elsewhere", async () => {
+    // Both CLIs linked; PEER_CLI stays connected so the cached roster would
+    // otherwise be reused after PEER_CLI_OTHER is unlinked.
+    let roster = bothCliAccount();
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(handle === "alice" ? roster : bobAccount)
+    );
+    connectedPeers.mockReturnValue([PEER_CLI]);
+    const id = "c56a4180-65aa-42ec-a945-5fd21dec0706";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      holderPeerId: PEER_CLI_OTHER,
+      id,
+      sentAt: 1,
+      status: "held",
+      text: "waiting",
+    });
+    poll.mockResolvedValue([]);
+    await useP2pStore.getState().start();
+    await vi.waitFor(() => expect(poll).toHaveBeenCalled());
+    await Effect.runPromise(Effect.sleep(50));
+    expect(await getMessageById(id)).toMatchObject({
+      holderPeerId: PEER_CLI_OTHER,
+    });
+    roster = {
+      ...aliceAccount,
+      devices: [
+        { deviceKey: phoneDeviceKey, peerId: PEER_ALICE },
+        { deviceKey: cliDeviceKey, peerId: PEER_CLI },
+      ],
+    };
+    connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({
+        holderPeerId: PEER_CLI,
+        status: "held",
+      })
+    );
+  });
+
   it("leaves a held message on a linked holder that is offline", async () => {
     const id = "c56a4180-65aa-42ec-a945-5fd21dec0702";
     connectedPeers.mockReturnValue([]);

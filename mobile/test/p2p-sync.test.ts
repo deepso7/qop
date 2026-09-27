@@ -361,6 +361,37 @@ describe("performHandoff", () => {
     expect(stream.write).toHaveBeenCalled();
   });
 
+  it("keeps a lost held ambiguous even if the retry answers unavailable", async () => {
+    const unavailable = await Effect.runPromise(
+      encodeSyncResponseV1({ reason: "unavailable", type: "error", v: 1 })
+    );
+    // First attempt: request sent, reply lost (EOF). The CLI may hold it.
+    const lostReply = {
+      closeWrite: vi.fn(),
+      connId: 3,
+      peerId: PEER_CLI,
+      read: vi.fn(async () => {
+        await Promise.resolve();
+      }),
+      reset: vi.fn(),
+      write: vi.fn(),
+    };
+    const { endpoint, sessions } = makeEndpoint(responseReader(unavailable));
+    endpoint.openStream.mockResolvedValueOnce(lostReply);
+    await expect(
+      performHandoff({
+        composedBy: own.deviceKey,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        record,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).rejects.not.toBeInstanceOf(HandoffUndeliveredError);
+    expect(endpoint.openStream).toHaveBeenCalledTimes(2);
+  });
+
   it("marks a CLI that could not store the handoff as undelivered", async () => {
     const unavailable = await Effect.runPromise(
       encodeSyncResponseV1({ reason: "unavailable", type: "error", v: 1 })

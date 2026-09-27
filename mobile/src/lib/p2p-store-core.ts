@@ -807,6 +807,9 @@ export const createP2pStore = ({
       if (!getOwnDevice?.() || !isCurrentGeneration(jobGeneration)) {
         return;
       }
+      // Re-homing trusts the roster, and a device can be linked or unlinked
+      // elsewhere while a cached holder stays connected. Read it fresh.
+      invalidateOwnHolderPeerIds();
       const pending = await listOutgoingPending();
       await applyReceipts(
         pending.filter((message) => message.status === "held"),

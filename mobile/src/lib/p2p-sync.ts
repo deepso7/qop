@@ -221,9 +221,10 @@ export const performHandoff = ({
   readonly composedBy: string;
   readonly record: OutboxRecordV1;
 }): Promise<void> => {
-  // Stays true across the transient retry: once any attempt sent the request,
-  // this CLI may hold the record.
-  let requestSent = false;
+  // True once any attempt sent the request without a definite `unavailable`
+  // answer. Stays true across the transient retry: a later `unavailable` does
+  // not prove an earlier attempt's lost `held` never persisted.
+  let mayHold = false;
   return Effect.runPromise(
     withAuthorizedSyncStream(
       endpoint,
@@ -241,12 +242,14 @@ export const performHandoff = ({
           });
           // The CLI decodes only after closeWrite's EOF, so a throw from
           // write/closeWrite above means it saw no request.
-          requestSent = true;
+          const earlierMayHold = mayHold;
+          mayHold = true;
           const response = yield* readSyncResponseFrom(stream);
           if (response.type === "error" && response.reason === "unavailable") {
-            // The CLI answered that it did not persist it: safe to try another.
+            // This attempt definitely did not persist; earlier ones still count.
+            mayHold = earlierMayHold;
             return yield* Effect.fail(
-              new HandoffUndeliveredError("CLI could not store the handoff")
+              new Error("CLI could not store the handoff")
             );
           }
           if (response.type !== "held") {
@@ -273,7 +276,7 @@ export const performHandoff = ({
           Effect.fail(new Error("Timed out waiting for sync response")),
       }),
       Effect.mapError((error) =>
-        requestSent ? error : new HandoffUndeliveredError(error.message)
+        mayHold ? error : new HandoffUndeliveredError(error.message)
       )
     ),
     { signal }
