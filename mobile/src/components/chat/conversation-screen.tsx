@@ -1,5 +1,6 @@
 import type { Path } from "@minip2p/react-native";
 import type { ListRenderItem } from "@shopify/flash-list";
+import { Effect, Fiber, Schedule } from "effect";
 import * as Clipboard from "expo-clipboard";
 import { Stack, useFocusEffect } from "expo-router";
 import { useHeaderHeight } from "expo-router/react-navigation";
@@ -220,32 +221,29 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
 
   const reachable = connectedPeerIds.includes(dialPeerId);
   // While focused, P2P is up, and this peer is not connected, dial now and
-  // every REDIAL_INTERVAL_MS after the previous attempt settles, so the
-  // header flips to online soon after the contact opens qop.
+  // again REDIAL_INTERVAL_MS after each attempt settles, so the header flips
+  // to online soon after the contact opens qop. Blur or reconnect interrupts.
   useFocusEffect(
     React.useCallback(() => {
       if (status !== "running" || reachable) {
         return;
       }
-      let cancelled = false;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      const dial = async () => {
-        const peerId = await connectTo({
-          handle: contact.handle,
-          qid: contact.qid,
-        });
-        if (cancelled) {
-          return;
-        }
-        if (peerId) {
-          setDialTarget({ contactPeerId: contact.peerId, peerId });
-        }
-        timer = setTimeout(dial, REDIAL_INTERVAL_MS);
-      };
-      void dial();
+      const fiber = Effect.runFork(
+        Effect.promise(() =>
+          connectTo({ handle: contact.handle, qid: contact.qid })
+        ).pipe(
+          Effect.tap((peerId) =>
+            Effect.sync(() => {
+              if (peerId) {
+                setDialTarget({ contactPeerId: contact.peerId, peerId });
+              }
+            })
+          ),
+          Effect.repeat(Schedule.spaced(REDIAL_INTERVAL_MS))
+        )
+      );
       return () => {
-        cancelled = true;
-        clearTimeout(timer);
+        Effect.runFork(Fiber.interrupt(fiber));
       };
     }, [
       connectTo,
@@ -335,7 +333,7 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
           >
             Relay
           </Stack.Toolbar.MenuAction>
-          {p2pError ? (
+          {status === "failed" && p2pError ? (
             <Stack.Toolbar.MenuAction
               disabled
               icon="exclamationmark.triangle"
