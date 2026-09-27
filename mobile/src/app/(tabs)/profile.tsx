@@ -25,7 +25,10 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { NativeAlert } from "@/components/ui/native-alert";
-import { settingsFormModifiers } from "@/components/ui/settings-form-modifiers";
+import {
+  accessibleButtonModifiers,
+  settingsFormModifiers,
+} from "@/components/ui/native-modifiers";
 import { SettingsPalette } from "@/components/ui/settings-palette";
 import { Text } from "@/components/ui/text";
 import { useTheme } from "@/constants/theme";
@@ -100,6 +103,7 @@ const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
       <Spacer flexible />
       <Column
         alignment="center"
+        modifiers={accessibleButtonModifiers("Show QR code")}
         onPress={showQrCode}
         style={{
           backgroundColor: colors.text,
@@ -110,6 +114,7 @@ const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
       >
         <Spacer flexible />
         <Icon
+          accessibilityLabel="Show QR code"
           color={colors.background}
           name={Icon.select({ android: qrCodeIcon, ios: "qrcode" })}
           size={26}
