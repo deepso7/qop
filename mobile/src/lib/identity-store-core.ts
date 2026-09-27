@@ -53,6 +53,8 @@ const initialState: IdentityState = {
   status: "loading",
 };
 
+// Onboarding order: register the handle first, then back up the recovery key,
+// so a key is only ever shown for a handle that is actually registered.
 const stateForIdentity = (
   identity: LocalIdentity | null,
   registration: LocalRegistration | null = null
@@ -60,10 +62,10 @@ const stateForIdentity = (
   let status: IdentityStatus = "ready";
   if (identity === null) {
     status = "absent";
-  } else if (identity.backupState === "pending") {
-    status = "backup";
   } else if (registration?.status !== "confirmed") {
     status = "unregistered";
+  } else if (identity.backupState === "pending") {
+    status = "backup";
   }
   return {
     error: null,
@@ -153,13 +155,7 @@ export const createIdentityStore = ({
             if (resetOperation) {
               return;
             }
-            set({
-              error: null,
-              identity,
-              isHydrating: false,
-              registration: null,
-              status: "backup",
-            });
+            set(stateForIdentity(identity));
           })
         ),
         Effect.tapError((error) =>

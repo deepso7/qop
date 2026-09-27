@@ -21,6 +21,14 @@
 
 @layer theme {
   :root {
+    /* React Native takes a single font family, not a CSS fallback stack. */
+    @variant ios {
+      --font-mono: "Menlo";
+    }
+    @variant android {
+      --font-mono: "monospace";
+    }
+
     @variant light {
       --color-background: var(--qop-white);
       --color-background-element: oklch(0.911 0.0061 51.5);

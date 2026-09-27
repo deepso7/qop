@@ -172,6 +172,26 @@ describe("local registration", () => {
     );
   });
 
+  it.each([
+    { expected: "HANDLE_TAKEN", kind: "handle-unavailable" },
+    { expected: "RegistrationConflict", kind: "nonce-used" },
+  ])("records a $kind rejection as $expected", async ({ expected, kind }) => {
+    clientMock.register.mockReturnValueOnce(
+      Effect.fail(
+        new RegistrationClientError({
+          kind,
+          operation: "response",
+          status: 409,
+          tag: "RegistrationConflict",
+        })
+      )
+    );
+    const failed = await Effect.runPromise(
+      loadRegistration().startLocalRegistration("ABC-123")
+    );
+    expect(failed).toMatchObject({ failureCode: expected, status: "failed" });
+  });
+
   it("confirms a lost POST response directly from the chain after restart", async () => {
     clientMock.register.mockReturnValueOnce(
       Effect.fail(

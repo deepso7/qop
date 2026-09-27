@@ -117,7 +117,7 @@ describe("identity store", () => {
 
     expect(store.getState()).toMatchObject({
       identity,
-      status: "backup",
+      status: "unregistered",
     });
   });
 
@@ -136,7 +136,10 @@ describe("identity store", () => {
 
     expect(Result.isSuccess(result)).toBe(true);
     expect(vaultMock.createLocalIdentity).toHaveBeenCalledTimes(1);
-    expect(store.getState()).toMatchObject({ identity, status: "backup" });
+    expect(store.getState()).toMatchObject({
+      identity,
+      status: "unregistered",
+    });
   });
 
   it("returns a typed failure when there is no identity to finish", async () => {
@@ -222,6 +225,22 @@ describe("identity store", () => {
       registration: null,
       status: "unregistered",
     });
+  });
+
+  it("asks for the recovery backup only after registration is confirmed", async () => {
+    vaultMock.loadLocalIdentity.mockReturnValue(Effect.succeed(identity));
+    registrationMock.loadLocalRegistration.mockReturnValue(
+      Effect.succeed(null)
+    );
+    const store = await loadStore();
+    await store.getState().hydrate();
+    expect(store.getState().status).toBe("unregistered");
+
+    registrationMock.loadLocalRegistration.mockReturnValue(
+      Effect.succeed(confirmedRegistration)
+    );
+    await store.getState().hydrate();
+    expect(store.getState().status).toBe("backup");
   });
 
   it("hydrates a confirmed registration into ready state", async () => {

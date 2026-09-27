@@ -75,6 +75,19 @@ export class LocalRegistrationError extends Data.TaggedError(
 const localError = (operation: LocalRegistrationError["operation"]) =>
   new LocalRegistrationError({ operation });
 
+// Failure code for an API rejection. A taken handle uses the same code as the
+// reconcile path so the UI handles both alike.
+const rejectionFailureCode = ({
+  kind,
+  tag,
+}: {
+  readonly kind: string | null;
+  readonly tag: string | null;
+}) =>
+  kind === "handle-unavailable"
+    ? "HANDLE_TAKEN"
+    : (tag ?? "REGISTRATION_REJECTED");
+
 export interface LocalRegistrationDependencies {
   readonly domain: IdentityEip712DomainV1Encoded;
   readonly now: () => bigint;
@@ -367,7 +380,7 @@ export const createLocalRegistration = ({
           ) {
             const failed: LocalRegistration = {
               ...request,
-              failureCode: result.failure.tag ?? "REGISTRATION_REJECTED",
+              failureCode: rejectionFailureCode(result.failure),
               status: "failed",
             };
             yield* writeStoredRegistration(failed);
