@@ -387,7 +387,6 @@ describe("phone to CLI handoff", () => {
     connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
     await vi.waitFor(() => expect(poll).toHaveBeenCalled());
     await Effect.runPromise(Effect.sleep(50));
-    expect(handoff).not.toHaveBeenCalled();
     expect(await getMessageById(heldId)).toMatchObject({
       holderPeerId: PEER_CLI,
       status: "held",
@@ -928,12 +927,60 @@ describe("multi-holder picker", () => {
     if (!contact) {
       throw new Error("Missing contact fixture");
     }
-    useP2pStore.getState().sendMessage(contact, "hello");
-    await vi.waitFor(() => expect(handoff).toHaveBeenCalled());
-    await Effect.runPromise(Effect.sleep(50));
+    const id = useP2pStore.getState().sendMessage(contact, "hello");
+    // Held on the CLI that may already have it, not failed.
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({
+        holderPeerId: PEER_CLI,
+        status: "held",
+      })
+    );
     expect(
       new Set(handoff.mock.calls.map((call) => call[0]?.holderPeerId))
     ).toEqual(new Set([PEER_CLI]));
+  });
+
+  it("re-confirms a held message only with its own connected holder", async () => {
+    // The other CLI is first in the roster, so a fresh pick would choose it.
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(
+        handle === "alice"
+          ? {
+              ...aliceAccount,
+              devices: [
+                { deviceKey: phoneDeviceKey, peerId: PEER_ALICE },
+                { deviceKey: otherCliDeviceKey, peerId: PEER_CLI_OTHER },
+                { deviceKey: cliDeviceKey, peerId: PEER_CLI },
+              ],
+            }
+          : bobAccount
+      )
+    );
+    connectedPeers.mockReturnValue([PEER_CLI, PEER_CLI_OTHER]);
+    const id = "c56a4180-65aa-42ec-a945-5fd21dec0703";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      holderPeerId: PEER_CLI,
+      id,
+      sentAt: 1,
+      status: "held",
+      text: "maybe held",
+    });
+    poll.mockResolvedValue([]);
+    await useP2pStore.getState().start();
+    await vi.waitFor(() =>
+      expect(handoff).toHaveBeenCalledWith(
+        expect.objectContaining({ holderPeerId: PEER_CLI })
+      )
+    );
+    expect(
+      handoff.mock.calls.map((call) => call[0]?.holderPeerId)
+    ).not.toContain(PEER_CLI_OTHER);
+    expect(await getMessageById(id)).toMatchObject({
+      holderPeerId: PEER_CLI,
+      status: "held",
+    });
   });
 
   it("stops after a permanent reject and does not try the next holder", async () => {

@@ -475,8 +475,16 @@ export const createP2pStore = ({
     return false;
   };
 
+  /**
+   * Hand `message` to a linked CLI and return the holder that took it.
+   * A message whose holder is still linked goes back to that holder only
+   * (idempotent on the CLI); switching CLIs could send Bob a second copy.
+   */
   const handoffToHolder = (
-    message: Pick<StoredMessage, "contactQid" | "id" | "sentAt" | "text">,
+    message: Pick<
+      MessageInput,
+      "contactQid" | "holderPeerId" | "id" | "sentAt" | "text"
+    >,
     contact: Contact,
     jobGeneration: number,
     signal?: AbortSignal
@@ -492,7 +500,10 @@ export const createP2pStore = ({
       if (!own || !performHandoff || !activeEndpoint) {
         return;
       }
-      const holderPeerIds = await resolveHolderPeerIds(activeEndpoint);
+      const roster = await resolveHolderPeerIds(activeEndpoint);
+      const current = message.holderPeerId;
+      const holderPeerIds =
+        current && roster.includes(current) ? [current] : roster;
       if (holderPeerIds.length === 0 || !isCurrentGeneration(jobGeneration)) {
         return;
       }
@@ -531,7 +542,16 @@ export const createP2pStore = ({
           if (error instanceof HandoffUndeliveredError) {
             return tryHolder(index + 1);
           }
-          throw error;
+          if (
+            signal?.aborted ||
+            (error instanceof Error &&
+              error.message === HANDOFF_REJECTED_MESSAGE)
+          ) {
+            throw error;
+          }
+          // Sent but the reply was lost: this CLI may hold it. Treat it as
+          // held here; reconcile re-confirms with this holder while connected.
+          return holderPeerId;
         }
       };
       return tryHolder(0);
@@ -795,17 +815,23 @@ export const createP2pStore = ({
       const roster = new Set(
         activeEndpoint ? await ownHolderPeerIds(activeEndpoint) : []
       );
+      const connected = new Set(activeEndpoint?.connectedPeers());
       await Promise.all(
         remaining
           .filter((message) => {
             if (message.status === "sending") {
               return true;
             }
-            // Re-home only when the accepting CLI left the roster.
+            if (message.status !== "held") {
+              return false;
+            }
+            // Re-home when the accepting CLI left the roster. Re-confirm with
+            // a connected holder: a held after a lost reply is optimistic, and
+            // the same-id handoff is idempotent on the CLI.
             return (
-              message.status === "held" &&
-              (message.holderPeerId === null ||
-                !roster.has(message.holderPeerId))
+              message.holderPeerId === null ||
+              !roster.has(message.holderPeerId) ||
+              connected.has(message.holderPeerId)
             );
           })
           .map(async (message) => {
