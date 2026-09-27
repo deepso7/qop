@@ -8,3 +8,11 @@ export const selectionHaptic = async () => {
     // Unsupported devices can complete the action without tactile feedback.
   }
 };
+
+export const successHaptic = async () => {
+  try {
+    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  } catch {
+    // Unsupported devices can complete the action without tactile feedback.
+  }
+};
