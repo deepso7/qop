@@ -113,6 +113,7 @@ describe("sync frames", () => {
       await Effect.runPromise(decodeSyncRequestV1(encodedCatchup))
     ).toEqual(catchup);
     const inbox = {
+      lastSeq: 9,
       records: [
         {
           record: {
@@ -154,6 +155,7 @@ describe("sync frames", () => {
   it("rejects an inbox frame above 64 KB as oversized", async () => {
     const bytes = new TextEncoder().encode(
       JSON.stringify({
+        lastSeq: 1,
         records: [
           {
             record: {
@@ -183,6 +185,7 @@ describe("sync frames", () => {
   it("does not treat a 16 KB text inbox record as oversized", async () => {
     const bytes = new TextEncoder().encode(
       JSON.stringify({
+        lastSeq: 1,
         records: [
           {
             record: {

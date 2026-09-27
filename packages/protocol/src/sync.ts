@@ -17,7 +17,11 @@ import { InboxRecordV1, OutboxQid, OutboxRecordV1Schema } from "./outbox.ts";
  * receipt carries `toQid` so the phone applies it to `(contact_qid, id)`.
  * `catchup{after}` returns `inbox{records}` of replies the CLI stored while
  * the phone was away. `after` is that holder's inbox rowid cursor. The phone
- * repeats until `records` is empty.
+ * repeats until `records` is empty. A new cursor starts at 0, so the first
+ * catch-up with a holder replays its whole inbox (the phone dedupes by id).
+ * `lastSeq` lets the phone notice a wiped CLI store (`after > lastSeq`) and
+ * restart from 0; a wiped store that already refilled past the cursor is not
+ * detectable this way.
  *
  * Disk remains `OutboxRecordV1` / `InboxRecordV1`. `composedBy` is a sync-frame
  * field, not a disk column. Phone `held` is a local status, not a CLI outbox
@@ -143,6 +147,8 @@ export { SyncInboxItemV1Schema as SyncInboxItemV1 };
 export type SyncInboxItemV1 = typeof SyncInboxItemV1Schema.Type;
 
 export const SyncInboxV1Schema = Schema.Struct({
+  /** Highest inbox seq the CLI holds. `after > lastSeq` means its store was reset. */
+  lastSeq: NonNegativeInt,
   records: Schema.Array(SyncInboxItemV1Schema),
   type: Schema.Literal("inbox"),
   v: Schema.Literal(1),

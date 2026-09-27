@@ -6,18 +6,17 @@ import {
   writeSyncResponseTo,
 } from "@qop/protocol";
 import type {
-  InboxRecordV1,
   OutboxRecordV1,
   PeerConnection,
   SessionContact,
   SyncErrorV1,
-  SyncInboxV1,
+  SyncInboxItemV1,
   SyncResponseV1,
   SyncStream,
 } from "@qop/protocol";
 import { Effect, Schema } from "effect";
 
-import type { CliOutboxStoreError, InboxCursorRow } from "./outbox-store.ts";
+import type { CliOutboxStoreError, InboxPage } from "./outbox-store.ts";
 
 export interface CliSyncIdentity {
   readonly handle: string;
@@ -37,7 +36,7 @@ export interface CliSyncStore {
   readonly inboxAfter: (
     seq: number,
     limit: number
-  ) => Effect.Effect<readonly InboxCursorRow[], CliOutboxStoreError>;
+  ) => Effect.Effect<InboxPage, CliOutboxStoreError>;
 }
 
 interface SyncSessions {
@@ -62,22 +61,22 @@ const deviceKeyHexForPeer = (peerId: string) =>
     Effect.mapError(() => new PeerVerificationError({ operation: "identity" }))
   );
 
-const inboxFrame = (
-  records: readonly { readonly record: InboxRecordV1; readonly seq: number }[]
-): SyncInboxV1 => ({
-  records: records.map((row) => ({ record: row.record, seq: row.seq })),
-  type: "inbox",
-  v: 1,
+const inboxFrame = ({ lastSeq, records }: InboxPage) => ({
+  lastSeq,
+  records,
+  type: "inbox" as const,
+  v: 1 as const,
 });
 
 /** Greedy by encoded size. Always keeps the first row; later rows stop at 64 KB. */
-const packInbox = Effect.fn("qop.sync.packInbox")(function* (
-  rows: readonly InboxCursorRow[]
-) {
-  const packed: InboxCursorRow[] = [];
-  for (const row of rows) {
+const packInbox = Effect.fn("qop.sync.packInbox")(function* ({
+  lastSeq,
+  records,
+}: InboxPage) {
+  const packed: SyncInboxItemV1[] = [];
+  for (const row of records) {
     const encoded = yield* encodeSyncResponseV1(
-      inboxFrame([...packed, row])
+      inboxFrame({ lastSeq, records: [...packed, row] })
     ).pipe(Effect.result);
     if (encoded._tag === "Failure") {
       if (encoded.failure.operation === "oversized" && packed.length > 0) {
@@ -87,7 +86,7 @@ const packInbox = Effect.fn("qop.sync.packInbox")(function* (
     }
     packed.push(row);
   }
-  return inboxFrame(packed);
+  return inboxFrame({ lastSeq, records: packed });
 });
 
 const acceptHandoff = Effect.fn("qop.sync.acceptHandoff")(function* (
@@ -163,7 +162,7 @@ export const handleInboundSyncStream = Effect.fn("qop.handleInboundSyncStream")(
       return response;
     }
     if (request.type === "catchup") {
-      const rows = yield* store
+      const page = yield* store
         .inboxAfter(request.after, INBOX_CATCHUP_ROW_LIMIT)
         .pipe(
           Effect.tapError(() =>
@@ -172,7 +171,7 @@ export const handleInboundSyncStream = Effect.fn("qop.handleInboundSyncStream")(
             })
           )
         );
-      const response = yield* packInbox(rows);
+      const response = yield* packInbox(page);
       yield* reply(stream, response);
       return response;
     }

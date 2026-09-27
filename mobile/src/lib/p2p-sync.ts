@@ -5,8 +5,8 @@ import {
   writeSyncRequestTo,
 } from "@qop/protocol";
 import type {
-  InboxRecordV1,
   OutboxRecordV1,
+  SyncInboxV1,
   SyncReceiptV1,
   SyncRequestV1,
   SyncStream,
@@ -80,6 +80,15 @@ export const chunkSyncPollIds = (ids: readonly string[]) => {
 
 /** Permanent CLI reject — do not auto-retry; the phone should leave `held`. */
 export const HANDOFF_REJECTED_MESSAGE = "CLI did not accept the handoff";
+
+/**
+ * The handoff failed before its request was written, so no CLI can hold it.
+ * Only this error is safe to retry on a different holder; anything later is
+ * ambiguous and another CLI would send a second copy.
+ */
+export class HandoffUndeliveredError extends Error {
+  override name = "HandoffUndeliveredError";
+}
 
 const HANDOFF_TRANSIENT_RETRIES = 1;
 
@@ -210,8 +219,11 @@ export const performHandoff = ({
 }: PerformSyncInput & {
   readonly composedBy: string;
   readonly record: OutboxRecordV1;
-}): Promise<void> =>
-  Effect.runPromise(
+}): Promise<void> => {
+  // Stays true across the transient retry: once any attempt started writing,
+  // this CLI may hold the record.
+  let requestStarted = false;
+  return Effect.runPromise(
     withAuthorizedSyncStream(
       endpoint,
       holderPeerId,
@@ -220,6 +232,7 @@ export const performHandoff = ({
       timeoutMs,
       (stream) =>
         Effect.gen(function* () {
+          requestStarted = true;
           const response = yield* exchangeSyncRequest(stream, {
             composedBy,
             record,
@@ -248,10 +261,14 @@ export const performHandoff = ({
         duration: timeoutMs,
         orElse: () =>
           Effect.fail(new Error("Timed out waiting for sync response")),
-      })
+      }),
+      Effect.mapError((error) =>
+        requestStarted ? error : new HandoffUndeliveredError(error.message)
+      )
     ),
     { signal }
   );
+};
 
 const pollHeldChunk = ({
   endpoint,
@@ -303,9 +320,7 @@ export const performCatchup = ({
   timeoutMs,
 }: PerformSyncInput & {
   readonly after: number;
-}): Promise<
-  readonly { readonly record: InboxRecordV1; readonly seq: number }[]
-> =>
+}): Promise<SyncInboxV1> =>
   Effect.runPromise(
     withAuthorizedSyncStream(
       endpoint,
@@ -326,7 +341,7 @@ export const performCatchup = ({
           if (response.type !== "inbox") {
             return yield* Effect.fail(new Error("CLI did not return inbox"));
           }
-          return response.records;
+          return response;
         })
     ).pipe(
       Effect.timeoutOrElse({

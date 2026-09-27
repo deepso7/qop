@@ -520,3 +520,12 @@ export const setHolderInboxCursor = async (
     seq
   );
 };
+
+/** The holder's inbox was wiped (cursor past its last seq): restart from 0. */
+export const resetHolderInboxCursor = async (peerId: string): Promise<void> => {
+  const database = await getDatabase();
+  await database.runAsync(
+    "DELETE FROM holder_cursors WHERE holder_peer_id = ?",
+    peerId
+  );
+};

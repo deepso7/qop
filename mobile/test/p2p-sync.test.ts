@@ -18,6 +18,7 @@ import { createPeerSessions } from "@/lib/p2p-sessions";
 import {
   chunkSyncPollIds,
   HANDOFF_REJECTED_MESSAGE,
+  HandoffUndeliveredError,
   orderHolderPeerIds,
   performCatchup,
   performHandoff,
@@ -303,6 +304,43 @@ describe("performHandoff", () => {
     expect(stream.reset).not.toHaveBeenCalled();
   });
 
+  it("marks a failure before the request is written as undelivered", async () => {
+    const { endpoint, sessions, stream } = makeEndpoint(async () => {
+      await Promise.resolve();
+    });
+    endpoint.connect.mockRejectedValue(new Error("dial failed"));
+    await expect(
+      performHandoff({
+        composedBy: own.deviceKey,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        record,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).rejects.toBeInstanceOf(HandoffUndeliveredError);
+    expect(stream.write).not.toHaveBeenCalled();
+  });
+
+  it("does not mark a failure after the request is written as undelivered", async () => {
+    const { endpoint, sessions, stream } = makeEndpoint(async () => {
+      await Promise.resolve();
+    });
+    await expect(
+      performHandoff({
+        composedBy: own.deviceKey,
+        endpoint,
+        holderPeerId: PEER_CLI,
+        own,
+        record,
+        sessions,
+        timeoutMs: 50,
+      })
+    ).rejects.not.toBeInstanceOf(HandoffUndeliveredError);
+    expect(stream.write).toHaveBeenCalled();
+  });
+
   it("does not retry a permanent CLI reject", async () => {
     const rejected = await Effect.runPromise(
       encodeSyncResponseV1({ reason: "invalid", type: "error", v: 1 })
@@ -418,7 +456,7 @@ describe("performHandoff", () => {
 describe("performCatchup", () => {
   it("writes a catchup request and accepts an empty inbox", async () => {
     const encoded = await Effect.runPromise(
-      encodeSyncResponseV1({ records: [], type: "inbox", v: 1 })
+      encodeSyncResponseV1({ lastSeq: 0, records: [], type: "inbox", v: 1 })
     );
     const { endpoint, sessions, stream } = makeEndpoint(
       responseReader(encoded)
@@ -432,7 +470,7 @@ describe("performCatchup", () => {
         sessions,
         timeoutMs: 50,
       })
-    ).resolves.toEqual([]);
+    ).resolves.toEqual({ lastSeq: 0, records: [], type: "inbox", v: 1 });
     const bytes = stream.write.mock.calls[0]?.[0];
     if (!(bytes instanceof Uint8Array)) {
       throw new Error("expected a catchup frame");

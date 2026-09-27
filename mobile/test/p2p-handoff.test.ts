@@ -1,3 +1,4 @@
+import type { SyncInboxItem } from "@qop/protocol";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -7,12 +8,16 @@ import {
   getHolderInboxCursor,
   getMessageById,
   insertMessage,
+  setHolderInboxCursor,
   upsertContact,
 } from "@/lib/db";
 import type { performSend } from "@/lib/p2p-send";
 import { createP2pStore } from "@/lib/p2p-store-core";
 import type { P2pEndpoint } from "@/lib/p2p-store-core";
-import { HANDOFF_REJECTED_MESSAGE } from "@/lib/p2p-sync";
+import {
+  HANDOFF_REJECTED_MESSAGE,
+  HandoffUndeliveredError,
+} from "@/lib/p2p-sync";
 import type {
   performCatchup,
   performHandoff,
@@ -149,7 +154,9 @@ beforeEach(async () => {
   send.mockReset().mockRejectedValue(new Error("bob offline"));
   handoff.mockReset().mockResolvedValue();
   poll.mockReset().mockResolvedValue([]);
-  catchup.mockReset().mockResolvedValue([]);
+  catchup
+    .mockReset()
+    .mockResolvedValue({ lastSeq: 0, records: [], type: "inbox", v: 1 });
   lookupQid.mockReset().mockImplementation(() => Effect.succeed(null));
   lookupDeviceKey.mockReset().mockReturnValue(Effect.succeed(bobAccount));
   lookupHandle
@@ -888,7 +895,7 @@ describe("multi-holder picker", () => {
     connectedPeers.mockReturnValue([PEER_CLI, PEER_CLI_OTHER]);
     handoff.mockImplementation(({ holderPeerId }) =>
       holderPeerId === PEER_CLI
-        ? Promise.reject(new Error("offline"))
+        ? Promise.reject(new HandoffUndeliveredError("offline"))
         : Promise.resolve()
     );
     await useP2pStore.getState().start();
@@ -907,6 +914,26 @@ describe("multi-holder picker", () => {
       PEER_CLI,
       PEER_CLI_OTHER,
     ]);
+  });
+
+  it("does not try the next holder after an ambiguous failure", async () => {
+    lookupHandle.mockImplementation((handle: string) =>
+      Effect.succeed(handle === "alice" ? bothCliAccount() : bobAccount)
+    );
+    connectedPeers.mockReturnValue([PEER_CLI, PEER_CLI_OTHER]);
+    // Request written, reply lost: PEER_CLI may already hold the record.
+    handoff.mockRejectedValue(new Error("Timed out waiting for sync response"));
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+    useP2pStore.getState().sendMessage(contact, "hello");
+    await vi.waitFor(() => expect(handoff).toHaveBeenCalled());
+    await Effect.runPromise(Effect.sleep(50));
+    expect(
+      new Set(handoff.mock.calls.map((call) => call[0]?.holderPeerId))
+    ).toEqual(new Set([PEER_CLI]));
   });
 
   it("stops after a permanent reject and does not try the next holder", async () => {
@@ -996,11 +1023,24 @@ const inboxRecord = (
   v: 1 as const,
 });
 
+/** Serves catch-up pages; `lastSeq` stays above every fixture seq so no reset fires. */
+const mockCatchupRecords = (
+  records: (
+    input: Parameters<typeof performCatchup>[0]
+  ) => Promise<readonly SyncInboxItem[]>
+) =>
+  catchup.mockImplementation(async (input) => ({
+    lastSeq: 100,
+    records: await records(input),
+    type: "inbox",
+    v: 1,
+  }));
+
 describe("inbox catch-up", () => {
   it("inserts received rows for a known contact and advances the cursor", async () => {
     const id = "c56a4180-65aa-42ec-a945-5fd21dec0601";
     const before = useP2pStore.getState().revision;
-    catchup.mockImplementation(({ after }) =>
+    mockCatchupRecords(({ after }) =>
       Promise.resolve(
         after > 0
           ? []
@@ -1029,7 +1069,7 @@ describe("inbox catch-up", () => {
       status: "received",
       text: "live",
     });
-    catchup.mockImplementation(({ after }) =>
+    mockCatchupRecords(({ after }) =>
       Promise.resolve(
         after > 0 ? [] : [{ record: inboxRecord(id, "replay"), seq: 4 }]
       )
@@ -1058,7 +1098,7 @@ describe("inbox catch-up", () => {
     );
     const first = "c56a4180-65aa-42ec-a945-5fd21dec0603";
     const second = "c56a4180-65aa-42ec-a945-5fd21dec0604";
-    catchup.mockImplementation(({ after, holderPeerId }) => {
+    mockCatchupRecords(({ after, holderPeerId }) => {
       if (after > 0) {
         return Promise.resolve([]);
       }
@@ -1102,7 +1142,7 @@ describe("inbox catch-up", () => {
           : null
       )
     );
-    catchup.mockImplementation(({ after }) =>
+    mockCatchupRecords(({ after }) =>
       Promise.resolve(
         after > 0
           ? []
@@ -1137,7 +1177,7 @@ describe("inbox catch-up", () => {
     lookupQid.mockImplementation(() =>
       Effect.succeed({ ...bobAccount, handle: "mallory", qid: 99n })
     );
-    catchup.mockImplementation(({ after }) =>
+    mockCatchupRecords(({ after }) =>
       Promise.resolve(
         after > 0
           ? []
@@ -1189,7 +1229,7 @@ describe("inbox catch-up", () => {
           : null
       )
     );
-    catchup.mockImplementation(({ after }) => {
+    mockCatchupRecords(({ after }) => {
       if (after === 0) {
         return Promise.resolve([
           {
@@ -1228,7 +1268,7 @@ describe("inbox catch-up", () => {
   it("drains inbox pages until the holder returns an empty page", async () => {
     const first = "c56a4180-65aa-42ec-a945-5fd21dec0607";
     const second = "c56a4180-65aa-42ec-a945-5fd21dec0608";
-    catchup.mockImplementation(({ after }) => {
+    mockCatchupRecords(({ after }) => {
       if (after === 0) {
         return Promise.resolve([
           { record: inboxRecord(first, "page one"), seq: 2 },
@@ -1260,5 +1300,28 @@ describe("inbox catch-up", () => {
     expect(catchup).toHaveBeenCalledWith(
       expect.objectContaining({ after: 9, holderPeerId: PEER_CLI })
     );
+  });
+
+  it("restarts from 0 when the holder's inbox was wiped", async () => {
+    const id = "c56a4180-65aa-42ec-a945-5fd21dec0611";
+    await setHolderInboxCursor(PEER_CLI, 50);
+    catchup.mockImplementation(({ after }) =>
+      Promise.resolve({
+        lastSeq: 1,
+        records:
+          after === 0
+            ? [{ record: inboxRecord(id, "after wipe"), seq: 1 }]
+            : [],
+        type: "inbox",
+        v: 1,
+      })
+    );
+    await useP2pStore.getState().start();
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id, "1")).toMatchObject({
+        text: "after wipe",
+      })
+    );
+    expect(await getHolderInboxCursor(PEER_CLI)).toBe(1);
   });
 });

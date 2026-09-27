@@ -68,6 +68,7 @@ const queued: OutboxRecordV1 = {
 };
 
 const identity = { handle: "alice", qid: "42" };
+const emptyPage = { lastSeq: 0, records: [] };
 
 const inboxRecord = (
   text: string,
@@ -134,7 +135,7 @@ describe("CLI inbound sync", () => {
       handleInboundSyncStream(stream, makeSessions(), identity, {
         enqueue: () => Effect.succeed(queued),
         getByIds: () => Effect.succeed([]),
-        inboxAfter: () => Effect.succeed([]),
+        inboxAfter: () => Effect.succeed(emptyPage),
       })
     );
     expect(stream.replies).toEqual([
@@ -154,7 +155,7 @@ describe("CLI inbound sync", () => {
     const store: CliSyncStore = {
       enqueue,
       getByIds: () => Effect.succeed([]),
-      inboxAfter: () => Effect.succeed([]),
+      inboxAfter: () => Effect.succeed(emptyPage),
     };
     const stream = makeStream(
       await Effect.runPromise(
@@ -184,7 +185,7 @@ describe("CLI inbound sync", () => {
       enqueue: () =>
         Effect.fail(new CliOutboxStoreError({ operation: "write" })),
       getByIds: () => Effect.succeed([]),
-      inboxAfter: () => Effect.succeed([]),
+      inboxAfter: () => Effect.succeed(emptyPage),
     };
     const stream = makeStream(
       await Effect.runPromise(
@@ -210,7 +211,7 @@ describe("CLI inbound sync", () => {
       enqueue: () =>
         Effect.fail(new CliOutboxStoreError({ operation: "conflict" })),
       getByIds: () => Effect.succeed([]),
-      inboxAfter: () => Effect.succeed([]),
+      inboxAfter: () => Effect.succeed(emptyPage),
     };
     const stream = makeStream(
       await Effect.runPromise(
@@ -241,7 +242,7 @@ describe("CLI inbound sync", () => {
           queued,
           { ...queued, status: "sent" as const, updatedAt: 9 },
         ]),
-      inboxAfter: () => Effect.succeed([]),
+      inboxAfter: () => Effect.succeed(emptyPage),
     };
     const stream = makeStream(
       await Effect.runPromise(
@@ -263,7 +264,7 @@ describe("CLI inbound sync", () => {
     const store: CliSyncStore = {
       enqueue,
       getByIds: () => Effect.succeed([]),
-      inboxAfter: () => Effect.succeed([]),
+      inboxAfter: () => Effect.succeed(emptyPage),
     };
     const stream = makeStream(
       await Effect.runPromise(
@@ -287,7 +288,7 @@ describe("CLI inbound sync", () => {
     const store: CliSyncStore = {
       enqueue,
       getByIds: () => Effect.succeed([]),
-      inboxAfter: () => Effect.succeed([]),
+      inboxAfter: () => Effect.succeed(emptyPage),
     };
     const sessions = makeSessions();
     const bytes = await Effect.runPromise(
@@ -320,7 +321,7 @@ describe("CLI inbound sync", () => {
     const store: CliSyncStore = {
       enqueue,
       getByIds: () => Effect.succeed([]),
-      inboxAfter: () => Effect.succeed([]),
+      inboxAfter: () => Effect.succeed(emptyPage),
     };
     const stream = makeStream(
       await Effect.runPromise(
@@ -354,7 +355,7 @@ describe("CLI inbound sync", () => {
     const store: CliSyncStore = {
       enqueue,
       getByIds: () => Effect.succeed([]),
-      inboxAfter: () => Effect.succeed([]),
+      inboxAfter: () => Effect.succeed(emptyPage),
     };
     const stream = makeStream(
       await Effect.runPromise(
@@ -437,6 +438,7 @@ describe("CLI inbound sync", () => {
               store
             );
             expect(response).toEqual({
+              lastSeq: 3,
               records: [
                 { record: second, seq: 2 },
                 { record: third, seq: 3 },
@@ -454,7 +456,7 @@ describe("CLI inbound sync", () => {
                 identity,
                 store
               )
-            ).toEqual({ records: [], type: "inbox", v: 1 });
+            ).toEqual({ lastSeq: 3, records: [], type: "inbox", v: 1 });
           })
         )
       );
@@ -520,7 +522,7 @@ describe("CLI inbound sync", () => {
   });
 
   it("resets an unverified catch-up stream without reading the inbox", async () => {
-    const inboxAfter = vi.fn(() => Effect.succeed([]));
+    const inboxAfter = vi.fn(() => Effect.succeed(emptyPage));
     const store: CliSyncStore = {
       enqueue: () => Effect.succeed(queued),
       getByIds: () => Effect.succeed([]),

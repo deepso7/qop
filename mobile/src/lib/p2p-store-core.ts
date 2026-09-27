@@ -1,5 +1,6 @@
 import type { Minip2p, Stream, Unsubscribe } from "@minip2p/react-native";
 import { PAIR_PROTOCOL, SYNC_PROTOCOL } from "@qop/protocol";
+import type { SyncInboxItem } from "@qop/protocol";
 import { Effect } from "effect";
 import { create } from "zustand";
 import type { StoreApi } from "zustand";
@@ -17,6 +18,7 @@ import {
   insertMessage,
   listOutgoingPending,
   markMessageHeld,
+  resetHolderInboxCursor,
   setHolderInboxCursor,
   upsertContact,
 } from "./db";
@@ -28,6 +30,7 @@ import type { performSend } from "./p2p-send";
 import { createPeerSessions } from "./p2p-sessions";
 import {
   HANDOFF_REJECTED_MESSAGE,
+  HandoffUndeliveredError,
   orderHolderPeerIds,
   otherOwnDevicePeerIds,
   outgoingHandoffRecord,
@@ -523,13 +526,12 @@ export const createP2pStore = ({
           });
           return holderPeerId;
         } catch (error) {
-          if (
-            error instanceof Error &&
-            error.message === HANDOFF_REJECTED_MESSAGE
-          ) {
-            throw error;
+          // Only fall through when this CLI never saw the request; after
+          // that, a second holder would send Bob a duplicate.
+          if (error instanceof HandoffUndeliveredError) {
+            return tryHolder(index + 1);
           }
-          return tryHolder(index + 1);
+          throw error;
         }
       };
       return tryHolder(0);
@@ -610,10 +612,9 @@ export const createP2pStore = ({
     );
   };
 
-  const ensureCatchupSender = async (record: {
-    readonly frame: { readonly fromHandle: string };
-    readonly fromQid: string;
-  }): Promise<"ready" | "retry" | "skip"> => {
+  const ensureCatchupSender = async (
+    record: SyncInboxItem["record"]
+  ): Promise<"ready" | "retry" | "skip"> => {
     if (await getContactByQid(record.fromQid)) {
       return "ready";
     }
@@ -637,25 +638,21 @@ export const createP2pStore = ({
       // Handle reassigned or no devices: skip so one row cannot stall the cursor.
       return "skip";
     }
-    try {
-      const handleOwner = await getContactByHandle(account.handle);
-      if (handleOwner && handleOwner.qid !== record.fromQid) {
-        // Stale local row still owns this handle. UNIQUE would throw and the
-        // outer catch would leave the holder cursor stuck on this seq.
-        return "skip";
-      }
-      await upsertContact({
-        createdAt: Number(account.registeredAt) * 1000,
-        deviceKey: device.deviceKey,
-        handle: account.handle,
-        owner: account.owner,
-        peerId: device.peerId,
-        qid: account.qid.toString(),
-      });
-    } catch {
-      // Storage failure is unresolvable for this row. Skip and advance.
+    const handleOwner = await getContactByHandle(account.handle);
+    if (handleOwner && handleOwner.qid !== record.fromQid) {
+      // Stale local row still owns this handle, so UNIQUE(handle) would throw
+      // on every retry. Live verify hits the same limit; skip and advance.
       return "skip";
     }
+    // Storage errors throw: the cursor stays put and the next reconcile retries.
+    await upsertContact({
+      createdAt: Number(account.registeredAt) * 1000,
+      deviceKey: device.deviceKey,
+      handle: account.handle,
+      owner: account.owner,
+      peerId: device.peerId,
+      qid: account.qid.toString(),
+    });
     return "ready";
   };
 
@@ -668,18 +665,7 @@ export const createP2pStore = ({
     let after = await getHolderInboxCursor(holderPeerId);
     let touched = false;
     const applyItems = async (
-      items: readonly {
-        readonly record: {
-          readonly frame: {
-            readonly fromHandle: string;
-            readonly id: string;
-            readonly sentAt: number;
-            readonly text: string;
-          };
-          readonly fromQid: string;
-        };
-        readonly seq: number;
-      }[],
+      items: readonly SyncInboxItem[],
       index: number
     ): Promise<boolean> => {
       const item = items[index];
@@ -720,10 +706,20 @@ export const createP2pStore = ({
         sessions,
         timeoutMs: 10_000,
       });
-      if (page.length === 0 || !isCurrentGeneration(jobGeneration)) {
+      if (!isCurrentGeneration(jobGeneration)) {
         return;
       }
-      const advanced = await applyItems(page, 0);
+      if (after > page.lastSeq) {
+        // The CLI inbox was wiped and rowids restarted; replay it from 0.
+        await resetHolderInboxCursor(holderPeerId);
+        after = 0;
+        await pull();
+        return;
+      }
+      if (page.records.length === 0) {
+        return;
+      }
+      const advanced = await applyItems(page.records, 0);
       if (advanced) {
         await pull();
       }
@@ -747,16 +743,14 @@ export const createP2pStore = ({
     ) {
       return;
     }
+    // Holders have independent cursors, so an offline one only costs its own
+    // dial timeout instead of delaying the rest.
     const holderPeerIds = await ownHolderPeerIds(activeEndpoint);
-    const catchUpNext = async (index: number): Promise<void> => {
-      const holderPeerId = holderPeerIds[index];
-      if (!holderPeerId || !isCurrentGeneration(jobGeneration)) {
-        return;
-      }
-      await catchUpHolder(holderPeerId, jobGeneration);
-      await catchUpNext(index + 1);
-    };
-    await catchUpNext(0);
+    await Promise.all(
+      holderPeerIds.map((holderPeerId) =>
+        catchUpHolder(holderPeerId, jobGeneration)
+      )
+    );
   };
 
   const reconcileOwnHolders = async (jobGeneration: number) => {
