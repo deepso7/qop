@@ -318,25 +318,22 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
       {/* Connection diagnostics stay out of the way behind the header menu. */}
       <Stack.Toolbar placement="right">
         <Stack.Toolbar.Menu icon="ellipsis" title="Connection">
-          {/* Every row has an icon so iOS keeps titles aligned. */}
+          {/* Every row has an icon so iOS keeps titles aligned. Info rows stay
+              enabled (tapping just closes the menu) so iOS doesn't grey them. */}
           <Stack.Toolbar.MenuAction
-            disabled
             icon="antenna.radiowaves.left.and.right"
             {...menuRow("Status", connectionLabel)}
           />
           <Stack.Toolbar.MenuAction
-            disabled
             icon="arrow.triangle.branch"
             {...menuRow("Path", pathLabel(peerPaths[dialPeerId]))}
           />
           <Stack.Toolbar.MenuAction
-            disabled
             icon="server.rack"
             {...menuRow("Relay", relayReserved ? "Reserved" : "Not reserved")}
           />
           {status === "failed" && p2pError ? (
             <Stack.Toolbar.MenuAction
-              disabled
               icon="exclamationmark.triangle"
               {...menuRow("Error", p2pError)}
             />
