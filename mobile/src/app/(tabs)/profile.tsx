@@ -35,49 +35,62 @@ import { useIdentityStore } from "@/lib/identity-store";
 
 interface ProfileCardProps {
   readonly handle: string;
-  readonly onCopyPeerId: () => void;
-  readonly peerLabel: string;
   readonly qid: string;
 }
+
+// Soft avatar tints (background, initials), picked per handle so a person
+// keeps the same color everywhere.
+const avatarTints = [
+  ["#E4E1FA", "#4B3F9E"],
+  ["#DDF1E6", "#246B45"],
+  ["#FBE3D6", "#9A4A22"],
+  ["#DCEBFA", "#2A5C8F"],
+  ["#F7DDE9", "#8F2E5A"],
+] as const;
+
+const avatarTint = (handle: string) => {
+  let hash = 0;
+  for (const char of handle) {
+    hash = (hash * 31 + (char.codePointAt(0) ?? 0)) % 1_000_003;
+  }
+  return avatarTints[hash % avatarTints.length] ?? avatarTints[0];
+};
 
 // Placeholder until the QR code for adding contacts exists.
 const showQrCode = () => {
   Alert.alert("QR code", "Coming soon.");
 };
 
-/** Contact-card header: initials avatar, handle, QID, peer ID (tap to copy), QR. */
-const ProfileCard = ({
-  handle,
-  onCopyPeerId,
-  peerLabel,
-  qid,
-}: ProfileCardProps) => {
+/** Contact-card header: tinted initials avatar, handle, QID and a QR button. */
+const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
   const colors = useTheme();
-  const secondary = { color: colors.textSecondary };
+  const [tint, ink] = avatarTint(handle);
   return (
-    <Row alignment="center" spacing={16} style={{ paddingVertical: 12 }}>
+    <Row alignment="center" spacing={16} style={{ paddingVertical: 14 }}>
       <Column
         alignment="center"
         style={{
-          backgroundColor: colors.backgroundElement,
-          borderRadius: 32,
-          height: 64,
-          width: 64,
+          backgroundColor: tint,
+          borderRadius: 36,
+          height: 72,
+          width: 72,
         }}
       >
         <Spacer flexible />
-        <UIText textStyle={{ fontSize: 22, fontWeight: "600" }}>
+        <UIText textStyle={{ color: ink, fontSize: 28, fontWeight: "600" }}>
           {handle.slice(0, 2).toUpperCase()}
         </UIText>
         <Spacer flexible />
       </Column>
-      <Column spacing={6}>
-        <UIText textStyle={{ fontSize: 22, fontWeight: "600" }}>
+      <Column spacing={4}>
+        <UIText
+          numberOfLines={1}
+          textStyle={{ fontSize: 24, fontWeight: "600" }}
+        >
           {`@${handle}`}
         </UIText>
-        <UIText textStyle={secondary}>{`QID ${qid}`}</UIText>
-        <UIText onPress={onCopyPeerId} textStyle={secondary}>
-          {peerLabel}
+        <UIText textStyle={{ color: colors.textSecondary, fontSize: 17 }}>
+          {`QID ${qid}`}
         </UIText>
       </Column>
       <Spacer flexible />
@@ -85,17 +98,17 @@ const ProfileCard = ({
         alignment="center"
         onPress={showQrCode}
         style={{
-          backgroundColor: colors.backgroundElement,
-          borderRadius: 22,
-          height: 44,
-          width: 44,
+          backgroundColor: colors.text,
+          borderRadius: 26,
+          height: 52,
+          width: 52,
         }}
       >
         <Spacer flexible />
         <Icon
-          color={colors.text}
+          color={colors.background}
           name={Platform.OS === "ios" ? "qrcode" : qrCodeIcon}
-          size={22}
+          size={26}
         />
         <Spacer flexible />
       </Column>
@@ -314,15 +327,9 @@ const ProfileScreen = () => {
             modifiers={settingsFormModifiers}
             style={{ backgroundColor: colors.background }}
           >
-            <FieldGroup.Section title="Account">
+            <FieldGroup.Section>
               <ProfileCard
                 handle={identity?.handle ?? ""}
-                onCopyPeerId={copyPeerId}
-                peerLabel={
-                  peerIdCopied
-                    ? "Peer ID copied"
-                    : `Peer …${identity?.peerId.slice(-8) ?? ""}`
-                }
                 qid={registration?.qid ?? "—"}
               />
             </FieldGroup.Section>
@@ -379,8 +386,13 @@ const ProfileScreen = () => {
                     device.deviceKey === roster.thisDeviceKey ? (
                       <SettingsRow
                         key={device.deviceKey}
+                        onPress={copyPeerId}
                         supportingText={
-                          <Secondary>{`…${device.peerId.slice(-8)}`}</Secondary>
+                          <Secondary>
+                            {peerIdCopied
+                              ? "Peer ID copied"
+                              : `…${device.peerId.slice(-8)}`}
+                          </Secondary>
                         }
                       >
                         <UIText>This device</UIText>
