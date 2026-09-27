@@ -524,6 +524,18 @@ describe("connectTo", () => {
     expect(peerId).toBe(PEER_BOB);
   });
 
+  it("keeps a peer that becomes ready as the Identify wait times out", async () => {
+    await useP2pStore.getState().start();
+    isPeerReady.mockReturnValueOnce(false).mockReturnValue(true);
+    waitPeerReady.mockRejectedValue(new Error("Identify timeout"));
+    const peerId = await useP2pStore
+      .getState()
+      .connectTo({ handle: "bob", qid: "1" });
+    expect(disconnect).not.toHaveBeenCalled();
+    expect(connect).not.toHaveBeenCalled();
+    expect(peerId).toBe(PEER_BOB);
+  });
+
   it("only reports peers that finished Identify as connected", async () => {
     isPeerReady.mockReturnValue(false);
     await useP2pStore.getState().start();
