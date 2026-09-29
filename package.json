@@ -7,6 +7,7 @@
   "author": "",
   "type": "module",
   "scripts": {
+    "clean": "./scripts/clean.sh",
     "check": "ultracite check && pnpm check:packages && pnpm typecheck",
     "check:contracts": "forge fmt --root contracts --check && forge lint --root contracts && forge test --root contracts --force",
     "check:packages": "pnpm --filter @qop/identity --filter @qop/protocol --filter @qop/api --filter @qop/cli --filter mobile run test",
