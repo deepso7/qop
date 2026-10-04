@@ -64,6 +64,28 @@ const handshakeTransport = (
   };
 };
 
+const handshakeWith = async (
+  addrs: readonly string[],
+  connect: PairingTransport["connect"]
+) => {
+  const offer = await Effect.runPromise(
+    Schema.decodeUnknownEffect(PairingOfferV1)({ ...encodedOffer, addrs })
+  );
+  const peerId = await Effect.runPromise(expectedPeerId());
+  return Effect.runPromise(
+    handshakePairing(
+      handshakeTransport(peerId, { connect }),
+      offer,
+      {
+        chainId: encodedOffer.chainId,
+        qid: encodedOffer.qid,
+        registry: encodedOffer.registry,
+      },
+      () => Promise.resolve(new Uint8Array(32).fill(7))
+    )
+  );
+};
+
 describe("phone pairing handshake", () => {
   it("uses the supplied native random source without a Web Crypto global", async () => {
     const offer = await Effect.runPromise(
@@ -138,28 +160,6 @@ describe("phone pairing handshake", () => {
       expect(result.failure).toBeInstanceOf(PhonePairingError);
     }
   });
-
-  const handshakeWith = async (
-    addrs: readonly string[],
-    connect: PairingTransport["connect"]
-  ) => {
-    const offer = await Effect.runPromise(
-      Schema.decodeUnknownEffect(PairingOfferV1)({ ...encodedOffer, addrs })
-    );
-    const peerId = await Effect.runPromise(expectedPeerId());
-    return Effect.runPromise(
-      handshakePairing(
-        handshakeTransport(peerId, { connect }),
-        offer,
-        {
-          chainId: encodedOffer.chainId,
-          qid: encodedOffer.qid,
-          registry: encodedOffer.registry,
-        },
-        () => Promise.resolve(new Uint8Array(32).fill(7))
-      )
-    );
-  };
 
   it("dials the direct offer addresses as one target without circuits", async () => {
     const peerId = await Effect.runPromise(expectedPeerId());

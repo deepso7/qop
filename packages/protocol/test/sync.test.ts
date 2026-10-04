@@ -93,6 +93,17 @@ describe("sync frames", () => {
     expect(result._tag).toBe("Failure");
   });
 
+  it("rejects frames with unknown fields", async () => {
+    const result = await Effect.runPromise(
+      decodeSyncRequestV1(
+        new TextEncoder().encode(
+          JSON.stringify({ after: 0, type: "catchup", unexpected: true, v: 1 })
+        )
+      ).pipe(Effect.result)
+    );
+    expect(result._tag).toBe("Failure");
+  });
+
   it("rejects a poll with no ids", async () => {
     const result = await Effect.runPromise(
       Schema.decodeUnknownEffect(SyncPollV1)({

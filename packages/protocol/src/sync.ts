@@ -1,4 +1,4 @@
-import { Hex32 } from "@qop/identity";
+import { Hex32, strictParseOptions } from "@qop/identity";
 import { Data, Effect, Schema } from "effect";
 
 import { InboxRecordV1, OutboxQid, OutboxRecordV1Schema } from "./outbox.ts";
@@ -32,11 +32,6 @@ export const SYNC_PROTOCOL = "/qop/sync/1";
 export const MAX_SYNC_PAYLOAD_BYTES = 64 * 1024;
 export const SYNC_POLL_MAX_IDS = 32;
 
-const strictParseOptions = {
-  errors: "all",
-  onExcessProperty: "error",
-} as const;
-
 const Uuid = Schema.String.check(
   Schema.isPattern(
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu,
@@ -66,18 +61,16 @@ export const SyncHandoffV1Schema = Schema.Struct({
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected sync handoff field",
-  parseOptions: strictParseOptions,
 });
 export { SyncHandoffV1Schema as SyncHandoffV1 };
 export type SyncHandoffV1 = typeof SyncHandoffV1Schema.Type;
 
 export const SyncPollV1Schema = Schema.Struct({
-  ids: Schema.Array(Uuid).check(Schema.isLengthBetween(1, SYNC_POLL_MAX_IDS)),
+  ids: Schema.Array(Uuid).check(Schema.isBetweenLength(1, SYNC_POLL_MAX_IDS)),
   type: Schema.Literal("poll"),
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected sync poll field",
-  parseOptions: strictParseOptions,
 });
 export { SyncPollV1Schema as SyncPollV1 };
 export type SyncPollV1 = typeof SyncPollV1Schema.Type;
@@ -88,7 +81,6 @@ export const SyncCatchupV1Schema = Schema.Struct({
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected sync catchup field",
-  parseOptions: strictParseOptions,
 });
 export { SyncCatchupV1Schema as SyncCatchupV1 };
 export type SyncCatchupV1 = typeof SyncCatchupV1Schema.Type;
@@ -107,7 +99,6 @@ export const SyncHeldV1Schema = Schema.Struct({
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected sync held field",
-  parseOptions: strictParseOptions,
 });
 export { SyncHeldV1Schema as SyncHeldV1 };
 export type SyncHeldV1 = typeof SyncHeldV1Schema.Type;
@@ -118,7 +109,6 @@ export const SyncReceiptV1Schema = Schema.Struct({
   toQid: OutboxQid,
 }).annotate({
   messageUnexpectedKey: "Unexpected sync receipt field",
-  parseOptions: strictParseOptions,
 });
 export { SyncReceiptV1Schema as SyncReceiptV1 };
 export type SyncReceiptV1 = typeof SyncReceiptV1Schema.Type;
@@ -131,7 +121,6 @@ export const SyncReceiptsV1Schema = Schema.Struct({
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected sync receipts field",
-  parseOptions: strictParseOptions,
 });
 export { SyncReceiptsV1Schema as SyncReceiptsV1 };
 export type SyncReceiptsV1 = typeof SyncReceiptsV1Schema.Type;
@@ -141,7 +130,6 @@ export const SyncInboxItemV1Schema = Schema.Struct({
   seq: PositiveInt,
 }).annotate({
   messageUnexpectedKey: "Unexpected sync inbox item field",
-  parseOptions: strictParseOptions,
 });
 export { SyncInboxItemV1Schema as SyncInboxItemV1 };
 export type SyncInboxItemV1 = typeof SyncInboxItemV1Schema.Type;
@@ -154,7 +142,6 @@ export const SyncInboxV1Schema = Schema.Struct({
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected sync inbox field",
-  parseOptions: strictParseOptions,
 });
 export { SyncInboxV1Schema as SyncInboxV1 };
 export type SyncInboxV1 = typeof SyncInboxV1Schema.Type;
@@ -166,7 +153,6 @@ export const SyncErrorV1Schema = Schema.Struct({
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected sync error field",
-  parseOptions: strictParseOptions,
 });
 export { SyncErrorV1Schema as SyncErrorV1 };
 export type SyncErrorV1 = typeof SyncErrorV1Schema.Type;
@@ -234,16 +220,18 @@ export const decodeSyncRequestV1 = Effect.fn(
   "@qop/protocol/decodeSyncRequestV1"
 )(function* (bytes: Uint8Array) {
   const json = yield* parseJson(bytes);
-  return yield* Schema.decodeUnknownEffect(SyncRequestV1Schema)(json).pipe(
-    Effect.mapError(() => new SyncCodecError({ operation: "frame" }))
-  );
+  return yield* Schema.decodeUnknownEffect(SyncRequestV1Schema)(
+    json,
+    strictParseOptions
+  ).pipe(Effect.mapError(() => new SyncCodecError({ operation: "frame" })));
 });
 
 export const decodeSyncResponseV1 = Effect.fn(
   "@qop/protocol/decodeSyncResponseV1"
 )(function* (bytes: Uint8Array) {
   const json = yield* parseJson(bytes);
-  return yield* Schema.decodeUnknownEffect(SyncResponseV1Schema)(json).pipe(
-    Effect.mapError(() => new SyncCodecError({ operation: "frame" }))
-  );
+  return yield* Schema.decodeUnknownEffect(SyncResponseV1Schema)(
+    json,
+    strictParseOptions
+  ).pipe(Effect.mapError(() => new SyncCodecError({ operation: "frame" })));
 });

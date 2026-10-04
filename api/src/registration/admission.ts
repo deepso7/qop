@@ -2,7 +2,7 @@ import { RegistrationAdmissionCode } from "@qop/identity";
 import { and, eq, gt, isNull, or } from "drizzle-orm";
 import type { EffectDrizzleQueryError } from "drizzle-orm/effect-core";
 import { Context, Data, DateTime, Effect, Layer, Schema } from "effect";
-import type { SqlError } from "effect/unstable/sql/SqlError";
+import type { SqlError } from "effect/sql/SqlError";
 import { concatBytes, keccak256, stringToBytes } from "viem";
 import type { Hash } from "viem";
 

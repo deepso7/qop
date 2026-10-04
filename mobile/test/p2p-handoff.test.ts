@@ -180,6 +180,9 @@ afterEach(async () => {
   vi.unstubAllEnvs();
 });
 
+const aliceLookups = () =>
+  lookupHandle.mock.calls.filter(([handle]) => handle === "alice");
+
 describe("phone to CLI handoff", () => {
   it("marks a send held when the CLI accepts and Bob does not", async () => {
     await useP2pStore.getState().start();
@@ -530,9 +533,6 @@ describe("phone to CLI handoff", () => {
       })
     );
   });
-
-  const aliceLookups = () =>
-    lookupHandle.mock.calls.filter(([handle]) => handle === "alice");
 
   it("reuses the own-device registry lookup across outgoing sends", async () => {
     await useP2pStore.getState().start();

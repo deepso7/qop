@@ -97,3 +97,4 @@ export {
   type RotateOwnerIntentV1Encoded,
   type WipeDevicesIntentV1Encoded,
 } from "./registry-intents.ts";
+export { strictParseOptions } from "./internal.ts";

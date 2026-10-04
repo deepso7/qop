@@ -3,6 +3,7 @@ import {
   EthereumAddress,
   Hex32,
   Qid,
+  strictParseOptions,
   UnixSeconds,
 } from "@qop/identity";
 import { base64urlnopad } from "@scure/base";
@@ -15,11 +16,6 @@ import {
   PAIRING_QR_MAX_CHARS,
 } from "./limits.ts";
 
-const strictParseOptions = {
-  errors: "all",
-  onExcessProperty: "error",
-} as const;
-
 const CanonicalHex32 = Hex32.pipe(Schema.decodeTo(Hex32.pipe(Schema.flip)));
 const CanonicalQid = Qid.pipe(Schema.decodeTo(Qid.pipe(Schema.flip)));
 const CanonicalChainId = ChainId.pipe(
@@ -30,7 +26,7 @@ const CanonicalDeadline = UnixSeconds.pipe(
 );
 
 const Multiaddr = Schema.String.check(
-  Schema.isLengthBetween(1, 256),
+  Schema.isBetweenLength(1, 256),
   Schema.makeFilter((value) => value.startsWith("/"), {
     expected: "a multiaddr beginning with /",
   })
@@ -38,7 +34,7 @@ const Multiaddr = Schema.String.check(
 
 export const PairingOfferV1Schema = Schema.Struct({
   addrs: Schema.Array(Multiaddr).check(
-    Schema.isLengthBetween(1, PAIRING_MAX_ADDRESSES)
+    Schema.isBetweenLength(1, PAIRING_MAX_ADDRESSES)
   ),
   chainId: CanonicalChainId,
   deviceKey: CanonicalHex32,
@@ -50,7 +46,6 @@ export const PairingOfferV1Schema = Schema.Struct({
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected pairing offer field",
-  parseOptions: strictParseOptions,
 });
 export { PairingOfferV1Schema as PairingOfferV1 };
 export type PairingOfferV1 = typeof PairingOfferV1Schema.Type;
@@ -64,7 +59,6 @@ const PairingHelloV1Schema = Schema.Struct({
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected pairing hello field",
-  parseOptions: strictParseOptions,
 });
 
 const PairingHelloAckV1Schema = Schema.Struct({
@@ -78,7 +72,6 @@ const PairingHelloAckV1Schema = Schema.Struct({
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected pairing hello-ack field",
-  parseOptions: strictParseOptions,
 });
 
 const PairingApprovalV1Schema = Schema.Struct({
@@ -88,7 +81,6 @@ const PairingApprovalV1Schema = Schema.Struct({
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected pairing approval field",
-  parseOptions: strictParseOptions,
 });
 
 const PairingApprovalSavedV1Schema = Schema.Struct({
@@ -98,7 +90,6 @@ const PairingApprovalSavedV1Schema = Schema.Struct({
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected pairing approval-saved field",
-  parseOptions: strictParseOptions,
 });
 
 const PairingApprovalConflictV1Schema = Schema.Struct({
@@ -108,7 +99,6 @@ const PairingApprovalConflictV1Schema = Schema.Struct({
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected pairing approval-conflict field",
-  parseOptions: strictParseOptions,
 });
 
 export const PairingFrameV1Schema = Schema.Union([
@@ -172,7 +162,8 @@ export const decodePairingOfferV1 = Effect.fn(
     try: () => JSON.parse(textDecoder.decode(bytes)) as unknown,
   });
   const offer = yield* Schema.decodeUnknownEffect(PairingOfferV1Schema)(
-    json
+    json,
+    strictParseOptions
   ).pipe(Effect.mapError(() => new PairingCodecError({ operation: "offer" })));
   if (BigInt(offer.expiresAt) <= nowSeconds) {
     return yield* new PairingCodecError({ operation: "expired" });
@@ -200,9 +191,10 @@ export const decodePairingFrameV1 = Effect.fn(
     // SAFETY: JSON.parse is untyped; PairingFrameV1 is decoded immediately below.
     try: () => JSON.parse(textDecoder.decode(bytes)) as unknown,
   });
-  return yield* Schema.decodeUnknownEffect(PairingFrameV1Schema)(json).pipe(
-    Effect.mapError(() => new PairingCodecError({ operation: "frame" }))
-  );
+  return yield* Schema.decodeUnknownEffect(PairingFrameV1Schema)(
+    json,
+    strictParseOptions
+  ).pipe(Effect.mapError(() => new PairingCodecError({ operation: "frame" })));
 });
 
 export const pairingFingerprint = (deviceKey: string) =>

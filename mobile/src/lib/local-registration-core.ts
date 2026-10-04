@@ -9,6 +9,7 @@ import {
   RegisterIntentV1,
   RegistrationAdmissionCode,
   RegistrationNonce,
+  strictParseOptions,
   UnixSeconds,
 } from "@qop/identity";
 import type { IdentityEip712DomainV1Encoded } from "@qop/identity";
@@ -19,11 +20,6 @@ import type { createRegistrationClient } from "./registration-client-core";
 import type { createRegistryReader } from "./registry-core";
 
 const REGISTRATION_DEADLINE_SECONDS = 1800n;
-const strictParseOptions = {
-  errors: "all",
-  onExcessProperty: "error",
-} as const;
-
 const CanonicalAdmissionCode = RegistrationAdmissionCode.pipe(
   Schema.decodeTo(RegistrationAdmissionCode.pipe(Schema.flip))
 );
@@ -48,7 +44,6 @@ const StoredLocalRegistrationV2 = Schema.Struct({
   version: Schema.Literal(2),
 }).annotate({
   messageUnexpectedKey: "Unexpected local registration field",
-  parseOptions: strictParseOptions,
 });
 
 const StoredLocalRegistrationJson = Schema.fromJsonString(
@@ -111,6 +106,12 @@ export interface LocalRegistrationDependencies {
   >;
 }
 
+const decodeStoredRegistration = (encoded: string) =>
+  Schema.decodeUnknownEffect(StoredLocalRegistrationJson)(
+    encoded,
+    strictParseOptions
+  ).pipe(Effect.mapError(() => localError("decode")));
+
 export const createLocalRegistration = ({
   domain: domainInput,
   now,
@@ -128,11 +129,6 @@ export const createLocalRegistration = ({
       catch: () => localError("read"),
       try: () => secureStore.get(key),
     });
-
-  const decodeStoredRegistration = (encoded: string) =>
-    Schema.decodeUnknownEffect(StoredLocalRegistrationJson)(encoded).pipe(
-      Effect.mapError(() => localError("decode"))
-    );
 
   const writeStoredRegistration = Effect.fn(
     "LocalRegistration.writeStoredRegistration"

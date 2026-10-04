@@ -14,12 +14,12 @@
     "typecheck": "pnpm --filter @qop/identity --filter @qop/protocol --filter @qop/api --filter @qop/cli --filter mobile run typecheck"
   },
   "devDependencies": {
-    "@effect/language-service": "0.87.2",
-    "@oxlint/plugins": "1.81.0",
-    "oxfmt": "0.66.0",
-    "oxlint": "1.81.0",
+    "@effect/language-service": "0.87.3",
+    "@oxlint/plugins": "1.86.0",
+    "oxfmt": "0.71.0",
+    "oxlint": "1.86.0",
     "typescript": "catalog:",
-    "ultracite": "7.11.0"
+    "ultracite": "7.12.2"
   },
   "engines": {
     "node": "24.20.0"

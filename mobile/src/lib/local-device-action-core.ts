@@ -1,3 +1,4 @@
+import { strictParseOptions } from "@qop/identity";
 import {
   DEVICE_ACTION_DEADLINE_SECONDS,
   DeviceActionApprovalV1,
@@ -20,11 +21,6 @@ import type { createDeviceActionClient } from "./device-action-client-core";
 import type { createRegistryReader } from "./registry-core";
 
 const STORAGE_KEY = "qop.device-action.v1";
-const strictParseOptions = {
-  errors: "all",
-  onExcessProperty: "error",
-} as const;
-
 const StoredDeviceAction = Schema.Struct({
   acknowledged: Schema.Boolean,
   apiStatus: Schema.NullOr(
@@ -43,7 +39,6 @@ const StoredDeviceAction = Schema.Struct({
   version: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected local device-action field",
-  parseOptions: strictParseOptions,
 });
 
 const StoredDeviceActionJson = Schema.fromJsonString(StoredDeviceAction);
@@ -150,7 +145,8 @@ export const createLocalDeviceAction = ({
       return null;
     }
     return yield* Schema.decodeUnknownEffect(StoredDeviceActionJson)(
-      encoded
+      encoded,
+      strictParseOptions
     ).pipe(Effect.mapError(() => localError("decode")));
   });
 

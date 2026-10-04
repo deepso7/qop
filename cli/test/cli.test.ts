@@ -1,7 +1,7 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect, FileSystem, Layer, Path, Stdio, Terminal } from "effect";
-import { Command } from "effect/unstable/cli";
-import { ChildProcessSpawner } from "effect/unstable/process";
+import { Command } from "effect/cli";
+import { ChildProcessSpawner } from "effect/process";
 
 import { CLI_VERSION, createQopCommand } from "../src/cli.ts";
 

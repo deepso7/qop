@@ -3,7 +3,7 @@ engineStrict: true
 saveExact: true
 
 catalog:
-  effect: 4.0.0-rc.112
+  effect: 4.0.0
   typescript: 7.0.2
 
 packages:
@@ -21,14 +21,5 @@ allowBuilds:
   msgpackr-extract: false
   protobufjs: true
 
-minimumReleaseAgeExclude:
-  - "@minip2p/core@0.7.0"
-  - "@minip2p/node-darwin-arm64@0.7.0"
-  - "@minip2p/node-darwin-x64@0.7.0"
-  - "@minip2p/node-linux-arm64-gnu@0.7.0"
-  - "@minip2p/node-linux-arm64-musl@0.7.0"
-  - "@minip2p/node-linux-x64-gnu@0.7.0"
-  - "@minip2p/node-linux-x64-musl@0.7.0"
-  - "@minip2p/node-win32-x64-msvc@0.7.0"
-  - "@minip2p/node@0.7.0"
-  - "@minip2p/react-native@0.7.0"
+patchedDependencies:
+  drizzle-orm@1.0.0-rc.5-5935859: patches/drizzle-orm@1.0.0-rc.5-5935859.patch

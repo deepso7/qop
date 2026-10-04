@@ -13,7 +13,6 @@ const IdentityEip712DomainV1Schema = Schema.Struct({
   verifyingContract: EthereumAddress,
 }).annotate({
   messageUnexpectedKey: "Unexpected identity EIP-712 domain field",
-  parseOptions: strictParseOptions,
 });
 export { IdentityEip712DomainV1Schema as IdentityEip712DomainV1 };
 export type IdentityEip712DomainV1 = typeof IdentityEip712DomainV1Schema.Type;
@@ -47,5 +46,5 @@ export class IdentityCryptoError extends Data.TaggedError(
 export const decodeIdentityEip712DomainV1 = Effect.fn(
   "@qop/identity/decodeIdentityEip712DomainV1"
 )((input: IdentityEip712DomainV1Encoded) =>
-  Schema.decodeEffect(IdentityEip712DomainV1Schema)(input)
+  Schema.decodeEffect(IdentityEip712DomainV1Schema)(input, strictParseOptions)
 );

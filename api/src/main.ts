@@ -2,7 +2,7 @@ import { createServer } from "node:http";
 
 import { NodeHttpServer, NodeRuntime } from "@effect/platform-node";
 import { Effect, Layer } from "effect";
-import { HttpRouter } from "effect/unstable/http";
+import { HttpRouter } from "effect/http";
 
 import { DeviceActionEnrollmentLive } from "./device-action/enrollment.ts";
 import { deviceActionRelayerLayer } from "./device-action/relayer.ts";

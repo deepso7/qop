@@ -6,11 +6,7 @@ import {
   RegistrationAdmissionCode,
 } from "@qop/identity";
 import { Schema } from "effect";
-import {
-  HttpApiEndpoint,
-  HttpApiGroup,
-  OpenApi,
-} from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/http-api";
 
 import { registrationIntentStatuses } from "../registration/types.ts";
 

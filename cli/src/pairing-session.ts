@@ -41,6 +41,32 @@ export interface PairingAccountSnapshot {
   readonly registry: string;
 }
 
+const mismatch = () => new PairingSessionError({ operation: "mismatch" });
+
+const verifyOwnerSigner = (
+  record: DeviceActionApprovalV1,
+  snapshot: PairingAccountSnapshot
+) =>
+  Effect.gen(function* () {
+    const domain = yield* decodeIdentityEip712DomainV1(record.domain).pipe(
+      Effect.mapError(mismatch)
+    );
+    const intent = yield* decodeAddDeviceIntentV1(record.intent).pipe(
+      Effect.mapError(mismatch)
+    );
+    const signature = yield* Schema.decodeUnknownEffect(EcdsaSignature)(
+      asHex(record.ownerSignature)
+    ).pipe(Effect.mapError(mismatch));
+    const signer = yield* recoverAddDeviceIntentSignerV1(
+      domain,
+      intent,
+      signature
+    ).pipe(Effect.mapError(mismatch));
+    if (signer !== snapshot.owner.toLowerCase()) {
+      return yield* mismatch();
+    }
+  });
+
 export const createCliPairingSession = <E>({
   loadApproval,
   nowSeconds = () => BigInt(Math.floor(Date.now() / 1000)),
@@ -63,8 +89,6 @@ export const createCliPairingSession = <E>({
     }
     return Effect.void;
   };
-
-  const mismatch = () => new PairingSessionError({ operation: "mismatch" });
 
   const approvalMatchesAccount = (
     record: DeviceActionApprovalV1,
@@ -97,30 +121,6 @@ export const createCliPairingSession = <E>({
     }
     return assertOfferFresh();
   };
-
-  const verifyOwnerSigner = (
-    record: DeviceActionApprovalV1,
-    snapshot: PairingAccountSnapshot
-  ) =>
-    Effect.gen(function* () {
-      const domain = yield* decodeIdentityEip712DomainV1(record.domain).pipe(
-        Effect.mapError(mismatch)
-      );
-      const intent = yield* decodeAddDeviceIntentV1(record.intent).pipe(
-        Effect.mapError(mismatch)
-      );
-      const signature = yield* Schema.decodeUnknownEffect(EcdsaSignature)(
-        asHex(record.ownerSignature)
-      ).pipe(Effect.mapError(mismatch));
-      const signer = yield* recoverAddDeviceIntentSignerV1(
-        domain,
-        intent,
-        signature
-      ).pipe(Effect.mapError(mismatch));
-      if (signer !== snapshot.owner.toLowerCase()) {
-        return yield* mismatch();
-      }
-    });
 
   const hello = Effect.fn("CliPairingSession.hello")(function* (
     peerId: string,

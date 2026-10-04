@@ -19,7 +19,7 @@ export const ChatFrameV1 = Schema.Struct({
       expected: "a valid nonnegative millisecond timestamp",
     })
   ),
-  text: Schema.String.check(Schema.isLengthBetween(1, 4000)),
+  text: Schema.String.check(Schema.isBetweenLength(1, 4000)),
   v: Schema.Literal(1),
 });
 
