@@ -56,7 +56,6 @@ const RegisterIntentV1Schema = Schema.Struct({
   owner: NonZeroEthereumAddress,
 }).annotate({
   messageUnexpectedKey: "Unexpected registration intent field",
-  parseOptions: strictParseOptions,
 });
 export { RegisterIntentV1Schema as RegisterIntentV1 };
 export type RegisterIntentV1 = typeof RegisterIntentV1Schema.Type;
@@ -69,7 +68,6 @@ const RotateOwnerIntentV1Schema = Schema.Struct({
   qid: Qid,
 }).annotate({
   messageUnexpectedKey: "Unexpected owner rotation intent field",
-  parseOptions: strictParseOptions,
 });
 export { RotateOwnerIntentV1Schema as RotateOwnerIntentV1 };
 export type RotateOwnerIntentV1 = typeof RotateOwnerIntentV1Schema.Type;
@@ -83,7 +81,6 @@ const RecoverOwnerIntentV1Schema = Schema.Struct({
   qid: Qid,
 }).annotate({
   messageUnexpectedKey: "Unexpected owner recovery intent field",
-  parseOptions: strictParseOptions,
 });
 export { RecoverOwnerIntentV1Schema as RecoverOwnerIntentV1 };
 export type RecoverOwnerIntentV1 = typeof RecoverOwnerIntentV1Schema.Type;
@@ -97,7 +94,6 @@ const AddDeviceIntentV1Schema = Schema.Struct({
   qid: Qid,
 }).annotate({
   messageUnexpectedKey: "Unexpected add-device intent field",
-  parseOptions: strictParseOptions,
 });
 export { AddDeviceIntentV1Schema as AddDeviceIntentV1 };
 export type AddDeviceIntentV1 = typeof AddDeviceIntentV1Schema.Type;
@@ -110,7 +106,6 @@ const RemoveDeviceIntentV1Schema = Schema.Struct({
   qid: Qid,
 }).annotate({
   messageUnexpectedKey: "Unexpected remove-device intent field",
-  parseOptions: strictParseOptions,
 });
 export { RemoveDeviceIntentV1Schema as RemoveDeviceIntentV1 };
 export type RemoveDeviceIntentV1 = typeof RemoveDeviceIntentV1Schema.Type;
@@ -123,7 +118,6 @@ const WipeDevicesIntentV1Schema = Schema.Struct({
   qid: Qid,
 }).annotate({
   messageUnexpectedKey: "Unexpected wipe-devices intent field",
-  parseOptions: strictParseOptions,
 });
 export { WipeDevicesIntentV1Schema as WipeDevicesIntentV1 };
 export type WipeDevicesIntentV1 = typeof WipeDevicesIntentV1Schema.Type;
@@ -362,37 +356,37 @@ const validateWipeDevicesInputs = (
 export const decodeRegisterIntentV1 = Effect.fn(
   "@qop/identity/decodeRegisterIntentV1"
 )((input: RegisterIntentV1Encoded) =>
-  Schema.decodeEffect(RegisterIntentV1Schema)(input)
+  Schema.decodeEffect(RegisterIntentV1Schema)(input, strictParseOptions)
 );
 
 export const decodeRotateOwnerIntentV1 = Effect.fn(
   "@qop/identity/decodeRotateOwnerIntentV1"
 )((input: RotateOwnerIntentV1Encoded) =>
-  Schema.decodeEffect(RotateOwnerIntentV1Schema)(input)
+  Schema.decodeEffect(RotateOwnerIntentV1Schema)(input, strictParseOptions)
 );
 
 export const decodeRecoverOwnerIntentV1 = Effect.fn(
   "@qop/identity/decodeRecoverOwnerIntentV1"
 )((input: RecoverOwnerIntentV1Encoded) =>
-  Schema.decodeEffect(RecoverOwnerIntentV1Schema)(input)
+  Schema.decodeEffect(RecoverOwnerIntentV1Schema)(input, strictParseOptions)
 );
 
 export const decodeAddDeviceIntentV1 = Effect.fn(
   "@qop/identity/decodeAddDeviceIntentV1"
 )((input: AddDeviceIntentV1Encoded) =>
-  Schema.decodeEffect(AddDeviceIntentV1Schema)(input)
+  Schema.decodeEffect(AddDeviceIntentV1Schema)(input, strictParseOptions)
 );
 
 export const decodeRemoveDeviceIntentV1 = Effect.fn(
   "@qop/identity/decodeRemoveDeviceIntentV1"
 )((input: RemoveDeviceIntentV1Encoded) =>
-  Schema.decodeEffect(RemoveDeviceIntentV1Schema)(input)
+  Schema.decodeEffect(RemoveDeviceIntentV1Schema)(input, strictParseOptions)
 );
 
 export const decodeWipeDevicesIntentV1 = Effect.fn(
   "@qop/identity/decodeWipeDevicesIntentV1"
 )((input: WipeDevicesIntentV1Encoded) =>
-  Schema.decodeEffect(WipeDevicesIntentV1Schema)(input)
+  Schema.decodeEffect(WipeDevicesIntentV1Schema)(input, strictParseOptions)
 );
 
 export const encodeRegisterIntentV1 = Effect.fn(

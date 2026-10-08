@@ -3,11 +3,6 @@ import { Schema } from "effect";
 
 import { ChatFrameV1 } from "./chat-wire.ts";
 
-const strictParseOptions = {
-  errors: "all",
-  onExcessProperty: "error",
-} as const;
-
 const TimestampMillis = Schema.Int.check(
   Schema.makeFilter((value) => value >= 0 && value <= 8_640_000_000_000_000, {
     expected: "a valid nonnegative millisecond timestamp",
@@ -22,7 +17,7 @@ export const OutboxQid = Schema.String.check(
   })
 );
 
-const ErrorNote = Schema.String.check(Schema.isLengthBetween(1, 400));
+const ErrorNote = Schema.String.check(Schema.isBetweenLength(1, 400));
 
 export const OutboxStatusV1 = Schema.Literals(["queued", "sent", "failed"]);
 export type OutboxStatus = typeof OutboxStatusV1.Type;
@@ -44,7 +39,6 @@ export const OutboxRecordV1Schema = Schema.Struct({
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected outbox record field",
-  parseOptions: strictParseOptions,
 });
 export { OutboxRecordV1Schema as OutboxRecordV1 };
 export type OutboxRecordV1 = typeof OutboxRecordV1Schema.Type;
@@ -56,7 +50,6 @@ export const InboxRecordV1Schema = Schema.Struct({
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected inbox record field",
-  parseOptions: strictParseOptions,
 });
 export { InboxRecordV1Schema as InboxRecordV1 };
 export type InboxRecordV1 = typeof InboxRecordV1Schema.Type;

@@ -1002,6 +1002,24 @@ export const createP2pStore = ({
     }
   };
 
+  // Starts a failed/stopped node and waits (up to 15s) for it to be running.
+  const ensureRunning = async (get: () => P2pStore) => {
+    if (get().status === "failed" || get().status === "stopped") {
+      // Must not run inside trackJob — start() waits for in-flight jobs.
+      await get().start();
+    }
+    const startedAt = Date.now();
+    // Poll sequentially until start settles or the wait budget expires.
+    const waitWhileStarting = async (): Promise<boolean> => {
+      if (get().status !== "starting" || Date.now() - startedAt >= 15_000) {
+        return get().status === "running";
+      }
+      await Effect.runPromise(Effect.sleep(50));
+      return waitWhileStarting();
+    };
+    return waitWhileStarting();
+  };
+
   const useP2pStore = create<P2pStore>((set, get) => ({
     ...initialState,
 
@@ -1102,28 +1120,11 @@ export const createP2pStore = ({
         return existing.job;
       }
       const controller = new AbortController();
-      const ensureRunning = async () => {
-        if (get().status === "failed" || get().status === "stopped") {
-          // Must not run inside trackJob — start() waits for in-flight jobs.
-          await get().start();
-        }
-        const startedAt = Date.now();
-        // Poll sequentially until start settles or the wait budget expires.
-        const waitWhileStarting = async (): Promise<boolean> => {
-          if (get().status !== "starting" || Date.now() - startedAt >= 15_000) {
-            return get().status === "running";
-          }
-          await Effect.runPromise(Effect.sleep(50));
-          return waitWhileStarting();
-        };
-        return waitWhileStarting();
-      };
-
       const retry = async () => {
         if (controller.signal.aborted) {
           return;
         }
-        if (!(await ensureRunning())) {
+        if (!(await ensureRunning(get))) {
           return;
         }
         if (controller.signal.aborted) {

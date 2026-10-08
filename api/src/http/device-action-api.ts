@@ -1,10 +1,6 @@
 import { AddDeviceIntentV1, Hex32, RemoveDeviceIntentV1 } from "@qop/identity";
 import { Schema } from "effect";
-import {
-  HttpApiEndpoint,
-  HttpApiGroup,
-  OpenApi,
-} from "effect/unstable/httpapi";
+import { HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/http-api";
 
 import { deviceActionIntentStatuses } from "../device-action/types.ts";
 

@@ -17,6 +17,7 @@ import {
   Hex32,
   PeerId,
   peerIdFromEd25519SecretKey,
+  strictParseOptions,
 } from "@qop/identity";
 import { DeviceActionApprovalV1 } from "@qop/protocol";
 import { Data, Effect, Schema } from "effect";
@@ -38,7 +39,6 @@ const StoredIdentity = Schema.Struct({
   version: Schema.Literal(IDENTITY_VERSION),
 }).annotate({
   messageUnexpectedKey: "Unexpected CLI identity field",
-  parseOptions: { errors: "all", onExcessProperty: "error" },
 });
 
 export type StoredCliIdentity = typeof StoredIdentity.Type;
@@ -246,7 +246,9 @@ export const createCliIdentityStore = (root: string) => {
     yield* assertPrivateMode(identityPath, false);
     return yield* Schema.decodeUnknownEffect(
       Schema.fromJsonString(StoredIdentity)
-    )(encoded).pipe(Effect.mapError(() => storeError("decode")));
+    )(encoded, strictParseOptions).pipe(
+      Effect.mapError(() => storeError("decode"))
+    );
   });
 
   const loadSecret = Effect.fn("CliIdentity.loadSecret")(function* () {
@@ -336,7 +338,8 @@ export const createCliIdentityStore = (root: string) => {
       try: () => JSON.parse(encoded) as unknown,
     });
     return yield* Schema.decodeUnknownEffect(DeviceActionApprovalV1)(
-      parsed
+      parsed,
+      strictParseOptions
     ).pipe(Effect.mapError(() => storeError("decode")));
   });
 

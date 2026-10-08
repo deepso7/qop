@@ -1,6 +1,6 @@
 import { assert, describe, it } from "@effect/vitest";
 import { Effect, Layer, Schema, SchemaIssue } from "effect";
-import { HttpRouter, HttpServer } from "effect/unstable/http";
+import { HttpRouter, HttpServer } from "effect/http";
 
 import { DeviceActionEnrollment } from "../src/device-action/enrollment.ts";
 import { DeviceActionIntentNotFound } from "../src/device-action/store.ts";
@@ -133,6 +133,9 @@ const json = <Value>(response: Response) =>
       response.json() as Promise<Value>
   );
 
+const postRegistrationWithHandle = (handle: string) =>
+  postRegistration({ ...payload, intent: { ...intent, handle } });
+
 describe("registration HTTP API", () => {
   it.effect("registers and reconciles using the two endpoint shapes", () =>
     Effect.gen(function* () {
@@ -171,24 +174,32 @@ describe("registration HTTP API", () => {
     })
   );
 
+  it.effect("rejects unknown request body fields", () =>
+    Effect.gen(function* () {
+      const intentWithExtra = { ...intent, unexpected: true };
+      const response = yield* postRegistration({
+        ...payload,
+        intent: intentWithExtra,
+      });
+      assert.strictEqual(response.status, 400);
+    })
+  );
+
   it.effect("maps stable registration errors", () =>
     Effect.gen(function* () {
-      const call = (handle: string) =>
-        postRegistration({ ...payload, intent: { ...intent, handle } });
-
-      const unauthorized = yield* call("unauthorized");
+      const unauthorized = yield* postRegistrationWithHandle("unauthorized");
       assert.strictEqual(unauthorized.status, 401);
       assert.strictEqual(
         (yield* json<{ _tag: string }>(unauthorized))._tag,
         "RegistrationUnauthorized"
       );
-      const invalid = yield* call("invalid");
+      const invalid = yield* postRegistrationWithHandle("invalid");
       assert.strictEqual(invalid.status, 422);
       assert.strictEqual(
         (yield* json<{ _tag: string }>(invalid))._tag,
         "RegistrationInvalid"
       );
-      const conflict = yield* call("nonceused");
+      const conflict = yield* postRegistrationWithHandle("nonceused");
       assert.strictEqual(conflict.status, 409);
       assert.deepStrictEqual(yield* json(conflict), {
         _tag: "RegistrationConflict",

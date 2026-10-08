@@ -3,6 +3,7 @@ import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import type { SQLInputValue, SQLOutputValue } from "node:sqlite";
 
+import { strictParseOptions } from "@qop/identity";
 import {
   InboxRecordV1,
   OutboxRecordV1,
@@ -212,24 +213,27 @@ const INBOX_SELECT = `SELECT
 FROM inbox`;
 
 const decodeOutboxRow = (row: Record<string, SQLOutputValue>) => {
-  const decoded = Schema.decodeUnknownOption(OutboxRecordV1)({
-    attempts: row.attempts,
-    frame: {
-      fromHandle: row.fromHandle,
-      id: row.id,
-      sentAt: row.sentAt,
-      text: row.text,
+  const decoded = Schema.decodeUnknownOption(OutboxRecordV1)(
+    {
+      attempts: row.attempts,
+      frame: {
+        fromHandle: row.fromHandle,
+        id: row.id,
+        sentAt: row.sentAt,
+        text: row.text,
+        v: 1,
+      },
+      lastError: row.lastError,
+      nextAttemptAt: row.nextAttemptAt,
+      queuedAt: row.queuedAt,
+      status: row.status,
+      toHandle: row.toHandle,
+      toQid: row.toQid,
+      updatedAt: row.updatedAt,
       v: 1,
     },
-    lastError: row.lastError,
-    nextAttemptAt: row.nextAttemptAt,
-    queuedAt: row.queuedAt,
-    status: row.status,
-    toHandle: row.toHandle,
-    toQid: row.toQid,
-    updatedAt: row.updatedAt,
-    v: 1,
-  });
+    strictParseOptions
+  );
   if (decoded._tag === "None") {
     throw storeError("decode");
   }
@@ -248,18 +252,21 @@ const decodeInboxSeq = (value: SQLOutputValue | undefined) => {
 };
 
 const decodeInboxRow = (row: Record<string, SQLOutputValue>) => {
-  const decoded = Schema.decodeUnknownOption(InboxRecordV1)({
-    frame: {
-      fromHandle: row.fromHandle,
-      id: row.id,
-      sentAt: row.sentAt,
-      text: row.text,
+  const decoded = Schema.decodeUnknownOption(InboxRecordV1)(
+    {
+      frame: {
+        fromHandle: row.fromHandle,
+        id: row.id,
+        sentAt: row.sentAt,
+        text: row.text,
+        v: 1,
+      },
+      fromQid: row.fromQid,
+      receivedAt: row.receivedAt,
       v: 1,
     },
-    fromQid: row.fromQid,
-    receivedAt: row.receivedAt,
-    v: 1,
-  });
+    strictParseOptions
+  );
   if (decoded._tag === "None") {
     throw storeError("decode");
   }

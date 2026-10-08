@@ -76,7 +76,7 @@ const CanonicalBase64Url32 = Schema.String.check(
 export const Base64Url32 = CanonicalBase64Url32.pipe(
   Schema.decodeTo(
     Bytes32,
-    SchemaTransformation.transformOrFail({
+    SchemaTransformation.transformEffect({
       decode: (value) =>
         Effect.try({
           catch: () =>
@@ -133,7 +133,7 @@ const CanonicalBase64Url64 = Schema.String.check(
 export const Base64Url64 = CanonicalBase64Url64.pipe(
   Schema.decodeTo(
     Bytes64,
-    SchemaTransformation.transformOrFail({
+    SchemaTransformation.transformEffect({
       decode: (value) =>
         Effect.try({
           catch: () =>
@@ -160,7 +160,7 @@ const PeerIdBytes = Schema.Uint8Array.check(
 );
 
 const PeerIdString = Schema.String.check(
-  Schema.isLengthBetween(
+  Schema.isBetweenLength(
     ED25519_PEER_ID_STRING_LENGTH,
     ED25519_PEER_ID_STRING_LENGTH,
     { expected: "a 52-character PeerId" }
@@ -305,7 +305,7 @@ export const normalizeEthereumAddress = Effect.fn(
 );
 
 export const Handle = Schema.String.check(
-  Schema.isLengthBetween(1, 32, {
+  Schema.isBetweenLength(1, 32, {
     expected: "a handle between 1 and 32 characters",
   }),
   Schema.isPattern(/^[a-z0-9][a-z0-9_]*$/u, {

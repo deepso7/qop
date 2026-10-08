@@ -45,6 +45,7 @@ import {
   signRegisterIntentV1,
   signRemoveDeviceIntentV1,
   signWipeDevicesIntentV1,
+  strictParseOptions,
   WipeDevicesIntentV1,
 } from "../src/index.ts";
 
@@ -436,10 +437,10 @@ describe("registry intents", () => {
           "Unexpected owner recovery intent field",
         ],
       ] as const) {
-        const error = yield* Schema.decodeUnknownEffect(schema)({
-          ...encoded,
-          unexpected: true,
-        }).pipe(Effect.flip);
+        const error = yield* Schema.decodeUnknownEffect(schema)(
+          { ...encoded, unexpected: true },
+          strictParseOptions
+        ).pipe(Effect.flip);
         assert.deepStrictEqual(formatIssue(error.issue).issues, [
           { message, path: ["unexpected"] },
         ]);

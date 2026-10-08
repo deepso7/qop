@@ -10,6 +10,7 @@ import {
   Hex32,
   IdentityEip712DomainV1,
   RemoveDeviceIntentV1,
+  strictParseOptions,
 } from "@qop/identity";
 import type {
   AddDeviceIntentV1Encoded,
@@ -17,11 +18,6 @@ import type {
   RemoveDeviceIntentV1Encoded,
 } from "@qop/identity";
 import { Data, Effect, Schema } from "effect";
-
-const strictParseOptions = {
-  errors: "all",
-  onExcessProperty: "error",
-} as const;
 
 const CanonicalHex32 = Hex32.pipe(Schema.decodeTo(Hex32.pipe(Schema.flip)));
 const CanonicalSignature = EcdsaSignature.pipe(
@@ -47,7 +43,6 @@ const AddApprovalV1Schema = Schema.Struct({
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected add-device approval field",
-  parseOptions: strictParseOptions,
 });
 
 const RemoveApprovalV1Schema = Schema.Struct({
@@ -60,7 +55,6 @@ const RemoveApprovalV1Schema = Schema.Struct({
   v: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected remove-device approval field",
-  parseOptions: strictParseOptions,
 });
 
 export const DeviceActionApprovalV1Schema = Schema.Union([
@@ -104,9 +98,10 @@ export const acknowledgeApproval = (
 export const decodeDeviceActionApprovalV1 = Effect.fn(
   "@qop/protocol/decodeDeviceActionApprovalV1"
 )((input: DeviceActionApprovalV1Encoded) =>
-  Schema.decodeEffect(DeviceActionApprovalV1Schema)(input).pipe(
-    Effect.mapError(() => new ApprovalError({ operation: "decode" }))
-  )
+  Schema.decodeEffect(DeviceActionApprovalV1Schema)(
+    input,
+    strictParseOptions
+  ).pipe(Effect.mapError(() => new ApprovalError({ operation: "decode" })))
 );
 
 export const encodeDeviceActionApprovalV1 = Effect.fn(

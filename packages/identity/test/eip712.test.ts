@@ -4,6 +4,7 @@ import { Effect, Schema, SchemaIssue } from "effect";
 import {
   decodeIdentityEip712DomainV1,
   IdentityEip712DomainV1,
+  strictParseOptions,
 } from "../src/index.ts";
 
 const encodedDomain = {
@@ -17,7 +18,8 @@ type Json = typeof Schema.Json.Type;
 const expectDomainIssue = Effect.fn("@qop/identity/test/expectDomainIssue")(
   function* (input: Json, path: readonly string[], message: string) {
     const error = yield* Schema.decodeUnknownEffect(IdentityEip712DomainV1)(
-      input
+      input,
+      strictParseOptions
     ).pipe(Effect.flip);
     assert.deepStrictEqual(formatIssue(error.issue).issues, [
       { message, path },

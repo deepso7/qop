@@ -1,7 +1,12 @@
 import { networkInterfaces } from "node:os";
 
 import { Minip2p } from "@minip2p/node";
-import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
+import {
+  deviceKeyFromPeerId,
+  Hex32,
+  PeerId,
+  strictParseOptions,
+} from "@qop/identity";
 import {
   asHex,
   encodePairingOfferV1,
@@ -284,8 +289,10 @@ export const runLink = Effect.fn("qop.link")(function* (
       sessionId: yield* randomHex32(),
       v: 1 as const,
     };
-    const offer =
-      yield* Schema.decodeUnknownEffect(PairingOfferV1)(encodedOffer);
+    const offer = yield* Schema.decodeUnknownEffect(PairingOfferV1)(
+      encodedOffer,
+      strictParseOptions
+    );
     const payload = yield* encodePairingOfferV1(offer).pipe(
       Effect.catchIf(
         (error): error is PairingCodecError =>
@@ -293,10 +300,13 @@ export const runLink = Effect.fn("qop.link")(function* (
           error.operation === "oversized" &&
           addrs.length > 1,
         () =>
-          Schema.decodeUnknownEffect(PairingOfferV1)({
-            ...encodedOffer,
-            addrs: addrs.slice(0, 1),
-          }).pipe(Effect.flatMap(encodePairingOfferV1))
+          Schema.decodeUnknownEffect(PairingOfferV1)(
+            {
+              ...encodedOffer,
+              addrs: addrs.slice(0, 1),
+            },
+            strictParseOptions
+          ).pipe(Effect.flatMap(encodePairingOfferV1))
       )
     );
     const session = createCliPairingSession({

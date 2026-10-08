@@ -1,6 +1,6 @@
 import { Handle } from "@qop/identity";
 import { Effect, Option } from "effect";
-import { Command, Flag } from "effect/unstable/cli";
+import { Command, Flag } from "effect/cli";
 
 export const CLI_VERSION = "0.0.0";
 
@@ -22,7 +22,7 @@ export const createQopCommand = ({
   const link = Command.make(
     "link",
     {
-      account: Flag.string("account").pipe(
+      account: Flag.String("account").pipe(
         Flag.withDescription("Account handle to link"),
         Flag.withSchema(Handle)
       ),
@@ -45,11 +45,11 @@ export const createQopCommand = ({
   const start = Command.make(
     "start",
     {
-      message: Flag.string("message").pipe(
+      message: Flag.String("message").pipe(
         Flag.withDescription("Diagnostic message text"),
         Flag.optional
       ),
-      to: Flag.string("to").pipe(
+      to: Flag.String("to").pipe(
         Flag.withDescription("Handle to send a diagnostic message"),
         Flag.optional
       ),

@@ -1,26 +1,27 @@
 import {
   Base64Url32,
-  decodeRecoveryKeyV1,
-  decodeIdentityEip712DomainV1,
-  decodeRegisterIntentV1,
-  decodeRecoverOwnerIntentV1,
-  decodeWipeDevicesIntentV1,
   decodeAddDeviceIntentV1,
+  decodeIdentityEip712DomainV1,
+  decodeRecoverOwnerIntentV1,
+  decodeRecoveryKeyV1,
+  decodeRegisterIntentV1,
   decodeRemoveDeviceIntentV1,
+  decodeWipeDevicesIntentV1,
   deviceKeyFromEd25519SecretKey,
-  encodeRecoveryKeyV1,
   EcdsaSignature,
+  encodeRecoveryKeyV1,
   EthereumAddress,
   Handle,
   Hex32,
   ownerAddressFromRecoveryKeyV1,
   PeerId,
   peerIdFromEd25519SecretKey,
-  signRegisterIntentV1,
-  signRecoverOwnerIntentV1,
-  signRemoveDeviceIntentV1,
   signAddDeviceIntentV1,
+  signRecoverOwnerIntentV1,
+  signRegisterIntentV1,
+  signRemoveDeviceIntentV1,
   signWipeDevicesIntentV1,
+  strictParseOptions,
 } from "@qop/identity";
 import type {
   IdentityEip712DomainV1Encoded,
@@ -39,11 +40,6 @@ import { Data, Effect, Result, Schema, Semaphore } from "effect";
 const INSTALL_STORAGE_KEY = "qop.install.v1";
 const INSTALL_STORAGE_VALUE = "1";
 const IDENTITY_STORAGE_KEY = "qop.identity.v1";
-const strictParseOptions = {
-  errors: "all",
-  onExcessProperty: "error",
-} as const;
-
 const CanonicalBase64Url32 = Base64Url32.pipe(
   Schema.decodeTo(Base64Url32.pipe(Schema.flip))
 );
@@ -65,7 +61,6 @@ const StoredLocalIdentityV1 = Schema.Struct({
   version: Schema.Literal(1),
 }).annotate({
   messageUnexpectedKey: "Unexpected local identity field",
-  parseOptions: strictParseOptions,
 });
 
 const StoredLocalIdentityJson = Schema.fromJsonString(StoredLocalIdentityV1);
@@ -223,7 +218,9 @@ export const createIdentityVault = ({
     function* (encoded: string) {
       const identity = yield* Schema.decodeUnknownEffect(
         StoredLocalIdentityJson
-      )(encoded).pipe(Effect.mapError(() => vaultError("decode")));
+      )(encoded, strictParseOptions).pipe(
+        Effect.mapError(() => vaultError("decode"))
+      );
       const recoveryPrivateKey = yield* decodeRecoveryKeyV1(
         identity.recoveryKey
       ).pipe(Effect.mapError(() => vaultError("decode")));
