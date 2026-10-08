@@ -12,15 +12,15 @@
     "qop": "node src/main.ts"
   },
   "dependencies": {
-    "@effect/platform-node": "4.0.0",
-    "@minip2p/node": "0.7.1",
+    "@effect/platform-node": "4.0.1",
+    "@minip2p/node": "0.7.3",
     "@qop/identity": "workspace:*",
     "@qop/protocol": "workspace:*",
     "effect": "catalog:",
-    "viem": "2.57.2"
+    "viem": "2.57.3"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.0",
+    "@effect/vitest": "4.0.1",
     "@types/node": "26.6.4",
     "typescript": "catalog:",
     "vitest": "5.0.3"

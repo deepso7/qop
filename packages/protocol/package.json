@@ -15,10 +15,10 @@
     "@qop/identity": "workspace:*",
     "@scure/base": "2.4.0",
     "effect": "catalog:",
-    "viem": "2.57.2"
+    "viem": "2.57.3"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.0",
+    "@effect/vitest": "4.0.1",
     "typescript": "catalog:",
     "vitest": "5.0.3"
   }

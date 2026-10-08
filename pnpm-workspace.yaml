@@ -3,7 +3,7 @@ engineStrict: true
 saveExact: true
 
 catalog:
-  effect: 4.0.0
+  effect: 4.0.1
   typescript: 7.0.2
 
 packages:
