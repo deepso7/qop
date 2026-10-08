@@ -36,9 +36,12 @@ interface DeviceActionBody {
     readonly deviceKey: string;
     readonly nonce: string;
     readonly qid: string;
+    readonly unexpected?: boolean;
   };
-  readonly operation: "add";
+  readonly operation: "add" | "remove";
   readonly ownerSignature: string;
+  // Not part of the API; lets tests post bodies the strict parser must reject.
+  readonly unexpected?: boolean;
 }
 
 const payload: DeviceActionBody = {
@@ -141,6 +144,24 @@ describe("device-action HTTP API", () => {
         status: "confirmed",
         transactionHash: TRANSACTION_HASH,
       });
+    })
+  );
+
+  it.effect("rejects unknown request body fields", () =>
+    Effect.gen(function* () {
+      for (const operation of ["add", "remove"] as const) {
+        const body = { ...payload, operation };
+        const extraTopLevel = yield* postDeviceAction({
+          ...body,
+          unexpected: true,
+        });
+        assert.strictEqual(extraTopLevel.status, 400);
+        const extraInIntent = yield* postDeviceAction({
+          ...body,
+          intent: { ...intent, unexpected: true },
+        });
+        assert.strictEqual(extraInIntent.status, 400);
+      }
     })
   );
 
