@@ -3,7 +3,7 @@ engineStrict: true
 saveExact: true
 
 catalog:
-  effect: 4.0.1
+  effect: 4.0.2
   typescript: 7.0.2
 
 packages:
@@ -23,3 +23,11 @@ allowBuilds:
 
 patchedDependencies:
   drizzle-orm@1.0.0-rc.5-5935859: patches/drizzle-orm@1.0.0-rc.5-5935859.patch
+
+minimumReleaseAgeExclude:
+  - "@effect/platform-node-shared@4.0.2"
+  - "@effect/platform-node@4.0.2"
+  - "@effect/sql-pg@4.0.2"
+  - "@effect/sql-pglite@4.0.2"
+  - "@effect/vitest@4.0.2"
+  - effect@4.0.2
