@@ -12,20 +12,20 @@
     "qop": "node src/main.ts"
   },
   "dependencies": {
-    "@effect/platform-node": "4.0.2",
-    "@minip2p/node": "0.7.3",
+    "@effect/platform-node": "4.0.4",
+    "@minip2p/node": "0.8.3",
     "@qop/identity": "workspace:*",
     "@qop/protocol": "workspace:*",
     "effect": "catalog:",
-    "viem": "2.57.3"
+    "viem": "2.57.7"
   },
   "devDependencies": {
-    "@effect/vitest": "4.0.2",
-    "@types/node": "26.6.4",
+    "@effect/vitest": "4.0.4",
+    "@types/node": "26.6.5",
     "typescript": "catalog:",
-    "vitest": "5.0.3"
+    "vitest": "5.0.4"
   },
   "engines": {
-    "node": "24.20.0"
+    "node": "24.22.0"
   }
 }

@@ -9,7 +9,7 @@
       "env": {
         "APP_VARIANT": "development"
       },
-      "node": "24.21.0",
+      "node": "24.22.0",
       "pnpm": "12.5.1"
     },
     "preview": {
@@ -25,7 +25,7 @@
       "env": {
         "APP_VARIANT": "preview"
       },
-      "node": "24.21.0",
+      "node": "24.22.0",
       "pnpm": "12.5.1"
     },
     "production": {
@@ -33,7 +33,7 @@
       "env": {
         "APP_VARIANT": "production"
       },
-      "node": "24.21.0",
+      "node": "24.22.0",
       "pnpm": "12.5.1"
     }
   },

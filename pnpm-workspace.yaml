@@ -3,7 +3,7 @@ engineStrict: true
 saveExact: true
 
 catalog:
-  effect: 4.0.2
+  effect: 4.0.4
   typescript: 7.0.2
 
 packages:
@@ -25,9 +25,9 @@ patchedDependencies:
   drizzle-orm@1.0.0-rc.5-5935859: patches/drizzle-orm@1.0.0-rc.5-5935859.patch
 
 minimumReleaseAgeExclude:
-  - "@effect/platform-node-shared@4.0.2"
-  - "@effect/platform-node@4.0.2"
-  - "@effect/sql-pg@4.0.2"
-  - "@effect/sql-pglite@4.0.2"
-  - "@effect/vitest@4.0.2"
-  - effect@4.0.2
+  - "@expo/cli@57.0.31"
+  - "@expo/router-server@57.0.13"
+  - babel-preset-expo@57.0.16
+  - expo@57.0.30
+  - "@expo/ui@57.0.25"
+  - expo-router@57.0.28

@@ -47,12 +47,12 @@ export const readPairingFrame = Effect.fn("@qop/protocol/readPairingFrame")(
 
 export const writePairingFrame = Effect.fn("@qop/protocol/writePairingFrame")(
   function* (
-    write: (data: Uint8Array) => void,
+    write: (data: Uint8Array) => Promise<void>,
     closeWrite: () => void,
     frame: PairingFrameV1
   ) {
     const bytes = yield* encodePairingFrameV1(frame);
-    write(bytes);
+    yield* Effect.promise(() => write(bytes));
     closeWrite();
   }
 );

@@ -15,7 +15,7 @@ interface SendStream extends PeerConnection {
   readonly closeWrite: () => void;
   readonly read: () => Promise<Uint8Array | undefined>;
   readonly reset: () => void;
-  readonly write: (data: Uint8Array) => void;
+  readonly write: (data: Uint8Array) => Promise<void>;
 }
 
 interface SendEndpoint {
@@ -166,7 +166,10 @@ export const performSend = async ({
                 new Error("Chat connection is no longer authorized")
               );
             }
-            opened.write(encodeFrame(frame));
+            yield* Effect.tryPromise({
+              catch: asSendError,
+              try: () => opened.write(encodeFrame(frame)),
+            });
             opened.closeWrite();
             const ack = yield* Effect.tryPromise({
               catch: asSendError,

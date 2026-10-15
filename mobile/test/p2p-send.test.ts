@@ -58,7 +58,7 @@ const makeEndpoint = (read: () => Promise<Uint8Array | undefined>) => {
     peerId: PEER_BOB,
     read: vi.fn(read),
     reset: vi.fn(),
-    write: vi.fn(),
+    write: vi.fn(async () => {}),
   };
   sessions.opened(stream);
   const endpoint = {

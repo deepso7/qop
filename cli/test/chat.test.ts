@@ -59,7 +59,7 @@ const makeStream = () => {
       return unread.shift();
     }),
     reset: vi.fn(),
-    write: vi.fn(),
+    write: vi.fn(async () => {}),
   };
 };
 
@@ -445,7 +445,7 @@ describe("deliverChatFrame", () => {
       const stream = makeStream();
       const written = yield* Deferred.make<boolean>();
       const hang = yield* Deferred.make<Uint8Array>();
-      stream.write.mockImplementation(() => {
+      stream.write.mockImplementation(async () => {
         Effect.runSync(Deferred.succeed(written, true));
       });
       stream.read.mockImplementation(() =>

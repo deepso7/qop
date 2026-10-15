@@ -57,7 +57,7 @@ const handshakeTransport = (
         protocolId: PAIR_PROTOCOL,
         read: () => Promise.resolve(chunks.shift()),
         reset: () => {},
-        write: () => {},
+        write: async () => {},
       }),
     waitPeerReady: () => Promise.resolve(),
     ...extras,
@@ -110,7 +110,7 @@ describe("phone pairing handshake", () => {
                 protocolId: PAIR_PROTOCOL,
                 read: () => Promise.resolve(chunks.shift()),
                 reset: () => {},
-                write: (bytes) => {
+                write: async (bytes) => {
                   writes.push(bytes);
                 },
               }),

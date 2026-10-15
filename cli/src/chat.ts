@@ -58,7 +58,7 @@ export interface ChatStream extends PeerConnection {
   readonly protocolId?: string;
   readonly read: () => Promise<Uint8Array | undefined>;
   readonly reset: () => void;
-  readonly write: (data: Uint8Array) => void;
+  readonly write: (data: Uint8Array) => Promise<void>;
 }
 
 export interface ChatDialResult {
@@ -279,10 +279,10 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
         new CliOutboxDeliverError({ operation: "unauthorized" })
       );
     }
-    yield* Effect.try({
+    yield* Effect.tryPromise({
       catch: asDeliverError,
-      try: () => {
-        stream.write(encodeFrame(frame));
+      try: async () => {
+        await stream.write(encodeFrame(frame));
         stream.closeWrite();
       },
     });
@@ -327,7 +327,9 @@ export const ackInboundChatFrame = Effect.fn("qop.ackInboundChatFrame")(
     ) => Effect.Effect<PutInboxResult, CliOutboxStoreError>
   ) {
     const saved = yield* putInbox(record);
-    stream.write(encodeAck({ ack: record.frame.id, v: 1 }));
+    yield* Effect.promise(() =>
+      stream.write(encodeAck({ ack: record.frame.id, v: 1 }))
+    );
     stream.closeWrite();
     return saved;
   }

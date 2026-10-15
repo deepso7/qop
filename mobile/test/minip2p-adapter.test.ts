@@ -34,6 +34,7 @@ const native = vi.hoisted(() => {
     stop() {
       this.doorbell = undefined;
     }
+    streamConsumed() {}
     uniffiDestroy() {
       this.events.length = 0;
     }
@@ -42,8 +43,13 @@ const native = vi.hoisted(() => {
 });
 
 vi.mock("../node_modules/@minip2p/react-native/lib/module/native.js", () => ({
+  DiscoverySource: {},
+  DriverFailureKind: {},
+  EndpointErrorKind: {},
   FfiError_Tags: {},
+  NatErrorKind: {},
   P2pEndpoint: native.Endpoint,
+  Reachability: {},
   circuitAddress: vi.fn(),
   generateSecretKey: vi.fn(),
   peerIdFromSecretKey: vi.fn(),
@@ -132,8 +138,8 @@ test("a FIN followed by full close in one native batch preserves unread data and
   );
   fake.doorbell?.onEventsReady();
   await vi.runAllTimersAsync();
-  await expect(stream.read()).resolves.toEqual(Uint8Array.of(1));
-  await expect(stream.read()).resolves.toEqual(Uint8Array.of(2));
+  // Adjacent data events for one stream coalesce into a single chunk.
+  await expect(stream.read()).resolves.toEqual(Uint8Array.of(1, 2));
   await expect(stream.read()).resolves.toBeUndefined();
   endpoint.close();
 });

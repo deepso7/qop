@@ -126,7 +126,7 @@ describe("CLI inbound sync", () => {
         this.writeClosed = true;
       },
       replies,
-      write(data: Uint8Array) {
+      async write(data: Uint8Array) {
         this.replies.push(data);
       },
       writeClosed: false,

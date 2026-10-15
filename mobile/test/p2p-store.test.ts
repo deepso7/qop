@@ -234,7 +234,7 @@ const makeInboundStream = (
     protocolId: CHAT_PROTOCOL,
     read: () => Promise.resolve(chunks.shift()),
     reset: vi.fn(),
-    write: vi.fn(),
+    write: vi.fn(async () => {}),
   };
 };
 

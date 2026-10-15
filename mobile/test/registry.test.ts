@@ -61,12 +61,14 @@ describe("configured registry", () => {
     const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
       // SAFETY: viem's HTTP transport serializes every JSON-RPC request as an object with a method.
       const request = JSON.parse(String(init?.body)) as { method: string };
-      if (request.method === "eth_chainId") {
-        return Promise.resolve(
-          Response.json({ id: 0, jsonrpc: "2.0", result: "0x7a69" })
-        );
+      const results: Record<string, string> = {
+        eth_blockNumber: "0x1",
+        eth_chainId: "0x7a69",
+      };
+      const result = results[request.method];
+      if (result) {
+        return Promise.resolve(Response.json({ id: 0, jsonrpc: "2.0", result }));
       }
-      expect(request.method).toBe("eth_call");
       init?.signal?.addEventListener("abort", () => {
         pending.reject(init.signal?.reason);
       });
@@ -88,8 +90,12 @@ describe("configured registry", () => {
         )
       );
       expect(result._tag).toBe("None");
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      const [, ethCall] = fetchMock.mock.calls[2] ?? [];
+      expect(JSON.parse(String(ethCall?.body))).toMatchObject({
+        method: "eth_call",
+      });
+      expect(ethCall).toMatchObject({
         signal: expect.objectContaining({ aborted: true }),
       });
     } finally {

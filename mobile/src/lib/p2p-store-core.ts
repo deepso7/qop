@@ -76,7 +76,7 @@ interface P2pActions {
         readonly protocolId: string;
         readonly read: () => Promise<Uint8Array | undefined>;
         readonly reset: () => void;
-        readonly write: (data: Uint8Array) => void;
+        readonly write: (data: Uint8Array) => Promise<void>;
       }
     | undefined
   >;
@@ -317,7 +317,7 @@ export const createP2pStore = ({
       if (!isCurrentGeneration(jobGeneration)) {
         return;
       }
-      stream.write(encodeAck({ ack: frame.id, v: 1 }));
+      await stream.write(encodeAck({ ack: frame.id, v: 1 }));
       stream.closeWrite();
       storeBridge.setState((state) => ({ revision: state.revision + 1 }));
     } catch {

@@ -16,7 +16,7 @@ export interface SyncStream extends PeerConnection {
   readonly closeWrite: () => void;
   readonly read: () => Promise<Uint8Array | undefined>;
   readonly reset: () => void;
-  readonly write: (data: Uint8Array) => void;
+  readonly write: (data: Uint8Array) => Promise<void>;
 }
 
 const concatChunks = (chunks: readonly Uint8Array[], byteLength: number) => {
@@ -64,21 +64,21 @@ export const readSyncResponse = Effect.fn("@qop/protocol/readSyncResponse")(
 
 /** A closed stream throws from write/closeWrite; keep that a typed failure, not a defect. */
 const sendFrame = (
-  write: (data: Uint8Array) => void,
+  write: (data: Uint8Array) => Promise<void>,
   closeWrite: () => void,
   bytes: Uint8Array
 ) =>
-  Effect.try({
+  Effect.tryPromise({
     catch: () => new SyncCodecError({ operation: "frame" }),
-    try: () => {
-      write(bytes);
+    try: async () => {
+      await write(bytes);
       closeWrite();
     },
   });
 
 export const writeSyncRequest = Effect.fn("@qop/protocol/writeSyncRequest")(
   function* (
-    write: (data: Uint8Array) => void,
+    write: (data: Uint8Array) => Promise<void>,
     closeWrite: () => void,
     frame: SyncRequestV1
   ) {
@@ -89,7 +89,7 @@ export const writeSyncRequest = Effect.fn("@qop/protocol/writeSyncRequest")(
 
 export const writeSyncResponse = Effect.fn("@qop/protocol/writeSyncResponse")(
   function* (
-    write: (data: Uint8Array) => void,
+    write: (data: Uint8Array) => Promise<void>,
     closeWrite: () => void,
     frame: SyncResponseV1
   ) {

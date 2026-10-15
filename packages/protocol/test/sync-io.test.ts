@@ -38,7 +38,7 @@ describe("sync stream frames", () => {
         peerId: "peer",
         read: () => Promise.resolve(pending.shift()),
         reset: () => {},
-        write: (data: Uint8Array) => {
+        write: async (data: Uint8Array) => {
           pending.push(data);
         },
       };

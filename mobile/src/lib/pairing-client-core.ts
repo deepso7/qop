@@ -32,7 +32,7 @@ export interface PairingStream {
   readonly protocolId: string;
   readonly read: () => Promise<Uint8Array | undefined>;
   readonly reset: () => void;
-  readonly write: (data: Uint8Array) => void;
+  readonly write: (data: Uint8Array) => Promise<void>;
 }
 
 export interface PairingTransport {

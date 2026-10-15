@@ -16,7 +16,7 @@ describe("pairing stream frames", () => {
       const frame = yield* Schema.decodeUnknownEffect(PairingFrameV1)(encoded);
       const chunks: Uint8Array[] = [];
       yield* writePairingFrame(
-        (data) => {
+        async (data) => {
           chunks.push(data);
         },
         () => {},

@@ -11,7 +11,7 @@ RUN pnpm --filter @qop/api build
 # Alpine plus node's musl binary is smaller than any glibc base with node.
 FROM alpine:3.24
 RUN apk add --no-cache libstdc++
-COPY --from=node:24.20.0-alpine3.24 /usr/local/bin/node /usr/local/bin/node
+COPY --from=node:24.22.0-alpine3.24 /usr/local/bin/node /usr/local/bin/node
 WORKDIR /app
 COPY --from=build /app/api/dist ./
 USER nobody
