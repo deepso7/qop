@@ -37,16 +37,20 @@ export const matchingDeviceActionEvent = (
 ) => {
   const selector =
     operation === "add" ? registryEvents.add : registryEvents.remove;
+
   const qidTopic = pad(toHex(qid), { size: 32 }).toLowerCase();
   const keyTopic = deviceKey.toLowerCase();
+
   const nonceData = encodeAbiParameters(
     [{ type: "uint256" }],
     [nonce]
   ).toLowerCase();
+
   return logs.some((log) => {
     const topic0 = log.topics[0]?.toLowerCase();
     const topic1 = log.topics[1]?.toLowerCase();
     const topic2 = log.topics[2]?.toLowerCase();
+
     return (
       topic0 === selector &&
       topic1 === qidTopic &&
@@ -98,9 +102,11 @@ export class DeviceActionChain extends Context.Service<
     this,
     Effect.gen(function* () {
       const env = yield* Env;
+
       const client = createPublicClient({
         transport: http(env.RPC_URL.toString(), { batch: true }),
       });
+
       const registryAddress = getAddress(env.REGISTRY_ADDRESS);
       const confirmations = BigInt(env.REGISTRY_CONFIRMATIONS);
 
@@ -110,9 +116,11 @@ export class DeviceActionChain extends Context.Service<
             catch: () => new DeviceActionChainError({ operation: "account" }),
             try: () => client.getBlockNumber(),
           });
+
           if (latest < confirmations) {
             return yield* new DeviceActionChainError({ operation: "account" });
           }
+
           return latest - confirmations;
         }
       );
@@ -121,6 +129,7 @@ export class DeviceActionChain extends Context.Service<
         qid: bigint
       ) {
         const blockNumber = yield* pinnedHead();
+
         const result = yield* Effect.tryPromise({
           catch: () => new DeviceActionChainError({ operation: "account" }),
           try: async () => {
@@ -140,9 +149,11 @@ export class DeviceActionChain extends Context.Service<
                 functionName: "listActiveDevices",
               }),
             ]);
+
             return { devices, row };
           },
         });
+
         return {
           devices: result.devices,
           handle: result.row.handle,
@@ -162,6 +173,7 @@ export class DeviceActionChain extends Context.Service<
             // Deadline windows use current chain time, not the older roster snapshot.
             try: () => client.getBlock({ blockTag: "latest" }),
           });
+
           return block.timestamp;
         }
       )();
@@ -174,6 +186,7 @@ export class DeviceActionChain extends Context.Service<
       const qidByDeviceKey = Effect.fn("DeviceActionChain.qidByDeviceKey")(
         function* (deviceKey: Hash) {
           const blockNumber = yield* pinnedHead();
+
           const qid = yield* Effect.tryPromise({
             catch: () => new DeviceActionChainError({ operation: "account" }),
             try: () =>
@@ -185,6 +198,7 @@ export class DeviceActionChain extends Context.Service<
                 functionName: "qidByDeviceKey",
               }),
           });
+
           return qid === 0n ? null : qid;
         }
       );
@@ -192,6 +206,7 @@ export class DeviceActionChain extends Context.Service<
       const deviceKeyRemoved = Effect.fn("DeviceActionChain.deviceKeyRemoved")(
         function* (deviceKey: Hash) {
           const blockNumber = yield* pinnedHead();
+
           return yield* Effect.tryPromise({
             catch: () => new DeviceActionChainError({ operation: "account" }),
             try: () =>
@@ -240,9 +255,11 @@ export class DeviceActionChain extends Context.Service<
           catch: () => new DeviceActionChainError({ operation: "receipt" }),
           try: () => client.getTransactionReceipt({ hash: transactionHash }),
         }).pipe(Effect.catch(() => Effect.succeed(null)));
+
         if (!found) {
           return null;
         }
+
         return {
           blockNumber: found.blockNumber,
           logs: found.logs,

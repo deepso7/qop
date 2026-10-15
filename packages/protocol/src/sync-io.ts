@@ -22,10 +22,12 @@ export interface SyncStream extends PeerConnection {
 const concatChunks = (chunks: readonly Uint8Array[], byteLength: number) => {
   const bytes = new Uint8Array(byteLength);
   let offset = 0;
+
   for (const chunk of chunks) {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+
   return bytes;
 };
 
@@ -39,14 +41,19 @@ const readChunks = (
       catch: () => new SyncCodecError({ operation: "frame" }),
       try: () => read(),
     });
+
     if (!chunk) {
       return concatChunks(chunks, byteLength);
     }
+
     const nextLength = byteLength + chunk.byteLength;
+
     if (nextLength > MAX_SYNC_PAYLOAD_BYTES) {
       return yield* new SyncCodecError({ operation: "oversized" });
     }
+
     chunks.push(chunk);
+
     return yield* readChunks(read, chunks, nextLength);
   });
 

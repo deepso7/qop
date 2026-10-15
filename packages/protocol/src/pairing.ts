@@ -18,9 +18,11 @@ import {
 
 const CanonicalHex32 = Hex32.pipe(Schema.decodeTo(Hex32.pipe(Schema.flip)));
 const CanonicalQid = Qid.pipe(Schema.decodeTo(Qid.pipe(Schema.flip)));
+
 const CanonicalChainId = ChainId.pipe(
   Schema.decodeTo(ChainId.pipe(Schema.flip))
 );
+
 const CanonicalDeadline = UnixSeconds.pipe(
   Schema.decodeTo(UnixSeconds.pipe(Schema.flip))
 );
@@ -47,8 +49,11 @@ export const PairingOfferV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected pairing offer field",
 });
+
 export { PairingOfferV1Schema as PairingOfferV1 };
+
 export type PairingOfferV1 = typeof PairingOfferV1Schema.Type;
+
 export type PairingOfferV1Encoded = typeof PairingOfferV1Schema.Encoded;
 
 const PairingHelloV1Schema = Schema.Struct({
@@ -108,8 +113,11 @@ export const PairingFrameV1Schema = Schema.Union([
   PairingApprovalSavedV1Schema,
   PairingApprovalConflictV1Schema,
 ]);
+
 export { PairingFrameV1Schema as PairingFrameV1 };
+
 export type PairingFrameV1 = typeof PairingFrameV1Schema.Type;
+
 export type PairingFrameV1Encoded = typeof PairingFrameV1Schema.Encoded;
 
 export class PairingCodecError extends Data.TaggedError("PairingCodecError")<{
@@ -135,11 +143,14 @@ export const encodePairingOfferV1 = Effect.fn(
   const encoded = yield* Schema.encodeEffect(PairingOfferV1Schema)(offer).pipe(
     Effect.mapError(() => new PairingCodecError({ operation: "offer" }))
   );
+
   const bytes = yield* encodeJson(encoded);
   const payload = `${QR_PREFIX}${base64urlnopad.encode(bytes)}`;
+
   if (payload.length > PAIRING_QR_MAX_CHARS) {
     return yield* new PairingCodecError({ operation: "oversized" });
   }
+
   return payload;
 });
 
@@ -149,25 +160,31 @@ export const decodePairingOfferV1 = Effect.fn(
   if (input.length > PAIRING_QR_MAX_CHARS) {
     return yield* new PairingCodecError({ operation: "oversized" });
   }
+
   if (!input.startsWith(QR_PREFIX)) {
     return yield* new PairingCodecError({ operation: "version" });
   }
+
   const bytes = yield* Effect.try({
     catch: () => new PairingCodecError({ operation: "offer" }),
     try: () => base64urlnopad.decode(input.slice(QR_PREFIX.length)),
   });
+
   const json = yield* Effect.try({
     catch: () => new PairingCodecError({ operation: "offer" }),
     // SAFETY: JSON.parse is untyped; PairingOfferV1 is decoded immediately below.
     try: () => JSON.parse(textDecoder.decode(bytes)) as unknown,
   });
+
   const offer = yield* Schema.decodeUnknownEffect(PairingOfferV1Schema)(
     json,
     strictParseOptions
   ).pipe(Effect.mapError(() => new PairingCodecError({ operation: "offer" })));
+
   if (BigInt(offer.expiresAt) <= nowSeconds) {
     return yield* new PairingCodecError({ operation: "expired" });
   }
+
   return offer;
 });
 
@@ -186,11 +203,13 @@ export const decodePairingFrameV1 = Effect.fn(
   if (bytes.byteLength > PAIRING_FRAME_MAX_BYTES) {
     return yield* new PairingCodecError({ operation: "oversized" });
   }
+
   const json = yield* Effect.try({
     catch: () => new PairingCodecError({ operation: "frame" }),
     // SAFETY: JSON.parse is untyped; PairingFrameV1 is decoded immediately below.
     try: () => JSON.parse(textDecoder.decode(bytes)) as unknown,
   });
+
   return yield* Schema.decodeUnknownEffect(PairingFrameV1Schema)(
     json,
     strictParseOptions

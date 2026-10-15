@@ -45,6 +45,7 @@ const openStoreInChild = (root: string) =>
     const worker = fileURLToPath(
       new URL("outbox-open-worker.ts", import.meta.url)
     );
+
     const child = spawn(
       process.execPath,
       ["--experimental-strip-types", worker, root],
@@ -53,16 +54,20 @@ const openStoreInChild = (root: string) =>
         stdio: ["ignore", "pipe", "pipe"],
       }
     );
+
     let stdout = "";
     let stderr = "";
     let settled = false;
+
     const finish = (effect: Effect.Effect<string, Error>) => {
       if (settled) {
         return;
       }
+
       settled = true;
       resume(effect);
     };
+
     child.stdout?.on("data", (chunk: Buffer | string) => {
       stdout += chunk.toString();
     });
@@ -76,12 +81,15 @@ const openStoreInChild = (root: string) =>
     child.once("close", (code) => {
       if (code === 0) {
         finish(Effect.succeed(stdout));
+
         return;
       }
+
       finish(
         Effect.fail(new Error(`worker exited ${code}: ${stdout}${stderr}`))
       );
     });
+
     // Parent timeout/interrupt must kill the child — sync open can block the
     // child's event loop so Effect.timeout inside the child cannot fire.
     return Effect.sync(() => {
@@ -108,9 +116,11 @@ describe("CLI outbox store", () => {
       expect(yield* reloaded.getByIds([queuedRecord.frame.id])).toEqual([
         queuedRecord,
       ]);
+
       const info = yield* Effect.tryPromise(() =>
         stat(path.join(root, "messages.db"))
       );
+
       expect(info.mode.toString(8).slice(-3)).toBe("600");
     })
   );
@@ -120,11 +130,13 @@ describe("CLI outbox store", () => {
       const root = yield* withTempRoot;
       const store = yield* openCliOutboxStore(root);
       const first = yield* store.enqueue(queuedRecord);
+
       const second = yield* store.enqueue({
         ...queuedRecord,
         attempts: 3,
         updatedAt: 9,
       });
+
       expect(second).toEqual(first);
       expect(yield* store.queuedCount()).toBe(1);
     })
@@ -135,13 +147,16 @@ describe("CLI outbox store", () => {
       const root = yield* withTempRoot;
       const store = yield* openCliOutboxStore(root);
       yield* store.enqueue(queuedRecord);
+
       const conflicted = yield* store
         .enqueue({
           ...queuedRecord,
           frame: { ...queuedRecord.frame, text: "other" },
         })
         .pipe(Effect.result);
+
       expect(conflicted._tag).toBe("Failure");
+
       if (conflicted._tag === "Failure") {
         expect(conflicted.failure.operation).toBe("conflict");
       }
@@ -152,12 +167,14 @@ describe("CLI outbox store", () => {
     Effect.gen(function* () {
       const root = yield* withTempRoot;
       const store = yield* openCliOutboxStore(root);
+
       const inbound = {
         frame: queuedRecord.frame,
         fromQid: "2",
         receivedAt: 1_700_000_000_001,
         v: 1 as const,
       };
+
       const first = yield* store.putInbox(inbound);
       expect(first.inserted).toBe(true);
       expect(yield* store.loadInbox()).toEqual([inbound]);
@@ -167,9 +184,11 @@ describe("CLI outbox store", () => {
       const otherSender = yield* store.putInbox({ ...inbound, fromQid: "3" });
       expect(otherSender.inserted).toBe(true);
       expect(yield* store.loadInbox()).toHaveLength(2);
+
       const conflicted = yield* store
         .putInbox({ ...inbound, frame: { ...inbound.frame, text: "other" } })
         .pipe(Effect.result);
+
       expect(conflicted._tag).toBe("Failure");
     })
   );
@@ -179,10 +198,12 @@ describe("CLI outbox store", () => {
       const root = yield* withTempRoot;
       const store = yield* openCliOutboxStore(root);
       const extraId = "c56a4180-65aa-42ec-a945-5fd21dec0539";
+
       const extra = {
         ...queuedRecord,
         frame: { ...queuedRecord.frame, id: extraId, text: "later" },
       };
+
       yield* store.enqueue(queuedRecord);
       yield* Effect.all(
         [
@@ -207,6 +228,7 @@ describe("CLI outbox store", () => {
     Effect.gen(function* () {
       const root = yield* withTempRoot;
       const store = yield* openCliOutboxStore(root);
+
       const batch = Array.from({ length: 20 }, (_, index) => ({
         ...queuedRecord,
         frame: {
@@ -215,6 +237,7 @@ describe("CLI outbox store", () => {
           text: `hello-${index}`,
         },
       }));
+
       yield* Effect.all(
         batch.map((record) => store.enqueue(record)),
         { concurrency: "unbounded" }
@@ -229,12 +252,14 @@ describe("CLI outbox store", () => {
     Effect.gen(function* () {
       const root = yield* withTempRoot;
       const store = yield* openCliOutboxStore(root);
+
       const first = {
         frame: queuedRecord.frame,
         fromQid: "2",
         receivedAt: 1,
         v: 1 as const,
       };
+
       const second = {
         frame: {
           ...queuedRecord.frame,
@@ -245,6 +270,7 @@ describe("CLI outbox store", () => {
         receivedAt: 2,
         v: 1 as const,
       };
+
       yield* Effect.all([store.putInbox(first), store.putInbox(second)], {
         concurrency: 2,
       });
@@ -260,10 +286,12 @@ describe("CLI outbox store", () => {
     Effect.gen(function* () {
       const root = yield* withTempRoot;
       const store = yield* openCliOutboxStore(root);
+
       const results = yield* Effect.all(
         Array.from({ length: 8 }, () => store.enqueue(queuedRecord)),
         { concurrency: "unbounded" }
       );
+
       expect(results).toEqual(Array.from({ length: 8 }, () => queuedRecord));
       expect(yield* store.queuedCount()).toBe(1);
     })
@@ -273,6 +301,7 @@ describe("CLI outbox store", () => {
     Effect.gen(function* () {
       const root = yield* withTempRoot;
       const first = queuedRecord;
+
       const second = {
         ...queuedRecord,
         frame: {
@@ -281,6 +310,7 @@ describe("CLI outbox store", () => {
           text: "second",
         },
       };
+
       const third = {
         ...queuedRecord,
         frame: {
@@ -289,6 +319,7 @@ describe("CLI outbox store", () => {
           text: "third",
         },
       };
+
       yield* Effect.scoped(
         Effect.gen(function* () {
           const store = yield* openCliOutboxStore(root);
@@ -315,6 +346,7 @@ describe("CLI outbox store", () => {
       yield* Effect.tryPromise(() => chmod(dbPath, 0o644));
       const opened = yield* openCliOutboxStore(root).pipe(Effect.result);
       expect(opened._tag).toBe("Failure");
+
       if (opened._tag === "Failure") {
         expect(opened.failure.operation).toBe("permissions");
       }
@@ -331,6 +363,7 @@ describe("CLI outbox store", () => {
       yield* Effect.tryPromise(() => chmod(dbPath, 0o600));
       const opened = yield* openCliOutboxStore(root).pipe(Effect.result);
       expect(opened._tag).toBe("Failure");
+
       if (opened._tag === "Failure") {
         expect(opened.failure.operation).toBe("decode");
       }
@@ -347,6 +380,7 @@ describe("CLI outbox store", () => {
       yield* Effect.tryPromise(() => chmod(dbPath, 0o600));
       const opened = yield* openCliOutboxStore(root).pipe(Effect.result);
       expect(opened._tag).toBe("Failure");
+
       if (opened._tag === "Failure") {
         expect(opened.failure.operation).toBe("decode");
       }
@@ -357,17 +391,22 @@ describe("CLI outbox store", () => {
     Effect.gen(function* () {
       const root = yield* withTempRoot;
       yield* Effect.tryPromise(() => chmod(root, 0o700));
+
       const opened = yield* openCliOutboxStore(root, {
         readOnly: true,
       }).pipe(Effect.result);
+
       expect(opened._tag).toBe("Failure");
+
       if (opened._tag === "Failure") {
         expect(opened.failure.operation).toBe("absent");
       }
+
       const missing = yield* Effect.tryPromise({
         catch: (error) => error,
         try: () => stat(path.join(root, "messages.db")),
       }).pipe(Effect.result);
+
       expect(missing._tag).toBe("Failure");
     })
   );
@@ -382,11 +421,13 @@ describe("CLI outbox store", () => {
           yield* store.enqueue(queuedRecord);
         })
       );
+
       const count = yield* Effect.scoped(
         openCliOutboxStore(root, { readOnly: true }).pipe(
           Effect.flatMap((store) => store.queuedCount())
         )
       );
+
       expect(count).toBe(1);
     })
   );
@@ -398,13 +439,16 @@ describe("CLI outbox store", () => {
         const root = yield* withTempRoot;
         yield* Effect.tryPromise(() => chmod(root, 0o700));
         yield* Effect.scoped(openCliOutboxStore(root).pipe(Effect.asVoid));
+
         const writer = new DatabaseSync(path.join(root, "messages.db"), {
           timeout: 0,
         });
+
         // Open in a child so a regressing sync busy-wait cannot block the
         // parent's event loop; enforce the 1s deadline from this process.
         const opened = yield* Effect.suspend(() => {
           writer.exec("BEGIN IMMEDIATE");
+
           return openStoreInChild(root).pipe(
             Effect.timeout(Duration.millis(1000)),
             Effect.result
@@ -417,7 +461,9 @@ describe("CLI outbox store", () => {
             })
           )
         );
+
         expect(opened._tag).toBe("Success");
+
         if (opened._tag === "Success") {
           expect(opened.success.trim()).toBe("SUCCESS 0");
         }
@@ -431,6 +477,7 @@ describe("CLI outbox store", () => {
       Effect.gen(function* () {
         const root = yield* withTempRoot;
         yield* Effect.tryPromise(() => chmod(root, 0o700));
+
         const outputs = yield* Effect.all(
           [
             openStoreInChild(root),
@@ -439,6 +486,7 @@ describe("CLI outbox store", () => {
           ],
           { concurrency: "unbounded" }
         );
+
         expect(outputs.map((line) => line.trim())).toEqual([
           "SUCCESS 0",
           "SUCCESS 0",

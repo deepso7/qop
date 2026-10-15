@@ -11,7 +11,9 @@ import {
 import { sendPairingApproval } from "./pairing-client-core";
 
 export { DeviceActionApprovalError } from "./device-action-approval";
+
 export { createDeviceLinkFlow } from "./device-link-flow-core";
+
 export type { DeviceLinkDependencies } from "./device-link-flow-core";
 
 export const { completeDeviceLink, completeDeviceRemove } =

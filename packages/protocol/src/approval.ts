@@ -20,15 +20,19 @@ import type {
 import { Data, Effect, Schema } from "effect";
 
 const CanonicalHex32 = Hex32.pipe(Schema.decodeTo(Hex32.pipe(Schema.flip)));
+
 const CanonicalSignature = EcdsaSignature.pipe(
   Schema.decodeTo(EcdsaSignature.pipe(Schema.flip))
 );
+
 const CanonicalDomain = IdentityEip712DomainV1.pipe(
   Schema.decodeTo(IdentityEip712DomainV1.pipe(Schema.flip))
 );
+
 const CanonicalAddIntent = AddDeviceIntentV1.pipe(
   Schema.decodeTo(AddDeviceIntentV1.pipe(Schema.flip))
 );
+
 const CanonicalRemoveIntent = RemoveDeviceIntentV1.pipe(
   Schema.decodeTo(RemoveDeviceIntentV1.pipe(Schema.flip))
 );
@@ -61,8 +65,11 @@ export const DeviceActionApprovalV1Schema = Schema.Union([
   AddApprovalV1Schema,
   RemoveApprovalV1Schema,
 ]);
+
 export { DeviceActionApprovalV1Schema as DeviceActionApprovalV1 };
+
 export type DeviceActionApprovalV1 = typeof DeviceActionApprovalV1Schema.Type;
+
 export type DeviceActionApprovalV1Encoded =
   typeof DeviceActionApprovalV1Schema.Encoded;
 
@@ -85,6 +92,7 @@ export const acknowledgeApproval = (
   if (!pending) {
     return { digest: incoming.digest, kind: "saved" };
   }
+
   if (
     pending.digest === incoming.digest &&
     JSON.stringify(encodedApproval(pending)) ===
@@ -92,6 +100,7 @@ export const acknowledgeApproval = (
   ) {
     return { digest: pending.digest, kind: "saved" };
   }
+
   return { digest: pending.digest, kind: "conflict" };
 };
 
@@ -118,6 +127,7 @@ export const verifyApprovalDigest = Effect.fn(
   const domain = yield* decodeIdentityEip712DomainV1(record.domain).pipe(
     Effect.mapError(() => new ApprovalError({ operation: "decode" }))
   );
+
   const digest =
     record.operation === "add"
       ? yield* hashAddDeviceIntentV1(
@@ -136,9 +146,11 @@ export const verifyApprovalDigest = Effect.fn(
         ).pipe(
           Effect.mapError(() => new ApprovalError({ operation: "digest" }))
         );
+
   if (digest !== record.digest) {
     return yield* new ApprovalError({ operation: "digest" });
   }
+
   return digest;
 });
 

@@ -36,6 +36,7 @@ describe("device keys", () => {
       const error = yield* deviceKeyFromEd25519SecretKey(
         new Uint8Array(31)
       ).pipe(Effect.flip);
+
       assert.strictEqual(error.operation, "derive-public-key");
     })
   );

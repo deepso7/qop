@@ -21,14 +21,17 @@ describe("registry reader", () => {
       if (functionName === "qidByHandleHash") {
         return Promise.resolve(args[0] === ALICE_HASH ? 42n : 0n);
       }
+
       if (functionName === "qidByDeviceKey") {
         return Promise.resolve(
           args[0] === DEVICE_KEY || args[0] === CLI_KEY ? 42n : 0n
         );
       }
+
       if (functionName === "listActiveDevices") {
         return Promise.resolve([DEVICE_KEY, CLI_KEY]);
       }
+
       if (functionName === "account") {
         const data = encodeAbiParameters(
           [
@@ -45,6 +48,7 @@ describe("registry reader", () => {
           ],
           [[OWNER, 3, 1_700_000_000n, 0n, "alice"]]
         );
+
         return Promise.resolve(
           decodeFunctionResult({
             abi: registryAbi,
@@ -53,23 +57,29 @@ describe("registry reader", () => {
           })
         );
       }
+
       return Promise.resolve(0n);
     });
+
     const { listActiveDevices, lookupDeviceKey, lookupHandle } =
       createRegistryReader({
         client: { readContract },
       });
+
     const deviceKey = await Effect.runPromise(
       Schema.decodeUnknownEffect(Hex32)(DEVICE_KEY)
     );
+
     const cliKey = await Effect.runPromise(
       Schema.decodeUnknownEffect(Hex32)(CLI_KEY)
     );
+
     const expectedPeerId = await Effect.runPromise(
       peerIdFromDeviceKey(deviceKey).pipe(
         Effect.flatMap(Schema.encodeEffect(PeerId))
       )
     );
+
     const expectedCliPeerId = await Effect.runPromise(
       peerIdFromDeviceKey(cliKey).pipe(
         Effect.flatMap(Schema.encodeEffect(PeerId))
@@ -120,9 +130,11 @@ describe("registry reader", () => {
       if (functionName === "qidByHandleHash") {
         return Promise.resolve(42n);
       }
+
       if (functionName === "listActiveDevices") {
         return Promise.resolve([`0x${"00".repeat(32)}`]);
       }
+
       return Promise.resolve({
         handle: "alice",
         nonce: 0n,
@@ -131,6 +143,7 @@ describe("registry reader", () => {
         registeredAt: 1_700_000_000n,
       });
     });
+
     const { lookupHandle } = createRegistryReader({ client: { readContract } });
 
     const result = await Effect.runPromise(
@@ -143,12 +156,14 @@ describe("registry reader", () => {
   it("aborts the RPC when its lookup fiber is interrupted", async () => {
     const pending = Promise.withResolvers<bigint>();
     let aborted = false;
+
     const { lookupHandle } = createRegistryReader({
       client: {
         readContract: (_parameters, { signal } = {}) => {
           signal?.addEventListener("abort", () => {
             aborted = true;
           });
+
           return pending.promise;
         },
       },
@@ -157,19 +172,23 @@ describe("registry reader", () => {
     const result = await Effect.runPromise(
       lookupHandle("alice").pipe(Effect.timeoutOption(0))
     );
+
     expect(result._tag).toBe("None");
     expect(aborted).toBe(true);
   });
 
   it("returns null when the preferred device key is absent from the active list", async () => {
     const removedKey = `0x${"44".repeat(32)}` as const;
+
     const readContract = vi.fn(({ functionName, args }) => {
       if (functionName === "qidByDeviceKey") {
         return Promise.resolve(args[0] === removedKey ? 42n : 0n);
       }
+
       if (functionName === "listActiveDevices") {
         return Promise.resolve([DEVICE_KEY, CLI_KEY]);
       }
+
       if (functionName === "account") {
         return Promise.resolve({
           handle: "alice",
@@ -179,11 +198,14 @@ describe("registry reader", () => {
           registeredAt: 1_700_000_000n,
         });
       }
+
       return Promise.resolve(0n);
     });
+
     const { lookupDeviceKey } = createRegistryReader({
       client: { readContract },
     });
+
     await expect(
       Effect.runPromise(lookupDeviceKey(removedKey))
     ).resolves.toBeNull();
@@ -191,14 +213,18 @@ describe("registry reader", () => {
 
   it("pins membership reads to a non-deduped head and labels them fresh", async () => {
     const getBlockNumber = vi.fn(() => Promise.resolve(99n));
+
     const readContract = vi.fn(({ functionName, blockNumber, args }) => {
       expect(blockNumber).toBe(99n);
+
       if (functionName === "qidByDeviceKey") {
         return Promise.resolve(args[0] === DEVICE_KEY ? 42n : 0n);
       }
+
       if (functionName === "listActiveDevices") {
         return Promise.resolve([DEVICE_KEY]);
       }
+
       if (functionName === "account") {
         return Promise.resolve({
           handle: "alice",
@@ -208,11 +234,14 @@ describe("registry reader", () => {
           registeredAt: 1_700_000_000n,
         });
       }
+
       return Promise.resolve(0n);
     });
+
     const { lookupDeviceKey } = createRegistryReader({
       client: { getBlockNumber, readContract },
     });
+
     await expect(
       Effect.runPromise(lookupDeviceKey(DEVICE_KEY))
     ).resolves.toMatchObject({
@@ -229,12 +258,15 @@ describe("registry reader", () => {
   it("labels membership stale when the client cannot provide a block head", async () => {
     const readContract = vi.fn(({ functionName, blockNumber, args }) => {
       expect(blockNumber).toBeUndefined();
+
       if (functionName === "qidByDeviceKey") {
         return Promise.resolve(args[0] === DEVICE_KEY ? 42n : 0n);
       }
+
       if (functionName === "listActiveDevices") {
         return Promise.resolve([DEVICE_KEY]);
       }
+
       if (functionName === "account") {
         return Promise.resolve({
           handle: "alice",
@@ -244,11 +276,14 @@ describe("registry reader", () => {
           registeredAt: 1_700_000_000n,
         });
       }
+
       return Promise.resolve(0n);
     });
+
     const { lookupDeviceKey } = createRegistryReader({
       client: { readContract },
     });
+
     await expect(
       Effect.runPromise(lookupDeviceKey(DEVICE_KEY))
     ).resolves.toMatchObject({
@@ -260,16 +295,21 @@ describe("registry reader", () => {
   it("reports whether a device key was permanently removed", async () => {
     const removedKey = `0x${"44".repeat(32)}` as const;
     const getBlockNumber = vi.fn(() => Promise.resolve(99n));
+
     const readContract = vi.fn(({ functionName, blockNumber, args }) => {
       expect(blockNumber).toBe(99n);
+
       if (functionName === "deviceKeyRemoved") {
         return Promise.resolve(args[0] === removedKey);
       }
+
       return Promise.resolve(false);
     });
+
     const { deviceKeyRemoved } = createRegistryReader({
       client: { getBlockNumber, readContract },
     });
+
     await expect(Effect.runPromise(deviceKeyRemoved(removedKey))).resolves.toBe(
       true
     );

@@ -81,6 +81,7 @@ export const AnimatedSplashOverlay = () => {
     <Animated.View
       entering={splashKeyframe.duration(DURATION).withCallback((finished) => {
         "worklet";
+
         if (finished) {
           scheduleOnRN(setVisible, false);
         }
@@ -98,6 +99,7 @@ export const AnimatedSplashOverlay = () => {
           } catch {
             // Splash may already be hidden; still start the transition.
           }
+
           setAnimate(true);
         })();
       }}

@@ -27,16 +27,20 @@ const withLock = <A, E, R>(program: Effect.Effect<A, E, R>) =>
   Effect.scoped(
     Effect.gen(function* () {
       yield* store.acquireLock();
+
       return yield* program;
     })
   );
 
 const runStatus = Effect.fn("qop.status")(function* () {
   const identity = yield* store.loadIdentity();
+
   if (!identity) {
     console.log("No CLI identity. Run qop link --account <handle>.");
+
     return;
   }
+
   const { reader } = yield* configuredRegistry();
   const membership = yield* reader.lookupDeviceKey(identity.deviceKey);
   console.log(`account  @${identity.handle}`);
@@ -48,6 +52,7 @@ const runStatus = Effect.fn("qop.status")(function* () {
   console.log(
     `state    ${membership?.qid.toString() === identity.qid ? "linked" : "not linked"}`
   );
+
   const queued = yield* Effect.scoped(
     openCliOutboxStore(store.root, { readOnly: true }).pipe(
       Effect.flatMap((messages) => messages.queuedCount())
@@ -60,6 +65,7 @@ const runStatus = Effect.fn("qop.status")(function* () {
         : Effect.succeed("outbox   unreadable")
     )
   );
+
   console.log(queued);
 });
 
@@ -77,12 +83,15 @@ const operatorMessage = (
   if (error instanceof CliOutboxStoreError) {
     return describeCliOutboxStoreError(error);
   }
+
   if (error.operation === "permissions") {
     return "CLI identity files must be mode 600 (directory 700). Fix permissions or move the data directory aside — do not overwrite device.key.";
   }
+
   if (error.operation === "decode") {
     return "CLI identity is unreadable. Move the data directory aside to recover — do not overwrite device.key.";
   }
+
   if (error.operation === "conflict") {
     return "Could not lock the CLI data directory or reuse this identity. Another qop process may already be using this data directory. A secret without identity.json must not be overwritten.";
   }
@@ -96,6 +105,7 @@ NodeRuntime.runMain(
         if (Cause.hasInterruptsOnly(cause)) {
           return;
         }
+
         const squashed = Cause.squash(cause);
         console.error(
           squashed instanceof CliIdentityStoreError ||

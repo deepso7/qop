@@ -60,6 +60,7 @@ const normalizeHex32 = Effect.fn("RegistrationInput.normalizeHex32")(function* (
   const bytes = yield* Schema.decodeUnknownEffect(Hex32)(
     input.toLowerCase()
   ).pipe(Effect.mapError(inputError(field)));
+
   return yield* Schema.encodeEffect(Hex32)(bytes).pipe(
     Effect.mapError(inputError(field)),
     Effect.flatMap((encoded) => hashFrom(encoded, field))
@@ -72,9 +73,11 @@ export const normalizeRegistrationOwner = Effect.fn(
   const owner = yield* normalizeEthereumAddress(input).pipe(
     Effect.mapError(inputError("owner"))
   );
+
   if (!isAddress(owner) || owner === `0x${"00".repeat(20)}`) {
     return yield* inputError("owner")("Expected a non-zero Ethereum address");
   }
+
   return owner;
 });
 
@@ -83,6 +86,7 @@ const normalizeSignature = Effect.fn("RegistrationInput.normalizeSignature")(
     const bytes = yield* normalizeEcdsaSignature(input).pipe(
       Effect.mapError(inputError(field))
     );
+
     return yield* Schema.encodeEffect(EcdsaSignature)(bytes).pipe(
       Effect.mapError(inputError(field)),
       Effect.flatMap((encoded) => hexFrom(encoded, field))
@@ -118,6 +122,7 @@ export const normalizeSerializedTransaction = Effect.fn(
   const serialized = yield* Schema.decodeUnknownEffect(SerializedTransaction)(
     input
   ).pipe(Effect.mapError(inputError("serialized-transaction")));
+
   return yield* hexFrom(serialized, "serialized-transaction");
 });
 
@@ -127,19 +132,24 @@ export const normalizeCreateRegistrationIntent = Effect.fn(
   yield* Schema.encodeEffect(UnixSeconds)(input.deadline).pipe(
     Effect.mapError(inputError("deadline"))
   );
+
   const handle = yield* Schema.decodeUnknownEffect(Handle)(input.handle).pipe(
     Effect.mapError(inputError("handle"))
   );
+
   const deviceKeyBytes = yield* Schema.decodeUnknownEffect(DeviceKey)(
     input.deviceKey.toLowerCase()
   ).pipe(Effect.mapError(inputError("device-key")));
+
   const deviceKey = yield* Schema.encodeEffect(DeviceKey)(deviceKeyBytes).pipe(
     Effect.mapError(inputError("device-key")),
     Effect.flatMap((encoded) => hashFrom(encoded, "device-key"))
   );
+
   const nonceBytes = yield* Schema.decodeUnknownEffect(RegistrationNonce)(
     input.registrationNonce.toLowerCase()
   ).pipe(Effect.mapError(inputError("registration-nonce")));
+
   const registrationNonce = yield* Schema.encodeEffect(RegistrationNonce)(
     nonceBytes
   ).pipe(
@@ -171,5 +181,6 @@ export const normalizeRegistrationQid = Effect.fn(
   "RegistrationInput.normalizeQid"
 )(function* (qid: bigint) {
   yield* Schema.encodeEffect(Qid)(qid).pipe(Effect.mapError(inputError("qid")));
+
   return qid;
 });

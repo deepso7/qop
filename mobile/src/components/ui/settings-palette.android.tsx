@@ -14,6 +14,7 @@ import { useColorScheme } from "react-native";
 export const SettingsPalette = ({ children }: { children: ReactNode }) => {
   const palette = useMaterialColors();
   const dark = useColorScheme() === "dark";
+
   const value = useMemo(
     () => ({
       ...palette,
@@ -21,6 +22,7 @@ export const SettingsPalette = ({ children }: { children: ReactNode }) => {
     }),
     [dark, palette]
   );
+
   return (
     <HostPaletteContext.Provider value={value}>
       {children}

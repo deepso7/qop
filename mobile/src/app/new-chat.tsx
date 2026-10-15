@@ -21,12 +21,15 @@ const getHandleHint = (handle: string) => {
   if (handle.length === 0) {
     return "Lowercase letters, numbers, and underscores.";
   }
+
   if (handle.length > 32) {
     return "Keep it to 32 characters or fewer.";
   }
+
   if (!/^[a-z0-9]/u.test(handle)) {
     return "Start with a lowercase letter or number.";
   }
+
   return "Use only lowercase letters, numbers, and underscores.";
 };
 
@@ -34,9 +37,11 @@ const registryErrorMessage = (error: RegistryReaderError) => {
   if (error.operation === "configuration") {
     return "The registry RPC is not configured.";
   }
+
   if (error.operation === "rpc") {
     return "Could not reach the registry RPC.";
   }
+
   return "The registry returned an invalid account.";
 };
 
@@ -54,18 +59,23 @@ const NewChatRoute = () => {
     if (!isValid || lookingUp) {
       return;
     }
+
     Keyboard.dismiss();
     setLookingUp(true);
     setMessage(undefined);
     setResult(undefined);
+
     if (handle === ownHandle) {
       setMessage("That's you.");
       setLookingUp(false);
+
       return;
     }
+
     const lookup = await Effect.runPromise(
       lookupHandle(handle).pipe(Effect.result)
     );
+
     if (Result.isFailure(lookup)) {
       setMessage(registryErrorMessage(lookup.failure));
     } else if (lookup.success === null) {
@@ -73,10 +83,12 @@ const NewChatRoute = () => {
       setResult(null);
     } else {
       setResult(lookup.success);
+
       if (!(lookup.success.deviceKey && lookup.success.peerId)) {
         setMessage("This account has no active device yet.");
       }
     }
+
     setLookingUp(false);
   }, [handle, isValid, lookingUp, ownHandle]);
 
@@ -86,12 +98,16 @@ const NewChatRoute = () => {
     if (!result || opening) {
       return;
     }
+
     if (!(result.deviceKey && result.peerId)) {
       setMessage("This account has no active device yet.");
+
       return;
     }
+
     setMessage(undefined);
     setOpening(true);
+
     try {
       await upsertContact({
         createdAt: Number(result.registeredAt) * 1000,

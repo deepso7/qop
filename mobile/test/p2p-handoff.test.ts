@@ -33,8 +33,10 @@ import type { RegistryAccount } from "@/lib/registry-core";
 
 const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
 const PEER_CLI = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
+
 const PEER_CLI_OTHER =
   "12D3KooWaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
 const PEER_ALICE = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
 const phoneDeviceKey = `0x${"11".repeat(32)}`;
 const cliDeviceKey = `0x${"33".repeat(32)}`;
@@ -84,9 +86,11 @@ const handoff = vi.fn<typeof performHandoff>();
 const poll = vi.fn<typeof performPoll>();
 const catchup = vi.fn<typeof performCatchup>();
 const lookupQid = vi.fn<typeof LookupQid>(() => Effect.succeed(null));
+
 const lookupDeviceKey = vi.fn((): ReturnType<typeof LookupDeviceKey> =>
   Effect.succeed(bobAccount)
 );
+
 const lookupHandle = vi.fn((handle: string): ReturnType<typeof LookupHandle> =>
   Effect.succeed(handle === "alice" ? aliceAccount : bobAccount)
 );
@@ -100,13 +104,16 @@ const captureEndpointEvent: P2pEndpoint["on"] = (
   if (!maybeHandler) {
     return () => {};
   }
+
   if (typeOrHandler === "connectionEstablished") {
     // SAFETY: This branch only runs for the connectionEstablished registration.
     connectionEstablished = maybeHandler as (connection: Connection) => void;
+
     return () => {
       connectionEstablished = undefined;
     };
   }
+
   return () => {};
 };
 
@@ -175,6 +182,7 @@ beforeEach(async () => {
     qid: "1",
   });
 });
+
 afterEach(async () => {
   await useP2pStore.getState().stop();
   vi.unstubAllEnvs();
@@ -187,9 +195,11 @@ describe("phone to CLI handoff", () => {
   it("marks a send held when the CLI accepts and Bob does not", async () => {
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
+
     if (!contact) {
       throw new Error("Missing contact fixture");
     }
+
     const id = useP2pStore.getState().sendMessage(contact, "hello");
     await vi.waitFor(async () =>
       expect(await getMessageById(id)).toMatchObject({
@@ -220,9 +230,11 @@ describe("phone to CLI handoff", () => {
     handoff.mockRejectedValueOnce(new Error("connection replaced"));
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
+
     if (!contact) {
       throw new Error("Missing contact fixture");
     }
+
     const id = useP2pStore.getState().sendMessage(contact, "hello");
     await vi.waitFor(() => expect(handoff).toHaveBeenCalledOnce());
     connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
@@ -241,9 +253,11 @@ describe("phone to CLI handoff", () => {
     send.mockResolvedValue();
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
+
     if (!contact) {
       throw new Error("Missing contact fixture");
     }
+
     const id = useP2pStore.getState().sendMessage(contact, "hello");
     await vi.waitFor(async () =>
       expect(await getMessageById(id)).toMatchObject({ status: "sent" })
@@ -259,9 +273,11 @@ describe("phone to CLI handoff", () => {
     });
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
+
     if (!contact) {
       throw new Error("Missing contact fixture");
     }
+
     const id = useP2pStore.getState().sendMessage(contact, "hello");
     await vi.waitFor(async () =>
       expect(await getMessageById(id)).toMatchObject({ status: "sent" })
@@ -450,14 +466,17 @@ describe("phone to CLI handoff", () => {
       ...aliceAccount,
       devices: [{ deviceKey: phoneDeviceKey, peerId: PEER_ALICE }],
     };
+
     lookupHandle.mockImplementation((handle: string) =>
       Effect.succeed(handle === "alice" ? phoneOnly : bobAccount)
     );
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
+
     if (!contact) {
       throw new Error("Missing contact fixture");
     }
+
     const first = useP2pStore.getState().sendMessage(contact, "one");
     await vi.waitFor(async () =>
       expect(await getMessageById(first)).toMatchObject({ status: "failed" })
@@ -479,9 +498,11 @@ describe("phone to CLI handoff", () => {
   it("hands off to a CLI linked after a non-empty own-device roster lookup", async () => {
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
+
     if (!contact) {
       throw new Error("Missing contact fixture");
     }
+
     const first = useP2pStore.getState().sendMessage(contact, "one");
     await vi.waitFor(async () =>
       expect(await getMessageById(first)).toMatchObject({
@@ -537,9 +558,11 @@ describe("phone to CLI handoff", () => {
   it("reuses the own-device registry lookup across outgoing sends", async () => {
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
+
     if (!contact) {
       throw new Error("Missing contact fixture");
     }
+
     const first = useP2pStore.getState().sendMessage(contact, "one");
     await vi.waitFor(async () =>
       expect(await getMessageById(first)).toMatchObject({ status: "held" })
@@ -555,9 +578,11 @@ describe("phone to CLI handoff", () => {
   it("does not look up own devices when an unauthenticated peer connects", async () => {
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
+
     if (!contact) {
       throw new Error("Missing contact fixture");
     }
+
     const first = useP2pStore.getState().sendMessage(contact, "one");
     await vi.waitFor(async () =>
       expect(await getMessageById(first)).toMatchObject({ status: "held" })
@@ -567,10 +592,13 @@ describe("phone to CLI handoff", () => {
     for (let i = 0; i < 5; i += 1) {
       connectionEstablished?.({ connId: 10 + i, peerId: PEER_BOB });
     }
+
     await Effect.runPromise(Effect.sleep(50));
+
     for (let i = 0; i < 5; i += 1) {
       connectionEstablished?.({ connId: 20 + i, peerId: PEER_BOB });
     }
+
     await Effect.runPromise(Effect.sleep(50));
     expect(aliceLookups()).toEqual([]);
 
@@ -587,9 +615,11 @@ describe("phone to CLI handoff", () => {
   it("probes the own-device roster at most once when no cached holder is connected", async () => {
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
+
     if (!contact) {
       throw new Error("Missing contact fixture");
     }
+
     const first = useP2pStore.getState().sendMessage(contact, "one");
     await vi.waitFor(async () =>
       expect(await getMessageById(first)).toMatchObject({ status: "held" })
@@ -599,9 +629,11 @@ describe("phone to CLI handoff", () => {
 
     connectionEstablished?.({ connId: 10, peerId: PEER_BOB });
     await vi.waitFor(() => expect(aliceLookups()).toHaveLength(1));
+
     for (let i = 0; i < 4; i += 1) {
       connectionEstablished?.({ connId: 11 + i, peerId: PEER_BOB });
     }
+
     await Effect.runPromise(Effect.sleep(50));
     expect(aliceLookups()).toHaveLength(1);
 
@@ -619,9 +651,11 @@ describe("phone to CLI handoff", () => {
   it("reconciles a CLI linked after stranger churn with no holder online", async () => {
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
+
     if (!contact) {
       throw new Error("Missing contact fixture");
     }
+
     const first = useP2pStore.getState().sendMessage(contact, "one");
     await vi.waitFor(async () =>
       expect(await getMessageById(first)).toMatchObject({
@@ -634,9 +668,11 @@ describe("phone to CLI handoff", () => {
     lookupHandle.mockClear();
     connectionEstablished?.({ connId: 10, peerId: PEER_BOB });
     await vi.waitFor(() => expect(aliceLookups()).toHaveLength(1));
+
     for (let i = 0; i < 4; i += 1) {
       connectionEstablished?.({ connId: 11 + i, peerId: PEER_BOB });
     }
+
     await Effect.runPromise(Effect.sleep(50));
     expect(aliceLookups()).toHaveLength(1);
 
@@ -680,6 +716,7 @@ describe("phone to CLI handoff", () => {
       ...aliceAccount,
       devices: [{ deviceKey: phoneDeviceKey, peerId: PEER_ALICE }],
     };
+
     lookupHandle.mockImplementation((handle: string) =>
       Effect.succeed(handle === "alice" ? phoneOnly : bobAccount)
     );
@@ -689,9 +726,11 @@ describe("phone to CLI handoff", () => {
 
     connectionEstablished?.({ connId: 10, peerId: PEER_BOB });
     await vi.waitFor(() => expect(aliceLookups()).toHaveLength(1));
+
     for (let i = 0; i < 4; i += 1) {
       connectionEstablished?.({ connId: 11 + i, peerId: PEER_BOB });
     }
+
     await Effect.runPromise(Effect.sleep(50));
     expect(aliceLookups()).toHaveLength(1);
 
@@ -700,9 +739,11 @@ describe("phone to CLI handoff", () => {
     );
     connectedPeers.mockReturnValue([PEER_CLI]);
     const contact = await getContactByQid("1");
+
     if (!contact) {
       throw new Error("Missing contact fixture");
     }
+
     const pendingId = "c56a4180-65aa-42ec-a945-5fd21dec0547";
     await insertMessage({
       contactQid: "1",
@@ -726,6 +767,7 @@ describe("phone to CLI handoff", () => {
       ...aliceAccount,
       devices: [{ deviceKey: phoneDeviceKey, peerId: PEER_ALICE }],
     };
+
     lookupHandle.mockImplementation((handle: string) =>
       Effect.succeed(handle === "alice" ? phoneOnly : bobAccount)
     );
@@ -773,6 +815,7 @@ describe("phone to CLI handoff", () => {
       ...aliceAccount,
       devices: [{ deviceKey: phoneDeviceKey, peerId: PEER_ALICE }],
     };
+
     lookupHandle.mockImplementation((handle: string) =>
       Effect.succeed(handle === "alice" ? phoneOnly : bobAccount)
     );
@@ -785,10 +828,13 @@ describe("phone to CLI handoff", () => {
       if (handle !== "alice") {
         return Effect.succeed(bobAccount);
       }
+
       aliceReads += 1;
+
       if (aliceReads === 1) {
         return Effect.promise(() => firstAlice.promise);
       }
+
       return Effect.succeed(aliceAccount);
     });
 
@@ -898,9 +944,11 @@ describe("multi-holder picker", () => {
     );
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
+
     if (!contact) {
       throw new Error("Missing contact fixture");
     }
+
     const id = useP2pStore.getState().sendMessage(contact, "hello");
     await vi.waitFor(async () =>
       expect(await getMessageById(id)).toMatchObject({
@@ -923,9 +971,11 @@ describe("multi-holder picker", () => {
     handoff.mockRejectedValue(new Error("Timed out waiting for sync response"));
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
+
     if (!contact) {
       throw new Error("Missing contact fixture");
     }
+
     const id = useP2pStore.getState().sendMessage(contact, "hello");
     // Held on the CLI that may already have it, not failed.
     await vi.waitFor(async () =>
@@ -990,9 +1040,11 @@ describe("multi-holder picker", () => {
     handoff.mockRejectedValue(new Error(HANDOFF_REJECTED_MESSAGE));
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
+
     if (!contact) {
       throw new Error("Missing contact fixture");
     }
+
     const id = useP2pStore.getState().sendMessage(contact, "hello");
     await vi.waitFor(async () =>
       expect(await getMessageById(id)).toMatchObject({ status: "failed" })
@@ -1189,11 +1241,13 @@ describe("inbox catch-up", () => {
       if (after > 0) {
         return Promise.resolve([]);
       }
+
       if (holderPeerId === PEER_CLI) {
         return Promise.resolve([
           { record: inboxRecord(first, "from cli"), seq: 2 },
         ]);
       }
+
       return Promise.resolve([
         { record: inboxRecord(second, "from other"), seq: 8 },
       ]);
@@ -1328,11 +1382,13 @@ describe("inbox catch-up", () => {
           },
         ]);
       }
+
       if (after === 7) {
         return Promise.resolve([
           { record: inboxRecord(later, "after the skip"), seq: 8 },
         ]);
       }
+
       return Promise.resolve([]);
     });
     await useP2pStore.getState().start();
@@ -1361,11 +1417,13 @@ describe("inbox catch-up", () => {
           { record: inboxRecord(first, "page one"), seq: 2 },
         ]);
       }
+
       if (after === 2) {
         return Promise.resolve([
           { record: inboxRecord(second, "page two"), seq: 9 },
         ]);
       }
+
       return Promise.resolve([]);
     });
     await useP2pStore.getState().start();

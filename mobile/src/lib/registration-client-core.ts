@@ -10,15 +10,19 @@ import { Data, Effect, Schema } from "effect";
 
 const CanonicalHex32 = Hex32.pipe(Schema.decodeTo(Hex32.pipe(Schema.flip)));
 const CanonicalQid = Qid.pipe(Schema.decodeTo(Qid.pipe(Schema.flip)));
+
 const CanonicalSignature = EcdsaSignature.pipe(
   Schema.decodeTo(EcdsaSignature.pipe(Schema.flip))
 );
+
 const CanonicalAdmissionCode = RegistrationAdmissionCode.pipe(
   Schema.decodeTo(RegistrationAdmissionCode.pipe(Schema.flip))
 );
+
 const WalletSignatureInput = Schema.String.check(
   Schema.isPattern(/^0x[0-9a-f]{128}(?:00|01|1b|1c)$/iu)
 );
+
 const CanonicalRegisterIntent = RegisterIntentV1.pipe(
   Schema.decodeTo(RegisterIntentV1.pipe(Schema.flip))
 );
@@ -62,6 +66,7 @@ const ErrorResponse = Schema.Struct({
 });
 
 export type RegisteredRegistration = typeof RegisteredRegistrationResponse.Type;
+
 export type Registration = typeof RegistrationResponse.Type;
 
 export interface RegisterInput {
@@ -92,9 +97,11 @@ const clientError = (
 
 const apiUrl = Effect.fn("RegistrationClient.apiUrl")(function* () {
   const configured = process.env.EXPO_PUBLIC_API_URL;
+
   if (!configured) {
     return yield* clientError("configuration");
   }
+
   return yield* Schema.decodeUnknownEffect(Schema.URLFromString)(
     configured
   ).pipe(Effect.mapError(() => clientError("configuration")));
@@ -108,17 +115,21 @@ export const createRegistrationClient = ({
     init?: RequestInit
   ) {
     const baseUrl = yield* apiUrl();
+
     const response = yield* Effect.tryPromise({
       catch: () => clientError("network"),
       try: () => fetch(new URL(path, baseUrl), init),
     });
+
     const body = yield* Effect.tryPromise({
       catch: () => clientError("response", response.status),
       // SAFETY: The response JSON is decoded immediately below.
       try: () => response.json() as Promise<unknown>,
     });
+
     if (!response.ok) {
       const decoded = Schema.decodeUnknownResult(ErrorResponse)(body);
+
       return yield* clientError(
         "response",
         response.status,
@@ -126,6 +137,7 @@ export const createRegistrationClient = ({
         decoded._tag === "Success" ? (decoded.success.kind ?? null) : null
       );
     }
+
     return { body, status: response.status };
   });
 
@@ -139,14 +151,17 @@ export const createRegistrationClient = ({
         ownerSignature: WalletSignatureInput,
       })
     )(input).pipe(Effect.mapError(() => clientError("response")));
+
     const { body, status } = yield* request("/v1/registrations", {
       body: JSON.stringify(payload),
       headers: { "Content-Type": "application/json" },
       method: "POST",
     });
+
     const registered = yield* Schema.decodeUnknownEffect(
       RegisteredRegistrationResponse
     )(body).pipe(Effect.mapError(() => clientError("response", status)));
+
     return registered;
   });
 

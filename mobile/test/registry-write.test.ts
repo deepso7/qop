@@ -12,6 +12,7 @@ import {
 describe("registry write submit", () => {
   it("submits wipeDevices with the signed intent", async () => {
     const writeContract = vi.fn(() => Promise.resolve("0xabc" as const));
+
     const hash = await Effect.runPromise(
       submitWipeDevices({
         client: { writeContract },
@@ -25,6 +26,7 @@ describe("registry write submit", () => {
         wipeAbi: [],
       })
     );
+
     expect(hash).toBe("0xabc");
     expect(writeContract).toHaveBeenCalledWith({
       abi: [],
@@ -53,11 +55,13 @@ describe("registry write submit", () => {
         wipeAbi: [],
       }).pipe(Effect.result)
     );
+
     expect(Result.isFailure(result) && result.failure.operation).toBe("rpc");
   });
 
   it("submits recoverOwner with owner and newOwner signatures", async () => {
     const writeContract = vi.fn(() => Promise.resolve("0xdef" as const));
+
     const hash = await Effect.runPromise(
       submitRecoverOwner({
         client: { writeContract },
@@ -73,6 +77,7 @@ describe("registry write submit", () => {
         },
       })
     );
+
     expect(hash).toBe("0xdef");
     expect(writeContract).toHaveBeenCalledWith({
       abi: [],
@@ -93,6 +98,7 @@ describe("registry write submit", () => {
 
   it("exposes a bound production facade over wipe and recover", async () => {
     const writeContract = vi.fn(() => Promise.resolve("0xcafe" as const));
+
     const { wipeDevices, recoverOwner } = createRegistryWrite({
       client: { writeContract },
       recoverAbi: registryWriteAbi,
@@ -138,10 +144,12 @@ describe("registry write submit", () => {
 
   it("fails closed when the configured registry address is missing", async () => {
     const createClient = vi.fn();
+
     const { wipeDevices } = createConfiguredRegistryWrite({
       createClient,
       registryAddress: undefined,
     });
+
     const result = await Effect.runPromise(
       wipeDevices({
         deadline: 1n,
@@ -150,6 +158,7 @@ describe("registry write submit", () => {
         signature: `0x${"00".repeat(65)}`,
       }).pipe(Effect.result)
     );
+
     expect(Result.isFailure(result) && result.failure.operation).toBe(
       "configuration"
     );

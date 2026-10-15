@@ -43,6 +43,7 @@ interface Connection {
   readonly connId: number;
   readonly peerId: string;
 }
+
 type InboundStream = Connection & {
   readonly closeWrite: ReturnType<typeof vi.fn>;
   readonly protocolId: string;
@@ -64,9 +65,11 @@ const isPeerReady = vi.fn<P2pEndpoint["isPeerReady"]>();
 const connect = vi.fn<P2pEndpoint["connect"]>();
 const waitPeerReady = vi.fn<P2pEndpoint["waitPeerReady"]>();
 const send = vi.fn<typeof performSend>();
+
 const lookupDeviceKey = vi.fn((): ReturnType<typeof LookupDeviceKey> =>
   Effect.succeed(bobAccount)
 );
+
 const lookupHandle = vi.fn((): ReturnType<typeof LookupHandle> =>
   Effect.succeed(bobAccount)
 );
@@ -80,48 +83,60 @@ const captureEndpointEvent: P2pEndpoint["on"] = (
   if (!maybeHandler) {
     return () => {};
   }
+
   if (typeOrHandler === "driverFailed") {
     // SAFETY: This branch only runs for the driverFailed registration.
     driverFailed = maybeHandler as (event: { detail: string }) => void;
+
     return () => {
       driverFailed = undefined;
     };
   }
+
   if (typeOrHandler === "connectionEstablished") {
     // SAFETY: This branch only runs for the connectionEstablished registration.
     connectionEstablished = maybeHandler as (connection: Connection) => void;
+
     return () => {
       connectionEstablished = undefined;
     };
   }
+
   if (typeOrHandler === "stream") {
     // SAFETY: This branch only runs for the stream registration.
     onStream = maybeHandler as (event: InboundStream) => void;
+
     return () => {
       onStream = undefined;
     };
   }
+
   if (typeOrHandler === "pathUpgraded") {
     // SAFETY: The store's path handlers re-read paths and ignore the payload.
     pathUpgraded = maybeHandler as () => void;
+
     return () => {
       pathUpgraded = undefined;
     };
   }
+
   if (typeOrHandler === "queueOverflow") {
     // SAFETY: The store's queue-overflow handler discards the payload.
     queueOverflow = () =>
       (maybeHandler as (event: { readonly dropped: number }) => void)({
         dropped: 1,
       });
+
     return () => {
       queueOverflow = undefined;
     };
   }
+
   return () => {};
 };
 
 let appResumeHandler: (() => void) | undefined;
+
 const useP2pStore = createP2pStore({
   createEndpoint: () => ({
     bindAppState: () => () => {},
@@ -135,6 +150,7 @@ const useP2pStore = createP2pStore({
       on: captureEndpointEvent,
       onClose: (callback) => {
         closed = callback;
+
         return () => {
           closed = undefined;
         };
@@ -154,6 +170,7 @@ const useP2pStore = createP2pStore({
   randomUUID: () => crypto.randomUUID(),
   subscribeAppResume: (onResume) => {
     appResumeHandler = onResume;
+
     return () => {
       appResumeHandler = undefined;
     };
@@ -183,9 +200,11 @@ beforeEach(async () => {
   pathUpgraded = undefined;
   await deleteAll();
   const bobDeviceKey = bobAccount.deviceKey;
+
   if (bobDeviceKey === null) {
     throw new Error("expected bob device key");
   }
+
   await upsertContact({
     createdAt: 1,
     deviceKey: bobDeviceKey,
@@ -195,6 +214,7 @@ beforeEach(async () => {
     qid: "1",
   });
 });
+
 afterEach(async () => {
   await useP2pStore.getState().stop();
   vi.unstubAllEnvs();
@@ -203,13 +223,16 @@ afterEach(async () => {
 const beginSend = async () => {
   await useP2pStore.getState().start();
   const contact = await getContactByQid("1");
+
   if (!contact) {
     throw new Error("Missing contact fixture");
   }
+
   const pending = Promise.withResolvers<undefined>();
   send.mockReturnValueOnce(pending.promise);
   const id = useP2pStore.getState().sendMessage(contact, "hello");
   await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+
   return { id, pending };
 };
 
@@ -227,6 +250,7 @@ const makeInboundStream = (
   peerId = PEER_BOB
 ): InboundStream => {
   const chunks: (Uint8Array | undefined)[] = [bytes, undefined];
+
   return {
     closeWrite: vi.fn(),
     connId: 7,
@@ -359,12 +383,14 @@ describe("interrupted sends", () => {
       signal?.addEventListener("abort", () => {
         cancelled = true;
       });
+
       return abandoned.promise;
     });
     const oldRetry = useP2pStore.getState().retryMessage(id);
     await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
 
     vi.useFakeTimers();
+
     try {
       const stopped = useP2pStore.getState().stop();
       await vi.advanceTimersByTimeAsync(5000);
@@ -475,8 +501,10 @@ describe("inbound chat streams", () => {
     let reads = 0;
     stream.read = () => {
       reads += 1;
+
       return reads === 1 ? hung.promise : resolvedUndefined();
     };
+
     onStream?.(stream);
     const stopped = useP2pStore.getState().stop();
     hung.resolve(inboundFrame(messageId));
@@ -516,9 +544,11 @@ describe("connectTo", () => {
       path: { kind: "directDialed" },
       peerId: PEER_BOB,
     });
+
     const peerId = await useP2pStore
       .getState()
       .connectTo({ handle: "bob", qid: "1" });
+
     expect(disconnect).toHaveBeenCalledWith(PEER_BOB);
     expect(connect).toHaveBeenCalledWith(PEER_BOB, { timeoutMs: 15_000 });
     expect(peerId).toBe(PEER_BOB);
@@ -528,9 +558,11 @@ describe("connectTo", () => {
     await useP2pStore.getState().start();
     isPeerReady.mockReturnValueOnce(false).mockReturnValue(true);
     waitPeerReady.mockRejectedValue(new Error("Identify timeout"));
+
     const peerId = await useP2pStore
       .getState()
       .connectTo({ handle: "bob", qid: "1" });
+
     expect(disconnect).not.toHaveBeenCalled();
     expect(connect).not.toHaveBeenCalled();
     expect(peerId).toBe(PEER_BOB);

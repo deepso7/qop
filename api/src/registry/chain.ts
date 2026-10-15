@@ -46,6 +46,7 @@ export const confirmedRegistryBlock = Effect.fn(
       operation: "confirmed-block",
     });
   }
+
   return latest - confirmations;
 });
 
@@ -77,15 +78,19 @@ export class RegistryChain extends Context.Service<
     this,
     Effect.gen(function* () {
       const env = yield* Env;
+
       const client = createPublicClient({
         transport: http(env.RPC_URL.toString(), { batch: true }),
       });
+
       const registryAddress = getAddress(env.REGISTRY_ADDRESS);
+
       const rpcChainId = yield* Effect.tryPromise({
         catch: (cause) =>
           new RegistryChainError({ cause, operation: "chain-id" }),
         try: () => client.getChainId(),
       });
+
       if (BigInt(rpcChainId) !== env.CHAIN_ID) {
         return yield* new RegistryChainError({
           cause: `RPC chain ${rpcChainId} does not match configured chain ${env.CHAIN_ID}`,
@@ -103,7 +108,9 @@ export class RegistryChain extends Context.Service<
               }),
             try: () => client.getBlockNumber(),
           });
+
           const confirmations = BigInt(env.REGISTRY_CONFIRMATIONS);
+
           return yield* confirmedRegistryBlock(latest, confirmations);
         })(),
         "1 second"
@@ -113,6 +120,7 @@ export class RegistryChain extends Context.Service<
         qid: bigint
       ) {
         const blockNumber = yield* confirmedBlock;
+
         const { owner, ownerVersion, registeredAt, nonce, handle } =
           yield* Effect.tryPromise({
             catch: (cause) =>
@@ -126,6 +134,7 @@ export class RegistryChain extends Context.Service<
                 functionName: "account",
               }),
           });
+
         const devices = yield* Effect.tryPromise({
           catch: (cause) =>
             new RegistryChainError({ cause, operation: "account" }),
@@ -160,6 +169,7 @@ export class RegistryChain extends Context.Service<
         const canonicalHandle = yield* normalizeRegistryHandle(handle);
         const blockNumber = yield* confirmedBlock;
         const handleHash = keccak256(stringToBytes(canonicalHandle));
+
         const qid = yield* Effect.tryPromise({
           catch: (cause) =>
             new RegistryChainError({ cause, operation: "qid-by-handle" }),
@@ -172,6 +182,7 @@ export class RegistryChain extends Context.Service<
               functionName: "qidByHandleHash",
             }),
         });
+
         return {
           blockNumber,
           value: qid === 0n ? null : qid,
@@ -183,6 +194,7 @@ export class RegistryChain extends Context.Service<
       ) {
         const canonicalOwner = yield* normalizeRegistryOwner(owner);
         const blockNumber = yield* confirmedBlock;
+
         const qid = yield* Effect.tryPromise({
           catch: (cause) =>
             new RegistryChainError({ cause, operation: "qid-by-owner" }),
@@ -195,6 +207,7 @@ export class RegistryChain extends Context.Service<
               functionName: "qidByOwner",
             }),
         });
+
         return {
           blockNumber,
           value: qid === 0n ? null : qid,
@@ -205,10 +218,13 @@ export class RegistryChain extends Context.Service<
         function* (handle: string, owner: Address, registrationNonce: Hash) {
           const canonicalHandle = yield* normalizeRegistryHandle(handle);
           const canonicalOwner = yield* normalizeRegistryOwner(owner);
+
           const canonicalNonce =
             yield* normalizeRegistryRegistrationNonce(registrationNonce);
+
           const blockNumber = yield* confirmedBlock;
           const handleHash = keccak256(stringToBytes(canonicalHandle));
+
           const [block, handleQid, ownerQid, registrationNonceUsed] =
             yield* Effect.tryPromise({
               catch: (cause) =>
@@ -242,6 +258,7 @@ export class RegistryChain extends Context.Service<
                   }),
                 ]),
             });
+
           return {
             blockNumber,
             value: {

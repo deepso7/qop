@@ -14,6 +14,7 @@ export {
   submitRecoverOwner,
   submitWipeDevices,
 } from "./registry-write-core";
+
 export type {
   RecoverOwnerSubmission,
   RegistryWriteClient,

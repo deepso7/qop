@@ -26,6 +26,7 @@ const ChatSearchRender = (
   const [uncontrolledValue, setUncontrolledValue] = React.useState(
     defaultValue ?? ""
   );
+
   const isControlled = value !== undefined;
   const currentValue = isControlled ? value : uncontrolledValue;
   const canClear = !isControlled || onChangeText !== undefined;
@@ -36,6 +37,7 @@ const ChatSearchRender = (
       if (!isControlled) {
         setUncontrolledValue(nextValue);
       }
+
       onChangeText?.(nextValue);
     },
     [isControlled, onChangeText]
@@ -85,7 +87,9 @@ const ChatSearchRender = (
 };
 
 const ChatSearch = React.forwardRef(ChatSearchRender);
+
 ChatSearch.displayName = "ChatSearch";
 
 export { ChatSearch };
+
 export type { ChatSearchProps };

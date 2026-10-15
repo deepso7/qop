@@ -11,29 +11,35 @@ import { RegistrationClientError } from "@/lib/registration-client-core";
 
 const REGISTRATION_STORAGE_KEY =
   "qop.registration.v2.31337.0x1111111111111111111111111111111111111111";
+
 const OWNER = "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf";
 const OTHER_OWNER = "0x0000000000000000000000000000000000000002";
 const DEVICE_KEY = `0x${"22".repeat(32)}`;
 const OTHER_DEVICE_KEY = `0x${"23".repeat(32)}`;
 const PEER_ID = "12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
+
 const DOMAIN = {
   chainId: "31337",
   verifyingContract: "0x1111111111111111111111111111111111111111",
 } as const;
 
 const secureStoreMock = { items: new Map<string, string>() };
+
 const vaultMock = {
   loadLocalIdentity: vi.fn(),
   signRegisterIntent: vi.fn(),
 };
+
 const clientMock = {
   getRegistration: vi.fn(),
   register: vi.fn(),
 };
+
 const registryMock = {
   lookupHandle: vi.fn(),
   lookupOwner: vi.fn(),
 };
+
 let now = 1_700_000_000n;
 let nextNonce = 1;
 
@@ -60,6 +66,7 @@ const loadRegistration = (
       const bytes = new Uint8Array(32);
       bytes[31] = nextNonce;
       nextNonce += 1;
+
       return Promise.resolve(bytes);
     },
     registrationClient: clientMock,
@@ -67,11 +74,13 @@ const loadRegistration = (
     secureStore: {
       delete: (key) => {
         secureStoreMock.items.delete(key);
+
         return Promise.resolve();
       },
       get: (key) => Promise.resolve(secureStoreMock.items.get(key) ?? null),
       set: (key, value) => {
         secureStoreMock.items.set(key, value);
+
         return Promise.resolve();
       },
     },
@@ -99,6 +108,7 @@ beforeEach(() => {
     Effect.gen(function* () {
       const domain = yield* decodeIdentityEip712DomainV1(DOMAIN);
       const decodedIntent = yield* decodeRegisterIntentV1(intent);
+
       return {
         digest: yield* hashRegisterIntentV1(domain, decodedIntent),
         registrationSignature: `0x${"66".repeat(65)}`,
@@ -157,13 +167,17 @@ describe("local registration", () => {
         )
       )
     );
+
     const first = await Effect.runPromise(
       loadRegistration().startLocalRegistration("ABC-123")
     );
+
     expect(first.status).toBe("pending");
+
     const retry = await Effect.runPromise(
       loadRegistration().startLocalRegistration("ABC-123")
     );
+
     expect(retry.digest).toBe(first.digest);
     expect(retry.nonce).toBe(first.nonce);
     expect(retry.status).toBe("submitted");
@@ -186,9 +200,11 @@ describe("local registration", () => {
         })
       )
     );
+
     const failed = await Effect.runPromise(
       loadRegistration().startLocalRegistration("ABC-123")
     );
+
     expect(failed).toMatchObject({ failureCode: expected, status: "failed" });
   });
 
@@ -203,13 +219,17 @@ describe("local registration", () => {
         })
       )
     );
+
     const pending = await Effect.runPromise(
       loadRegistration().startLocalRegistration("ABC-123")
     );
+
     registryMock.lookupOwner.mockReturnValue(Effect.succeed(account()));
+
     const confirmed = await Effect.runPromise(
       loadRegistration().checkLocalRegistration()
     );
+
     expect(confirmed).toMatchObject({
       digest: pending.digest,
       qid: "42",
@@ -264,9 +284,11 @@ describe("local registration", () => {
           })
         )
       );
+
       const pending = await Effect.runPromise(
         loadRegistration().startLocalRegistration("ABC-123")
       );
+
       now = BigInt(pending.deadline) + elapsed;
       clientMock.getRegistration.mockReturnValueOnce(
         Effect.succeed({
@@ -302,11 +324,14 @@ describe("local registration", () => {
       status: null,
       tag: null,
     });
+
     clientMock.register.mockReturnValueOnce(Effect.fail(unavailable));
     const registration = loadRegistration();
+
     const pending = await Effect.runPromise(
       registration.startLocalRegistration("ABC-123")
     );
+
     now = BigInt(pending.deadline);
     clientMock.getRegistration.mockReturnValueOnce(Effect.fail(unavailable));
 
@@ -333,9 +358,11 @@ describe("local registration", () => {
       )
     );
     const registration = loadRegistration();
+
     const pending = await Effect.runPromise(
       registration.startLocalRegistration("ABC-123")
     );
+
     now = BigInt(pending.deadline);
     clientMock.getRegistration.mockReturnValueOnce(
       Effect.fail(
@@ -351,6 +378,7 @@ describe("local registration", () => {
     const failed = await Effect.runPromise(
       registration.startLocalRegistration("ABC-123")
     );
+
     expect(failed).toMatchObject({
       digest: pending.digest,
       failureCode: "REGISTRATION_NOT_FOUND",
@@ -361,6 +389,7 @@ describe("local registration", () => {
     const retry = await Effect.runPromise(
       registration.startLocalRegistration("ABC-123")
     );
+
     expect(retry.status).toBe("submitted");
     expect(retry.nonce).not.toBe(pending.nonce);
     expect(clientMock.register).toHaveBeenCalledTimes(2);
@@ -370,12 +399,15 @@ describe("local registration", () => {
     const { startLocalRegistration } = loadRegistration();
     const result = await Effect.runPromise(startLocalRegistration("abc123"));
     const signedIntent = vaultMock.signRegisterIntent.mock.calls[0]?.[1];
+
     const domain = await Effect.runPromise(
       decodeIdentityEip712DomainV1(DOMAIN)
     );
+
     const decodedIntent = await Effect.runPromise(
       decodeRegisterIntentV1(signedIntent)
     );
+
     const expectedDigest = await Effect.runPromise(
       hashRegisterIntentV1(domain, decodedIntent)
     );
@@ -442,6 +474,7 @@ describe("local registration", () => {
   it("confirms from the owner lookup on chain", async () => {
     const { checkLocalRegistration, startLocalRegistration } =
       loadRegistration();
+
     await Effect.runPromise(startLocalRegistration("ABC-123"));
     registryMock.lookupOwner.mockReturnValue(Effect.succeed(account()));
 
@@ -455,6 +488,7 @@ describe("local registration", () => {
   it("fails when the owner's account has another device key", async () => {
     const { checkLocalRegistration, startLocalRegistration } =
       loadRegistration();
+
     await Effect.runPromise(startLocalRegistration("ABC-123"));
     registryMock.lookupOwner.mockReturnValue(
       Effect.succeed({
@@ -477,6 +511,7 @@ describe("local registration", () => {
   it("fails when the handle belongs to another owner", async () => {
     const { checkLocalRegistration, startLocalRegistration } =
       loadRegistration();
+
     await Effect.runPromise(startLocalRegistration("ABC-123"));
     registryMock.lookupHandle.mockReturnValue(
       Effect.succeed(account(OTHER_OWNER))
@@ -494,9 +529,11 @@ describe("local registration", () => {
   it("consults the API at the deadline, but not before", async () => {
     const { checkLocalRegistration, startLocalRegistration } =
       loadRegistration();
+
     const submitted = await Effect.runPromise(
       startLocalRegistration("ABC-123")
     );
+
     clientMock.getRegistration.mockReturnValue(
       Effect.succeed({
         digest: submitted.digest,
@@ -524,9 +561,11 @@ describe("local registration", () => {
   it("rejects a post-deadline response for another digest", async () => {
     const { checkLocalRegistration, startLocalRegistration } =
       loadRegistration();
+
     const submitted = await Effect.runPromise(
       startLocalRegistration("ABC-123")
     );
+
     now = 1_700_001_801n;
     clientMock.getRegistration.mockReturnValueOnce(
       Effect.succeed({

@@ -85,27 +85,36 @@ const MessageScrollerInner = <ItemT,>(
   const listRef = React.useRef<FlashListRef<ItemT>>(null);
   const reduceMotion = useReducedMotion();
   const listOpacity = useSharedValue(reduceMotion ? 1 : 0);
+
   const contentClassStyle = useResolveClassNames(
     cn("gap-2 px-4 py-3", contentClassName)
   );
+
   const hasInitialPosition = React.useRef(false);
   const isAtLatest = React.useRef(true);
   const isFollowing = React.useRef(initialScrollPosition === "end");
+
   const itemIndexById = React.useMemo(() => {
     const index = new Map<string, number>();
+
     if (data) {
       for (let itemIndex = 0; itemIndex < data.length; itemIndex += 1) {
         index.set(getMessageId(data[itemIndex]), itemIndex);
       }
     }
+
     return index;
   }, [data, getMessageId]);
+
   const [showJumpToLatest, setShowJumpToLatest] = React.useState(false);
+
   const listAnimatedStyle = useAnimatedStyle(() => ({
     opacity: listOpacity.get(),
   }));
+
   const shouldStartFromBottom =
     !initialMessageId && initialScrollPosition === "end";
+
   const resolvedMaintainVisibleContentPosition = React.useMemo(() => {
     if (maintainVisibleContentPosition === false) {
       return {
@@ -160,12 +169,15 @@ const MessageScrollerInner = <ItemT,>(
       scrollToLatest,
       scrollToMessage: (messageId, animated = true) => {
         const index = itemIndexById.get(messageId);
+
         if (index === undefined) {
           return false;
         }
+
         isFollowing.current = false;
         updateLatestState(false);
         listRef.current?.scrollToIndex({ animated, index, viewPosition: 0.15 });
+
         return true;
       },
       scrollToStart: (animated = true) => {
@@ -181,10 +193,12 @@ const MessageScrollerInner = <ItemT,>(
     (event: NativeSyntheticEvent<NativeScrollEvent>) => {
       const { contentOffset, contentSize, layoutMeasurement } =
         event.nativeEvent;
+
       const distanceFromEnd = Math.max(
         0,
         contentSize.height - layoutMeasurement.height - contentOffset.y
       );
+
       const atLatest = distanceFromEnd <= scrollEdgeThreshold;
 
       isFollowing.current = atLatest;
@@ -200,9 +214,11 @@ const MessageScrollerInner = <ItemT,>(
 
       if (!hasInitialPosition.current) {
         hasInitialPosition.current = true;
+
         const initialMessageIndex = initialMessageId
           ? itemIndexById.get(initialMessageId)
           : undefined;
+
         if (initialMessageIndex !== undefined) {
           isFollowing.current = false;
           updateLatestState(false);
@@ -299,4 +315,5 @@ const MessageScroller = React.forwardRef(MessageScrollerInner) as <ItemT>(
 ) => React.ReactElement;
 
 export { MessageScroller };
+
 export type { MessageScrollerHandle, MessageScrollerProps };

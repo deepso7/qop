@@ -115,9 +115,11 @@ export const createRegistryWrite = ({
     (submission: WipeDevicesSubmission) =>
       submitWipeDevices({ client, registryAddress, submission, wipeAbi })
   );
+
   const recoverOwner = Effect.fn("RegistryWrite.recoverOwner")(
     (submission: RecoverOwnerSubmission) =>
       submitRecoverOwner({ client, recoverAbi, registryAddress, submission })
   );
+
   return { recoverOwner, wipeDevices };
 };

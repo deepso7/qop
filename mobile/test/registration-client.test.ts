@@ -7,7 +7,9 @@ import { createRegistrationClient } from "@/lib/registration-client-core";
 
 const fetchMock =
   vi.fn<(input: URL, init?: RequestInit) => Promise<Response>>();
+
 const digest = `0x${"11".repeat(32)}` as const;
+
 const intent = {
   deadline: "1700001800",
   deviceKey: `0x${"22".repeat(32)}`,
@@ -20,13 +22,16 @@ const signDigest = async (hash: Hex) => {
   const signature = await privateKeyToAccount(`0x${"01".repeat(32)}`).sign({
     hash,
   });
+
   const recovery = signature.slice(-2).toLowerCase();
   let parity = recovery;
+
   if (recovery === "1b") {
     parity = "00";
   } else if (recovery === "1c") {
     parity = "01";
   }
+
   return `${signature.slice(0, -2)}${parity}`;
 };
 
@@ -76,6 +81,7 @@ describe("registration client", () => {
       })
     );
     const { register } = createRegistrationClient({ fetch: fetchMock });
+
     const result = await Effect.runPromise(
       register({
         admissionCode: "ABC-123",
@@ -97,6 +103,7 @@ describe("registration client", () => {
       status: "confirmed",
       transactionHash: `0x${"44".repeat(32)}`,
     } as const;
+
     fetchMock.mockResolvedValue(Response.json(registration));
     const { getRegistration } = createRegistrationClient({ fetch: fetchMock });
 
@@ -137,6 +144,7 @@ describe("registration client", () => {
       )
     );
     const { getRegistration } = createRegistrationClient({ fetch: fetchMock });
+
     const result = await Effect.runPromise(
       getRegistration(digest).pipe(Effect.result)
     );

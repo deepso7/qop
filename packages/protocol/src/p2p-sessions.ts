@@ -76,20 +76,24 @@ export const createPeerSessions = ({
   // different peer replaces the session.
   const opened = (connection: PeerConnection) => {
     const existing = sessions.get(connection.connId);
+
     if (existing?.peerId === connection.peerId) {
       return;
     }
+
     sessions.set(connection.connId, {
       ...connection,
       semaphore: Semaphore.makeUnsafe(1),
       verifyEpoch,
     });
   };
+
   const closed = ({ connId, peerId }: PeerConnection) => {
     if (sessions.get(connId)?.peerId === peerId) {
       sessions.delete(connId);
     }
   };
+
   const clear = () => sessions.clear();
 
   /** Invalidate cached authorization on resume; keep connections open.
@@ -99,6 +103,7 @@ export const createPeerSessions = ({
    */
   const invalidateAuthorization = () => {
     verifyEpoch += 1;
+
     for (const session of sessions.values()) {
       delete session.authorization;
       session.verifyEpoch = verifyEpoch;
@@ -115,11 +120,13 @@ export const createPeerSessions = ({
     (connection: PeerConnection, handle: string) =>
       Effect.suspend(() => {
         const session = sessions.get(connection.connId);
+
         if (!session || session.peerId !== connection.peerId) {
           return Effect.fail(
             new PeerVerificationError({ operation: "closed" })
           );
         }
+
         return session.semaphore.withPermit(
           Effect.gen(function* () {
             if (!isCurrent(session)) {
@@ -129,13 +136,16 @@ export const createPeerSessions = ({
             const epochAtStart = session.verifyEpoch;
 
             const cached = session.authorization;
+
             if (cached) {
               if (cached.contact.handle !== handle) {
                 delete session.authorization;
+
                 return yield* new PeerVerificationError({
                   operation: "identity",
                 });
               }
+
               if (authAgeMs(cached) < MAX_AUTH_AGE_MS) {
                 return cached.contact;
               }
@@ -149,11 +159,13 @@ export const createPeerSessions = ({
                 () => new PeerVerificationError({ operation: "identity" })
               )
             );
+
             const deviceKey = yield* deviceKeyFromPeerId(peerId).pipe(
               Effect.mapError(
                 () => new PeerVerificationError({ operation: "identity" })
               )
             );
+
             const deviceKeyHex = yield* Schema.encodeEffect(Hex32)(
               deviceKey
             ).pipe(
@@ -161,49 +173,62 @@ export const createPeerSessions = ({
                 () => new PeerVerificationError({ operation: "identity" })
               )
             );
+
             const account = yield* lookupDeviceKey(deviceKeyHex).pipe(
               Effect.mapError(mapLookupError)
             );
+
             // Active membership under the claimed handle — not a single primary peerId.
             if (!account || account.handle !== handle) {
               delete session.authorization;
+
               return yield* new PeerVerificationError({
                 operation: "identity",
               });
             }
+
             const membership = account.devices.some(
               (device) =>
                 device.deviceKey === deviceKeyHex &&
                 device.peerId === connection.peerId
             );
+
             if (!membership) {
               delete session.authorization;
+
               return yield* new PeerVerificationError({
                 operation: "identity",
               });
             }
+
             // Only a fresh chain membership read may reset the live-auth window.
             // Stale/cached RPC success must not mint another MAX_AUTH_AGE_MS.
             if (account.freshness !== "fresh") {
               delete session.authorization;
+
               return yield* new PeerVerificationError({
                 operation: "identity",
               });
             }
+
             // Same or older block is not a new live confirmation — including
             // after resume. Freshness history survives invalidate, so a stuck
             // RPC replaying the old membership cannot remint auth age.
             // Require freshness === "fresh" (above) AND a strictly newer head.
             const priorBlock = session.lastConfirmedBlockNumber;
+
             if (priorBlock !== undefined && account.blockNumber <= priorBlock) {
               delete session.authorization;
+
               return yield* new PeerVerificationError({
                 operation: "identity",
               });
             }
+
             // Auth window starts at registry confirmation, not after storage.
             // Slow DB/upsert must not stretch live auth past MAX_AUTH_AGE_MS.
             const confirmedAtMs = now();
+
             const fresh: SessionContactInput = {
               createdAt: Number(account.registeredAt) * 1000,
               deviceKey: deviceKeyHex,
@@ -212,13 +237,16 @@ export const createPeerSessions = ({
               peerId: connection.peerId,
               qid: account.qid.toString(),
             };
+
             const known = yield* Effect.tryPromise({
               catch: () => new PeerVerificationError({ operation: "storage" }),
               try: () => getContactByQid(fresh.qid),
             });
+
             if (!isCurrent(session) || session.verifyEpoch !== epochAtStart) {
               return yield* new PeerVerificationError({ operation: "closed" });
             }
+
             // Own devices share this qid. They are not chat contacts.
             yield* Effect.tryPromise({
               catch: () => new PeerVerificationError({ operation: "storage" }),
@@ -227,15 +255,18 @@ export const createPeerSessions = ({
                   ? Promise.resolve()
                   : upsertContact(fresh),
             });
+
             if (!isCurrent(session) || session.verifyEpoch !== epochAtStart) {
               return yield* new PeerVerificationError({ operation: "closed" });
             }
+
             // Second authorized device is roster noise, not keyChanged.
             const contact: SessionContact = {
               ...fresh,
               keyChanged: known?.keyChanged ?? false,
               lastReadAt: known?.lastReadAt ?? 0,
             };
+
             session.lastConfirmedBlockNumber = account.blockNumber;
             session.authorization = {
               confirmedAtMs,
@@ -243,6 +274,7 @@ export const createPeerSessions = ({
               contact,
               deviceKey: deviceKeyHex,
             };
+
             return contact;
           })
         );
@@ -254,8 +286,10 @@ export const createPeerSessions = ({
   ) => {
     const peerIds: string[] = [];
     const seen = new Set<string>();
+
     for (const session of sessions.values()) {
       const { authorization } = session;
+
       if (
         authorization &&
         authorization.contact.qid === contact.qid &&
@@ -267,6 +301,7 @@ export const createPeerSessions = ({
         peerIds.push(session.peerId);
       }
     }
+
     return peerIds;
   };
 
@@ -275,21 +310,26 @@ export const createPeerSessions = ({
   ): string[] => {
     const peerIds: string[] = [];
     const seen = new Set<string>();
+
     const push = (peerId: string) => {
       if (seen.has(peerId)) {
         return;
       }
+
       seen.add(peerId);
       peerIds.push(peerId);
     };
+
     for (const session of sessions.values()) {
       if (devices.some((device) => device.peerId === session.peerId)) {
         push(session.peerId);
       }
     }
+
     for (const device of devices) {
       push(device.peerId);
     }
+
     return peerIds;
   };
 
@@ -304,19 +344,24 @@ export const createPeerSessions = ({
       accountHint?: RegistryAccount
     ) {
       const authorized = authorizedPeerIds(contact);
+
       const lookedUp = accountHint
         ? { _tag: "Success" as const, success: accountHint }
         : yield* lookupHandle(contact.handle).pipe(
             Effect.mapError(mapLookupError),
             Effect.result
           );
+
       if (lookedUp._tag === "Failure") {
         if (authorized.length > 0) {
           return authorized;
         }
+
         return yield* lookedUp.failure;
       }
+
       const account = lookedUp.success;
+
       if (
         !account ||
         account.handle !== contact.handle ||
@@ -326,20 +371,26 @@ export const createPeerSessions = ({
         if (authorized.length > 0) {
           return authorized;
         }
+
         return yield* new PeerVerificationError({ operation: "identity" });
       }
+
       const seen = new Set(authorized);
       const peerIds = [...authorized];
+
       for (const peerId of rosterPeerIds(account.devices)) {
         if (seen.has(peerId)) {
           continue;
         }
+
         seen.add(peerId);
         peerIds.push(peerId);
       }
+
       if (peerIds.length === 0) {
         return yield* new PeerVerificationError({ operation: "identity" });
       }
+
       return peerIds;
     }
   );
@@ -348,15 +399,18 @@ export const createPeerSessions = ({
     contact: Pick<SessionContact, "handle" | "qid">
   ) {
     const [peerId] = yield* recipientPeerIds(contact);
+
     if (!peerId) {
       return yield* new PeerVerificationError({ operation: "identity" });
     }
+
     return peerId;
   });
 
   const isVerified = ({ connId, peerId }: PeerConnection, qid: string) => {
     const session = sessions.get(connId);
     const authorization = session?.authorization;
+
     return (
       session?.peerId === peerId &&
       authorization?.contact.qid === qid &&

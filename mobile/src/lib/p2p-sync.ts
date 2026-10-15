@@ -52,10 +52,7 @@ export interface PerformSyncInput {
 export const otherOwnDevicePeerIds = (
   ownPeerId: string,
   devices: readonly { readonly peerId: string }[]
-) =>
-  devices
-    .filter((device) => device.peerId !== ownPeerId)
-    .map((device) => device.peerId);
+) => devices.flatMap(({ peerId }) => (peerId === ownPeerId ? [] : [peerId]));
 
 /** Connected holders first, roster order kept inside each group. */
 export const orderHolderPeerIds = (
@@ -63,6 +60,7 @@ export const orderHolderPeerIds = (
   connectedPeerIds: readonly string[]
 ) => {
   const connected = new Set(connectedPeerIds);
+
   return [
     ...holderPeerIds.filter((peerId) => connected.has(peerId)),
     ...holderPeerIds.filter((peerId) => !connected.has(peerId)),
@@ -72,9 +70,11 @@ export const orderHolderPeerIds = (
 /** Split poll ids so every held message is requested, not only the oldest 32. */
 export const chunkSyncPollIds = (ids: readonly string[]) => {
   const chunks: string[][] = [];
+
   for (let offset = 0; offset < ids.length; offset += SYNC_POLL_MAX_IDS) {
     chunks.push(ids.slice(offset, offset + SYNC_POLL_MAX_IDS));
   }
+
   return chunks;
 };
 
@@ -108,12 +108,14 @@ const openAuthorizedSyncStream = (
         try: () => endpoint.connect(holderPeerId, { timeoutMs }),
       });
     }
+
     // Path-up is not Identify. Opening sync before peerReady yields StreamClosedError.
     yield* Effect.tryPromise({
       catch: (error) =>
         error instanceof Error ? error : new Error(String(error)),
       try: () => endpoint.waitPeerReady(holderPeerId, { timeoutMs }),
     });
+
     const opened = yield* Effect.tryPromise({
       catch: (error) =>
         error instanceof Error ? error : new Error(String(error)),
@@ -123,21 +125,26 @@ const openAuthorizedSyncStream = (
           SYNC_PROTOCOL,
           { timeoutMs }
         );
+
         if (abortSignal.aborted) {
           lateStream.reset();
           throw abortSignal.reason;
         }
+
         return lateStream;
       },
     });
+
     return yield* Effect.gen(function* () {
       sessions.opened(opened);
       yield* sessions.verify(opened, own.handle);
+
       if (!sessions.isVerified(opened, own.qid)) {
         return yield* Effect.fail(
           new Error("Sync connection is no longer authorized")
         );
       }
+
       return opened;
     }).pipe(
       Effect.onExit((exit) =>
@@ -153,6 +160,7 @@ const openAuthorizedSyncStream = (
 const exchangeSyncRequest = (stream: SyncStream, request: SyncRequestV1) =>
   Effect.gen(function* () {
     yield* writeSyncRequestTo(stream, request);
+
     return yield* readSyncResponseFrom(stream);
   });
 
@@ -225,6 +233,7 @@ export const performHandoff = ({
   // answer. Stays true across the transient retry: a later `unavailable` does
   // not prove an earlier attempt's lost `held` never persisted.
   let mayHold = false;
+
   return Effect.runPromise(
     withAuthorizedSyncStream(
       endpoint,
@@ -245,16 +254,20 @@ export const performHandoff = ({
           const earlierMayHold = mayHold;
           mayHold = true;
           const response = yield* readSyncResponseFrom(stream);
+
           if (response.type === "error" && response.reason === "unavailable") {
             // This attempt definitely did not persist; earlier ones still count.
             mayHold = earlierMayHold;
+
             return yield* Effect.fail(
               new Error("CLI could not store the handoff")
             );
           }
+
           if (response.type !== "held") {
             return yield* Effect.fail(new Error(HANDOFF_REJECTED_MESSAGE));
           }
+
           if (response.id !== record.frame.id) {
             return yield* Effect.fail(
               new Error("Sync held does not match the message id")
@@ -308,9 +321,11 @@ const pollHeldChunk = ({
             type: "poll",
             v: 1,
           });
+
           if (response.type !== "receipts") {
             return yield* Effect.fail(new Error("CLI did not return receipts"));
           }
+
           return response.receipts;
         })
     ).pipe(
@@ -348,12 +363,15 @@ export const performCatchup = ({
             type: "catchup",
             v: 1,
           });
+
           if (response.type === "error") {
             return yield* Effect.fail(new Error("CLI rejected inbox catch-up"));
           }
+
           if (response.type !== "inbox") {
             return yield* Effect.fail(new Error("CLI did not return inbox"));
           }
+
           return response;
         })
     ).pipe(
@@ -382,9 +400,11 @@ export const performPoll = ({
     offset = 0
   ): Promise<readonly SyncReceiptV1[]> => {
     const pollIds = chunks[offset];
+
     if (!pollIds) {
       return [];
     }
+
     const receipts = await pollHeldChunk({
       endpoint,
       holderPeerId,
@@ -394,7 +414,9 @@ export const performPoll = ({
       signal,
       timeoutMs,
     });
+
     return [...receipts, ...(await pollChunks(chunks, offset + 1))];
   };
+
   return pollChunks(chunkSyncPollIds(ids));
 };

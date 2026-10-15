@@ -27,6 +27,7 @@ export type StoredDeviceActionIntent = InferSelectModel<
 >;
 
 type TransactionCallback = Parameters<DatabaseClient["transaction"]>[0];
+
 type Transaction = Parameters<TransactionCallback>[0];
 
 const find = (client: DatabaseClient | Transaction, digest: Hash) =>
@@ -148,9 +149,11 @@ export class DeviceActionStore extends Context.Service<
         expected: readonly DeviceActionIntentStatus[]
       ): Effect.fn.Return<never, DeviceActionStoreError> {
         const current = yield* find(tx, digest);
+
         if (!current) {
           return yield* new DeviceActionIntentNotFound({ digest });
         }
+
         return yield* new DeviceActionTransitionConflict({
           actual: current.status,
           digest,
@@ -160,6 +163,7 @@ export class DeviceActionStore extends Context.Service<
 
       const get = Effect.fn("DeviceActionStore.get")(function* (digest: Hash) {
         const canonicalDigest = yield* normalizeRegistrationDigest(digest);
+
         return Option.fromUndefinedOr(yield* find(db, canonicalDigest));
       });
 
@@ -169,9 +173,11 @@ export class DeviceActionStore extends Context.Service<
         const digest = yield* normalizeRegistrationDigest(input.digest);
         const deviceKey = yield* normalizeRegistrationDigest(input.deviceKey);
         const owner = yield* normalizeRegistrationOwner(input.owner);
+
         const ownerSignature = yield* normalizeRegistrationOwnerSignature(
           input.ownerSignature
         );
+
         const canonical: CreateDeviceActionIntent = {
           ...input,
           deviceKey,
@@ -183,10 +189,12 @@ export class DeviceActionStore extends Context.Service<
         return yield* db.transaction((tx) =>
           Effect.gen(function* () {
             const replay = yield* find(tx, canonical.digest);
+
             if (replay) {
               if (isExactCreateReplay(replay, canonical)) {
                 return replay;
               }
+
               return yield* new DeviceActionIntentConflict({
                 digest: canonical.digest,
               });
@@ -194,23 +202,28 @@ export class DeviceActionStore extends Context.Service<
 
             const now = yield* DateTime.now;
             const nowDate = DateTime.toDateUtc(now);
+
             const inserted = yield* tx
               .insert(deviceActionIntents)
               .values({ ...canonical, status: "ready", updatedAt: nowDate })
               .onConflictDoNothing()
               .returning();
+
             const created = inserted.at(0);
+
             if (created) {
               return created;
             }
 
             const concurrentReplay = yield* find(tx, canonical.digest);
+
             if (
               concurrentReplay &&
               isExactCreateReplay(concurrentReplay, canonical)
             ) {
               return concurrentReplay;
             }
+
             const [qidConflict] = yield* tx
               .select({ digest: deviceActionIntents.digest })
               .from(deviceActionIntents)
@@ -221,12 +234,14 @@ export class DeviceActionStore extends Context.Service<
                 )
               )
               .limit(1);
+
             if (qidConflict) {
               return yield* new DeviceActionInFlightConflict({
                 digest: qidConflict.digest,
                 qid: canonical.qid,
               });
             }
+
             return yield* new DeviceActionIntentConflict({
               digest: canonical.digest,
             });
@@ -238,18 +253,21 @@ export class DeviceActionStore extends Context.Service<
         Effect.fn("DeviceActionStore.prepareSubmission")(
           function* (digest, pendingNonce, prepare) {
             const canonicalDigest = yield* normalizeRegistrationDigest(digest);
+
             return yield* db.transaction((tx) =>
               Effect.gen(function* () {
                 yield* tx
                   .insert(registrationRelayerState)
                   .values({ id: 1, nextNonce: 0n })
                   .onConflictDoNothing();
+
                 const relayerState = yield* tx
                   .select()
                   .from(registrationRelayerState)
                   .where(eq(registrationRelayerState.id, 1))
                   .for("update")
                   .pipe(Effect.map((rows) => rows.at(0)));
+
                 if (!relayerState) {
                   return yield* new DeviceActionIntentNotFound({
                     digest: canonicalDigest,
@@ -257,12 +275,14 @@ export class DeviceActionStore extends Context.Service<
                 }
 
                 const current = yield* findForUpdate(tx, canonicalDigest);
+
                 if (
                   current &&
                   ["confirmed", "submitted"].includes(current.status)
                 ) {
                   return current;
                 }
+
                 if (current?.status !== "ready") {
                   return yield* transitionFailure(
                     tx,
@@ -272,23 +292,29 @@ export class DeviceActionStore extends Context.Service<
                 }
 
                 const chainNonce = yield* pendingNonce;
+
                 const nonce =
                   chainNonce > relayerState.nextNonce
                     ? chainNonce
                     : relayerState.nextNonce;
+
                 const submission = yield* prepare(nonce);
+
                 const transactionHash = yield* normalizeTransactionHash(
                   submission.transactionHash
                 );
+
                 const serializedTransaction =
                   yield* normalizeSerializedTransaction(
                     submission.serializedTransaction
                   );
+
                 const submittedAt = DateTime.toDateUtc(yield* DateTime.now);
                 yield* tx
                   .update(registrationRelayerState)
                   .set({ nextNonce: nonce + 1n })
                   .where(eq(registrationRelayerState.id, 1));
+
                 const updated = yield* tx
                   .update(deviceActionIntents)
                   .set({
@@ -305,6 +331,7 @@ export class DeviceActionStore extends Context.Service<
                     )
                   )
                   .returning();
+
                 return (
                   updated[0] ??
                   (yield* transitionFailure(
@@ -322,6 +349,7 @@ export class DeviceActionStore extends Context.Service<
         function* (digest: Hash) {
           const canonicalDigest = yield* normalizeRegistrationDigest(digest);
           const now = DateTime.toDateUtc(yield* DateTime.now);
+
           return yield* db.transaction((tx) =>
             Effect.gen(function* () {
               const updated = yield* tx
@@ -338,14 +366,19 @@ export class DeviceActionStore extends Context.Service<
                   )
                 )
                 .returning();
+
               const confirmed = updated.at(0);
+
               if (confirmed) {
                 return confirmed;
               }
+
               const current = yield* find(tx, canonicalDigest);
+
               if (current?.status === "confirmed") {
                 return current;
               }
+
               return yield* transitionFailure(
                 tx,
                 canonicalDigest,
@@ -368,6 +401,7 @@ export class DeviceActionStore extends Context.Service<
         ) {
           const canonicalDigest = yield* normalizeRegistrationDigest(digest);
           const now = DateTime.toDateUtc(yield* DateTime.now);
+
           return yield* db.transaction((tx) =>
             Effect.gen(function* () {
               const updated = yield* tx
@@ -380,17 +414,22 @@ export class DeviceActionStore extends Context.Service<
                   )
                 )
                 .returning();
+
               const terminal = updated.at(0);
+
               if (terminal) {
                 return terminal;
               }
+
               const current = yield* find(tx, canonicalDigest);
+
               if (
                 current?.status === status &&
                 current.failureCode === failureCode
               ) {
                 return current;
               }
+
               return yield* transitionFailure(
                 tx,
                 canonicalDigest,

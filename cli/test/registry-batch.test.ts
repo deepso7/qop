@@ -45,6 +45,7 @@ const decodeRpcBody = Schema.decodeUnknownSync(
 
 const calldataOf = (call: typeof RpcCall.Type) => {
   const tx = call.params?.[0];
+
   return tx && Predicate.isObject(tx) ? tx.data : undefined;
 };
 
@@ -52,10 +53,13 @@ const rpcResult = (call: typeof RpcCall.Type) => {
   if (call.method === "eth_blockNumber") {
     return "0x63";
   }
+
   const data = calldataOf(call);
+
   if (call.method !== "eth_call" || !data) {
     throw new Error(`unexpected ${call.method}`);
   }
+
   if (data.startsWith(accountSelector)) {
     return encodeFunctionResult({
       abi: registryAbi,
@@ -69,6 +73,7 @@ const rpcResult = (call: typeof RpcCall.Type) => {
       },
     });
   }
+
   if (data.startsWith(devicesSelector)) {
     return encodeFunctionResult({
       abi: registryAbi,
@@ -76,23 +81,28 @@ const rpcResult = (call: typeof RpcCall.Type) => {
       result: [DEVICE_KEY],
     });
   }
+
   throw new Error("unexpected calldata");
 };
 
 const functionName = (call: typeof RpcCall.Type) => {
   const data = calldataOf(call);
+
   if (data?.startsWith(accountSelector)) {
     return "account";
   }
+
   if (data?.startsWith(devicesSelector)) {
     return "listActiveDevices";
   }
+
   throw new Error("unexpected calldata");
 };
 
 describe("CLI registry HTTP batch", () => {
   it("sends account and listActiveDevices as one JSON-RPC HTTP request", async () => {
     const posts: (typeof RpcCall.Type)[][] = [];
+
     const server = createServer((request, response) => {
       const chunks: Buffer[] = [];
       request.on("data", (chunk: Buffer) => {
@@ -103,6 +113,7 @@ describe("CLI registry HTTP batch", () => {
         const decoded = decodeRpcBody(body);
         const batch = Array.isArray(decoded) ? decoded : [decoded];
         posts.push([...batch]);
+
         // `rpcResult` throws on unexpected input. This listener is async, so
         // an uncaught throw becomes an unhandled exception and the client
         // never gets a body. Answer that call with a JSON-RPC error instead.
@@ -124,41 +135,50 @@ describe("CLI registry HTTP batch", () => {
             };
           }
         });
+
         response.writeHead(200, { "Content-Type": "application/json" });
         response.end(
           JSON.stringify(Array.isArray(decoded) ? results : results[0])
         );
       });
     });
+
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
     const address = server.address();
+
     if (!address || Predicate.isString(address)) {
       throw new Error("Expected a TCP listener");
     }
+
     const previousRpcUrl = process.env.QOP_RPC_URL;
     const previousRegistry = process.env.QOP_REGISTRY_ADDRESS;
     const previousChainId = process.env.QOP_REGISTRY_CHAIN_ID;
+
     const restoreEnv = () => {
       if (previousRpcUrl === undefined) {
         delete process.env.QOP_RPC_URL;
       } else {
         process.env.QOP_RPC_URL = previousRpcUrl;
       }
+
       if (previousRegistry === undefined) {
         delete process.env.QOP_REGISTRY_ADDRESS;
       } else {
         process.env.QOP_REGISTRY_ADDRESS = previousRegistry;
       }
+
       if (previousChainId === undefined) {
         delete process.env.QOP_REGISTRY_CHAIN_ID;
       } else {
         process.env.QOP_REGISTRY_CHAIN_ID = previousChainId;
       }
     };
+
     process.env.QOP_RPC_URL = `http://127.0.0.1:${address.port}`;
     process.env.QOP_REGISTRY_ADDRESS = REGISTRY;
     process.env.QOP_REGISTRY_CHAIN_ID = "31337";
+
     try {
       const { reader } = await Effect.runPromise(configuredRegistry());
       const account = await Effect.runPromise(reader.lookupQid(42n));

@@ -81,6 +81,7 @@ const buildChatRowAccessibilityLabel = ({
   | "unreadCount"
 >) => {
   const hasUnread = (unreadCount ?? 0) > 0;
+
   const accessibilityStatus = [
     hasUnread ? `${unreadCount} unread` : undefined,
     security ? securityCopy[security] : undefined,
@@ -88,7 +89,9 @@ const buildChatRowAccessibilityLabel = ({
   ]
     .filter(Boolean)
     .join(", ");
+
   const accessibilityPreview = `${draft ? "Draft. " : ""}${previewAuthor ? `${previewAuthor}. ` : ""}${preview}`;
+
   return [name, accessibilityPreview, time, accessibilityStatus]
     .filter(Boolean)
     .join(". ");
@@ -182,6 +185,7 @@ const ChatRowRender = (
 ) => {
   const hasUnread = unreadCount > 0;
   const opensConversation = onPress !== undefined;
+
   const accessibilityLabel = buildChatRowAccessibilityLabel({
     draft,
     name,
@@ -252,7 +256,9 @@ const ChatRowRender = (
 };
 
 const ChatRow = React.forwardRef(ChatRowRender);
+
 ChatRow.displayName = "ChatRow";
 
 export { ChatRow };
+
 export type { ChatRowProps, ChatRowSecurity };

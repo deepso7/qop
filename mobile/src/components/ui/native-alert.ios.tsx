@@ -69,6 +69,7 @@ const NativeAlertView = ({
 };
 
 const NativeAlert = React.memo(NativeAlertView);
+
 NativeAlert.displayName = "NativeAlert";
 
 export { NativeAlert };

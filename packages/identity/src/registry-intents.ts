@@ -57,8 +57,11 @@ const RegisterIntentV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected registration intent field",
 });
+
 export { RegisterIntentV1Schema as RegisterIntentV1 };
+
 export type RegisterIntentV1 = typeof RegisterIntentV1Schema.Type;
+
 export type RegisterIntentV1Encoded = typeof RegisterIntentV1Schema.Encoded;
 
 const RotateOwnerIntentV1Schema = Schema.Struct({
@@ -69,8 +72,11 @@ const RotateOwnerIntentV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected owner rotation intent field",
 });
+
 export { RotateOwnerIntentV1Schema as RotateOwnerIntentV1 };
+
 export type RotateOwnerIntentV1 = typeof RotateOwnerIntentV1Schema.Type;
+
 export type RotateOwnerIntentV1Encoded =
   typeof RotateOwnerIntentV1Schema.Encoded;
 
@@ -82,8 +88,11 @@ const RecoverOwnerIntentV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected owner recovery intent field",
 });
+
 export { RecoverOwnerIntentV1Schema as RecoverOwnerIntentV1 };
+
 export type RecoverOwnerIntentV1 = typeof RecoverOwnerIntentV1Schema.Type;
+
 export type RecoverOwnerIntentV1Encoded =
   typeof RecoverOwnerIntentV1Schema.Encoded;
 
@@ -95,8 +104,11 @@ const AddDeviceIntentV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected add-device intent field",
 });
+
 export { AddDeviceIntentV1Schema as AddDeviceIntentV1 };
+
 export type AddDeviceIntentV1 = typeof AddDeviceIntentV1Schema.Type;
+
 export type AddDeviceIntentV1Encoded = typeof AddDeviceIntentV1Schema.Encoded;
 
 const RemoveDeviceIntentV1Schema = Schema.Struct({
@@ -107,8 +119,11 @@ const RemoveDeviceIntentV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected remove-device intent field",
 });
+
 export { RemoveDeviceIntentV1Schema as RemoveDeviceIntentV1 };
+
 export type RemoveDeviceIntentV1 = typeof RemoveDeviceIntentV1Schema.Type;
+
 export type RemoveDeviceIntentV1Encoded =
   typeof RemoveDeviceIntentV1Schema.Encoded;
 
@@ -119,8 +134,11 @@ const WipeDevicesIntentV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected wipe-devices intent field",
 });
+
 export { WipeDevicesIntentV1Schema as WipeDevicesIntentV1 };
+
 export type WipeDevicesIntentV1 = typeof WipeDevicesIntentV1Schema.Type;
+
 export type WipeDevicesIntentV1Encoded =
   typeof WipeDevicesIntentV1Schema.Encoded;
 
@@ -450,6 +468,7 @@ export const signRegisterIntentV1 = Effect.fn(
   input: Uint8Array
 ) {
   yield* validateRegisterInputs("sign-register-intent", domain, intent);
+
   const privateKey = yield* Schema.decodeUnknownEffect(OwnerPrivateKey)(
     input
   ).pipe(
@@ -458,17 +477,20 @@ export const signRegisterIntentV1 = Effect.fn(
         new IdentityCryptoError({ cause, operation: "sign-register-intent" })
     )
   );
+
   const account = yield* Effect.try({
     catch: (cause) =>
       new IdentityCryptoError({ cause, operation: "sign-register-intent" }),
     try: () => privateKeyToAccount(toHex(privateKey)),
   });
+
   const signature = yield* Effect.tryPromise({
     catch: (cause) =>
       new IdentityCryptoError({ cause, operation: "sign-register-intent" }),
     try: () =>
       account.signTypedData(makeRegisterIntentTypedDataV1(domain, intent)),
   });
+
   return yield* normalizeEcdsaSignature(signature).pipe(
     Effect.mapError(
       (cause) =>
@@ -485,6 +507,7 @@ export const signWipeDevicesIntentV1 = Effect.fn(
   input: Uint8Array
 ) {
   yield* validateWipeDevicesInputs("sign-wipe-devices-intent", domain, intent);
+
   const privateKey = yield* Schema.decodeUnknownEffect(OwnerPrivateKey)(
     input
   ).pipe(
@@ -496,17 +519,20 @@ export const signWipeDevicesIntentV1 = Effect.fn(
         })
     )
   );
+
   const account = yield* Effect.try({
     catch: (cause) =>
       new IdentityCryptoError({ cause, operation: "sign-wipe-devices-intent" }),
     try: () => privateKeyToAccount(toHex(privateKey)),
   });
+
   const signature = yield* Effect.tryPromise({
     catch: (cause) =>
       new IdentityCryptoError({ cause, operation: "sign-wipe-devices-intent" }),
     try: () =>
       account.signTypedData(makeWipeDevicesIntentTypedDataV1(domain, intent)),
   });
+
   return yield* normalizeEcdsaSignature(signature).pipe(
     Effect.mapError(
       (cause) =>
@@ -526,6 +552,7 @@ export const signAddDeviceIntentV1 = Effect.fn(
   input: Uint8Array
 ) {
   yield* validateAddDeviceInputs("sign-add-device-intent", domain, intent);
+
   const privateKey = yield* Schema.decodeUnknownEffect(OwnerPrivateKey)(
     input
   ).pipe(
@@ -534,17 +561,20 @@ export const signAddDeviceIntentV1 = Effect.fn(
         new IdentityCryptoError({ cause, operation: "sign-add-device-intent" })
     )
   );
+
   const account = yield* Effect.try({
     catch: (cause) =>
       new IdentityCryptoError({ cause, operation: "sign-add-device-intent" }),
     try: () => privateKeyToAccount(toHex(privateKey)),
   });
+
   const signature = yield* Effect.tryPromise({
     catch: (cause) =>
       new IdentityCryptoError({ cause, operation: "sign-add-device-intent" }),
     try: () =>
       account.signTypedData(makeAddDeviceIntentTypedDataV1(domain, intent)),
   });
+
   return yield* normalizeEcdsaSignature(signature).pipe(
     Effect.mapError(
       (cause) =>
@@ -565,6 +595,7 @@ export const signRemoveDeviceIntentV1 = Effect.fn(
     domain,
     intent
   );
+
   const privateKey = yield* Schema.decodeUnknownEffect(OwnerPrivateKey)(
     input
   ).pipe(
@@ -576,6 +607,7 @@ export const signRemoveDeviceIntentV1 = Effect.fn(
         })
     )
   );
+
   const account = yield* Effect.try({
     catch: (cause) =>
       new IdentityCryptoError({
@@ -584,6 +616,7 @@ export const signRemoveDeviceIntentV1 = Effect.fn(
       }),
     try: () => privateKeyToAccount(toHex(privateKey)),
   });
+
   const signature = yield* Effect.tryPromise({
     catch: (cause) =>
       new IdentityCryptoError({
@@ -593,6 +626,7 @@ export const signRemoveDeviceIntentV1 = Effect.fn(
     try: () =>
       account.signTypedData(makeRemoveDeviceIntentTypedDataV1(domain, intent)),
   });
+
   return yield* normalizeEcdsaSignature(signature).pipe(
     Effect.mapError(
       (cause) =>
@@ -616,6 +650,7 @@ export const signRecoverOwnerIntentV1 = Effect.fn(
     domain,
     intent
   );
+
   const privateKey = yield* Schema.decodeUnknownEffect(OwnerPrivateKey)(
     input
   ).pipe(
@@ -627,6 +662,7 @@ export const signRecoverOwnerIntentV1 = Effect.fn(
         })
     )
   );
+
   const account = yield* Effect.try({
     catch: (cause) =>
       new IdentityCryptoError({
@@ -635,6 +671,7 @@ export const signRecoverOwnerIntentV1 = Effect.fn(
       }),
     try: () => privateKeyToAccount(toHex(privateKey)),
   });
+
   const signature = yield* Effect.tryPromise({
     catch: (cause) =>
       new IdentityCryptoError({
@@ -644,6 +681,7 @@ export const signRecoverOwnerIntentV1 = Effect.fn(
     try: () =>
       account.signTypedData(makeRecoverOwnerIntentTypedDataV1(domain, intent)),
   });
+
   return yield* normalizeEcdsaSignature(signature).pipe(
     Effect.mapError(
       (cause) =>

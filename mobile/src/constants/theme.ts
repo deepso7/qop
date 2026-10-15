@@ -22,8 +22,10 @@ export const useTheme = () => {
     "--qop-orange-light",
     "--qop-orange-dark",
   ]);
+
   // SAFETY: These CSS variables are defined as color strings in mobile/global.css.
   const colors = resolvedColors as string[];
+
   const [
     background,
     backgroundElement,

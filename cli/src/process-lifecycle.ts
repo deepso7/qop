@@ -17,12 +17,14 @@ export const createProcessLifecycle = ({
   onInterrupt,
   onSigcont = (handler: () => void) => {
     process.on("SIGCONT", handler);
+
     return () => {
       process.off("SIGCONT", handler);
     };
   },
   setObserveInterval = (handler: () => void, ms: number) => {
     const id = setInterval(handler, ms);
+
     return () => {
       clearInterval(id);
     };
@@ -38,14 +40,18 @@ export const createProcessLifecycle = ({
     adapter.markInterrupted();
     onInterrupt();
   };
+
   const handleTick = () => {
     adapter.observe();
+
     if (adapter.takeInvalidation()) {
       onInterrupt();
     }
   };
+
   const stopSigcont = onSigcont(handleWake);
   const stopInterval = setObserveInterval(handleTick, observeMs);
+
   return {
     adapter,
     dispose: () => {
@@ -69,6 +75,7 @@ export const withProcessLifecycle = <A, E, R>(
         Effect.sync(() => createProcessLifecycle(options)),
         (armed) => Effect.sync(() => armed.dispose())
       );
+
       return yield* use(lifecycle);
     })
   );

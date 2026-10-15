@@ -204,9 +204,11 @@ export class RegistrationEnrollment extends Context.Service<
       const relayer = yield* RegistrationRelayer;
       const signer = yield* RegistrationSigner;
       const store = yield* RegistrationStore;
+
       const reconciliationSemaphore = yield* Semaphore.make(
         registrationReconciliationConcurrency
       );
+
       const domain: IdentityEip712DomainV1 =
         yield* decodeIdentityEip712DomainV1({
           chainId: env.CHAIN_ID.toString(),
@@ -217,6 +219,7 @@ export class RegistrationEnrollment extends Context.Service<
         "RegistrationEnrollment.resumeSubmission"
       )(function* (stored: StoredRegistrationIntent, intent: RegisterIntentV1) {
         let submitted = stored;
+
         if (stored.status === "ready") {
           submitted = yield* store.prepareSubmission(
             stored.digest,
@@ -230,9 +233,11 @@ export class RegistrationEnrollment extends Context.Service<
               )
           );
         }
+
         if (submitted.status === "confirmed") {
           return submitted;
         }
+
         if (
           submitted.status !== "submitted" ||
           submitted.transactionHash === null ||
@@ -243,16 +248,19 @@ export class RegistrationEnrollment extends Context.Service<
             operation: "verify-state",
           });
         }
+
         const transactionHash = yield* relayer.broadcast({
           serializedTransaction: submitted.serializedTransaction,
           transactionHash: submitted.transactionHash,
         });
+
         if (transactionHash !== submitted.transactionHash) {
           return yield* new RegistrationProtocolError({
             cause: "Relayer returned a different transaction hash",
             operation: "verify-state",
           });
         }
+
         return submitted;
       });
 
@@ -270,6 +278,7 @@ export class RegistrationEnrollment extends Context.Service<
             expected: ["submitted", "confirmed"],
           });
         }
+
         return {
           digest: submitted.digest,
           registrationSignature: submitted.registrationSignature,
@@ -302,10 +311,12 @@ export class RegistrationEnrollment extends Context.Service<
                 operation: "reconcile-chain",
               });
             }
+
             const confirmed = yield* store.markConfirmed(
               stored.digest,
               probe.handleQid
             );
+
             yield* Effect.all(
               [
                 registry.invalidate.qidByHandle(stored.handle),
@@ -313,10 +324,12 @@ export class RegistrationEnrollment extends Context.Service<
               ],
               { discard: true }
             );
+
             return confirmed;
           }
 
           let terminalFailure: string | undefined;
+
           if (probe.handleQid !== null || probe.ownerQid !== null) {
             terminalFailure =
               registrationReconciliationFailureCodes.chainConflict;
@@ -324,6 +337,7 @@ export class RegistrationEnrollment extends Context.Service<
             terminalFailure =
               registrationReconciliationFailureCodes.deadlineExpired;
           }
+
           if (terminalFailure) {
             if (stored.status === "submitted") {
               yield* resumeSubmission(
@@ -331,6 +345,7 @@ export class RegistrationEnrollment extends Context.Service<
                 yield* decodeStoredIntent(stored)
               );
             }
+
             return yield* store.markFailed(stored.digest, terminalFailure);
           }
 
@@ -351,6 +366,7 @@ export class RegistrationEnrollment extends Context.Service<
             stored.registrationNonce
           )
         );
+
         return yield* handleProbe(stored, probe.value);
       });
 
@@ -359,20 +375,26 @@ export class RegistrationEnrollment extends Context.Service<
         "RegistrationEnrollment.reconcileBlocker"
       )(function* (digest: Hash) {
         const blockerOption = yield* store.get(digest);
+
         if (Option.isNone(blockerOption)) {
           return { freed: true as const, qid: undefined };
         }
+
         const blocker = blockerOption.value;
+
         if (blocker.status !== "ready" && blocker.status !== "submitted") {
           return {
             freed: true as const,
             qid: blocker.qid ?? undefined,
           };
         }
+
         const reconciled = yield* reconcileActive(blocker);
+
         if (reconciled.status === "failed") {
           return { freed: true as const, qid: undefined };
         }
+
         return {
           freed: false as const,
           qid: reconciled.qid ?? undefined,
@@ -385,20 +407,24 @@ export class RegistrationEnrollment extends Context.Service<
         const intent = yield* decodeRegisterIntentV1(input.intent).pipe(
           Effect.mapError(protocolError("decode-intent"))
         );
+
         const ownerSignature = yield* normalizeRegistrationOwnerSignature(
           input.ownerSignature
         );
+
         const expectedOwner = yield* normalizeRegistrationOwner(intent.owner);
 
         // Hash before admission/ECDSA so digest replays skip the invite check.
         const digest = yield* hashRegisterIntentV1(domain, intent);
         const replay = yield* store.get(digest);
+
         if (Option.isSome(replay)) {
           const recoveredOwner = yield* recoverRegisterIntentSignerV1(
             domain,
             intent,
             yield* decodeSignature(ownerSignature)
           );
+
           if (recoveredOwner !== expectedOwner) {
             return yield* new RegistrationSignatureMismatch({
               expected: expectedOwner,
@@ -406,6 +432,7 @@ export class RegistrationEnrollment extends Context.Service<
               recovered: yield* normalizeRegistrationOwner(recoveredOwner),
             });
           }
+
           if (replay.value.status === "failed") {
             return yield* new RegistrationTransitionConflict({
               actual: "failed",
@@ -413,15 +440,18 @@ export class RegistrationEnrollment extends Context.Service<
               expected: ["ready", "submitted", "confirmed"],
             });
           }
+
           if (replay.value.status === "ready") {
             return yield* toRegisteredRegistration(
               yield* reconcileActive(replay.value)
             );
           }
+
           return yield* registeredRegistration(replay.value);
         }
 
         const now = epochSeconds(yield* DateTime.now);
+
         if (
           intent.deadline <= now ||
           intent.deadline > now + registrationMaxDeadlineSeconds
@@ -436,6 +466,7 @@ export class RegistrationEnrollment extends Context.Service<
           yield* decodeRegistrationAdmissionCode(input.admissionCode).pipe(
             Effect.mapError(registrationAdmissionCodeInputError)
           );
+
         yield* admissions.validate(admissionCodeHash);
 
         const recoveredOwner = yield* recoverRegisterIntentSignerV1(
@@ -443,6 +474,7 @@ export class RegistrationEnrollment extends Context.Service<
           intent,
           yield* decodeSignature(ownerSignature)
         );
+
         if (recoveredOwner !== expectedOwner) {
           return yield* new RegistrationSignatureMismatch({
             expected: expectedOwner,
@@ -454,23 +486,28 @@ export class RegistrationEnrollment extends Context.Service<
         const deviceKey = yield* normalizeRegistrationDigest(
           toHex(intent.deviceKey)
         );
+
         const registrationNonce = yield* normalizeRegistrationDigest(
           toHex(intent.nonce)
         );
+
         const probe = yield* registry.fresh.registrationProbe(
           intent.handle,
           expectedOwner,
           registrationNonce
         );
+
         if (probe.value.registrationNonceUsed) {
           return yield* new RegistrationNonceUsed({ nonce: registrationNonce });
         }
+
         if (probe.value.handleQid !== null) {
           return yield* new RegistrationHandleUnavailable({
             handle: intent.handle,
             qid: probe.value.handleQid,
           });
         }
+
         if (probe.value.ownerQid !== null) {
           return yield* new RegistrationOwnerUnavailable({
             owner: expectedOwner,
@@ -479,6 +516,7 @@ export class RegistrationEnrollment extends Context.Service<
         }
 
         const registrationSignature = yield* signer.sign(domain, intent);
+
         const createFields = {
           admissionCodeHash,
           deadline: intent.deadline,
@@ -490,6 +528,7 @@ export class RegistrationEnrollment extends Context.Service<
           registrationNonce,
           registrationSignature,
         };
+
         const createIntent = store.create(createFields).pipe(
           Effect.catchTags({
             RegistrationIntentConflict: (error) =>
@@ -507,21 +546,27 @@ export class RegistrationEnrollment extends Context.Service<
               ),
           })
         );
+
         const reconciledBlockers = new Set<Hash>();
         let stored: StoredRegistrationIntent | undefined;
+
         while (stored === undefined) {
           const attempt = yield* Effect.result(createIntent);
+
           if (Result.isSuccess(attempt)) {
             stored = attempt.success;
             continue;
           }
+
           const error = attempt.failure;
+
           if (
             error._tag !== "RegistrationActiveHandleConflict" &&
             error._tag !== "RegistrationActiveOwnerConflict"
           ) {
             return yield* Effect.fail(error);
           }
+
           if (
             reconciledBlockers.has(error.digest) ||
             reconciledBlockers.size === 2
@@ -532,8 +577,10 @@ export class RegistrationEnrollment extends Context.Service<
                 : ownerUnavailable(expectedOwner)
             );
           }
+
           reconciledBlockers.add(error.digest);
           const result = yield* reconcileBlocker(error.digest);
+
           if (!result.freed) {
             return yield* Effect.fail(
               error._tag === "RegistrationActiveHandleConflict"
@@ -542,6 +589,7 @@ export class RegistrationEnrollment extends Context.Service<
             );
           }
         }
+
         return yield* registeredRegistration(stored);
       });
 
@@ -549,13 +597,17 @@ export class RegistrationEnrollment extends Context.Service<
         function* (inputDigest: Hash) {
           const digest = yield* normalizeRegistrationDigest(inputDigest);
           const storedOption = yield* store.get(digest);
+
           if (Option.isNone(storedOption)) {
             return yield* new RegistrationIntentNotFound({ digest });
           }
+
           const stored = storedOption.value;
+
           if (stored.status !== "ready" && stored.status !== "submitted") {
             return reconciledRegistration(stored);
           }
+
           return reconciledRegistration(yield* reconcileActive(stored));
         }
       );

@@ -64,9 +64,11 @@ export const createCacheNamespace = <Key, Value, Error>(
     const refreshSemaphore =
       options.refreshSemaphore ??
       (yield* Semaphore.make(Math.max(1, options.refreshConcurrency ?? 16)));
+
     const backgroundRefreshSemaphore =
       options.backgroundRefreshSemaphore ??
       (yield* Semaphore.make(Math.max(1, options.refreshConcurrency ?? 16)));
+
     const mutationSemaphore = yield* Semaphore.make(1);
     let generation = 0;
 
@@ -74,6 +76,7 @@ export const createCacheNamespace = <Key, Value, Error>(
       const value = yield* refreshSemaphore.withPermits(1)(options.lookup(key));
       const cachedAt = yield* Clock.currentTimeMillis;
       const freshFor = durationMillis(options.policy.freshFor(value));
+
       const staleFor = Math.max(
         freshFor,
         durationMillis(options.policy.staleFor(value))
@@ -104,12 +107,15 @@ export const createCacheNamespace = <Key, Value, Error>(
       lookup: Effect.fn("CacheNamespace.refresh")(function* (key: Key) {
         const refreshGeneration = generation;
         const entry = yield* load(key);
+
         return yield* mutationSemaphore.withPermit(
           Effect.gen(function* () {
             if (generation !== refreshGeneration) {
               return Option.none<CacheEntry<Value>>();
             }
+
             yield* Cache.set(entries, key, entry);
+
             return Option.some(entry);
           })
         );
@@ -120,6 +126,7 @@ export const createCacheNamespace = <Key, Value, Error>(
     const cached = Effect.fn("CacheNamespace.cached")(function* (key: Key) {
       const entry = yield* Cache.get(entries, key);
       const now = yield* Clock.currentTimeMillis;
+
       if (now < entry.freshUntil) {
         return cacheRead(entry, "fresh");
       }
@@ -127,6 +134,7 @@ export const createCacheNamespace = <Key, Value, Error>(
       yield* Effect.uninterruptibleMask((restore) =>
         Effect.gen(function* () {
           const admitted = yield* backgroundRefreshSemaphore.takeIfAvailable(1);
+
           if (!admitted) {
             return;
           }
@@ -138,11 +146,13 @@ export const createCacheNamespace = <Key, Value, Error>(
           );
         })
       );
+
       return cacheRead(entry, "stale");
     });
 
     const fresh = Effect.fn("CacheNamespace.fresh")(function* (key: Key) {
       const refreshed = yield* Cache.get(refreshes, key);
+
       if (Option.isSome(refreshed)) {
         return cacheRead(refreshed.value, "fresh");
       }
@@ -153,14 +163,18 @@ export const createCacheNamespace = <Key, Value, Error>(
       const entry = yield* mutationSemaphore.withPermit(
         Effect.gen(function* () {
           const existing = yield* Cache.getOption(entries, key);
+
           if (Option.isSome(existing)) {
             return existing.value;
           }
+
           const loaded = yield* load(key);
           yield* Cache.set(entries, key, loaded);
+
           return loaded;
         })
       );
+
       return cacheRead(entry, "fresh");
     });
 

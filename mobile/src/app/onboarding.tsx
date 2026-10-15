@@ -40,6 +40,7 @@ import type { LocalRegistration } from "@/lib/local-registration";
 import { lookupHandle } from "@/lib/registry";
 
 const decodeHandle = Schema.decodeUnknownResult(Handle);
+
 const decodeAdmissionCode = Schema.decodeUnknownResult(
   RegistrationAdmissionCode
 );
@@ -51,12 +52,15 @@ const getHandleHint = (handle: string) => {
   if (handle.length === 0) {
     return "Lowercase letters, numbers, and underscores.";
   }
+
   if (handle.length > 32) {
     return "Keep it to 32 characters or fewer.";
   }
+
   if (!/^[a-z0-9]/u.test(handle)) {
     return "Start with a lowercase letter or number.";
   }
+
   return "Use only lowercase letters, numbers, and underscores.";
 };
 
@@ -65,39 +69,51 @@ const getVaultErrorMessage = (error: IdentityVaultError | null) => {
     case "availability": {
       return "Secure key storage is unavailable on this device.";
     }
+
     case "already-exists": {
       return "An identity already exists on this device.";
     }
+
     case "decode": {
       return "The stored identity could not be verified.";
     }
+
     case "delete": {
       return "Qop could not remove the stored identity.";
     }
+
     case "install-state": {
       return "Qop could not verify this app installation.";
     }
+
     case "invalid-handle": {
       return "That handle is not valid.";
     }
+
     case "missing-identity": {
       return "There is no identity to finish setting up.";
     }
+
     case "read": {
       return "Qop could not read the identity from secure storage.";
     }
+
     case "sign": {
       return "Qop could not authorize the registration.";
     }
+
     case "stale-install": {
       return "An identity from a previous installation is locked on this device.";
     }
+
     case "create": {
       return "Qop could not generate the identity keys.";
     }
+
     case "write": {
       return "Qop could not save the identity securely.";
     }
+
     default: {
       return "Qop could not open the identity vault.";
     }
@@ -123,7 +139,9 @@ const StepIndicatorView = ({ step }: { step: 1 | 2 | 3 }) => (
     </View>
   </View>
 );
+
 const StepIndicator = React.memo(StepIndicatorView);
+
 StepIndicator.displayName = "StepIndicator";
 
 // Top row of every step. Fixed height keeps headings aligned whether or not
@@ -155,7 +173,9 @@ const StepHeaderView = ({
     <StepIndicator step={step} />
   </View>
 );
+
 const StepHeader = React.memo(StepHeaderView);
+
 StepHeader.displayName = "StepHeader";
 
 const BackupConfirmationButtonView = ({
@@ -168,6 +188,7 @@ const BackupConfirmationButtonView = ({
   if (!visible) {
     return null;
   }
+
   return (
     <Button
       accessibilityHint="Confirms that the recovery key was saved outside qop"
@@ -179,7 +200,9 @@ const BackupConfirmationButtonView = ({
     </Button>
   );
 };
+
 const BackupConfirmationButton = React.memo(BackupConfirmationButtonView);
+
 BackupConfirmationButton.displayName = "BackupConfirmationButton";
 
 const stepTransition = FadeIn.duration(180).reduceMotion(ReduceMotion.System);
@@ -241,12 +264,15 @@ const useRecoveryKey = (
     retryNonceRef.current = retryNonce;
     let cancelled = false;
     const activeNonce = retryNonce;
+
     const reveal = async () => {
       const result = await revealRecoveryKey();
+
       // Drop superseded loads when a newer retry started (cleanup or newer nonce).
       if (cancelled || activeNonce !== retryNonceRef.current) {
         return;
       }
+
       if (Result.isSuccess(result)) {
         setRecoveryKey(result.success);
         setError(undefined);
@@ -254,7 +280,9 @@ const useRecoveryKey = (
         setError("Could not open the recovery key. Try again.");
       }
     };
+
     void reveal();
+
     return () => {
       cancelled = true;
     };
@@ -286,9 +314,11 @@ const getRecoveryButtonLabel = ({
   if (backedUp) {
     return "Recovery key exported";
   }
+
   if (recoveryKey) {
     return "Export recovery key";
   }
+
   return isOpening ? "Opening recovery key…" : "Try opening recovery key";
 };
 
@@ -307,6 +337,7 @@ const useRecoverySetup = (
   const [awaitingConfirmation, setAwaitingConfirmation] = React.useState(false);
   const [finishing, setFinishing] = React.useState(false);
   const [backupError, setBackupError] = React.useState<string>();
+
   const {
     error: recoveryKeyError,
     isOpening,
@@ -318,18 +349,23 @@ const useRecoverySetup = (
     if (!recoveryKey) {
       return;
     }
+
     setAwaitingConfirmation(false);
+
     try {
       const result = await Share.share({
         message: recoveryKey,
         title: "Qop recovery key",
       });
+
       if (result.action === Share.sharedAction) {
         if (Platform.OS === "android") {
           setAwaitingConfirmation(true);
           setBackupError(undefined);
+
           return;
         }
+
         setBackedUp(true);
         setBackupError(undefined);
         playSuccessHaptic();
@@ -350,23 +386,29 @@ const useRecoverySetup = (
     if (finishing) {
       return;
     }
+
     setFinishing(true);
     setBackupError(undefined);
     const result = await setBackupState(backedUp ? "copied" : "skipped");
+
     if (Result.isFailure(result)) {
       setBackupError("Could not save the backup choice. Try again.");
       setFinishing(false);
+
       return;
     }
+
     playSuccessHaptic();
   }, [backedUp, finishing, setBackupState]);
 
   const submitExport = React.useCallback(() => {
     void exportRecoveryKey();
   }, [exportRecoveryKey]);
+
   const submitContinue = React.useCallback(() => {
     void continueToApp();
   }, [continueToApp]);
+
   const buttonLabel = React.useMemo(
     () =>
       getRecoveryButtonLabel({
@@ -407,9 +449,11 @@ const getRegistrationFailureMessage = (
     case "HANDLE_TAKEN": {
       return `@${handle} is already taken. Go back to choose another handle.`;
     }
+
     case "RegistrationUnauthorized": {
       return "That invitation code isn't valid or has already been used.";
     }
+
     default: {
       return `Registration failed (${failureCode ?? "unknown"}). Try again.`;
     }
@@ -423,19 +467,23 @@ const useOnboardingRegistration = (handle: string) => {
   const hydrate = useIdentityStore((state) => state.hydrate);
   const identity = useIdentityStore((state) => state.identity);
   const storedRegistration = useIdentityStore((state) => state.registration);
+
   const [registrationOverride, setRegistrationOverride] = React.useState<{
     ownerAddress: string;
     value: LocalRegistration;
   }>();
+
   const registration =
     registrationOverride &&
     registrationOverride.ownerAddress === identity?.ownerAddress
       ? registrationOverride.value
       : storedRegistration;
+
   const [admissionCode, setAdmissionCode] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [message, setMessage] = React.useState<string>();
   const checking = React.useRef(false);
+
   const isValidAdmissionCode = React.useMemo(
     () => Result.isSuccess(decodeAdmissionCode(admissionCode)),
     [admissionCode]
@@ -444,6 +492,7 @@ const useOnboardingRegistration = (handle: string) => {
   const acceptRegistration = React.useCallback(
     (ownerAddress: string, nextRegistration: LocalRegistration) => {
       setRegistrationOverride({ ownerAddress, value: nextRegistration });
+
       if (nextRegistration.status === "failed") {
         setMessage(
           getRegistrationFailureMessage(
@@ -451,16 +500,20 @@ const useOnboardingRegistration = (handle: string) => {
             nextRegistration.handle
           )
         );
+
         return;
       }
+
       setMessage(
         nextRegistration.status === "pending"
           ? "Submission not confirmed. Retry with your invitation code while we check the registry."
           : undefined
       );
+
       if (nextRegistration.status !== "confirmed") {
         return;
       }
+
       playSuccessHaptic();
       void hydrate();
     },
@@ -471,33 +524,42 @@ const useOnboardingRegistration = (handle: string) => {
     if (!isValidAdmissionCode || busy) {
       return;
     }
+
     Keyboard.dismiss();
     playPrimaryHaptic();
     setBusy(true);
     setMessage(undefined);
     let ownerAddress = identity?.ownerAddress;
+
     if (!ownerAddress) {
       const created = await createIdentity(handle);
+
       if (Result.isFailure(created)) {
         // The store switches onboarding to the vault error screen.
         setBusy(false);
+
         return;
       }
+
       ({ ownerAddress } = created.success);
     }
+
     const result = await Effect.runPromise(
       startLocalRegistration(admissionCode).pipe(Effect.result)
     );
+
     if (Result.isSuccess(result)) {
       if (result.success.status !== "pending") {
         setAdmissionCode("");
       }
+
       acceptRegistration(ownerAddress, result.success);
     } else {
       setMessage(
         "Could not register this identity. Check the invitation code and connection."
       );
     }
+
     setBusy(false);
   }, [
     acceptRegistration,
@@ -518,29 +580,39 @@ const useOnboardingRegistration = (handle: string) => {
     ) {
       return;
     }
+
     let mounted = true;
+
     const check = async () => {
       if (checking.current) {
         return;
       }
+
       checking.current = true;
+
       const result = await Effect.runPromise(
         checkLocalRegistration().pipe(Effect.result)
       );
+
       checking.current = false;
+
       if (!mounted) {
         return;
       }
+
       if (Result.isSuccess(result)) {
         acceptRegistration(ownerAddress, result.success);
       } else {
         setMessage("Could not check registration. Retrying…");
       }
     };
+
     void check();
+
     const interval = setInterval(() => {
       void check();
     }, 4000);
+
     return () => {
       mounted = false;
       clearInterval(interval);
@@ -578,6 +650,7 @@ const RegistrationStepView = ({ handle, onBack }: RegistrationStepProps) => {
     setAdmissionCode,
     submit,
   } = useOnboardingRegistration(handle);
+
   const canStart = canStartRegistration(registration);
   // A pending submission may still land on-chain, so keep the identity.
   const canGoBack = !busy && registration?.status !== "pending";
@@ -618,6 +691,7 @@ const RegistrationStepView = ({ handle, onBack }: RegistrationStepProps) => {
   );
 
   let action: React.ReactNode;
+
   if (canStart) {
     action = (
       <Button
@@ -685,14 +759,18 @@ const RegistrationStepView = ({ handle, onBack }: RegistrationStepProps) => {
     </Animated.View>
   );
 };
+
 const RegistrationStep = React.memo(RegistrationStepView);
+
 RegistrationStep.displayName = "RegistrationStep";
 
 const RecoveryStepView = ({ handle }: { handle: string }) => {
   const revealRecoveryKey = useIdentityStore(
     (state) => state.revealRecoveryKey
   );
+
   const setBackupState = useIdentityStore((state) => state.setBackupState);
+
   const {
     awaitingConfirmation,
     backedUp,
@@ -806,7 +884,9 @@ const RecoveryStepView = ({ handle }: { handle: string }) => {
     </Animated.View>
   );
 };
+
 const RecoveryStep = React.memo(RecoveryStepView);
+
 RecoveryStep.displayName = "RecoveryStep";
 
 const VaultErrorScreenView = ({
@@ -819,6 +899,7 @@ const VaultErrorScreenView = ({
   const retryLoad = useIdentityStore((state) => state.retryLoad);
   const [resetting, setResetting] = React.useState(false);
   const [resetAlertOpen, setResetAlertOpen] = React.useState(false);
+
   const canReset =
     error?.operation === "decode" ||
     error?.operation === "delete" ||
@@ -828,8 +909,10 @@ const VaultErrorScreenView = ({
     if (resetting) {
       return;
     }
+
     setResetting(true);
     const result = await resetIdentity();
+
     if (Result.isFailure(result)) {
       setResetting(false);
     }
@@ -903,7 +986,9 @@ const VaultErrorScreenView = ({
     </Animated.View>
   );
 };
+
 const VaultErrorScreen = React.memo(VaultErrorScreenView);
+
 VaultErrorScreen.displayName = "VaultErrorScreen";
 
 type HandleAvailability = "available" | "checking" | "taken" | "unknown";
@@ -924,20 +1009,27 @@ const useHandleAvailability = (
     if (!isValidHandle) {
       return;
     }
+
     let cancelled = false;
+
     const timer = setTimeout(async () => {
       const lookup = await Effect.runPromise(
         lookupHandle(handle).pipe(Effect.result)
       );
+
       if (cancelled) {
         return;
       }
+
       let availability: Exclude<HandleAvailability, "checking"> = "unknown";
+
       if (Result.isSuccess(lookup)) {
         availability = lookup.success === null ? "available" : "taken";
       }
+
       setChecked({ availability, handle });
     }, 400);
+
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -947,6 +1039,7 @@ const useHandleAvailability = (
   if (!isValidHandle) {
     return undefined;
   }
+
   return checked?.handle === handle ? checked.availability : "checking";
 };
 
@@ -974,6 +1067,7 @@ const OnboardingRouteView = () => {
     () => Result.isSuccess(decodeHandle(handle)),
     [handle]
   );
+
   const availability = useHandleAvailability(handle, isValidHandle);
   const canContinue = isValidHandle && availability !== "taken";
 
@@ -992,6 +1086,7 @@ const OnboardingRouteView = () => {
     if (!canContinue) {
       return;
     }
+
     Keyboard.dismiss();
     playPrimaryHaptic();
     setStage("code");
@@ -1002,14 +1097,18 @@ const OnboardingRouteView = () => {
   const backToHandle = React.useCallback(async () => {
     Keyboard.dismiss();
     playSelectionHaptic();
+
     if (identity) {
       const previousHandle = identity.handle;
       const result = await resetIdentity();
+
       if (Result.isFailure(result)) {
         return;
       }
+
       setHandle(previousHandle);
     }
+
     setStage("handle");
   }, [identity, resetIdentity]);
 
@@ -1018,6 +1117,7 @@ const OnboardingRouteView = () => {
   }, [backToHandle]);
 
   let content: React.ReactNode;
+
   if (status === "resetting" || status === "loading") {
     content = (
       <ActivityIndicator
@@ -1041,9 +1141,11 @@ const OnboardingRouteView = () => {
     );
   } else if (stage === "handle") {
     let hintClassName = "text-foreground-secondary";
+
     if ((handle.length > 0 && !isValidHandle) || availability === "taken") {
       hintClassName = "text-destructive";
     }
+
     content = (
       <Animated.View
         entering={stepTransition}
@@ -1162,7 +1264,9 @@ const OnboardingRouteView = () => {
     </ScrollView>
   );
 };
+
 const OnboardingRoute = React.memo(OnboardingRouteView);
+
 OnboardingRoute.displayName = "OnboardingRoute";
 
 export default OnboardingRoute;

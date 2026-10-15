@@ -67,6 +67,7 @@ const randomChallenge = Effect.fn("PhonePairing.randomChallenge")(function* (
     catch: () => pairingError("random"),
     try: randomBytes,
   });
+
   return yield* Schema.encodeEffect(Hex32)(bytes).pipe(
     Effect.mapError(() => pairingError("random"))
   );
@@ -88,6 +89,7 @@ export const assertOfferMatchesAccount = (
   ) {
     return Effect.fail(pairingError("mismatch"));
   }
+
   return Effect.void;
 };
 
@@ -95,6 +97,7 @@ const expectedPeerId = Effect.fn("PhonePairing.expectedPeerId")(function* (
   offer: PairingOfferV1
 ) {
   const bytes = yield* deviceKeyBytes(offer.deviceKey);
+
   return yield* peerIdFromDeviceKey(bytes).pipe(
     Effect.flatMap(Schema.encodeEffect(PeerId)),
     Effect.mapError(() => pairingError("peer"))
@@ -112,18 +115,22 @@ const dialOffer = Effect.fn("PhonePairing.dialOffer")(function* (
   const [first, ...rest] = offer.addrs.filter(
     (address) => !address.includes("/p2p-circuit")
   );
+
   const connected = yield* Effect.tryPromise({
     catch: () => pairingError("connect"),
     try: () =>
       transport.connect(first === undefined ? peerId : [first, ...rest]),
   });
+
   if (connected.peerId !== peerId) {
     return yield* pairingError("connect");
   }
+
   yield* Effect.tryPromise({
     catch: () => pairingError("connect"),
     try: () => transport.waitPeerReady(peerId),
   });
+
   return peerId;
 });
 
@@ -136,14 +143,18 @@ export const handshakePairing = Effect.fn("PhonePairing.handshake")(function* (
   yield* assertOfferMatchesAccount(offer, local);
   const peerId = yield* expectedPeerId(offer);
   yield* dialOffer(transport, offer, peerId);
+
   const stream = yield* Effect.tryPromise({
     catch: () => pairingError("stream"),
     try: () => transport.openPairingStream(peerId),
   });
+
   if (stream.peerId !== peerId || stream.protocolId !== PAIR_PROTOCOL) {
     stream.reset();
+
     return yield* pairingError("peer");
   }
+
   const challenge = yield* randomChallenge(randomBytes);
   yield* writePairingFrame(
     (data) => stream.write(data),
@@ -157,6 +168,7 @@ export const handshakePairing = Effect.fn("PhonePairing.handshake")(function* (
     }
   );
   const ack = yield* readPairingFrame(() => stream.read());
+
   if (
     ack.type !== "helloAck" ||
     asHex(ack.challenge) !== asHex(challenge) ||
@@ -166,8 +178,10 @@ export const handshakePairing = Effect.fn("PhonePairing.handshake")(function* (
     ack.registry !== offer.registry
   ) {
     stream.reset();
+
     return yield* pairingError("mismatch");
   }
+
   return {
     fingerprint: pairingFingerprint(asHex(offer.deviceKey)),
     peerId,
@@ -185,10 +199,13 @@ export const sendPairingApproval = Effect.fn("PhonePairing.sendApproval")(
       catch: () => pairingError("stream"),
       try: () => transport.openPairingStream(peerId),
     });
+
     if (stream.peerId !== peerId) {
       stream.reset();
+
       return yield* pairingError("peer");
     }
+
     yield* writePairingFrame(
       (data) => stream.write(data),
       () => stream.closeWrite(),
@@ -200,12 +217,15 @@ export const sendPairingApproval = Effect.fn("PhonePairing.sendApproval")(
       }
     );
     const ack = yield* readPairingFrame(() => stream.read());
+
     if (ack.type === "approvalConflict") {
       return yield* pairingError("ack");
     }
+
     if (ack.type !== "approvalSaved" || ack.digest !== record.digest) {
       return yield* pairingError("ack");
     }
+
     return ack.digest;
   }
 );

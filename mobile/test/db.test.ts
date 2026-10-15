@@ -30,6 +30,7 @@ beforeEach(async () => {
     qid: "1",
   });
 });
+
 afterEach(() => vi.useRealTimers());
 
 describe("message chronology", () => {
@@ -202,6 +203,7 @@ describe("interrupted sends", () => {
         text: "incoming state",
       },
     ];
+
     await Promise.all(inputs.map((input) => insertMessage(input)));
     const before = await listMessages("1");
     await failInterruptedMessages();
@@ -381,6 +383,7 @@ describe("message id dedupe", () => {
       status: "received",
       text: "first",
     };
+
     expect(await insertMessage(input)).toBe(true);
     expect(
       await insertMessage({ ...input, status: "received", text: "duplicate" })

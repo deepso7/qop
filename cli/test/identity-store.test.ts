@@ -37,9 +37,11 @@ describe("CLI identity store", () => {
       expect(loaded?.peerId).toBe(identity.peerId);
       const again = yield* store.createPendingKey(publicIdentity);
       expect(again.deviceKey).toBe(identity.deviceKey);
+
       const conflicting = yield* createCliIdentityStore(root)
         .acquireLock()
         .pipe(Effect.result);
+
       expect(conflicting._tag).toBe("Failure");
     })
   );
@@ -56,10 +58,13 @@ describe("CLI identity store", () => {
           writeFile(identityPath, "{not-json", { mode: 0o600 })
         );
         yield* Effect.tryPromise(() => chmod(identityPath, 0o600));
+
         const minted = yield* store
           .createPendingKey(publicIdentity)
           .pipe(Effect.result);
+
         expect(minted._tag).toBe("Failure");
+
         if (minted._tag === "Failure") {
           expect(minted.failure.operation).toBe("decode");
         }
@@ -77,13 +82,17 @@ describe("CLI identity store", () => {
         writeFile(secretPath, secret, { mode: 0o600 })
       );
       yield* Effect.tryPromise(() => chmod(secretPath, 0o600));
+
       const minted = yield* store
         .createPendingKey(publicIdentity)
         .pipe(Effect.result);
+
       expect(minted._tag).toBe("Failure");
+
       if (minted._tag === "Failure") {
         expect(minted.failure.operation).toBe("conflict");
       }
+
       const leftover = yield* Effect.tryPromise(() => readFile(secretPath));
       expect(Buffer.from(leftover).equals(secret)).toBe(true);
     })
@@ -93,10 +102,13 @@ describe("CLI identity store", () => {
     Effect.gen(function* () {
       const root = yield* withTempRoot;
       yield* createCliIdentityStore(root).acquireLock();
+
       const second = yield* createCliIdentityStore(root)
         .acquireLock()
         .pipe(Effect.result);
+
       expect(second._tag).toBe("Failure");
+
       if (second._tag === "Failure") {
         expect(second.failure.operation).toBe("conflict");
       }
@@ -115,11 +127,13 @@ describe("CLI identity store", () => {
     Effect.gen(function* () {
       const root = yield* withTempRoot;
       yield* createCliIdentityStore(root).acquireLock();
+
       const count = yield* Effect.scoped(
         openCliOutboxStore(root).pipe(
           Effect.flatMap((messages) => messages.queuedCount())
         )
       );
+
       expect(count).toBe(0);
     })
   );

@@ -6,6 +6,7 @@ describe("pairing addresses", () => {
   it("advertises a reserved relay before concrete LAN addresses, never wildcard listeners", () => {
     const circuit =
       "/dns/relay.example/udp/1234/quic-v1/p2p/relay/p2p-circuit/p2p/device";
+
     expect(
       selectPairingAddrs(
         [

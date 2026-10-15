@@ -36,10 +36,12 @@ const TabsTrigger = ({
   ...props
 }: React.ComponentProps<typeof TabsPrimitive.Trigger>) => {
   const { value } = TabsPrimitive.useRootContext();
+
   const textClassName = cn(
     "text-foreground dark:text-muted-foreground text-sm font-medium",
     value === props.value && "dark:text-foreground"
   );
+
   return (
     <TextClassContext.Provider value={textClassName}>
       <TabsPrimitive.Trigger

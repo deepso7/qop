@@ -31,21 +31,27 @@ describe("sync stream frames", () => {
         type: "handoff" as const,
         v: 1 as const,
       };
+
       const pending: (Uint8Array | undefined)[] = [];
+
       const stream = {
         closeWrite: () => {},
         connId: 1,
         peerId: "peer",
         read: () => Promise.resolve(pending.shift()),
         reset: () => {},
-        write: async (data: Uint8Array) => {
+        write: (data: Uint8Array) => {
           pending.push(data);
+
+          return Promise.resolve();
         },
       };
+
       yield* writeSyncRequestTo(stream, frame);
       pending.push(undefined);
       const decoded = yield* readSyncRequestFrom(stream);
       assert.strictEqual(decoded.type, "handoff");
+
       if (decoded.type === "handoff") {
         assert.strictEqual(decoded.record.frame.id, id);
       }

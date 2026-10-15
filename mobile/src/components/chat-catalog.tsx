@@ -85,6 +85,7 @@ const initialScrollerMessages: ScrollerMessage[] = [
 
 const ChatCatalog = () => {
   const scrollerRef = React.useRef<MessageScrollerHandle>(null);
+
   const [scrollerMessages, setScrollerMessages] = React.useState(
     initialScrollerMessages
   );

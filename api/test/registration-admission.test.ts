@@ -27,8 +27,10 @@ layer(RegistrationAdmissionTestLive, { timeout: "30 seconds" })((it) => {
       const admissions = yield* RegistrationAdmission;
       const codeHash = hash(1);
       const now = yield* DateTime.now;
+
       const firstExpiry =
         BigInt(Math.floor(DateTime.toEpochMillis(now) / 1000)) + 5n;
+
       yield* admissions.create(codeHash, firstExpiry);
       yield* admissions.create(codeHash, firstExpiry + 100n);
       yield* admissions.validate(codeHash);
@@ -45,8 +47,10 @@ layer(RegistrationAdmissionTestLive, { timeout: "30 seconds" })((it) => {
       const admissions = yield* RegistrationAdmission;
       const codeHash = hash(2);
       const now = yield* DateTime.now;
+
       const expiresAt =
         BigInt(Math.floor(DateTime.toEpochMillis(now) / 1000)) + 5n;
+
       yield* admissions.create(codeHash, expiresAt);
       yield* admissions.validate(codeHash);
       yield* TestClock.adjust("5 seconds");

@@ -15,6 +15,7 @@ import { useP2pStore } from "@/lib/p2p-store";
 import "../../global.css";
 
 void SplashScreen.preventAutoHideAsync();
+
 SplashScreen.setOptions({ duration: 250, fade: true });
 
 const MAX_P2P_RESTART_ATTEMPTS = 5;
@@ -46,10 +47,12 @@ const AppStack = () => {
     if (status === "ready") {
       p2pRestartAttempts.current = 0;
       void startP2p();
+
       return () => {
         void stopP2p();
       };
     }
+
     void stopP2p();
   }, [startP2p, status, stopP2p]);
 
@@ -63,9 +66,11 @@ const AppStack = () => {
     ) {
       return;
     }
+
     const attempt = p2pRestartAttempts.current;
     p2pRestartAttempts.current += 1;
     let cancelled = false;
+
     const timer = setTimeout(
       () => {
         if (!cancelled) {
@@ -74,6 +79,7 @@ const AppStack = () => {
       },
       Math.min(P2P_RESTART_DELAY_MS * 2 ** attempt, MAX_P2P_RESTART_DELAY_MS)
     );
+
     return () => {
       cancelled = true;
       clearTimeout(timer);
@@ -131,6 +137,7 @@ const RootLayout = () => {
   const colorScheme = useColorScheme();
   const colors = useTheme();
   const baseTheme = colorScheme === "dark" ? DarkTheme : DefaultTheme;
+
   const navigationTheme = {
     ...baseTheme,
     colors: {

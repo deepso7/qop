@@ -9,6 +9,7 @@ import type { Contact } from "@/lib/db";
 import { readVerifiedChat } from "@/lib/p2p-receive";
 
 const id = "c56a4180-65aa-42ec-a945-5fd21dec0538";
+
 const frame = {
   fromHandle: "alice",
   id,
@@ -16,6 +17,7 @@ const frame = {
   text: "hello",
   v: 1 as const,
 };
+
 const contact: Contact = {
   createdAt: 1,
   deviceKey: "device",
@@ -34,6 +36,7 @@ const resolvedUndefined = async (): Promise<undefined> => {
 
 const frameChunks = (bytes: Uint8Array) => {
   const chunks: (Uint8Array | undefined)[] = [bytes, undefined];
+
   return () => Promise.resolve(chunks.shift());
 };
 

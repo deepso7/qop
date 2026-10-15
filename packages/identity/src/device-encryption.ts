@@ -16,6 +16,7 @@ export const encryptionPublicKeyFromSecretKey = Effect.fn(
       operation: "derive-public-key",
     });
   }
+
   return yield* Effect.try({
     catch: (cause) =>
       new DeviceEncryptionCryptoError({

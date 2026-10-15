@@ -20,14 +20,19 @@ import type { createRegistrationClient } from "./registration-client-core";
 import type { createRegistryReader } from "./registry-core";
 
 const REGISTRATION_DEADLINE_SECONDS = 1800n;
+
 const CanonicalAdmissionCode = RegistrationAdmissionCode.pipe(
   Schema.decodeTo(RegistrationAdmissionCode.pipe(Schema.flip))
 );
+
 const CanonicalHex32 = Hex32.pipe(Schema.decodeTo(Hex32.pipe(Schema.flip)));
+
 const CanonicalNonce = RegistrationNonce.pipe(
   Schema.decodeTo(RegistrationNonce.pipe(Schema.flip))
 );
+
 const CanonicalQid = Qid.pipe(Schema.decodeTo(Qid.pipe(Schema.flip)));
+
 const CanonicalDeadline = UnixSeconds.pipe(
   Schema.decodeTo(UnixSeconds.pipe(Schema.flip))
 );
@@ -49,6 +54,7 @@ const StoredLocalRegistrationV2 = Schema.Struct({
 const StoredLocalRegistrationJson = Schema.fromJsonString(
   StoredLocalRegistrationV2
 );
+
 export type LocalRegistration = typeof StoredLocalRegistrationV2.Type;
 
 export class LocalRegistrationError extends Data.TaggedError(
@@ -136,6 +142,7 @@ export const createLocalRegistration = ({
     const encoded = yield* Schema.encodeEffect(StoredLocalRegistrationJson)(
       registration
     ).pipe(Effect.mapError(() => localError("write")));
+
     yield* Effect.tryPromise({
       catch: () => localError("write"),
       try: () => secureStore.set(storageKey, encoded),
@@ -147,9 +154,11 @@ export const createLocalRegistration = ({
       const identity = yield* vault
         .loadLocalIdentity()
         .pipe(Effect.mapError(() => localError("identity")));
+
       if (!identity) {
         return yield* localError("identity");
       }
+
       return identity;
     }
   );
@@ -158,12 +167,14 @@ export const createLocalRegistration = ({
     registration: LocalRegistration
   ) {
     const identity = yield* loadIdentity();
+
     if (
       registration.ownerAddress !== identity.ownerAddress ||
       registration.handle !== identity.handle
     ) {
       return yield* localError("verify");
     }
+
     return identity;
   });
 
@@ -171,9 +182,11 @@ export const createLocalRegistration = ({
     "LocalRegistration.readStoredRegistration"
   )(function* () {
     const encoded = yield* readStore(storageKey);
+
     if (encoded === null) {
       return null;
     }
+
     return yield* decodeStoredRegistration(encoded);
   });
 
@@ -183,12 +196,14 @@ export const createLocalRegistration = ({
         catch: () => localError("create"),
         try: randomBytes,
       });
+
       if (bytes.length === 32 && bytes.some((byte) => byte !== 0)) {
         return yield* Schema.encodeEffect(Hex32)(bytes).pipe(
           Effect.mapError(() => localError("create"))
         );
       }
     }
+
     return yield* localError("create");
   });
 
@@ -196,9 +211,11 @@ export const createLocalRegistration = ({
     "LocalRegistration.loadLocalRegistration"
   )(function* () {
     const registration = yield* readStoredRegistration();
+
     if (registration) {
       yield* verifyOwner(registration);
     }
+
     return registration;
   });
 
@@ -210,16 +227,21 @@ export const createLocalRegistration = ({
       registration.status !== "pending"
     ) {
       yield* verifyOwner(registration);
+
       return registration;
     }
+
     const identity = yield* verifyOwner(registration);
+
     const ownerAccount = yield* registry
       .lookupOwner(identity.ownerAddress)
       .pipe(Effect.mapError(() => localError("network")));
+
     if (ownerAccount?.handle === registration.handle) {
       const deviceActive = ownerAccount.devices.some(
         (device) => device.deviceKey === identity.deviceKey.toLowerCase()
       );
+
       if (
         ownerAccount.owner === identity.ownerAddress.toLowerCase() &&
         deviceActive
@@ -229,22 +251,29 @@ export const createLocalRegistration = ({
           qid: ownerAccount.qid.toString(),
           status: "confirmed",
         };
+
         yield* writeStoredRegistration(confirmed);
+
         return confirmed;
       }
+
       if (!deviceActive) {
         const failed: LocalRegistration = {
           ...registration,
           failureCode: "DEVICE_KEY_MISMATCH",
           status: "failed",
         };
+
         yield* writeStoredRegistration(failed);
+
         return failed;
       }
     }
+
     const handleAccount = yield* registry
       .lookupHandle(registration.handle)
       .pipe(Effect.mapError(() => localError("network")));
+
     if (
       handleAccount &&
       handleAccount.owner !== identity.ownerAddress.toLowerCase()
@@ -254,12 +283,16 @@ export const createLocalRegistration = ({
         failureCode: "HANDLE_TAKEN",
         status: "failed",
       };
+
       yield* writeStoredRegistration(failed);
+
       return failed;
     }
+
     if (now() < BigInt(registration.deadline)) {
       return registration;
     }
+
     const reconciled = yield* registrationClient
       .getRegistration(registration.digest)
       .pipe(
@@ -275,10 +308,13 @@ export const createLocalRegistration = ({
             : Effect.fail(localError("network"))
         )
       );
+
     if (reconciled.digest !== registration.digest) {
       return yield* localError("verify");
     }
+
     let updated: LocalRegistration;
+
     if (reconciled.status === "failed") {
       updated = {
         ...registration,
@@ -294,7 +330,9 @@ export const createLocalRegistration = ({
     } else {
       updated = { ...registration, status: "submitted" };
     }
+
     yield* writeStoredRegistration(updated);
+
     return updated;
   });
 
@@ -304,33 +342,45 @@ export const createLocalRegistration = ({
     registrationSemaphore.withPermit(
       Effect.gen(function* () {
         const existing = yield* readStoredRegistration();
+
         if (existing?.status === "submitted") {
           yield* verifyOwner(existing);
+
           return existing;
         }
+
         if (existing?.status === "confirmed") {
           yield* verifyOwner(existing);
+
           return existing;
         }
 
         const pending = existing?.status === "pending" ? existing : null;
+
         if (pending) {
           yield* verifyOwner(pending);
+
           if (now() >= BigInt(pending.deadline)) {
             return yield* reconcileRegistration(pending);
           }
         }
+
         const identity = yield* loadIdentity();
+
         const admissionCode = yield* Schema.decodeUnknownEffect(
           CanonicalAdmissionCode
         )(admissionCodeInput).pipe(Effect.mapError(() => localError("create")));
+
         const domain = yield* decodeIdentityEip712DomainV1(domainInput).pipe(
           Effect.mapError(() => localError("configuration"))
         );
+
         const nonce = pending?.nonce ?? (yield* makeNonce());
+
         const deadline =
           pending?.deadline ??
           (now() + REGISTRATION_DEADLINE_SECONDS).toString();
+
         const intentInput = {
           deadline,
           deviceKey: identity.deviceKey,
@@ -338,18 +388,23 @@ export const createLocalRegistration = ({
           nonce,
           owner: identity.ownerAddress,
         };
+
         const intent = yield* decodeRegisterIntentV1(intentInput).pipe(
           Effect.mapError(() => localError("create"))
         );
+
         const canonicalIntent = yield* Schema.encodeEffect(RegisterIntentV1)(
           intent
         ).pipe(Effect.mapError(() => localError("create")));
+
         const digest = yield* hashRegisterIntentV1(domain, intent).pipe(
           Effect.mapError(() => localError("create"))
         );
+
         const ownerSignature = yield* vault
           .signRegisterIntent(domainInput, canonicalIntent)
           .pipe(Effect.mapError(() => localError("sign")));
+
         const request: LocalRegistration = {
           deadline,
           digest,
@@ -361,13 +416,17 @@ export const createLocalRegistration = ({
           status: "pending",
           version: 2,
         };
+
         // Save the digest before the request can reach the relayer.
         yield* writeStoredRegistration(request);
+
         const result = yield* registrationClient
           .register({ admissionCode, intent: canonicalIntent, ownerSignature })
           .pipe(Effect.result);
+
         if (Result.isFailure(result)) {
           const { status } = result.failure;
+
           if (
             status !== null &&
             status >= 400 &&
@@ -379,19 +438,26 @@ export const createLocalRegistration = ({
               failureCode: rejectionFailureCode(result.failure),
               status: "failed",
             };
+
             yield* writeStoredRegistration(failed);
+
             return failed;
           }
+
           return request;
         }
+
         if (result.success.digest !== digest) {
           return yield* localError("verify");
         }
+
         const submitted: LocalRegistration = {
           ...request,
           status: "submitted",
         };
+
         yield* writeStoredRegistration(submitted);
+
         return submitted;
       })
     )
@@ -403,9 +469,11 @@ export const createLocalRegistration = ({
     registrationSemaphore.withPermit(
       Effect.gen(function* () {
         const registration = yield* readStoredRegistration();
+
         if (!registration) {
           return yield* localError("verify");
         }
+
         return yield* reconcileRegistration(registration);
       })
     )

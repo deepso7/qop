@@ -22,23 +22,29 @@ describe("registry reader accountAt", () => {
     const signals: (AbortSignal | undefined)[] = [];
     const accountHold = Deferred.makeUnsafe<boolean>();
     const devicesHold = Deferred.makeUnsafe<boolean>();
+
     const { lookupQid } = createRegistryReader({
       client: {
         getBlockNumber: () => Promise.resolve(HEAD),
         readContract: async ({ blockNumber, functionName }, options) => {
           signals.push(options?.signal);
+
           if (functionName === "account") {
             expect(blockNumber).toBe(HEAD);
             started.push(functionName);
             await Effect.runPromise(Deferred.await(accountHold));
+
             return accountResult;
           }
+
           if (functionName === "listActiveDevices") {
             expect(blockNumber).toBe(HEAD);
             started.push(functionName);
             await Effect.runPromise(Deferred.await(devicesHold));
+
             return [DEVICE_KEY];
           }
+
           throw new Error(`unexpected ${functionName}`);
         },
       },
@@ -59,11 +65,13 @@ describe("registry reader accountAt", () => {
     const deviceKey = await Effect.runPromise(
       Schema.decodeUnknownEffect(Hex32)(DEVICE_KEY)
     );
+
     const peerId = await Effect.runPromise(
       peerIdFromDeviceKey(deviceKey).pipe(
         Effect.flatMap(Schema.encodeEffect(PeerId))
       )
     );
+
     await expect(lookup).resolves.toEqual({
       blockNumber: HEAD,
       deviceKey: DEVICE_KEY,

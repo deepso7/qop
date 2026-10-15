@@ -4,8 +4,10 @@ import type { SQLInputValue } from "node:sqlite";
 // Run the app's SQL using SQLite in Node when the native Expo module is unavailable.
 export const openDatabaseAsync = () => {
   const database = new DatabaseSync(":memory:");
+
   const runAsync = (sql: string, ...params: SQLInputValue[]) =>
     Promise.resolve(database.prepare(sql).run(...params));
+
   return Promise.resolve({
     execAsync: (sql: string) => Promise.resolve(database.exec(sql)),
     getAllAsync: (sql: string, ...params: SQLInputValue[]) =>
@@ -17,6 +19,7 @@ export const openDatabaseAsync = () => {
       run: (transaction: { runAsync: typeof runAsync }) => Promise<void>
     ) => {
       database.exec("BEGIN");
+
       try {
         await run({ runAsync });
         database.exec("COMMIT");

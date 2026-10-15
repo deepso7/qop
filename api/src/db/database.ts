@@ -23,6 +23,7 @@ export class Database extends Context.Service<
 const PgClientLive = Layer.unwrap(
   Effect.gen(function* () {
     const env = yield* Env;
+
     return PgClient.layer({
       applicationName: "qop-api",
       maxConnections: 10,

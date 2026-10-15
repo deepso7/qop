@@ -18,18 +18,22 @@ const ChatRoute = () => {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [contact, setContact] = React.useState<Contact | null>();
   const [loadError, setLoadError] = React.useState(false);
+
   const [retryCount, retryLoad] = React.useReducer(
     (count: number) => count + 1,
     0
   );
+
   const revision = useP2pStore((state) => state.revision);
 
   useFocusEffect(
     React.useCallback(() => {
       let active = true;
+
       const load = async (_revision: number, _retryCount: number) => {
         try {
           const loaded = await getContactByQid(id);
+
           if (active) {
             setContact(loaded);
             setLoadError(false);
@@ -40,7 +44,9 @@ const ChatRoute = () => {
           }
         }
       };
+
       void load(revision, retryCount);
+
       return () => {
         active = false;
       };
@@ -60,6 +66,7 @@ const ChatRoute = () => {
       </View>
     );
   }
+
   if (contact === undefined) {
     return (
       <View className="bg-background flex-1 items-center justify-center">
@@ -67,6 +74,7 @@ const ChatRoute = () => {
       </View>
     );
   }
+
   if (contact === null) {
     return (
       <>
@@ -84,6 +92,7 @@ const ChatRoute = () => {
       </>
     );
   }
+
   return (
     <>
       <Stack.Screen options={{ title: `@${contact.handle}` }} />

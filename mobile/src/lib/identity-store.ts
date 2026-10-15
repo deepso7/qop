@@ -14,6 +14,7 @@ import {
 } from "./local-registration";
 
 export { createIdentityStore } from "./identity-store-core";
+
 export type {
   IdentityStatus,
   IdentityStoreDependencies,

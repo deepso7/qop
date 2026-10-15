@@ -24,6 +24,7 @@ const pendingAdd = {
 
 const createStore = (initial: typeof pendingAdd | null) => {
   let stored: typeof pendingAdd | null = initial;
+
   return {
     clearApproval: () =>
       Effect.sync(() => {
@@ -40,6 +41,7 @@ describe("CLI pending approval occupancy", () => {
     () =>
       Effect.gen(function* () {
         const store = createStore(pendingAdd);
+
         const occupying = yield* loadOccupyingApproval({
           apiUrl: "http://127.0.0.1",
           getStatus: () =>
@@ -47,6 +49,7 @@ describe("CLI pending approval occupancy", () => {
           latestTimestamp: () => Effect.succeed(1_700_003_600n),
           store,
         });
+
         expect(occupying?.digest).toBe(pendingAdd.digest);
         expect(store.snapshot()?.digest).toBe(pendingAdd.digest);
       })
@@ -57,6 +60,7 @@ describe("CLI pending approval occupancy", () => {
     () =>
       Effect.gen(function* () {
         const store = createStore(pendingAdd);
+
         const occupying = yield* loadOccupyingApproval({
           apiUrl: "http://127.0.0.1",
           getStatus: () =>
@@ -64,6 +68,7 @@ describe("CLI pending approval occupancy", () => {
           latestTimestamp: () => Effect.succeed(1_700_003_601n),
           store,
         });
+
         expect(occupying).toBeNull();
         expect(store.snapshot()).toBeNull();
       })
@@ -72,12 +77,14 @@ describe("CLI pending approval occupancy", () => {
   it.effect("keeps a submitted digest on GET 404 after the deadline", () =>
     Effect.gen(function* () {
       const store = createStore(pendingAdd);
+
       const occupying = yield* loadOccupyingApproval({
         apiUrl: "http://127.0.0.1",
         getStatus: () => Effect.succeed({ status: "submitted" as const }),
         latestTimestamp: () => Effect.succeed(1_700_003_601n),
         store,
       });
+
       expect(occupying?.digest).toBe(pendingAdd.digest);
       expect(store.snapshot()?.digest).toBe(pendingAdd.digest);
     })
@@ -86,6 +93,7 @@ describe("CLI pending approval occupancy", () => {
   it.effect("keeps a missing digest when GET fails as a network error", () =>
     Effect.gen(function* () {
       const store = createStore(pendingAdd);
+
       const occupying = yield* loadOccupyingApproval({
         apiUrl: "http://127.0.0.1",
         getStatus: () =>
@@ -93,6 +101,7 @@ describe("CLI pending approval occupancy", () => {
         latestTimestamp: () => Effect.succeed(1_700_003_600n),
         store,
       });
+
       expect(occupying?.digest).toBe(pendingAdd.digest);
       expect(store.snapshot()?.digest).toBe(pendingAdd.digest);
     })

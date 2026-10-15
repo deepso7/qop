@@ -20,6 +20,7 @@ export const OutboxQid = Schema.String.check(
 const ErrorNote = Schema.String.check(Schema.isBetweenLength(1, 400));
 
 export const OutboxStatusV1 = Schema.Literals(["queued", "sent", "failed"]);
+
 export type OutboxStatus = typeof OutboxStatusV1.Type;
 
 export const OutboxRecordV1Schema = Schema.Struct({
@@ -40,7 +41,9 @@ export const OutboxRecordV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected outbox record field",
 });
+
 export { OutboxRecordV1Schema as OutboxRecordV1 };
+
 export type OutboxRecordV1 = typeof OutboxRecordV1Schema.Type;
 
 export const InboxRecordV1Schema = Schema.Struct({
@@ -51,7 +54,9 @@ export const InboxRecordV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected inbox record field",
 });
+
 export { InboxRecordV1Schema as InboxRecordV1 };
+
 export type InboxRecordV1 = typeof InboxRecordV1Schema.Type;
 
 /** Same logical id must keep the same content; a mismatch is a conflict. */

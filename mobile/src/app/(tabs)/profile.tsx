@@ -53,9 +53,11 @@ const avatarTints = [
 
 const avatarTint = (handle: string) => {
   let hash = 0;
+
   for (const char of handle) {
     hash = (hash * 31 + (char.codePointAt(0) ?? 0)) % 1_000_003;
   }
+
   return avatarTints[hash % avatarTints.length] ?? avatarTints[0];
 };
 
@@ -68,6 +70,7 @@ const showQrCode = () => {
 const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
   const colors = useTheme();
   const [tint, ink] = avatarTint(handle);
+
   return (
     // No row-wide spacing: it would also pad around the flexible spacer and
     // squeeze the QR circle when the handle is long.
@@ -155,6 +158,7 @@ const SettingsRow = ({
       </ListItem>
     );
   }
+
   return (
     <Row alignment="center" onPress={onPress}>
       <Column spacing={2}>
@@ -170,6 +174,7 @@ const SettingsRow = ({
 /** Secondary text for a settings row's value or subtitle. */
 const Secondary = ({ children }: { children: string }) => {
   const colors = useTheme();
+
   return (
     <UIText textStyle={{ color: colors.textSecondary }}>{children}</UIText>
   );
@@ -188,6 +193,7 @@ const logoutPresentation = (needsBackup: boolean) => {
       title: "Delete an identity without a backup?",
     };
   }
+
   return {
     description:
       "For now, logging out deletes the local identity and keys from this device. You will need the recovery key to restore it.",
@@ -205,21 +211,27 @@ const ProfileScreen = () => {
   const [peerIdCopied, setPeerIdCopied] = React.useState(false);
   const identity = useIdentityStore((state) => state.identity);
   const registration = useIdentityStore((state) => state.registration);
+
   const revealRecoveryKey = useIdentityStore(
     (state) => state.revealRecoveryKey
   );
+
   const resetIdentity = useIdentityStore((state) => state.resetIdentity);
   const setBackupState = useIdentityStore((state) => state.setBackupState);
   const [exportingRecoveryKey, setExportingRecoveryKey] = React.useState(false);
+
   const [awaitingBackupConfirmation, setAwaitingBackupConfirmation] =
     React.useState(false);
+
   const [logoutAlertOpen, setLogoutAlertOpen] = React.useState(false);
   const [recoveryMessage, setRecoveryMessage] = React.useState<string>();
   const needsBackup = identity?.backupState !== "copied";
+
   const logout = React.useMemo(
     () => logoutPresentation(needsBackup),
     [needsBackup]
   );
+
   const recovery = React.useMemo(
     () => recoveryPresentation(needsBackup),
     [needsBackup]
@@ -229,20 +241,25 @@ const ProfileScreen = () => {
     if (exportingRecoveryKey) {
       return;
     }
+
     setExportingRecoveryKey(true);
     setAwaitingBackupConfirmation(false);
     setRecoveryMessage(undefined);
     const revealed = await revealRecoveryKey();
+
     if (Result.isFailure(revealed)) {
       setRecoveryMessage("Could not open the recovery key. Try again.");
       setExportingRecoveryKey(false);
+
       return;
     }
+
     try {
       const shared = await Share.share({
         message: revealed.success,
         title: "Qop recovery key",
       });
+
       if (shared.action === Share.sharedAction) {
         if (Platform.OS === "android") {
           if (needsBackup) {
@@ -263,6 +280,7 @@ const ProfileScreen = () => {
     } catch {
       setRecoveryMessage("Could not export the recovery key. Try again.");
     }
+
     setExportingRecoveryKey(false);
   }, [exportingRecoveryKey, needsBackup, revealRecoveryKey, setBackupState]);
 
@@ -270,14 +288,17 @@ const ProfileScreen = () => {
     if (exportingRecoveryKey) {
       return;
     }
+
     setExportingRecoveryKey(true);
     const saved = await setBackupState("copied");
+
     if (Result.isSuccess(saved)) {
       setAwaitingBackupConfirmation(false);
       setRecoveryMessage("Recovery key marked as backed up.");
     } else {
       setRecoveryMessage("Could not save the backup status. Try again.");
     }
+
     setExportingRecoveryKey(false);
   }, [exportingRecoveryKey, setBackupState]);
 
@@ -291,9 +312,11 @@ const ProfileScreen = () => {
   }, [resetIdentity]);
 
   const { remove, retry: retryRoster } = roster;
+
   const confirmRemove = React.useCallback(() => {
     const deviceKey = removeKey;
     setRemoveKey(undefined);
+
     if (deviceKey) {
       void remove(deviceKey);
     }
@@ -307,6 +330,7 @@ const ProfileScreen = () => {
     if (!identity) {
       return;
     }
+
     await Clipboard.setStringAsync(identity.peerId);
     void selectionHaptic();
     setPeerIdCopied(true);
@@ -317,7 +341,9 @@ const ProfileScreen = () => {
     if (!peerIdCopied) {
       return;
     }
+
     const timer = setTimeout(() => setPeerIdCopied(false), 1500);
+
     return () => clearTimeout(timer);
   }, [peerIdCopied]);
 

@@ -21,7 +21,9 @@ export const normalizeRegistryOwner = Effect.fn("RegistryInput.normalizeOwner")(
         (cause) => new RegistryInputError({ cause, operation: "owner" })
       )
     );
+
     const canonicalOwner = owner.toLowerCase();
+
     // SAFETY: normalizeEthereumAddress accepts only 20-byte 0x-prefixed Ethereum addresses.
     return canonicalOwner as Address;
   }
@@ -46,6 +48,7 @@ export const normalizeRegistryRegistrationNonce = Effect.fn(
         new RegistryInputError({ cause, operation: "registration-nonce" })
     )
   );
+
   const bytes = yield* Schema.decodeUnknownEffect(RegistrationNonce)(
     encoded.toLowerCase()
   ).pipe(
@@ -54,5 +57,6 @@ export const normalizeRegistryRegistrationNonce = Effect.fn(
         new RegistryInputError({ cause, operation: "registration-nonce" })
     )
   );
+
   return toHex(bytes);
 });

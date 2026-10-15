@@ -25,6 +25,7 @@ const NOT_FOUND_DIGEST = testHash("not-found");
 const TRANSACTION_HASH = testHash("transaction");
 const SIGNATURE = testSignature("00");
 const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
+
 const intent = {
   deadline: "600",
   deviceKey: testHash("device"),
@@ -32,6 +33,7 @@ const intent = {
   nonce: testHash("nonce"),
   owner: OWNER,
 } as const;
+
 const payload = {
   admissionCode: "ABC-123",
   intent,
@@ -63,13 +65,17 @@ const RegistrationEnrollmentTestLive = Layer.succeed(
           })
         );
       }
+
       if (input.intent.handle === "invalid") {
         return Effect.fail(new RegistrationDeadlineInvalid({ deadline: 0n }));
       }
+
       if (input.intent.handle === "nonceused") {
         return Effect.fail(new RegistrationNonceUsed({ nonce: DIGEST }));
       }
+
       assert.deepStrictEqual(input, payload);
+
       return Effect.succeed({
         digest: DIGEST,
         registrationSignature: SIGNATURE,
@@ -146,9 +152,11 @@ describe("registration HTTP API", () => {
         status: "submitted",
         transactionHash: TRANSACTION_HASH,
       });
+
       const reconciledResponse = yield* Effect.promise(() =>
         handler(new Request(`http://qop.test/v1/registrations/${DIGEST}`))
       );
+
       assert.deepStrictEqual(yield* json(reconciledResponse), {
         digest: DIGEST,
         failureCode: null,
@@ -164,6 +172,7 @@ describe("registration HTTP API", () => {
       const response = yield* Effect.promise(() =>
         handler(new Request("http://qop.test/openapi.json"))
       );
+
       const document = yield* json<{ paths: object }>(response);
       assert.sameMembers(Object.keys(document.paths), [
         "/v1/device-actions",
@@ -177,10 +186,12 @@ describe("registration HTTP API", () => {
   it.effect("rejects unknown request body fields", () =>
     Effect.gen(function* () {
       const intentWithExtra = { ...intent, unexpected: true };
+
       const response = yield* postRegistration({
         ...payload,
         intent: intentWithExtra,
       });
+
       assert.strictEqual(response.status, 400);
     })
   );
@@ -205,11 +216,13 @@ describe("registration HTTP API", () => {
         _tag: "RegistrationConflict",
         kind: "nonce-used",
       });
+
       const notFound = yield* Effect.promise(() =>
         handler(
           new Request(`http://qop.test/v1/registrations/${NOT_FOUND_DIGEST}`)
         )
       );
+
       assert.strictEqual(notFound.status, 404);
       assert.strictEqual(
         (yield* json<{ _tag: string }>(notFound))._tag,
@@ -226,6 +239,7 @@ describe("registration HTTP API", () => {
         status: "submitted",
         transactionHash: TRANSACTION_HASH,
       } as const;
+
       const reconciled = {
         digest: DIGEST,
         failureCode: null,
@@ -247,6 +261,7 @@ describe("registration HTTP API", () => {
       }
 
       const highSignature = `0x${"1".padStart(64, "0")}${"f".repeat(64)}00`;
+
       const failures = yield* Effect.all([
         Schema.decodeUnknownEffect(RegisterRegistrationPayload)({
           ...payload,
@@ -283,11 +298,14 @@ describe("registration HTTP API", () => {
         },
         { message: "Expected a positive uint256 qid", path: ["qid"] },
       ];
+
       for (const [index, failure] of failures.entries()) {
         const expectedIssue = expected[index];
+
         if (!expectedIssue) {
           throw new Error(`Missing expected codec issue at index ${index}`);
         }
+
         assert.deepStrictEqual(formatIssue(failure.issue).issues, [
           expectedIssue,
         ]);

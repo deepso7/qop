@@ -8,13 +8,17 @@ import {
 } from "../src/index.ts";
 
 const PRIVATE_KEY = Uint8Array.from([...new Uint8Array(31), 1]);
+
 const SECP256K1_ORDER = Uint8Array.from([
   0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
   0xff, 0xff, 0xfe, 0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b, 0xbf, 0xd2,
   0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x41,
 ]);
+
 const SECP256K1_MAX_PRIVATE_KEY = Uint8Array.from(SECP256K1_ORDER);
+
 SECP256K1_MAX_PRIVATE_KEY[31] = 0x40;
+
 const ZERO_PAYLOAD = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
 const ORDER_PAYLOAD = "_____________________rqu3OavSKA7v9JejNA2QUE";
 
@@ -74,6 +78,7 @@ describe("qop recovery keys", () => {
     Effect.gen(function* () {
       const valid = yield* encodeRecoveryKeyV1(PRIVATE_KEY);
       const payload = valid.slice(5, 48);
+
       const malformed = [
         valid.replace("qop1_", "qop2_"),
         valid.slice(0, -1),
@@ -95,6 +100,7 @@ describe("qop recovery keys", () => {
         const error = yield* decodeRecoveryKeyV1(
           `qop1_${payload}_00000000`
         ).pipe(Effect.flip);
+
         assert.strictEqual(error.operation, "decode");
       }
     })
@@ -104,9 +110,11 @@ describe("qop recovery keys", () => {
     Effect.gen(function* () {
       const recoveryKey = yield* encodeRecoveryKeyV1(PRIVATE_KEY);
       const modified = `${recoveryKey.slice(0, -1)}${recoveryKey.endsWith("0") ? "1" : "0"}`;
+
       const checksumError = yield* decodeRecoveryKeyV1(modified).pipe(
         Effect.flip
       );
+
       assert.strictEqual(checksumError.operation, "decode");
     })
   );

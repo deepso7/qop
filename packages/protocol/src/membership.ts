@@ -38,12 +38,15 @@ export const enrollmentMembership = ({
   if (activeQid === expectedQid) {
     return "linked";
   }
+
   if (activeQid !== null && activeQid !== 0n) {
     return "wrong-account";
   }
+
   if (historicallyAdded) {
     return "removed";
   }
+
   return "pending";
 };
 
@@ -82,6 +85,7 @@ export const occupiesApprovalSlot = ({
   if (isTerminalDeviceActionStatus(apiStatus)) {
     return false;
   }
+
   // Never-submitted + GET 404/missing + chain time strictly after deadline:
   // cannot execute. ready/submitted keep occupying even if local clock is past.
   if (
@@ -92,10 +96,12 @@ export const occupiesApprovalSlot = ({
   ) {
     return false;
   }
+
   // A submitted remove still occupies while the device remains active.
   if (operation === "remove") {
     return membership !== "removed";
   }
+
   return membership === "pending";
 };
 
@@ -116,9 +122,11 @@ export const enrollmentPollComplete = ({
   if (apiStatus === "expired" || apiStatus === "reverted") {
     return true;
   }
+
   if (operation === "remove") {
     return membership === "removed";
   }
+
   return (
     membership === "linked" ||
     membership === "removed" ||

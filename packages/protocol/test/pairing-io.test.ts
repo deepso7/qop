@@ -13,19 +13,24 @@ describe("pairing stream frames", () => {
         type: "approvalSaved" as const,
         v: 1 as const,
       };
+
       const frame = yield* Schema.decodeUnknownEffect(PairingFrameV1)(encoded);
       const chunks: Uint8Array[] = [];
       yield* writePairingFrame(
-        async (data) => {
+        (data) => {
           chunks.push(data);
+
+          return Promise.resolve();
         },
         () => {},
         frame
       );
       const pending = [...chunks, undefined];
+
       const decoded = yield* readPairingFrame(() =>
         Promise.resolve(pending.shift())
       );
+
       assert.strictEqual(decoded.type, "approvalSaved");
       yield* encodePairingFrameV1(frame);
     })

@@ -50,6 +50,7 @@ interface SyncSessions {
 
 const invalid: SyncErrorV1 = { reason: "invalid", type: "error", v: 1 };
 const conflict: SyncErrorV1 = { reason: "conflict", type: "error", v: 1 };
+
 const unavailable: SyncErrorV1 = {
   reason: "unavailable",
   type: "error",
@@ -79,18 +80,23 @@ const packInbox = Effect.fn("qop.sync.packInbox")(function* ({
   records,
 }: InboxPage) {
   const packed: SyncInboxItemV1[] = [];
+
   for (const row of records) {
     const encoded = yield* encodeSyncResponseV1(
       inboxFrame({ lastSeq, records: [...packed, row] })
     ).pipe(Effect.result);
+
     if (encoded._tag === "Failure") {
       if (encoded.failure.operation === "oversized" && packed.length > 0) {
         break;
       }
+
       return yield* encoded.failure;
     }
+
     packed.push(row);
   }
+
   return inboxFrame({ lastSeq, records: packed });
 });
 
@@ -109,6 +115,7 @@ const acceptHandoff = Effect.fn("qop.sync.acceptHandoff")(function* (
   ) {
     return invalid;
   }
+
   return yield* store.enqueue(record).pipe(
     Effect.map((saved) => {
       // Idempotent enqueue returns the existing row. Terminal `failed` must
@@ -116,6 +123,7 @@ const acceptHandoff = Effect.fn("qop.sync.acceptHandoff")(function* (
       if (saved.status === "failed") {
         return invalid;
       }
+
       return {
         id: saved.frame.id,
         type: "held" as const,
@@ -141,20 +149,26 @@ export const handleInboundSyncStream = Effect.fn("qop.handleInboundSyncStream")(
   ) {
     sessions.opened(stream);
     const contact = yield* sessions.verify(stream, identity.handle);
+
     if (
       contact.qid !== identity.qid ||
       !sessions.isVerified(stream, identity.qid)
     ) {
       return yield* new PeerVerificationError({ operation: "identity" });
     }
+
     const request = yield* readSyncRequestFrom(stream);
+
     // Recheck at the persist/held boundary: SIGCONT/stall can invalidate
     // during the inbound read, same as chat send-boundary.
     if (isLive?.() === false || !sessions.isVerified(stream, identity.qid)) {
       stream.reset();
+
       return yield* new PeerVerificationError({ operation: "identity" });
     }
+
     const peerDeviceKey = yield* deviceKeyHexForPeer(stream.peerId);
+
     if (request.type === "handoff") {
       const response = yield* acceptHandoff(
         identity,
@@ -163,9 +177,12 @@ export const handleInboundSyncStream = Effect.fn("qop.handleInboundSyncStream")(
         peerDeviceKey,
         store
       );
+
       yield* reply(stream, response);
+
       return response;
     }
+
     if (request.type === "catchup") {
       const page = yield* store
         .inboxAfter(request.after, INBOX_CATCHUP_ROW_LIMIT)
@@ -176,11 +193,15 @@ export const handleInboundSyncStream = Effect.fn("qop.handleInboundSyncStream")(
             })
           )
         );
+
       const response = yield* packInbox(page);
       yield* reply(stream, response);
+
       return response;
     }
+
     const records = yield* store.getByIds(request.ids);
+
     const receipts = records
       .filter((record) => record.status === "sent")
       .map((record) => ({
@@ -188,12 +209,15 @@ export const handleInboundSyncStream = Effect.fn("qop.handleInboundSyncStream")(
         id: record.frame.id,
         toQid: record.toQid,
       }));
+
     const response = {
       receipts,
       type: "receipts" as const,
       v: 1 as const,
     };
+
     yield* reply(stream, response);
+
     return response;
   }
 );

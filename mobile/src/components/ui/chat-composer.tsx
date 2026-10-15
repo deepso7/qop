@@ -40,6 +40,7 @@ const ChatComposerButton = ({
   ...props
 }: ChatComposerButtonProps) => {
   const { icon, label } = composerButtonContent[kind];
+
   return (
     <Button
       size="icon"

@@ -42,6 +42,7 @@ const own = {
   peerId: "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy",
   qid: "42",
 };
+
 const record = {
   attempts: 0,
   frame: {
@@ -83,16 +84,19 @@ const makeEndpoint = (read: () => Promise<Uint8Array | undefined>) => {
     (): Effect.Effect<RegistryAccount | null, RegistryReaderError> =>
       Effect.succeed(aliceAccount)
   );
+
   const lookupHandle = vi.fn(
     (): Effect.Effect<RegistryAccount | null, RegistryReaderError> =>
       Effect.succeed(aliceAccount)
   );
+
   const sessions = createPeerSessions({
     getContactByQid: () => Promise.resolve(null),
     lookupDeviceKey,
     lookupHandle,
     upsertContact: () => Promise.resolve(),
   });
+
   const stream = {
     closeWrite: vi.fn(),
     connId: 4,
@@ -101,17 +105,20 @@ const makeEndpoint = (read: () => Promise<Uint8Array | undefined>) => {
     reset: vi.fn(),
     write: vi.fn(),
   };
+
   const endpoint = {
     connect: vi.fn().mockResolvedValue({}),
     connectedPeers: vi.fn((): string[] => []),
     openStream: vi.fn().mockResolvedValue(stream),
     waitPeerReady: vi.fn(() => Promise.resolve({ peerId: PEER_CLI })),
   };
+
   return { endpoint, sessions, stream };
 };
 
 const responseReader = (bytes: Uint8Array) => {
   const chunks: (Uint8Array | undefined)[] = [bytes, undefined];
+
   return () => Promise.resolve(chunks.shift());
 };
 
@@ -143,6 +150,7 @@ describe("performHandoff", () => {
     const held = await Effect.runPromise(
       encodeSyncResponseV1({ id, type: "held", v: 1 })
     );
+
     const { endpoint, sessions, stream } = makeEndpoint(responseReader(held));
 
     await expect(
@@ -169,18 +177,22 @@ describe("performHandoff", () => {
     const held = await Effect.runPromise(
       encodeSyncResponseV1({ id, type: "held", v: 1 })
     );
+
     const { endpoint, sessions, stream } = makeEndpoint(responseReader(held));
     const order: string[] = [];
     endpoint.connect.mockImplementation(() => {
       order.push("connect");
+
       return Promise.resolve({ peerId: PEER_CLI });
     });
     endpoint.waitPeerReady.mockImplementation(() => {
       order.push("ready");
+
       return Promise.resolve({ peerId: PEER_CLI });
     });
     endpoint.openStream.mockImplementation(() => {
       order.push("open");
+
       return Promise.resolve(stream);
     });
 
@@ -200,6 +212,7 @@ describe("performHandoff", () => {
     const held = await Effect.runPromise(
       encodeSyncResponseV1({ id, type: "held", v: 1 })
     );
+
     const { endpoint, sessions } = makeEndpoint(responseReader(held));
     endpoint.connectedPeers.mockReturnValue([PEER_CLI]);
 
@@ -222,6 +235,7 @@ describe("performHandoff", () => {
     const held = await Effect.runPromise(
       encodeSyncResponseV1({ id, type: "held", v: 1 })
     );
+
     const { endpoint, sessions, stream } = makeEndpoint(responseReader(held));
     endpoint.openStream
       .mockRejectedValueOnce(new Error("The stream closed"))
@@ -249,6 +263,7 @@ describe("performHandoff", () => {
     const { endpoint, sessions, stream } = makeEndpoint(async () => {
       await Promise.resolve();
     });
+
     endpoint.openStream.mockRejectedValue(new Error("The stream closed"));
 
     await expect(
@@ -271,7 +286,9 @@ describe("performHandoff", () => {
     const held = await Effect.runPromise(
       encodeSyncResponseV1({ id, type: "held", v: 1 })
     );
+
     const closedChunks: (Uint8Array | undefined)[] = [undefined];
+
     const closedStream = {
       closeWrite: vi.fn(),
       connId: 3,
@@ -280,6 +297,7 @@ describe("performHandoff", () => {
       reset: vi.fn(),
       write: vi.fn(),
     };
+
     const { endpoint, sessions, stream } = makeEndpoint(responseReader(held));
     endpoint.openStream
       .mockResolvedValueOnce(closedStream)
@@ -308,6 +326,7 @@ describe("performHandoff", () => {
     const { endpoint, sessions, stream } = makeEndpoint(async () => {
       await Promise.resolve();
     });
+
     endpoint.connect.mockRejectedValue(new Error("dial failed"));
     await expect(
       performHandoff({
@@ -327,6 +346,7 @@ describe("performHandoff", () => {
     const { endpoint, sessions, stream } = makeEndpoint(async () => {
       await Promise.resolve();
     });
+
     stream.write.mockImplementation(() => {
       throw new Error("The stream closed");
     });
@@ -347,6 +367,7 @@ describe("performHandoff", () => {
     const { endpoint, sessions, stream } = makeEndpoint(async () => {
       await Promise.resolve();
     });
+
     await expect(
       performHandoff({
         composedBy: own.deviceKey,
@@ -365,6 +386,7 @@ describe("performHandoff", () => {
     const unavailable = await Effect.runPromise(
       encodeSyncResponseV1({ reason: "unavailable", type: "error", v: 1 })
     );
+
     // First attempt: request sent, reply lost (EOF). The CLI may hold it.
     const lostReply = {
       closeWrite: vi.fn(),
@@ -376,6 +398,7 @@ describe("performHandoff", () => {
       reset: vi.fn(),
       write: vi.fn(),
     };
+
     const { endpoint, sessions } = makeEndpoint(responseReader(unavailable));
     endpoint.openStream.mockResolvedValueOnce(lostReply);
     await expect(
@@ -396,14 +419,18 @@ describe("performHandoff", () => {
     const unavailable = await Effect.runPromise(
       encodeSyncResponseV1({ reason: "unavailable", type: "error", v: 1 })
     );
+
     // Every attempt (including the transient retry) gets the same answer.
     const chunks: (Uint8Array | undefined)[] = [];
+
     const { endpoint, sessions } = makeEndpoint(() => {
       if (chunks.length === 0) {
         chunks.push(unavailable, undefined);
       }
+
       return Promise.resolve(chunks.shift());
     });
+
     await expect(
       performHandoff({
         composedBy: own.deviceKey,
@@ -421,6 +448,7 @@ describe("performHandoff", () => {
     const rejected = await Effect.runPromise(
       encodeSyncResponseV1({ reason: "invalid", type: "error", v: 1 })
     );
+
     const { endpoint, sessions, stream } = makeEndpoint(
       responseReader(rejected)
     );
@@ -450,8 +478,10 @@ describe("performHandoff", () => {
         v: 1,
       })
     );
+
     const makeStream = () => {
       const read = responseReader(held);
+
       return {
         closeWrite: vi.fn(),
         connId: 4,
@@ -461,6 +491,7 @@ describe("performHandoff", () => {
         write: vi.fn(),
       };
     };
+
     const { endpoint, sessions } = makeEndpoint(responseReader(held));
     endpoint.openStream.mockImplementation(() => Promise.resolve(makeStream()));
 
@@ -480,17 +511,21 @@ describe("performHandoff", () => {
 
   it("does not insert own identity into chats when verifying the CLI", async () => {
     await deleteAll();
+
     const held = await Effect.runPromise(
       encodeSyncResponseV1({ id, type: "held", v: 1 })
     );
+
     const lookupDeviceKey = vi.fn(
       (): Effect.Effect<RegistryAccount | null, RegistryReaderError> =>
         Effect.succeed(aliceAccount)
     );
+
     const lookupHandle = vi.fn(
       (): Effect.Effect<RegistryAccount | null, RegistryReaderError> =>
         Effect.succeed(aliceAccount)
     );
+
     const sessions = createPeerSessions({
       getContactByQid,
       lookupDeviceKey,
@@ -498,7 +533,9 @@ describe("performHandoff", () => {
       ownQid: () => own.qid,
       upsertContact,
     });
+
     const chunks: (Uint8Array | undefined)[] = [held, undefined];
+
     const stream = {
       closeWrite: vi.fn(),
       connId: 4,
@@ -507,6 +544,7 @@ describe("performHandoff", () => {
       reset: vi.fn(),
       write: vi.fn(),
     };
+
     const endpoint = {
       connect: vi.fn().mockResolvedValue({}),
       connectedPeers: vi.fn((): string[] => []),
@@ -534,9 +572,11 @@ describe("performCatchup", () => {
     const encoded = await Effect.runPromise(
       encodeSyncResponseV1({ lastSeq: 0, records: [], type: "inbox", v: 1 })
     );
+
     const { endpoint, sessions, stream } = makeEndpoint(
       responseReader(encoded)
     );
+
     await expect(
       performCatchup({
         after: 4,
@@ -548,9 +588,11 @@ describe("performCatchup", () => {
       })
     ).resolves.toEqual({ lastSeq: 0, records: [], type: "inbox", v: 1 });
     const bytes = stream.write.mock.calls[0]?.[0];
+
     if (!(bytes instanceof Uint8Array)) {
       throw new Error("expected a catchup frame");
     }
+
     expect(await Effect.runPromise(decodeSyncRequestV1(bytes))).toEqual({
       after: 4,
       type: "catchup",
@@ -562,6 +604,7 @@ describe("performCatchup", () => {
     const encoded = await Effect.runPromise(
       encodeSyncResponseV1({ reason: "invalid", type: "error", v: 1 })
     );
+
     const { endpoint, sessions } = makeEndpoint(responseReader(encoded));
     await expect(
       performCatchup({
@@ -585,6 +628,7 @@ describe("performPoll", () => {
         v: 1,
       })
     );
+
     const { endpoint, sessions } = makeEndpoint(responseReader(encoded));
     await expect(
       performPoll({
@@ -600,11 +644,13 @@ describe("performPoll", () => {
 
   it("chunks ids so later held messages are still polled", async () => {
     expect(chunkSyncPollIds([]).length).toBe(0);
+
     const ids = Array.from(
       { length: SYNC_POLL_MAX_IDS + 1 },
       (_, index) =>
         `c56a4180-65aa-42ec-a945-5fd21dec${index.toString(16).padStart(4, "0")}`
     );
+
     expect(chunkSyncPollIds(ids).map((chunk) => chunk.length)).toEqual([
       SYNC_POLL_MAX_IDS,
       1,
@@ -613,12 +659,16 @@ describe("performPoll", () => {
 
     const first = await encodeReceipts(ids.slice(0, SYNC_POLL_MAX_IDS));
     const lastId = ids[SYNC_POLL_MAX_IDS];
+
     if (!lastId) {
       throw new Error("expected a 33rd poll id");
     }
+
     const second = await encodeReceipts([lastId]);
+
     const streams = [first, second].map((bytes, index) => {
       const chunks: (Uint8Array | undefined)[] = [bytes, undefined];
+
       return {
         closeWrite: vi.fn(),
         connId: 4 + index,
@@ -628,24 +678,29 @@ describe("performPoll", () => {
         write: vi.fn(),
       };
     });
+
     let opened = 0;
     const lookupDeviceKey = vi.fn(() => Effect.succeed(aliceAccount));
     const lookupHandle = vi.fn(() => Effect.succeed(aliceAccount));
+
     const sessions = createPeerSessions({
       getContactByQid: () => Promise.resolve(null),
       lookupDeviceKey,
       lookupHandle,
       upsertContact: () => Promise.resolve(),
     });
+
     const endpoint = {
       connect: vi.fn().mockResolvedValue({}),
       connectedPeers: vi.fn((): string[] => []),
       openStream: vi.fn(() => {
         const stream = streams[opened];
         opened += 1;
+
         if (!stream) {
           throw new Error("unexpected extra poll stream");
         }
+
         return Promise.resolve(stream);
       }),
       waitPeerReady: vi.fn(() => Promise.resolve({ peerId: PEER_CLI })),
@@ -669,15 +724,19 @@ describe("performPoll", () => {
     );
 
     expect(endpoint.openStream).toHaveBeenCalledTimes(2);
+
     const written = await Promise.all(
       streams.map((stream) => {
         const bytes = stream.write.mock.calls[0]?.[0];
+
         if (!(bytes instanceof Uint8Array)) {
           throw new Error("expected a poll frame");
         }
+
         return Effect.runPromise(decodeSyncRequestV1(bytes));
       })
     );
+
     expect(written).toEqual([
       { ids: ids.slice(0, SYNC_POLL_MAX_IDS), type: "poll", v: 1 },
       { ids: [lastId], type: "poll", v: 1 },

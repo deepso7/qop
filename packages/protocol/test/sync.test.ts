@@ -54,15 +54,18 @@ describe("sync frames", () => {
       type: "poll" as const,
       v: 1 as const,
     };
+
     const encodedPoll = await Effect.runPromise(encodeSyncRequestV1(poll));
     expect(await Effect.runPromise(decodeSyncRequestV1(encodedPoll))).toEqual(
       poll
     );
+
     const receipts = {
       receipts: [{ deliveredAt: 1_700_000_000_100, id, toQid: "1" }],
       type: "receipts" as const,
       v: 1 as const,
     };
+
     const encoded = await Effect.runPromise(encodeSyncResponseV1(receipts));
     expect(await Effect.runPromise(decodeSyncResponseV1(encoded))).toEqual(
       receipts
@@ -81,6 +84,7 @@ describe("sync frames", () => {
         )
       ).pipe(Effect.result)
     );
+
     expect(result._tag).toBe("Failure");
   });
 
@@ -90,6 +94,7 @@ describe("sync frames", () => {
         new TextEncoder().encode(JSON.stringify({ id, type: "inbox", v: 1 }))
       ).pipe(Effect.result)
     );
+
     expect(result._tag).toBe("Failure");
   });
 
@@ -101,6 +106,7 @@ describe("sync frames", () => {
         )
       ).pipe(Effect.result)
     );
+
     expect(result._tag).toBe("Failure");
   });
 
@@ -112,17 +118,21 @@ describe("sync frames", () => {
         v: 1,
       }).pipe(Effect.result)
     );
+
     expect(result._tag).toBe("Failure");
   });
 
   it("round-trips catch-up and inbox frames", async () => {
     const catchup = { after: 0, type: "catchup" as const, v: 1 as const };
+
     const encodedCatchup = await Effect.runPromise(
       encodeSyncRequestV1(catchup)
     );
+
     expect(
       await Effect.runPromise(decodeSyncRequestV1(encodedCatchup))
     ).toEqual(catchup);
+
     const inbox = {
       lastSeq: 9,
       records: [
@@ -139,6 +149,7 @@ describe("sync frames", () => {
       type: "inbox" as const,
       v: 1 as const,
     };
+
     const encoded = await Effect.runPromise(encodeSyncResponseV1(inbox));
     expect(await Effect.runPromise(decodeSyncResponseV1(encoded))).toEqual(
       inbox
@@ -157,6 +168,7 @@ describe("sync frames", () => {
         )
       )
     );
+
     expect(results.map((result) => result._tag)).toEqual([
       "Failure",
       "Failure",
@@ -182,11 +194,15 @@ describe("sync frames", () => {
         v: 1,
       })
     );
+
     expect(bytes.byteLength).toBeGreaterThan(MAX_SYNC_PAYLOAD_BYTES);
+
     const result = await Effect.runPromise(
       decodeSyncResponseV1(bytes).pipe(Effect.result)
     );
+
     expect(result._tag).toBe("Failure");
+
     if (result._tag === "Failure") {
       expect(result.failure).toBeInstanceOf(SyncCodecError);
       expect(result.failure.operation).toBe("oversized");
@@ -212,12 +228,16 @@ describe("sync frames", () => {
         v: 1,
       })
     );
+
     expect(bytes.byteLength).toBeGreaterThan(16 * 1024);
     expect(bytes.byteLength).toBeLessThanOrEqual(MAX_SYNC_PAYLOAD_BYTES);
+
     const result = await Effect.runPromise(
       decodeSyncResponseV1(bytes).pipe(Effect.result)
     );
+
     expect(result._tag).toBe("Failure");
+
     if (result._tag === "Failure") {
       expect(result.failure).toBeInstanceOf(SyncCodecError);
       // Chat text is capped at 4,000 characters, so schema rejects the body
@@ -233,6 +253,7 @@ describe("sync frames", () => {
         record: { ...queued, status: "sent" },
       }).pipe(Effect.result)
     );
+
     expect(result._tag).toBe("Failure");
   });
 });

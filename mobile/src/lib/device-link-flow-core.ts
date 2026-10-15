@@ -60,6 +60,7 @@ export const createDeviceLinkFlow = ({
     readonly transport: PairingTransport;
   }) {
     const current = yield* reconcile();
+
     if (
       current?.record.operation === "add" &&
       asHex(current.record.intent.deviceKey) === asHex(deviceKey) &&
@@ -67,7 +68,9 @@ export const createDeviceLinkFlow = ({
     ) {
       return yield* poll();
     }
+
     const resumed = yield* resume("add", deviceKey);
+
     const record =
       resumed ??
       (yield* signRecord({
@@ -76,13 +79,16 @@ export const createDeviceLinkFlow = ({
         operation: "add",
         qid,
       })).record;
+
     if (asHex(record.intent.deviceKey) !== asHex(deviceKey)) {
       return yield* new DeviceActionApprovalError({ operation: "sign" });
     }
+
     yield* persist(record);
     yield* sendApproval(transport, offer, peerId, record);
     yield* markAck(record.digest);
     yield* submit();
+
     return yield* poll();
   });
 
@@ -96,6 +102,7 @@ export const createDeviceLinkFlow = ({
     readonly qid: bigint;
   }) {
     const resumed = yield* resume("remove", deviceKey);
+
     const record =
       resumed ??
       (yield* signRecord({
@@ -104,11 +111,14 @@ export const createDeviceLinkFlow = ({
         operation: "remove",
         qid,
       })).record;
+
     if (asHex(record.intent.deviceKey) !== asHex(deviceKey)) {
       return yield* new DeviceActionApprovalError({ operation: "sign" });
     }
+
     yield* persist(record, { acknowledged: true });
     yield* submit();
+
     return yield* poll();
   });
 

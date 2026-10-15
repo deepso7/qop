@@ -78,12 +78,14 @@ const AccordionTrigger = ({
         : withTiming(0, { duration: 200 }),
     [isExpanded]
   );
+
   const chevronStyle = useAnimatedStyle(
     () => ({
       transform: [{ rotate: `${progress.value * 180}deg` }],
     }),
     [progress]
   );
+
   const textClassName = cn(
     "text-left text-sm font-medium",
     Platform.select({ web: "group-hover:underline" })
@@ -128,6 +130,7 @@ const AccordionContent = ({
   ...props
 }: React.ComponentProps<typeof AccordionPrimitive.Content>) => {
   const { isExpanded } = AccordionPrimitive.useItemContext();
+
   return (
     <TextClassContext.Provider value="text-sm">
       <AccordionPrimitive.Content

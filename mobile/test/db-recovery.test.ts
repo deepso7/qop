@@ -27,6 +27,7 @@ it("recovers crashed sends once when the database is reopened", async () => {
   });
   const interrupted = await firstApp.getMessageById("interrupted");
   const database = await open.mock.results[0]?.value;
+
   if (!database) {
     throw new Error("Expected the first app to open its database");
   }

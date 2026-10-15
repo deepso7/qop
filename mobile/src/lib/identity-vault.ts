@@ -5,6 +5,7 @@ import * as SecureStore from "expo-secure-store";
 import { createIdentityVault } from "./identity-vault-core";
 
 export { createIdentityVault, IdentityVaultError } from "./identity-vault-core";
+
 export type {
   IdentityBackupState,
   IdentityVaultDependencies,

@@ -49,6 +49,7 @@ const fixture = (options?: {
 }) => {
   let clock = 0;
   const now = options?.now ?? (() => clock);
+
   const lookupDeviceKey = vi.fn(
     (
       deviceKey: string
@@ -56,23 +57,29 @@ const fixture = (options?: {
       if (deviceKey === phoneDeviceKey) {
         return Effect.succeed(phoneAccount());
       }
+
       if (deviceKey === cliDeviceKey) {
         // Primary peerId stays the phone's; CLI must still verify via devices[].
         return Effect.succeed(phoneAccount());
       }
+
       return Effect.succeed(null);
     }
   );
+
   const lookupHandle = vi.fn(
     (
       _handle: string
     ): Effect.Effect<RegistryAccount | null, RegistryReaderError> =>
       Effect.succeed(phoneAccount())
   );
+
   const upsertContact = vi.fn(() => Promise.resolve());
+
   const getContactByQid = vi.fn((_qid: string): Promise<Contact | null> =>
     Promise.resolve(contact)
   );
+
   const sessions = createPeerSessions({
     getContactByQid,
     lookupDeviceKey,
@@ -81,8 +88,10 @@ const fixture = (options?: {
     ownQid: options?.ownQid,
     upsertContact,
   });
+
   sessions.opened(phoneConnection);
   sessions.opened(cliConnection);
+
   return {
     advance: (ms: number) => {
       clock += ms;
@@ -167,12 +176,15 @@ describe("multi-device connection authorization", () => {
           devices: [{ deviceKey: phoneDeviceKey, peerId: PEER_ALICE }],
         });
       }
+
       return Effect.succeed(null);
     });
     advance(MAX_AUTH_AGE_MS);
+
     const revoked = await Effect.runPromise(
       sessions.verify(cliConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(revoked) && revoked.failure.operation).toBe(
       "identity"
     );
@@ -190,9 +202,11 @@ describe("multi-device connection authorization", () => {
     lookupDeviceKey.mockReturnValue(
       Effect.fail(new RegistryReaderError({ operation: "rpc" }))
     );
+
     const refused = await Effect.runPromise(
       sessions.verify(phoneConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(refused) && refused.failure.operation).toBe("rpc");
     expect(sessions.isVerified(phoneConnection, "1")).toBe(false);
   });
@@ -218,9 +232,11 @@ describe("multi-device connection authorization", () => {
 
   it("measures auth age by the injected now() clock", async () => {
     let clock = 0;
+
     const { lookupDeviceKey, sessions } = fixture({
       now: () => clock,
     });
+
     await Effect.runPromise(sessions.verify(phoneConnection, "alice"));
     lookupDeviceKey.mockReturnValue(
       Effect.fail(new RegistryReaderError({ operation: "rpc" }))
@@ -231,9 +247,11 @@ describe("multi-device connection authorization", () => {
       Effect.runPromise(sessions.verify(phoneConnection, "alice"))
     ).resolves.toMatchObject({ qid: "1" });
     clock += 2;
+
     const refused = await Effect.runPromise(
       sessions.verify(phoneConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(refused) && refused.failure.operation).toBe("rpc");
   });
 
@@ -242,6 +260,7 @@ describe("multi-device connection authorization", () => {
     const { advance, sessions, upsertContact } = fixture();
     upsertContact.mockImplementation(() => {
       advance(storageDelayMs);
+
       return Promise.resolve();
     });
     await Effect.runPromise(sessions.verify(phoneConnection, "alice"));
@@ -321,9 +340,11 @@ describe("multi-device connection authorization", () => {
   it("rejects a different claimed handle on an already verified connection", async () => {
     const { lookupDeviceKey, sessions } = fixture();
     await Effect.runPromise(sessions.verify(phoneConnection, "alice"));
+
     const result = await Effect.runPromise(
       sessions.verify(phoneConnection, "bob").pipe(Effect.result)
     );
+
     expect(Result.isFailure(result) && result.failure.operation).toBe(
       "identity"
     );
@@ -338,9 +359,11 @@ describe("multi-device connection authorization", () => {
     lookupDeviceKey.mockReturnValueOnce(
       Effect.fail(new RegistryReaderError({ operation: "rpc" }))
     );
+
     const result = await Effect.runPromise(
       sessions.verify(phoneConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(result) && result.failure.operation).toBe("rpc");
     expect(sessions.isVerified(phoneConnection, "1")).toBe(false);
     await Effect.runPromise(sessions.verify(phoneConnection, "alice"));
@@ -351,9 +374,11 @@ describe("multi-device connection authorization", () => {
     const { lookupDeviceKey, sessions, upsertContact } = fixture();
     const pending = Promise.withResolvers<RegistryAccount>();
     lookupDeviceKey.mockReturnValueOnce(Effect.promise(() => pending.promise));
+
     const result = Effect.runPromise(
       sessions.verify(phoneConnection, "alice").pipe(Effect.result)
     );
+
     await vi.waitFor(() => expect(lookupDeviceKey).toHaveBeenCalledOnce());
     sessions.closed(phoneConnection);
     sessions.opened(phoneConnection);
@@ -369,26 +394,33 @@ describe("multi-device connection authorization", () => {
     await Effect.runPromise(sessions.verify(phoneConnection, "alice"));
     sessions.clear();
     expect(sessions.isVerified(phoneConnection, "1")).toBe(false);
+
     const result = await Effect.runPromise(
       sessions.verify(phoneConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(result) && result.failure.operation).toBe("closed");
   });
 
   it("rejects an absent account and an unexpected qid", async () => {
     const { lookupDeviceKey, lookupHandle, sessions, upsertContact } =
       fixture();
+
     lookupDeviceKey.mockReturnValueOnce(Effect.succeed(null));
+
     const absent = await Effect.runPromise(
       sessions.verify(phoneConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(absent) && absent.failure.operation).toBe(
       "identity"
     );
     expect(upsertContact).not.toHaveBeenCalled();
+
     const mismatched = await Effect.runPromise(
       sessions.recipientPeerId({ ...contact, qid: "2" }).pipe(Effect.result)
     );
+
     expect(Result.isFailure(mismatched) && mismatched.failure.operation).toBe(
       "identity"
     );
@@ -397,9 +429,11 @@ describe("multi-device connection authorization", () => {
 
   it("rejects a claimed handle that does not match the transport peer's registry account", async () => {
     const { lookupDeviceKey, sessions, upsertContact } = fixture();
+
     const result = await Effect.runPromise(
       sessions.verify(phoneConnection, "bob").pipe(Effect.result)
     );
+
     expect(Result.isFailure(result) && result.failure.operation).toBe(
       "identity"
     );
@@ -410,10 +444,13 @@ describe("multi-device connection authorization", () => {
   it("maps contact storage failures to storage and does not cache authorization", async () => {
     const { getContactByQid, lookupDeviceKey, sessions, upsertContact } =
       fixture();
+
     getContactByQid.mockRejectedValueOnce(new Error("db read failed"));
+
     const readFailed = await Effect.runPromise(
       sessions.verify(phoneConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(readFailed) && readFailed.failure.operation).toBe(
       "storage"
     );
@@ -422,9 +459,11 @@ describe("multi-device connection authorization", () => {
 
     getContactByQid.mockResolvedValue(contact);
     upsertContact.mockRejectedValueOnce(new Error("db write failed"));
+
     const writeFailed = await Effect.runPromise(
       sessions.verify(phoneConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(writeFailed) && writeFailed.failure.operation).toBe(
       "storage"
     );
@@ -451,9 +490,11 @@ describe("multi-device connection authorization", () => {
         freshness: "stale",
       })
     );
+
     const refused = await Effect.runPromise(
       sessions.verify(cliConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(refused) && refused.failure.operation).toBe(
       "identity"
     );
@@ -473,9 +514,11 @@ describe("multi-device connection authorization", () => {
         freshness: "fresh",
       })
     );
+
     const refused = await Effect.runPromise(
       sessions.verify(cliConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(refused) && refused.failure.operation).toBe(
       "identity"
     );
@@ -512,9 +555,11 @@ describe("multi-device connection authorization", () => {
         freshness: "fresh",
       })
     );
+
     const first = await Effect.runPromise(
       sessions.verify(cliConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(first) && first.failure.operation).toBe("identity");
     expect(sessions.isVerified(cliConnection, "1")).toBe(false);
 
@@ -523,6 +568,7 @@ describe("multi-device connection authorization", () => {
     const second = await Effect.runPromise(
       sessions.verify(cliConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(second) && second.failure.operation).toBe(
       "identity"
     );
@@ -545,9 +591,11 @@ describe("multi-device connection authorization", () => {
         freshness: "fresh",
       })
     );
+
     const refused = await Effect.runPromise(
       sessions.verify(cliConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(refused) && refused.failure.operation).toBe(
       "identity"
     );
@@ -584,9 +632,11 @@ describe("multi-device connection authorization", () => {
         freshness: "stale",
       })
     );
+
     const refused = await Effect.runPromise(
       sessions.verify(cliConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(refused) && refused.failure.operation).toBe(
       "identity"
     );
@@ -595,9 +645,11 @@ describe("multi-device connection authorization", () => {
 
   it("drops in-flight verify that finishes after resume invalidation", async () => {
     let clock = 0;
+
     const { getContactByQid, lookupDeviceKey, sessions } = fixture({
       now: () => clock,
     });
+
     await Effect.runPromise(sessions.verify(cliConnection, "alice"));
     expect(sessions.isVerified(cliConnection, "1")).toBe(true);
 
@@ -638,9 +690,11 @@ describe("multi-device connection authorization", () => {
     expect(sessions.isVerified(cliConnection, "1")).toBe(false);
 
     lookupDeviceKey.mockReturnValue(Effect.succeed(null));
+
     const refused = await Effect.runPromise(
       sessions.verify(cliConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(refused) && refused.failure.operation).toBe(
       "identity"
     );
@@ -656,6 +710,7 @@ describe("multi-device connection authorization", () => {
           freshness: "fresh",
         });
       }
+
       return Effect.succeed(null);
     });
     await expect(
@@ -676,9 +731,11 @@ describe("multi-device connection authorization", () => {
     const phoneRefused = await Effect.runPromise(
       sessions.verify(phoneConnection, "alice").pipe(Effect.result)
     );
+
     const cliRefused = await Effect.runPromise(
       sessions.verify(cliConnection, "alice").pipe(Effect.result)
     );
+
     expect(
       Result.isFailure(phoneRefused) && phoneRefused.failure.operation
     ).toBe("identity");

@@ -17,6 +17,7 @@ describe("chat wire format", () => {
       const bytes = new TextEncoder().encode(
         JSON.stringify({ fromHandle: "alice", id, sentAt, text: "hi", v: 1 })
       );
+
       expect(() => decodeFrame(bytes)).toThrow();
     }
   );
@@ -29,6 +30,7 @@ describe("chat wire format", () => {
       text: "~",
       v: 1,
     });
+
     bytes[bytes.indexOf(126)] = 255;
     expect(() => decodeFrame(bytes)).toThrow();
   });
@@ -61,6 +63,7 @@ describe("chat wire format", () => {
         v: 2,
       })
     );
+
     expect(() => decodeFrame(bytes)).toThrow();
   });
 });

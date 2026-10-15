@@ -4,6 +4,7 @@ import { strictParseOptions } from "./internal.ts";
 import { ChainId, EthereumAddress } from "./wire-codecs.ts";
 
 export const identityEip712DomainName = "QOP Identity" as const;
+
 // This must match the immutable version passed to the deployed registry's
 // EIP712 constructor. Wire-schema versions evolve independently.
 export const identityEip712DomainVersion = "1" as const;
@@ -14,8 +15,11 @@ const IdentityEip712DomainV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected identity EIP-712 domain field",
 });
+
 export { IdentityEip712DomainV1Schema as IdentityEip712DomainV1 };
+
 export type IdentityEip712DomainV1 = typeof IdentityEip712DomainV1Schema.Type;
+
 export type IdentityEip712DomainV1Encoded =
   typeof IdentityEip712DomainV1Schema.Encoded;
 

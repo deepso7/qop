@@ -20,12 +20,15 @@ it.each(["SIGINT", "SIGTERM"] as const)(
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
     const address = server.address();
+
     if (!address || Predicate.isString(address)) {
       throw new Error("Expected a TCP listener");
     }
+
     const requested = once(server, "request", {
       signal: AbortSignal.timeout(5000),
     });
+
     const child = spawn(
       process.execPath,
       [
@@ -45,17 +48,23 @@ it.each(["SIGINT", "SIGTERM"] as const)(
         stdio: "ignore",
       }
     );
+
     const exited = once(child, "exit");
     const store = createCliIdentityStore(root);
+
     try {
       await requested;
+
       const blocked = await Effect.runPromise(
         Effect.scoped(store.acquireLock()).pipe(Effect.result)
       );
+
       expect(blocked._tag).toBe("Failure");
+
       if (blocked._tag === "Failure") {
         expect(blocked.failure.operation).toBe("conflict");
       }
+
       child.kill(signal);
       await exited;
       await Effect.runPromise(Effect.scoped(store.acquireLock()));
@@ -64,6 +73,7 @@ it.each(["SIGINT", "SIGTERM"] as const)(
         child.kill("SIGTERM");
         await exited;
       }
+
       server.closeAllConnections();
       server.close();
       await rm(root, { force: true, recursive: true });
@@ -76,8 +86,10 @@ it("runs status while the exclusive lock is held", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "qop-status-"));
   const store = createCliIdentityStore(root);
   const scope = Scope.makeUnsafe();
+
   try {
     await Effect.runPromise(Scope.provide(scope)(store.acquireLock()));
+
     const child = spawn(
       process.execPath,
       [fileURLToPath(new URL("../src/main.ts", import.meta.url)), "status"],
@@ -89,6 +101,7 @@ it("runs status while the exclusive lock is held", async () => {
         stdio: ["ignore", "pipe", "pipe"],
       }
     );
+
     let output = "";
     child.stdout?.on("data", (chunk: Buffer | string) => {
       output += chunk.toString();

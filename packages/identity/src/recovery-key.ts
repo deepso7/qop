@@ -8,15 +8,18 @@ const RECOVERY_KEY_DOMAIN = stringToBytes("qop/recovery-key/v1");
 const RECOVERY_KEY_PREFIX = "qop1_";
 const RECOVERY_KEY_PAYLOAD_LENGTH = 43;
 const RECOVERY_KEY_CHECKSUM_LENGTH = 8;
+
 // secp256k1 curve order.
 const SECP256K1_ORDER =
   0xff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_fe_ba_ae_dc_e6_af_48_a0_3b_bf_d2_5e_8c_d0_36_41_41n;
 
 const bytesToBigInt = (bytes: Uint8Array): bigint => {
   let value = 0n;
+
   for (const byte of bytes) {
     value = value * 256n + BigInt(byte);
   }
+
   return value;
 };
 
@@ -27,6 +30,7 @@ const OwnerPrivateKey = Schema.Uint8Array.check(
   Schema.makeFilter(
     (bytes) => {
       const value = bytesToBigInt(bytes);
+
       return value > 0n && value < SECP256K1_ORDER;
     },
     { expected: "a valid secp256k1 private key" }
@@ -55,9 +59,11 @@ export const encodeRecoveryKeyV1 = Effect.fn(
   const privateKey = yield* Schema.decodeUnknownEffect(OwnerPrivateKey)(
     input
   ).pipe(Effect.mapError(() => new RecoveryKeyError({ operation: "encode" })));
+
   const payload = yield* Schema.encodeEffect(Base64Url32)(privateKey).pipe(
     Effect.mapError(() => new RecoveryKeyError({ operation: "encode" }))
   );
+
   return `${RECOVERY_KEY_PREFIX}${payload}_${checksum(privateKey)}`;
 });
 
@@ -67,20 +73,25 @@ export const decodeRecoveryKeyV1 = Effect.fn(
   const encoded = yield* Schema.decodeEffect(RecoveryKeyV1String)(input).pipe(
     Effect.mapError(() => new RecoveryKeyError({ operation: "decode" }))
   );
+
   const payload = encoded.slice(
     RECOVERY_KEY_PREFIX.length,
     RECOVERY_KEY_PREFIX.length + RECOVERY_KEY_PAYLOAD_LENGTH
   );
+
   const encodedChecksum = encoded.slice(-RECOVERY_KEY_CHECKSUM_LENGTH);
+
   const privateKey = yield* Schema.decodeUnknownEffect(Base64Url32)(
     payload
   ).pipe(
     Effect.flatMap(Schema.decodeUnknownEffect(OwnerPrivateKey)),
     Effect.mapError(() => new RecoveryKeyError({ operation: "decode" }))
   );
+
   if (checksum(privateKey) !== encodedChecksum) {
     return yield* new RecoveryKeyError({ operation: "decode" });
   }
+
   return privateKey;
 });
 
@@ -88,6 +99,7 @@ export const ownerAddressFromRecoveryKeyV1 = Effect.fn(
   "@qop/identity/ownerAddressFromRecoveryKeyV1"
 )(function* (input: string) {
   const privateKey = yield* decodeRecoveryKeyV1(input);
+
   return yield* Effect.try({
     catch: () => new RecoveryKeyError({ operation: "derive-owner" }),
     try: () => privateKeyToAccount(toHex(privateKey)).address.toLowerCase(),

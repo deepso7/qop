@@ -11,10 +11,12 @@ const vaultMock = {
   revealLocalIdentityRecoveryKey: vi.fn(),
   updateLocalIdentityBackupState: vi.fn(),
 };
+
 const registrationMock = {
   deleteLocalRegistration: vi.fn(),
   loadLocalRegistration: vi.fn(),
 };
+
 const deleteAllData = vi.fn();
 const stopP2p = vi.fn();
 

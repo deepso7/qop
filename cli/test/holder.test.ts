@@ -92,6 +92,7 @@ const makeStream = (protocolId: string, read?: ChatStream["read"]) => ({
 const makeEndpoint = () => {
   const listeners = new Map<string, ((value: ChatStream) => void)[]>();
   const openStream = vi.fn();
+
   const endpoint: HolderEndpoint & {
     emit: (event: string, value: ChatStream) => void;
     openStream: typeof openStream;
@@ -112,12 +113,14 @@ const makeEndpoint = () => {
     openStream,
     waitPeerReady: vi.fn().mockResolvedValue({}),
   };
+
   return endpoint;
 };
 
 const makeOut = (ready: Deferred.Deferred<boolean, never>) => {
   const errors: string[] = [];
   const lines: string[] = [];
+
   return {
     errors,
     lines,
@@ -127,6 +130,7 @@ const makeOut = (ready: Deferred.Deferred<boolean, never>) => {
       },
       log: (line: string) => {
         lines.push(line);
+
         if (line.startsWith("CLI messaging ready")) {
           Effect.runSync(Deferred.succeed(ready, true));
         }
@@ -144,13 +148,17 @@ describe("createHolder", () => {
       const ready = yield* Deferred.make<boolean>();
       const reset = yield* Deferred.make<boolean>();
       const { errors, out } = makeOut(ready);
+
       const unread: (Uint8Array | undefined)[] = [
         new TextEncoder().encode("{not-a-frame"),
       ];
+
       const stream = makeStream(CHAT_PROTOCOL, async () => {
         await Promise.resolve();
+
         return unread.shift();
       });
+
       stream.reset.mockImplementation(() => {
         Effect.runSync(Deferred.succeed(reset, true));
       });
@@ -230,13 +238,17 @@ describe("createHolder", () => {
       const started = yield* Deferred.make<boolean>();
       const { out } = makeOut(ready);
       const hangSlot = yield* Deferred.make<Uint8Array>();
+
       const hang = () => {
         Effect.runSync(Deferred.succeed(started, true));
+
         return Effect.runPromise(Deferred.await(hangSlot));
       };
+
       const hanging = Array.from({ length: MAX_INBOUND_STREAMS }, () =>
         makeStream(CHAT_PROTOCOL, hang)
       );
+
       const extra = makeStream(CHAT_PROTOCOL);
 
       yield* Effect.scoped(
@@ -257,9 +269,11 @@ describe("createHolder", () => {
             })
           );
           yield* Deferred.await(ready);
+
           for (const stream of hanging) {
             endpoint.emit("stream", stream);
           }
+
           yield* Deferred.await(started);
           endpoint.emit("stream", extra);
         })
@@ -279,8 +293,10 @@ describe("createHolder", () => {
       const started = yield* Deferred.make<boolean>();
       const { out } = makeOut(ready);
       const hang = yield* Deferred.make<Uint8Array>();
+
       const stream = makeStream(CHAT_PROTOCOL, () => {
         Effect.runSync(Deferred.succeed(started, true));
+
         return Effect.runPromise(Deferred.await(hang));
       });
 
@@ -309,9 +325,11 @@ describe("createHolder", () => {
 
       expect(stream.reset).toHaveBeenCalledOnce();
       expect(stream.write).not.toHaveBeenCalled();
+
       const inbox = yield* openCliOutboxStore(root).pipe(
         Effect.flatMap((messages) => messages.loadInbox())
       );
+
       expect(inbox).toEqual([]);
     })
   );
@@ -320,18 +338,21 @@ describe("createHolder", () => {
     Effect.gen(function* () {
       const root = yield* withTempRoot;
       yield* Effect.tryPromise(() => chmod(root, 0o700));
+
       const aliceDeviceKey = yield* Schema.decodeUnknownEffect(PeerId)(
         PEER_BOB
       ).pipe(
         Effect.flatMap(deviceKeyFromPeerId),
         Effect.flatMap((deviceKey) => Schema.encodeEffect(Hex32)(deviceKey))
       );
+
       const carolDeviceKey = yield* Schema.decodeUnknownEffect(PeerId)(
         PEER_CAROL
       ).pipe(
         Effect.flatMap(deviceKeyFromPeerId),
         Effect.flatMap((deviceKey) => Schema.encodeEffect(Hex32)(deviceKey))
       );
+
       const aliceAccount: RegistryAccount = {
         blockNumber: 1n,
         deviceKey: aliceDeviceKey,
@@ -345,6 +366,7 @@ describe("createHolder", () => {
         qid: 1n,
         registeredAt: 1n,
       };
+
       const bobAccount: RegistryAccount = {
         ...aliceAccount,
         deviceKey: carolDeviceKey,
@@ -353,15 +375,19 @@ describe("createHolder", () => {
         peerId: PEER_CAROL,
         qid: 2n,
       };
+
       const lookupAccount = (key: string) => {
         if (key === aliceDeviceKey) {
           return Effect.succeed(aliceAccount);
         }
+
         if (key === carolDeviceKey) {
           return Effect.succeed(bobAccount);
         }
+
         return Effect.succeed(null);
       };
+
       const sessions = createPeerSessions({
         getContactByQid: () => Promise.resolve(null),
         lookupDeviceKey: lookupAccount,
@@ -370,6 +396,7 @@ describe("createHolder", () => {
         ownQid: () => identity.qid,
         upsertContact: () => Promise.resolve(),
       });
+
       const endpoint = makeEndpoint();
       const ready = yield* Deferred.make<boolean>();
       const sent = yield* Deferred.make<boolean>();
@@ -377,10 +404,12 @@ describe("createHolder", () => {
       const originalLog = out.log;
       out.log = (line: string) => {
         originalLog(line);
+
         if (line.startsWith("Sent to @bob")) {
           Effect.runSync(Deferred.succeed(sent, true));
         }
       };
+
       const queued: OutboxRecordV1 = {
         attempts: 0,
         frame: {
@@ -399,28 +428,37 @@ describe("createHolder", () => {
         updatedAt: 1_700_000_000_000,
         v: 1,
       };
+
       const handoffBytes = yield* encodeSyncRequestV1({
         composedBy: aliceDeviceKey,
         record: queued,
         type: "handoff",
         v: 1,
       });
+
       const unread: (Uint8Array | undefined)[] = [handoffBytes, undefined];
+
       const syncStream = makeStream(SYNC_PROTOCOL, async () => {
         await Promise.resolve();
+
         return unread.shift();
       });
+
       const ackUnread = [encodeAck({ ack: queued.frame.id, v: 1 }), undefined];
+
       const bobStream = makeStream(CHAT_PROTOCOL, async () => {
         await Promise.resolve();
+
         return ackUnread.shift();
       });
+
       bobStream.connId = 4;
       bobStream.peerId = PEER_CAROL;
       endpoint.openStream.mockImplementation(
         (peerId: string, protocolId: string) => {
           expect(peerId).toBe(PEER_CAROL);
           expect(protocolId).toBe(CHAT_PROTOCOL);
+
           return Promise.resolve(bobStream);
         }
       );

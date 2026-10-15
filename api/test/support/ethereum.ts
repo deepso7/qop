@@ -3,6 +3,7 @@ import type { Address, Hash, Hex } from "viem";
 
 export const testAddress = (value: string): Address => {
   getAddress(value);
+
   return `0x${value.slice(2)}`;
 };
 

@@ -9,16 +9,20 @@ describe("configured registry", () => {
       .fn()
       .mockRejectedValueOnce(new Error("offline"))
       .mockResolvedValue(31_337);
+
     const readContract = vi.fn().mockResolvedValue(0n);
+
     const { lookupHandle } = createConfiguredRegistry({
       createClient: () => ({ getChainId, readContract }),
       registryAddress: "0x1111111111111111111111111111111111111111",
       registryChainId: "31337",
       rpcUrl: "https://rpc.qop.test",
     });
+
     const failed = await Effect.runPromise(
       lookupHandle("alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(failed) && failed.failure.operation).toBe("rpc");
     await expect(Effect.runPromise(lookupHandle("alice"))).resolves.toBeNull();
     await expect(Effect.runPromise(lookupHandle("bob"))).resolves.toBeNull();
@@ -29,6 +33,7 @@ describe("configured registry", () => {
     const getChainId = vi.fn().mockResolvedValue(1);
     const readContract = vi.fn().mockResolvedValue(0n);
     const createClient = vi.fn(() => ({ getChainId, readContract }));
+
     const { lookupHandle, lookupOwner } = createConfiguredRegistry({
       createClient,
       registryAddress: "0x1111111111111111111111111111111111111111",
@@ -39,6 +44,7 @@ describe("configured registry", () => {
     const first = await Effect.runPromise(
       lookupHandle("alice").pipe(Effect.result)
     );
+
     const second = await Effect.runPromise(
       lookupOwner("0x7e5f4552091a69125d5dfcb7b8c2659029395bdf").pipe(
         Effect.result
@@ -58,22 +64,29 @@ describe("configured registry", () => {
 
   it("passes cancellation through the configured viem client to fetch", async () => {
     const pending = Promise.withResolvers<Response>();
+
     const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
       // SAFETY: viem's HTTP transport serializes every JSON-RPC request as an object with a method.
       const request = JSON.parse(String(init?.body)) as { method: string };
-      const results: Record<string, string> = {
-        eth_blockNumber: "0x1",
-        eth_chainId: "0x7a69",
-      };
-      const result = results[request.method];
+
+      const result = new Map([
+        ["eth_blockNumber", "0x1"],
+        ["eth_chainId", "0x7a69"],
+      ]).get(request.method);
+
       if (result) {
-        return Promise.resolve(Response.json({ id: 0, jsonrpc: "2.0", result }));
+        return Promise.resolve(
+          Response.json({ id: 0, jsonrpc: "2.0", result })
+        );
       }
+
       init?.signal?.addEventListener("abort", () => {
         pending.reject(init.signal?.reason);
       });
+
       return pending.promise;
     });
+
     vi.stubGlobal("fetch", fetchMock);
     vi.stubEnv(
       "EXPO_PUBLIC_REGISTRY_ADDRESS",
@@ -81,14 +94,17 @@ describe("configured registry", () => {
     );
     vi.stubEnv("EXPO_PUBLIC_REGISTRY_CHAIN_ID", "31337");
     vi.stubEnv("EXPO_PUBLIC_RPC_URL", "https://rpc.qop.test");
+
     try {
       vi.resetModules();
       const { lookupOwner } = await import("@/lib/registry");
+
       const result = await Effect.runPromise(
         lookupOwner("0x7e5f4552091a69125d5dfcb7b8c2659029395bdf").pipe(
           Effect.timeoutOption(20)
         )
       );
+
       expect(result._tag).toBe("None");
       expect(fetchMock).toHaveBeenCalledTimes(3);
       const [, ethCall] = fetchMock.mock.calls[2] ?? [];

@@ -13,11 +13,13 @@ import { lookupDeviceKey, lookupHandle, lookupQid } from "./registry";
 export const useP2pStore = createP2pStore({
   createEndpoint: (options) => {
     const endpoint = Minip2p.create(options);
+
     return { bindAppState: () => bindAppState(endpoint), endpoint };
   },
   getIdentityHandle: () => useIdentityStore.getState().identity?.handle,
   getOwnDevice: () => {
     const { identity, registration } = useIdentityStore.getState();
+
     if (
       identity === null ||
       registration === null ||
@@ -25,6 +27,7 @@ export const useP2pStore = createP2pStore({
     ) {
       return;
     }
+
     return {
       deviceKey: identity.deviceKey,
       handle: identity.handle,
@@ -43,6 +46,7 @@ export const useP2pStore = createP2pStore({
   randomUUID,
   subscribeAppResume: (onResume) => {
     let previous: AppStateStatus = AppState.currentState;
+
     const subscription = AppState.addEventListener("change", (next) => {
       if (
         next === "active" &&
@@ -50,8 +54,10 @@ export const useP2pStore = createP2pStore({
       ) {
         onResume();
       }
+
       previous = next;
     });
+
     return () => subscription.remove();
   },
 });

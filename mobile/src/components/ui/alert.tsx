@@ -69,6 +69,7 @@ const AlertDescription = ({
   ...props
 }: React.ComponentProps<typeof Text>) => {
   const textClass = React.useContext(TextClassContext);
+
   return (
     <Text
       className={cn(

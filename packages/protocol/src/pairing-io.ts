@@ -11,10 +11,12 @@ import type { PairingFrameV1 } from "./pairing.ts";
 const concatChunks = (chunks: readonly Uint8Array[], byteLength: number) => {
   const bytes = new Uint8Array(byteLength);
   let offset = 0;
+
   for (const chunk of chunks) {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+
   return bytes;
 };
 
@@ -28,14 +30,19 @@ const readChunks = (
       catch: () => new PairingCodecError({ operation: "frame" }),
       try: () => read(),
     });
+
     if (!chunk) {
       return concatChunks(chunks, byteLength);
     }
+
     const nextLength = byteLength + chunk.byteLength;
+
     if (nextLength > PAIRING_FRAME_MAX_BYTES) {
       return yield* new PairingCodecError({ operation: "oversized" });
     }
+
     chunks.push(chunk);
+
     return yield* readChunks(read, chunks, nextLength);
   });
 

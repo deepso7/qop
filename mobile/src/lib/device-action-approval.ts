@@ -40,29 +40,37 @@ export const signDeviceActionRecord = Effect.fn("signDeviceActionRecord")(
   }) {
     const trustedDomain = trustedIdentityDomain();
     const account = yield* lookupQid(qid);
+
     if (!account || account.owner !== expectedOwner) {
       return yield* new DeviceActionApprovalError({ operation: "snapshot" });
     }
+
     const chainTime = yield* latestTimestamp();
+
     const intentInput = {
       deadline: (chainTime + BigInt(DEVICE_ACTION_DEADLINE_SECONDS)).toString(),
       deviceKey,
       nonce: account.nonce.toString(),
       qid: qid.toString(),
     };
+
     const domain = yield* decodeIdentityEip712DomainV1(trustedDomain);
+
     const intent =
       operation === "add"
         ? yield* decodeAddDeviceIntentV1(intentInput)
         : yield* decodeRemoveDeviceIntentV1(intentInput);
+
     const digest =
       operation === "add"
         ? yield* hashAddDeviceIntentV1(domain, intent)
         : yield* hashRemoveDeviceIntentV1(domain, intent);
+
     const encodedIntent =
       operation === "add"
         ? yield* encodeAddDeviceIntentV1(intent)
         : yield* encodeRemoveDeviceIntentV1(intent);
+
     const unsigned: DeviceActionApprovalV1Encoded = {
       digest,
       domain: trustedDomain,
@@ -72,6 +80,7 @@ export const signDeviceActionRecord = Effect.fn("signDeviceActionRecord")(
       ownerSignature: PLACEHOLDER_SIGNATURE,
       v: 1,
     };
+
     const ownerSignature = yield* signApprovedDeviceAction({
       displayed: unsigned,
       requested: unsigned,
@@ -82,6 +91,7 @@ export const signDeviceActionRecord = Effect.fn("signDeviceActionRecord")(
       },
       trustedDomain,
     });
+
     return {
       account,
       record: { ...unsigned, ownerSignature },

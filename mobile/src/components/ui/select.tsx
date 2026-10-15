@@ -31,6 +31,7 @@ const SelectValue = ({
   className?: string;
 }) => {
   const { value } = SelectPrimitive.useRootContext();
+
   return (
     <SelectPrimitive.Value
       ref={ref}
@@ -89,6 +90,7 @@ const SelectScrollUpButton = ({
   if (Platform.OS !== "web") {
     return null;
   }
+
   return (
     <SelectPrimitive.ScrollUpButton
       className={cn(
@@ -110,6 +112,7 @@ const SelectScrollDownButton = ({
   if (Platform.OS !== "web") {
     return null;
   }
+
   return (
     <SelectPrimitive.ScrollDownButton
       className={cn(

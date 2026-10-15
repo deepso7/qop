@@ -33,6 +33,7 @@ const getSubmenuIcon = (open: boolean) => {
   if (Platform.OS === "web") {
     return ChevronRight;
   }
+
   return open ? ChevronUp : ChevronDown;
 };
 
@@ -51,8 +52,10 @@ const Menubar = ({
   const closeMenu = () => {
     if (onValueChangeProp) {
       onValueChangeProp("");
+
       return;
     }
+
     setValue(undefined);
   };
 
@@ -82,6 +85,7 @@ const MenubarTrigger = ({
 }: React.ComponentProps<typeof MenubarPrimitive.Trigger>) => {
   const { value } = MenubarPrimitive.useRootContext();
   const { value: itemValue } = MenubarPrimitive.useMenuContext();
+
   const textClassName = cn(
     "group-active:text-accent-foreground text-sm font-medium select-none",
     value === itemValue && "text-accent-foreground"
@@ -117,10 +121,12 @@ const MenubarSubTrigger = ({
 }) => {
   const { open } = MenubarPrimitive.useSubContext();
   const icon = getSubmenuIcon(open);
+
   const textClassName = cn(
     "group-active:text-accent-foreground text-sm select-none",
     open && "text-accent-foreground"
   );
+
   return (
     <TextClassContext.Provider value={textClassName}>
       <MenubarPrimitive.SubTrigger

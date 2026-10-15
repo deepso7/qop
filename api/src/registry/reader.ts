@@ -101,22 +101,26 @@ export class RegistryReader extends Context.Service<
       const chain = yield* RegistryChain;
       const refreshSemaphore = yield* Semaphore.make(16);
       const backgroundRefreshSemaphore = yield* Semaphore.make(16);
+
       const cacheOptions = {
         backgroundRefreshSemaphore,
         refreshSemaphore,
       } as const;
+
       const accounts = yield* createCacheNamespace({
         ...cacheOptions,
         capacity: 10_000,
         lookup: chain.account,
         policy: policy.account,
       });
+
       const handles = yield* createCacheNamespace({
         ...cacheOptions,
         capacity: 10_000,
         lookup: chain.qidByHandle,
         policy: policy.qidByHandle,
       });
+
       const owners = yield* createCacheNamespace({
         ...cacheOptions,
         capacity: 10_000,

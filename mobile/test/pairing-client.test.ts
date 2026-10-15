@@ -20,6 +20,7 @@ const encodedOffer = {
 
 const CIRCUIT =
   "/dns/relay.example/udp/4001/quic-v1/p2p/relay/p2p-circuit/p2p/12D3KooWPjceQrSwdWXPyLLeABRXmuqt69Rg3sBYbU1Nft9HyQ6X";
+
 const LAN = "/ip4/192.168.1.10/udp/4001/quic-v1";
 
 const expectedPeerId = () =>
@@ -49,6 +50,7 @@ const handshakeTransport = (
   extras: Partial<PairingTransport> & Pick<PairingTransport, "connect">
 ): PairingTransport => {
   const chunks = helloAckChunks();
+
   return {
     openPairingStream: () =>
       Promise.resolve({
@@ -71,7 +73,9 @@ const handshakeWith = async (
   const offer = await Effect.runPromise(
     Schema.decodeUnknownEffect(PairingOfferV1)({ ...encodedOffer, addrs })
   );
+
   const peerId = await Effect.runPromise(expectedPeerId());
+
   return Effect.runPromise(
     handshakePairing(
       handshakeTransport(peerId, { connect }),
@@ -91,13 +95,17 @@ describe("phone pairing handshake", () => {
     const offer = await Effect.runPromise(
       Schema.decodeUnknownEffect(PairingOfferV1)(encodedOffer)
     );
+
     const peerId = await Effect.runPromise(expectedPeerId());
     const writes: Uint8Array[] = [];
     const chunks = helloAckChunks();
+
     const randomBytes = vi.fn(() =>
       Promise.resolve(new Uint8Array(32).fill(7))
     );
+
     vi.stubGlobal("crypto", null);
+
     try {
       const result = await Effect.runPromise(
         handshakePairing(
@@ -110,8 +118,10 @@ describe("phone pairing handshake", () => {
                 protocolId: PAIR_PROTOCOL,
                 read: () => Promise.resolve(chunks.shift()),
                 reset: () => {},
-                write: async (bytes) => {
+                write: (bytes) => {
                   writes.push(bytes);
+
+                  return Promise.resolve();
                 },
               }),
           }),
@@ -124,6 +134,7 @@ describe("phone pairing handshake", () => {
           randomBytes
         )
       );
+
       expect(result.peerId).toBe(peerId);
       expect(randomBytes).toHaveBeenCalledOnce();
       expect(JSON.parse(new TextDecoder().decode(writes[0]))).toMatchObject({
@@ -139,6 +150,7 @@ describe("phone pairing handshake", () => {
     const offer = await Effect.runPromise(
       Schema.decodeUnknownEffect(PairingOfferV1)(encodedOffer)
     );
+
     const result = await Effect.runPromise(
       handshakePairing(
         {
@@ -155,7 +167,9 @@ describe("phone pairing handshake", () => {
         () => Promise.resolve(new Uint8Array(32))
       ).pipe(Effect.result)
     );
+
     expect(result._tag).toBe("Failure");
+
     if (result._tag === "Failure") {
       expect(result.failure).toBeInstanceOf(PhonePairingError);
     }

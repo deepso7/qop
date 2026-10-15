@@ -61,13 +61,17 @@ export class RegistrationRelayer extends Context.Service<
 export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
   function* (input: string) {
     const env = yield* Env;
+
     if (env.CHAIN_ID > BigInt(Number.MAX_SAFE_INTEGER)) {
       return yield* new RegistrationRelayerError({ operation: "configure" });
     }
+
     if (!isAddress(env.REGISTRY_ADDRESS)) {
       return yield* new RegistrationRelayerError({ operation: "configure" });
     }
+
     const registryAddress = env.REGISTRY_ADDRESS;
+
     const privateKey = yield* Schema.decodeUnknownEffect(PrivateKey)(
       input
     ).pipe(
@@ -75,28 +79,34 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
         () => new RegistrationRelayerError({ operation: "configure" })
       )
     );
+
     if (!isHex(privateKey)) {
       return yield* new RegistrationRelayerError({ operation: "configure" });
     }
+
     const account = yield* Effect.try({
       catch: () => new RegistrationRelayerError({ operation: "configure" }),
       try: () => privateKeyToAccount(privateKey),
     });
+
     const chain = {
       id: Number(env.CHAIN_ID),
       name: "QOP Registry",
       nativeCurrency: { decimals: 18, name: "Ether", symbol: "ETH" },
       rpcUrls: { default: { http: [env.RPC_URL.toString()] } },
     } as const;
+
     const client = createWalletClient({
       account,
       chain,
       transport: http(env.RPC_URL.toString()),
     });
+
     const publicClient = createPublicClient({
       chain,
       transport: http(env.RPC_URL.toString()),
     });
+
     const prepare = Effect.fn("RegistrationRelayer.prepare")(function* (
       intent: RegisterIntent,
       ownerSignature: Hex,
@@ -106,6 +116,7 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
       if (nonce < 0n || nonce > BigInt(Number.MAX_SAFE_INTEGER)) {
         return yield* new RegistrationRelayerError({ operation: "prepare" });
       }
+
       yield* Schema.encodeEffect(RegisterIntentV1)(intent).pipe(
         Effect.andThen(
           Schema.decodeUnknownEffect(EthereumAddress)(intent.owner)
@@ -120,10 +131,13 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
           () => new RegistrationRelayerError({ operation: "prepare" })
         )
       );
+
       if (!isAddress(intent.owner)) {
         return yield* new RegistrationRelayerError({ operation: "prepare" });
       }
+
       const { owner } = intent;
+
       return yield* Effect.tryPromise({
         catch: () => new RegistrationRelayerError({ operation: "prepare" }),
         try: async () => {
@@ -142,13 +156,16 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
             ],
             functionName: "register",
           });
+
           const request = await client.prepareTransactionRequest({
             account,
             data,
             nonce: Number(nonce),
             to: registryAddress,
           });
+
           const serializedTransaction = await client.signTransaction(request);
+
           return {
             serializedTransaction,
             transactionHash: keccak256(serializedTransaction),
@@ -182,9 +199,11 @@ export const makeRegistrationRelayer = Effect.fn("RegistrationRelayer.make")(
       ) {
         return yield* new RegistrationRelayerError({ operation: "broadcast" });
       }
+
       if (yield* transactionExists(prepared.transactionHash)) {
         return prepared.transactionHash;
       }
+
       return yield* Effect.tryPromise({
         catch: () => new RegistrationRelayerError({ operation: "broadcast" }),
         try: () =>

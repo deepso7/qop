@@ -17,6 +17,7 @@ export const deviceKeyFromEd25519SecretKey = Effect.fn(
   if (secretKey.length !== 32) {
     return yield* new DeviceKeyError({ operation: "derive-public-key" });
   }
+
   return yield* Effect.try({
     catch: (cause) =>
       new DeviceKeyError({ cause, operation: "derive-public-key" }),

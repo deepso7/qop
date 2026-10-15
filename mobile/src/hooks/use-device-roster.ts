@@ -19,12 +19,15 @@ const removeFailureMessage = (
     case "conflict": {
       return "Another device action is still in flight.";
     }
+
     case "submit": {
       return "Could not submit the removal. Try again.";
     }
+
     case "timeout": {
       return "Still waiting on the API. Try again to resume the same removal.";
     }
+
     default: {
       return "Could not save the removal.";
     }
@@ -39,9 +42,11 @@ export const useDeviceRoster = () => {
   const identity = useIdentityStore((state) => state.identity);
   const registration = useIdentityStore((state) => state.registration);
   const [devices, setDevices] = React.useState<readonly RosterDevice[]>([]);
+
   const [status, setStatus] = React.useState<"error" | "loading" | "ready">(
     "loading"
   );
+
   const [removing, setRemoving] = React.useState(false);
   const [message, setMessage] = React.useState<string>();
   const qid = registration?.qid;
@@ -53,17 +58,22 @@ export const useDeviceRoster = () => {
   const load = React.useCallback(async () => {
     loadSeq.current += 1;
     const seq = loadSeq.current;
+
     if (!qid) {
       setDevices([]);
       setStatus("ready");
+
       return;
     }
+
     const account = await Effect.runPromise(
       lookupQid(BigInt(qid)).pipe(Effect.result)
     );
+
     if (seq !== loadSeq.current) {
       return;
     }
+
     if (Result.isSuccess(account) && account.success) {
       setDevices(account.success.devices);
       setStatus("ready");
@@ -75,6 +85,7 @@ export const useDeviceRoster = () => {
   useFocusEffect(
     React.useCallback(() => {
       void load();
+
       return () => {
         loadSeq.current += 1;
       };
@@ -91,8 +102,10 @@ export const useDeviceRoster = () => {
       if (!identity || !qid || removing) {
         return;
       }
+
       setRemoving(true);
       setMessage("Removing device…");
+
       const result = await Effect.runPromise(
         completeDeviceRemove({
           deviceKey,
@@ -100,6 +113,7 @@ export const useDeviceRoster = () => {
           qid: BigInt(qid),
         }).pipe(Effect.result)
       );
+
       if (Result.isFailure(result)) {
         setRemoving(false);
         const { failure } = result;
@@ -110,8 +124,10 @@ export const useDeviceRoster = () => {
               : undefined
           )
         );
+
         return;
       }
+
       await load();
       setRemoving(false);
       setMessage(

@@ -36,9 +36,11 @@ const membershipAccount = ({
   if (functionName === "qidByDeviceKey") {
     return args[0] === phoneDeviceKey || args[0] === cliDeviceKey ? 1n : 0n;
   }
+
   if (functionName === "listActiveDevices") {
     return [phoneDeviceKey, cliDeviceKey];
   }
+
   if (functionName === "account") {
     return {
       handle: "alice",
@@ -48,19 +50,24 @@ const membershipAccount = ({
       registeredAt: 1_700_000_000n,
     };
   }
+
   return 0n;
 };
 
 const freshReaderSessions = (clock: () => number) => {
   let head = 10n;
   const getBlockNumber = vi.fn(() => Promise.resolve(head));
+
   const readContract = vi.fn((parameters) => {
     expect(parameters.blockNumber).toBe(head);
+
     return Promise.resolve(membershipAccount(parameters));
   });
+
   const reader = createRegistryReader({
     client: { getBlockNumber, readContract },
   });
+
   const sessions = createPeerSessions({
     getContactByQid: () => Promise.resolve(contact),
     lookupDeviceKey: (deviceKey) => reader.lookupDeviceKey(deviceKey),
@@ -68,7 +75,9 @@ const freshReaderSessions = (clock: () => number) => {
     now: clock,
     upsertContact: () => Promise.resolve(),
   });
+
   sessions.opened(cliConnection);
+
   return {
     advanceHead: () => {
       head += 1n;
@@ -85,6 +94,7 @@ const freshReaderSessions = (clock: () => number) => {
 describe("registry reader auth freshness", () => {
   it("does not extend live auth when the reader keeps returning the same head", async () => {
     let clock = 0;
+
     const { advanceHead, getBlockNumber, sessions } = freshReaderSessions(
       () => clock
     );
@@ -95,9 +105,11 @@ describe("registry reader auth freshness", () => {
 
     // Age out. Reader still reports membership at the same head (stuck RPC).
     clock += MAX_AUTH_AGE_MS;
+
     const refused = await Effect.runPromise(
       sessions.verify(cliConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(refused) && refused.failure.operation).toBe(
       "identity"
     );
@@ -125,6 +137,7 @@ describe("registry reader auth freshness", () => {
     const stuck = await Effect.runPromise(
       sessions.verify(cliConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(stuck) && stuck.failure.operation).toBe("identity");
     expect(sessions.isVerified(cliConnection, "1")).toBe(false);
 
@@ -139,12 +152,16 @@ describe("registry reader auth freshness", () => {
   it("marks untagged reader lookups stale so sessions refuse to mint auth age", async () => {
     const readContract = vi.fn((parameters) => {
       expect(parameters.blockNumber).toBeUndefined();
+
       return Promise.resolve(membershipAccount(parameters));
     });
+
     const reader = createRegistryReader({ client: { readContract } });
+
     const account = await Effect.runPromise(
       reader.lookupDeviceKey(cliDeviceKey)
     );
+
     expect(account).toMatchObject({
       blockNumber: 0n,
       freshness: "stale",
@@ -157,10 +174,13 @@ describe("registry reader auth freshness", () => {
       now: () => 0,
       upsertContact: () => Promise.resolve(),
     });
+
     sessions.opened(cliConnection);
+
     const refused = await Effect.runPromise(
       sessions.verify(cliConnection, "alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(refused) && refused.failure.operation).toBe(
       "identity"
     );

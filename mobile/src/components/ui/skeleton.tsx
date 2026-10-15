@@ -27,6 +27,7 @@ const Skeleton = ({
     }),
     [sv]
   );
+
   return (
     <Animated.View
       style={style}

@@ -23,6 +23,7 @@ const SQLITE_BUSY_TIMEOUT_MS = 5000;
 const NodeErrno = Schema.Struct({
   code: Schema.String,
 });
+
 const errnoCode = Schema.decodeUnknownOption(NodeErrno);
 
 export class CliOutboxStoreError extends Data.TaggedError(
@@ -90,23 +91,30 @@ export const describeCliOutboxStoreError = (error: CliOutboxStoreError) => {
     case "absent": {
       return "CLI messages.db is not present.";
     }
+
     case "conflict": {
       return "CLI outbox or inbox has a conflicting record for the same message id.";
     }
+
     case "decode": {
       return "CLI outbox or inbox is unreadable. Move the data directory aside to recover.";
     }
+
     case "permissions": {
       return "CLI messages.db must be mode 600 (directory 700). Fix permissions or move the data directory aside.";
     }
+
     case "read": {
       return "Could not read the CLI outbox or inbox.";
     }
+
     case "write": {
       return "Could not write the CLI outbox or inbox.";
     }
+
     default: {
       const exhaustive: never = error.operation;
+
       return exhaustive;
     }
   }
@@ -118,28 +126,37 @@ const storeError = (operation: CliOutboxStoreError["operation"]) =>
 const ErrorMessage = Schema.Struct({
   message: Schema.String,
 });
+
 const errorMessage = Schema.decodeUnknownOption(ErrorMessage);
+
 const SqliteErrcode = Schema.Struct({
   errcode: Schema.Number,
 });
+
 const sqliteErrcode = Schema.decodeUnknownOption(SqliteErrcode);
+
 const UserVersionRow = Schema.Struct({
   user_version: Schema.Number,
 });
+
 const decodeUserVersion = Schema.decodeUnknownOption(UserVersionRow);
+
 const CountRow = Schema.Struct({
   n: Schema.Number,
 });
+
 const decodeCount = Schema.decodeUnknownOption(CountRow);
 
 const SQLITE_CORRUPT = 11;
 const SQLITE_NOTADB = 26;
+
 const SQLITE_UNREADABLE_MESSAGE =
   /SQLITE_NOTADB|SQLITE_CORRUPT|not a database|malformed/iu;
 
 const isUnreadableSqliteErrcode = (errcode: number) => {
   // Primary SQLite result code; extended codes are 256 * extra + primary.
   const primary = errcode % 256;
+
   return primary === SQLITE_CORRUPT || primary === SQLITE_NOTADB;
 };
 
@@ -150,12 +167,14 @@ const sqliteOpenError = (
   if (coded._tag === "Some" && isUnreadableSqliteErrcode(coded.value.errcode)) {
     return storeError("decode");
   }
+
   if (
     parsed._tag === "Some" &&
     SQLITE_UNREADABLE_MESSAGE.test(parsed.value.message)
   ) {
     return storeError("decode");
   }
+
   return storeError("read");
 };
 
@@ -234,9 +253,11 @@ const decodeOutboxRow = (row: Record<string, SQLOutputValue>) => {
     },
     strictParseOptions
   );
+
   if (decoded._tag === "None") {
     throw storeError("decode");
   }
+
   return decoded.value;
 };
 
@@ -245,9 +266,11 @@ const decodeInboxSeqOption = Schema.decodeUnknownOption(InboxSeq);
 
 const decodeInboxSeq = (value: SQLOutputValue | undefined) => {
   const decoded = decodeInboxSeqOption(value);
+
   if (decoded._tag === "None") {
     throw storeError("decode");
   }
+
   return decoded.value;
 };
 
@@ -267,9 +290,11 @@ const decodeInboxRow = (row: Record<string, SQLOutputValue>) => {
     },
     strictParseOptions
   );
+
   if (decoded._tag === "None") {
     throw storeError("decode");
   }
+
   return decoded.value;
 };
 
@@ -285,6 +310,7 @@ const outboxInsertParams = (record: OutboxRecordV1): SQLInputValue[] => {
     toQid,
     updatedAt,
   } = record;
+
   return [
     frame.id,
     frame.fromHandle,
@@ -313,6 +339,7 @@ const outboxUpdateParams = (record: OutboxRecordV1): SQLInputValue[] => {
     toQid,
     updatedAt,
   } = record;
+
   return [
     frame.fromHandle,
     frame.sentAt,
@@ -331,6 +358,7 @@ const outboxUpdateParams = (record: OutboxRecordV1): SQLInputValue[] => {
 
 const inboxInsertParams = (record: InboxRecordV1): SQLInputValue[] => {
   const { frame, fromQid, receivedAt } = record;
+
   return [
     fromQid,
     frame.id,
@@ -345,9 +373,11 @@ const readUserVersion = (db: DatabaseSync) => {
   const versionParsed = decodeUserVersion(
     db.prepare("PRAGMA user_version").get()
   );
+
   if (versionParsed._tag === "None") {
     throw storeError("decode");
   }
+
   return versionParsed.value.user_version;
 };
 
@@ -357,31 +387,42 @@ const applySchema = (db: DatabaseSync, readOnly = false) => {
     if (readUserVersion(db) !== SCHEMA_VERSION) {
       throw storeError("decode");
     }
+
     return;
   }
+
   db.exec("PRAGMA synchronous = FULL");
+
   // Healthy v1 is a shared read so status can open while the holder writes.
   if (readUserVersion(db) === SCHEMA_VERSION) {
     return;
   }
+
   // Serialize first bootstrap: loser waits, re-reads v1, and returns.
   db.exec("BEGIN IMMEDIATE");
+
   try {
     const version = readUserVersion(db);
+
     if (version === SCHEMA_VERSION) {
       db.exec("ROLLBACK");
+
       return;
     }
+
     const existingOutbox = db
       .prepare(
         "SELECT 1 AS present FROM sqlite_master WHERE type = 'table' AND name = 'outbox'"
       )
       .get();
+
     if (version === 0 && existingOutbox === undefined) {
       db.exec(CREATE_SCHEMA_SQL);
       db.exec("COMMIT");
+
       return;
     }
+
     throw storeError("decode");
   } catch (error) {
     try {
@@ -389,6 +430,7 @@ const applySchema = (db: DatabaseSync, readOnly = false) => {
     } catch {
       // Open is already failing; rollback is best-effort.
     }
+
     throw error;
   }
 };
@@ -407,34 +449,44 @@ const runSync = <A>(operation: "read" | "write", body: () => A) =>
 
 const makeStore = (db: DatabaseSync): CliOutboxStore => {
   const selectOutboxById = db.prepare(`${OUTBOX_SELECT} WHERE id = ?`);
+
   const insertOutbox = db.prepare(`INSERT INTO outbox (
     id, from_handle, sent_at, text, to_handle, to_qid, status, attempts,
     last_error, next_attempt_at, queued_at, updated_at
   ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+
   const updateOutbox = db.prepare(`UPDATE outbox SET
     from_handle = ?, sent_at = ?, text = ?, to_handle = ?, to_qid = ?,
     status = ?, attempts = ?, last_error = ?, next_attempt_at = ?,
     queued_at = ?, updated_at = ?
   WHERE id = ?`);
+
   const selectOutboxAll = db.prepare(`${OUTBOX_SELECT} ORDER BY rowid`);
+
   const selectOutboxQueued = db.prepare(
     `${OUTBOX_SELECT} WHERE status = 'queued' ORDER BY rowid`
   );
+
   const countOutboxQueued = db.prepare(
     "SELECT COUNT(*) AS n FROM outbox WHERE status = 'queued'"
   );
+
   const selectInboxByKey = db.prepare(
     `${INBOX_SELECT} WHERE from_qid = ? AND id = ?`
   );
+
   const insertInbox = db.prepare(`INSERT INTO inbox (
     from_qid, id, from_handle, sent_at, text, received_at
   ) VALUES (?, ?, ?, ?, ?, ?)`);
+
   const selectInboxAll = db.prepare(`${INBOX_SELECT} ORDER BY rowid`);
+
   const selectInboxAfter = db.prepare(
     `SELECT rowid AS seq, from_qid AS fromQid, id, from_handle AS fromHandle,
       sent_at AS sentAt, text, received_at AS receivedAt
      FROM inbox WHERE rowid > ? ORDER BY rowid LIMIT ?`
   );
+
   const selectInboxLastSeq = db.prepare(
     "SELECT COALESCE(MAX(rowid), 0) AS seq FROM inbox"
   );
@@ -444,14 +496,19 @@ const makeStore = (db: DatabaseSync): CliOutboxStore => {
   ) {
     return yield* runSync("write", () => {
       const row = selectOutboxById.get(record.frame.id);
+
       if (row) {
         const existing = decodeOutboxRow(row);
+
         if (outboxRecordsConflict(existing, record)) {
           throw storeError("conflict");
         }
+
         return existing;
       }
+
       insertOutbox.run(...outboxInsertParams(record));
+
       return record;
     });
   });
@@ -459,15 +516,21 @@ const makeStore = (db: DatabaseSync): CliOutboxStore => {
   const put = Effect.fn("CliOutbox.put")(function* (record: OutboxRecordV1) {
     return yield* runSync("write", () => {
       const row = selectOutboxById.get(record.frame.id);
+
       if (row) {
         const current = decodeOutboxRow(row);
+
         if (outboxRecordsConflict(current, record)) {
           throw storeError("conflict");
         }
+
         updateOutbox.run(...outboxUpdateParams(record));
+
         return record;
       }
+
       insertOutbox.run(...outboxInsertParams(record));
+
       return record;
     });
   });
@@ -487,9 +550,11 @@ const makeStore = (db: DatabaseSync): CliOutboxStore => {
   const queuedCount = Effect.fn("CliOutbox.queuedCount")(function* () {
     return yield* runSync("read", () => {
       const parsed = decodeCount(countOutboxQueued.get());
+
       if (parsed._tag === "None") {
         throw storeError("decode");
       }
+
       return parsed.value.n;
     });
   });
@@ -500,13 +565,16 @@ const makeStore = (db: DatabaseSync): CliOutboxStore => {
     if (ids.length === 0) {
       return [];
     }
+
     return yield* runSync("read", () => {
       const placeholders = ids.map(() => "?").join(", ");
+
       const rows = db
         .prepare(
           `${OUTBOX_SELECT} WHERE id IN (${placeholders}) ORDER BY rowid`
         )
         .all(...ids);
+
       return rows.map((row) => decodeOutboxRow(row));
     });
   });
@@ -538,14 +606,19 @@ const makeStore = (db: DatabaseSync): CliOutboxStore => {
   ) {
     return yield* runSync("write", () => {
       const row = selectInboxByKey.get(record.fromQid, record.frame.id);
+
       if (row) {
         const existing = decodeInboxRow(row);
+
         if (inboxRecordsConflict(existing, record)) {
           throw storeError("conflict");
         }
+
         return { inserted: false, record: existing };
       }
+
       insertInbox.run(...inboxInsertParams(record));
+
       return { inserted: true, record };
     });
   });
@@ -568,19 +641,23 @@ const openDatabase = Effect.fn("CliOutbox.openDatabase")(function* (
   readOnly = false
 ) {
   const dbPath = path.join(root, DB_FILE);
+
   if (readOnly) {
     const info = yield* Effect.tryPromise({
       catch: (error) => {
         const parsed = errnoCode(error);
+
         return parsed._tag === "Some" && parsed.value.code === "ENOENT"
           ? storeError("absent")
           : storeError("permissions");
       },
       try: () => stat(dbPath),
     });
+
     if (info.mode.toString(8).slice(-3) !== "600") {
       return yield* storeError("permissions");
     }
+
     return yield* Effect.try({
       catch: (cause) =>
         sqliteOpenError(sqliteErrcode(cause), errorMessage(cause)),
@@ -591,10 +668,12 @@ const openDatabase = Effect.fn("CliOutbox.openDatabase")(function* (
         }),
     });
   }
+
   yield* Effect.tryPromise({
     catch: () => storeError("write"),
     try: () => mkdir(root, { mode: MODE_DIR, recursive: true }),
   });
+
   // chmod only the file we just created (defeat umask). Existing files are
   // checked, not repaired — a 644 messages.db is a permissions failure.
   const created = yield* Effect.tryPromise({
@@ -603,29 +682,36 @@ const openDatabase = Effect.fn("CliOutbox.openDatabase")(function* (
       try {
         const handle = await open(dbPath, "wx", MODE_FILE);
         await handle.close();
+
         return true;
       } catch (error) {
         const parsed = errnoCode(error);
+
         if (parsed._tag === "Some" && parsed.value.code === "EEXIST") {
           return false;
         }
+
         throw error;
       }
     },
   });
+
   if (created) {
     yield* Effect.tryPromise({
       catch: () => storeError("write"),
       try: () => chmod(dbPath, MODE_FILE),
     });
   }
+
   const info = yield* Effect.tryPromise({
     catch: () => storeError("permissions"),
     try: () => stat(dbPath),
   });
+
   if (info.mode.toString(8).slice(-3) !== "600") {
     return yield* storeError("permissions");
   }
+
   return yield* Effect.try({
     catch: (cause) =>
       sqliteOpenError(sqliteErrcode(cause), errorMessage(cause)),
@@ -643,9 +729,11 @@ export const openCliOutboxStore = (
   options?: OpenCliOutboxStoreOptions
 ): Effect.Effect<CliOutboxStore, CliOutboxStoreError, Scope.Scope> => {
   const readOnly = options?.readOnly === true;
+
   return Effect.acquireRelease(
     Effect.gen(function* () {
       const db = yield* openDatabase(root, readOnly);
+
       const store = yield* Effect.try({
         catch: (cause) => {
           try {
@@ -653,16 +741,20 @@ export const openCliOutboxStore = (
           } catch {
             // Open is already failing; close is best-effort.
           }
+
           if (cause instanceof CliOutboxStoreError) {
             return cause;
           }
+
           return sqliteOpenError(sqliteErrcode(cause), errorMessage(cause));
         },
         try: () => {
           applySchema(db, readOnly);
+
           return makeStore(db);
         },
       });
+
       return { db, store };
     }),
     ({ db }) =>

@@ -35,12 +35,14 @@ const loadVault = () =>
         if (fileSystemMock.failRead) {
           throw new Error("marker read failed");
         }
+
         return fileSystemMock.markers.has(INSTALL_MARKER_FILENAME);
       },
       write: () => {
         if (fileSystemMock.failWrite) {
           throw new Error("marker write failed");
         }
+
         fileSystemMock.markers.add(INSTALL_MARKER_FILENAME);
       },
     }),
@@ -68,16 +70,19 @@ beforeEach(() => {
     );
   secureStoreMock.setItemAsync.mockReset().mockImplementation((key, value) => {
     secureStoreMock.items.set(key, value);
+
     return Promise.resolve();
   });
   secureStoreMock.deleteItemAsync.mockReset().mockImplementation((key) => {
     secureStoreMock.items.delete(key);
+
     return Promise.resolve();
   });
   cryptoMock.getRandomBytesAsync.mockReset().mockImplementation(() => {
     const bytes = new Uint8Array(32);
     bytes[31] = cryptoMock.nextByte;
     cryptoMock.nextByte += 1;
+
     return Promise.resolve(bytes);
   });
 });
@@ -85,6 +90,7 @@ beforeEach(() => {
 describe("identity vault", () => {
   it("loads an absent vault and establishes install markers", async () => {
     const { loadLocalIdentity } = await loadVault();
+
     const result = await Effect.runPromise(
       loadLocalIdentity().pipe(Effect.result)
     );
@@ -101,10 +107,13 @@ describe("identity vault", () => {
       loadLocalIdentity,
       revealLocalIdentityRecoveryKey,
     } = await loadVault();
+
     const created = await Effect.runPromise(
       createLocalIdentity("alice").pipe(Effect.result)
     );
+
     expect(Result.isSuccess(created)).toBe(true);
+
     if (Result.isSuccess(created)) {
       expect(created.success.deviceKey).toMatch(/^0x[0-9a-f]{64}$/u);
       expect(created.success).not.toHaveProperty("deviceSecretKey");
@@ -115,10 +124,13 @@ describe("identity vault", () => {
     const loaded = await Effect.runPromise(
       loadLocalIdentity().pipe(Effect.result)
     );
+
     expect(loaded).toEqual(created);
+
     const recoveryKey = await Effect.runPromise(
       revealLocalIdentityRecoveryKey()
     );
+
     expect(recoveryKey).toMatch(/^qop1_/u);
     await expect(
       Effect.runPromise(loadDeviceSecretKey())
@@ -131,7 +143,9 @@ describe("identity vault", () => {
       loadLocalIdentity,
       updateLocalIdentityBackupState,
     } = await loadVault();
+
     await Effect.runPromise(createLocalIdentity("alice"));
+
     const before = JSON.parse(
       secureStoreMock.items.get(IDENTITY_STORAGE_KEY) ?? "{}"
     );
@@ -139,6 +153,7 @@ describe("identity vault", () => {
     const updated = await Effect.runPromise(
       updateLocalIdentityBackupState("skipped")
     );
+
     expect(updated).toMatchObject({ backupState: "skipped", handle: "alice" });
     expect(updated).not.toHaveProperty("deviceSecretKey");
     expect(updated).not.toHaveProperty("recoveryKey");
@@ -146,6 +161,7 @@ describe("identity vault", () => {
     const afterUpdate = JSON.parse(
       secureStoreMock.items.get(IDENTITY_STORAGE_KEY) ?? "{}"
     );
+
     expect(afterUpdate).toMatchObject({
       deviceSecretKey: before.deviceSecretKey,
       recoveryKey: before.recoveryKey,
@@ -162,6 +178,7 @@ describe("identity vault", () => {
   it("signs registration intents without exposing the recovery key", async () => {
     const { createLocalIdentity, signRegisterIntent } = await loadVault();
     const identity = await Effect.runPromise(createLocalIdentity("alice"));
+
     const signature = await Effect.runPromise(
       signRegisterIntent(
         {
@@ -184,6 +201,7 @@ describe("identity vault", () => {
   it("refuses to sign a registration for another owner", async () => {
     const { createLocalIdentity, signRegisterIntent } = await loadVault();
     await Effect.runPromise(createLocalIdentity("alice"));
+
     const result = await Effect.runPromise(
       signRegisterIntent(
         {
@@ -206,21 +224,25 @@ describe("identity vault", () => {
   it("signs an approved add and rejects a substituted device key", async () => {
     const { createLocalIdentity, signApprovedDeviceAction } = await loadVault();
     const identity = await Effect.runPromise(createLocalIdentity("alice"));
+
     const {
       decodeAddDeviceIntentV1,
       decodeIdentityEip712DomainV1,
       hashAddDeviceIntentV1,
     } = await import("@qop/identity");
+
     const domain = {
       chainId: "31337",
       verifyingContract: "0x1111111111111111111111111111111111111111",
     } as const;
+
     const intent = {
       deadline: "1700003600",
       deviceKey: `0x${"09".repeat(32)}`,
       nonce: "9",
       qid: "42",
     } as const;
+
     const digest = await Effect.runPromise(
       decodeIdentityEip712DomainV1(domain).pipe(
         Effect.flatMap((decodedDomain) =>
@@ -232,6 +254,7 @@ describe("identity vault", () => {
         )
       )
     );
+
     const unsigned = {
       digest,
       domain,
@@ -241,11 +264,13 @@ describe("identity vault", () => {
       ownerSignature: `0x${"1".padStart(64, "0")}${"1".padStart(64, "0")}00`,
       v: 1 as const,
     };
+
     const snapshot = {
       nonce: "9",
       owner: identity.ownerAddress,
       qid: "42",
     };
+
     const signed = await Effect.runPromise(
       signApprovedDeviceAction({
         displayed: unsigned,
@@ -254,12 +279,14 @@ describe("identity vault", () => {
         trustedDomain: domain,
       })
     );
+
     expect(signed).toMatch(/^0x[0-9a-f]{130}$/u);
 
     const substituted = {
       ...unsigned,
       intent: { ...intent, deviceKey: `0x${"0a".repeat(32)}` },
     };
+
     const rejected = await Effect.runPromise(
       signApprovedDeviceAction({
         displayed: unsigned,
@@ -268,6 +295,7 @@ describe("identity vault", () => {
         trustedDomain: domain,
       }).pipe(Effect.result)
     );
+
     expect(Result.isFailure(rejected) && rejected.failure.operation).toBe(
       "sign"
     );
@@ -304,11 +332,13 @@ describe("identity vault", () => {
             yield* Effect.sync(() => {
               secureStoreMock.items.set(IDENTITY_STORAGE_KEY, invalidRecord);
             });
+
             return yield* loadLocalIdentity().pipe(Effect.result);
           }),
         { concurrency: 1 }
       )
     );
+
     for (const result of results) {
       expect(Result.isFailure(result) && result.failure.operation).toBe(
         "decode"
@@ -319,6 +349,7 @@ describe("identity vault", () => {
   it("rejects an existing identity", async () => {
     const { createLocalIdentity } = await loadVault();
     await Effect.runPromise(createLocalIdentity("alice"));
+
     const result = await Effect.runPromise(
       createLocalIdentity("bob").pipe(Effect.result)
     );
@@ -339,16 +370,20 @@ describe("identity vault", () => {
         writeStarted.resolve(null);
         await releaseWrite.promise;
       }
+
       secureStoreMock.items.set(key, value);
     });
 
     const first = Effect.runPromise(
       createLocalIdentity("alice").pipe(Effect.result)
     );
+
     await writeStarted.promise;
+
     const second = Effect.runPromise(
       createLocalIdentity("bob").pipe(Effect.result)
     );
+
     releaseWrite.resolve(null);
     const results = await Promise.all([first, second]);
 
@@ -368,9 +403,11 @@ describe("identity vault", () => {
       await loadVault();
 
     secureStoreMock.isAvailableAsync.mockResolvedValueOnce(false);
+
     const unavailable = await Effect.runPromise(
       loadLocalIdentity().pipe(Effect.result)
     );
+
     expect(Result.isFailure(unavailable) && unavailable.failure.operation).toBe(
       "availability"
     );
@@ -378,9 +415,11 @@ describe("identity vault", () => {
     secureStoreMock.getItemAsync.mockImplementationOnce(() =>
       Promise.reject(new Error("read failed"))
     );
+
     const unreadable = await Effect.runPromise(
       loadLocalIdentity().pipe(Effect.result)
     );
+
     expect(Result.isFailure(unreadable) && unreadable.failure.operation).toBe(
       "read"
     );
@@ -389,12 +428,16 @@ describe("identity vault", () => {
       if (key === IDENTITY_STORAGE_KEY) {
         return Promise.reject(new Error("write failed"));
       }
+
       secureStoreMock.items.set(key, value);
+
       return Promise.resolve();
     });
+
     const unwritable = await Effect.runPromise(
       createLocalIdentity("alice").pipe(Effect.result)
     );
+
     expect(Result.isFailure(unwritable) && unwritable.failure.operation).toBe(
       "write"
     );
@@ -402,9 +445,11 @@ describe("identity vault", () => {
     secureStoreMock.deleteItemAsync.mockRejectedValueOnce(
       new Error("delete failed")
     );
+
     const undeletable = await Effect.runPromise(
       deleteLocalIdentity().pipe(Effect.result)
     );
+
     expect(Result.isFailure(undeletable) && undeletable.failure.operation).toBe(
       "delete"
     );
@@ -413,12 +458,14 @@ describe("identity vault", () => {
   it("locks a surviving iOS vault after reinstall until reset", async () => {
     const { createLocalIdentity, deleteLocalIdentity, loadLocalIdentity } =
       await loadVault();
+
     await Effect.runPromise(createLocalIdentity("alice"));
     fileSystemMock.markers.clear();
 
     const stale = await Effect.runPromise(
       loadLocalIdentity().pipe(Effect.result)
     );
+
     expect(Result.isFailure(stale) && stale.failure.operation).toBe(
       "stale-install"
     );

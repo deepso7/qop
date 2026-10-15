@@ -34,13 +34,17 @@ export const readEnrollmentState = Effect.fn("cli.readEnrollmentState")(
   }) {
     let added = historicallyAdded;
     let apiStatus: DeviceActionApiStatus | null = null;
+
     if (getStatus) {
       const status = yield* getStatus().pipe(Effect.result);
+
       if (Result.isSuccess(status)) {
         apiStatus = status.success;
       }
     }
+
     const current = yield* lookup();
+
     // Roster observation is the live historical-add signal. API `confirmed`
     // can lead the CLI's RPC head, so treating it as added would look like
     // `removed` and rotate a still-valid pending key. After restart the
@@ -51,15 +55,18 @@ export const readEnrollmentState = Effect.fn("cli.readEnrollmentState")(
       added = true;
     } else if (lookupRemoved) {
       const removed = yield* lookupRemoved().pipe(Effect.result);
+
       if (Result.isSuccess(removed) && removed.success) {
         added = true;
       }
     }
+
     const state: EnrollmentMembership = enrollmentMembership({
       activeQid: current?.qid ?? null,
       expectedQid,
       historicallyAdded: added,
     });
+
     return { apiStatus, historicallyAdded: added, state };
   }
 );
@@ -88,11 +95,13 @@ export const pollEnrollmentState = Effect.fn("cli.pollEnrollmentState")(
     readonly maxAttempts?: number | undefined;
   }) {
     let observedAdd = false;
+
     let snapshot: EnrollmentSnapshot = {
       apiStatus: null,
       historicallyAdded: false,
       state: "pending",
     };
+
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       snapshot = yield* readEnrollmentState({
         expectedQid,
@@ -102,6 +111,7 @@ export const pollEnrollmentState = Effect.fn("cli.pollEnrollmentState")(
         lookupRemoved,
       });
       observedAdd = snapshot.historicallyAdded;
+
       if (
         enrollmentPollComplete({
           apiStatus: snapshot.apiStatus,
@@ -111,8 +121,10 @@ export const pollEnrollmentState = Effect.fn("cli.pollEnrollmentState")(
       ) {
         return snapshot;
       }
+
       yield* Effect.sleep(delayMs);
     }
+
     return snapshot;
   }
 );

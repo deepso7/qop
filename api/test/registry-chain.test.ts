@@ -15,6 +15,7 @@ import {
 describe("registry confirmed block", () => {
   it("decodes the Solidity account struct, including its dynamic handle", () => {
     const owner = "0x1111111111111111111111111111111111111111";
+
     // account() returns one Account struct, so its dynamic tuple has an outer offset.
     // Define the wire shape independently from the ABI used by the reader.
     const data = encodeAbiParameters(
@@ -40,9 +41,11 @@ describe("registry confirmed block", () => {
 
   it("decodes listActiveDevices", () => {
     const deviceKey = `0x${"22".repeat(32)}` as const;
+
     const data = encodeAbiParameters(parseAbiParameters("bytes32[]"), [
       [deviceKey],
     ]);
+
     assert.deepStrictEqual(
       decodeFunctionResult({
         abi: registryReadAbi,

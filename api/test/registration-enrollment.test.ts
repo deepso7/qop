@@ -47,17 +47,22 @@ import { TestDatabaseLive } from "./support/registration-database.ts";
 
 const OWNER_PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000001";
+
 const REGISTRATION_PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000002";
+
 const WRONG_PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000003";
+
 const REGISTRY_ADDRESS = testAddress(
   "0x1111111111111111111111111111111111111111"
 );
+
 const ownerAccount = privateKeyToAccount(OWNER_PRIVATE_KEY);
 const wrongAccount = privateKeyToAccount(WRONG_PRIVATE_KEY);
 const owner = testAddress(ownerAccount.address.toLowerCase());
 const transactionHash = testHash("transaction");
+
 const accountFor = (id: number) =>
   privateKeyToAccount(`0x${id.toString(16).padStart(64, "0")}`);
 
@@ -78,6 +83,7 @@ const read = <Value>(value: Value): RegistryRead<Value> => ({
 const confirmedHandles = new Set<string>();
 const conflictingHandles = new Set<string>();
 const mismatchedConfirmationHandles = new Set<string>();
+
 const expiredDeadlineHandles = new Set([
   "expiredchain",
   "abandonedhandle",
@@ -88,9 +94,11 @@ const handleQid = (handle: string): bigint | null => {
   if (handle === "takenhandle" || conflictingHandles.has(handle)) {
     return 7n;
   }
+
   if (mismatchedConfirmationHandles.has(handle)) {
     return 7n;
   }
+
   return confirmedHandles.has(handle) ? 42n : null;
 };
 
@@ -98,6 +106,7 @@ const ownerQid = (handle: string): bigint | null => {
   if (handle === "takenowner" || mismatchedConfirmationHandles.has(handle)) {
     return 8n;
   }
+
   return confirmedHandles.has(handle) ? 42n : null;
 };
 
@@ -183,12 +192,15 @@ const RegistrationRelayerTestLive = Layer.succeed(
 );
 
 let retryBroadcastAttempts = 0;
+
 const RetryRelayerTestLive = Layer.sync(RegistrationRelayer, () => {
   retryBroadcastAttempts = 0;
+
   return RegistrationRelayer.of({
     broadcast: (prepared) =>
       Effect.suspend(() => {
         retryBroadcastAttempts += 1;
+
         return retryBroadcastAttempts < 3
           ? Effect.fail(
               new RegistrationRelayerError({ operation: "broadcast" })
@@ -213,6 +225,7 @@ const enrollmentLayer = (relayer: Layer.Layer<RegistrationRelayer>) =>
 const RegistrationEnrollmentTestLive = enrollmentLayer(
   RegistrationRelayerTestLive
 );
+
 const RetryEnrollmentTestLive = enrollmentLayer(RetryRelayerTestLive);
 
 const readyReplayRelayerLayer = (onPrepare: () => void) =>
@@ -222,12 +235,14 @@ const readyReplayRelayerLayer = (onPrepare: () => void) =>
       pendingNonce: Effect.succeed(0n),
       prepare: () => {
         onPrepare();
+
         return Effect.fail(
           new RegistrationRelayerError({ operation: "prepare" })
         );
       },
     })
   );
+
 const makeIntent = Effect.fn("test.makeIntent")(function* (
   handle: string,
   deadlineOffset = 600n,
@@ -235,6 +250,7 @@ const makeIntent = Effect.fn("test.makeIntent")(function* (
   nonceKey = handle
 ) {
   const now = yield* DateTime.now;
+
   return yield* encodeRegisterIntentV1(
     yield* decodeRegisterIntentV1({
       deadline: (
@@ -268,12 +284,14 @@ const registerInput = Effect.fn("test.registerInput")(function* (
   nonceKey = handle
 ) {
   const inputOwner = testAddress(account.address.toLowerCase());
+
   const intent = yield* makeIntent(
     handle,
     deadlineOffset,
     inputOwner,
     nonceKey
   );
+
   return {
     admissionCode,
     intent,
@@ -288,6 +306,7 @@ const createAdmission = Effect.fn("test.createAdmission")(function* (
   const admissions = yield* RegistrationAdmission;
   const decoded = yield* decodeRegistrationAdmissionCode(admissionCode);
   yield* admissions.create(decoded.codeHash, expiresAt);
+
   return decoded.codeHash;
 });
 
@@ -297,12 +316,14 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const admissionCode = "HAP-001";
       yield* createAdmission(admissionCode);
       const enrollment = yield* RegistrationEnrollment;
+
       const input = yield* registerInput(
         "happy",
         600n,
         accountFor(10),
         admissionCode
       );
+
       const submitted = yield* enrollment.register(input);
       confirmedHandles.add("happy");
       const confirmed = yield* enrollment.reconcile(submitted.digest);
@@ -316,8 +337,10 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       assert.strictEqual(confirmed.status, "confirmed");
       assert.strictEqual(confirmed.qid, 42n);
       const admissions = yield* RegistrationAdmission;
+
       const { codeHash } =
         yield* decodeRegistrationAdmissionCode(admissionCode);
+
       const denied = yield* admissions.validate(codeHash).pipe(Effect.flip);
       assert.strictEqual(denied._tag, "RegistrationAdmissionUnauthorized");
     }).pipe(
@@ -333,12 +356,14 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         yield* createAdmission(admissionCode);
         const enrollment = yield* RegistrationEnrollment;
         const store = yield* RegistrationStore;
+
         const input = yield* registerInput(
           "failedreplay",
           600n,
           accountFor(91),
           admissionCode
         );
+
         const submitted = yield* enrollment.register(input);
         yield* store.markFailed(submitted.digest, "TEST_FAILURE");
         const error = yield* enrollment.register(input).pipe(Effect.flip);
@@ -352,12 +377,14 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const admissionCode = "REP-002";
       yield* createAdmission(admissionCode);
       const enrollment = yield* RegistrationEnrollment;
+
       const input = yield* registerInput(
         "replay",
         600n,
         accountFor(11),
         admissionCode
       );
+
       const first = yield* enrollment.register(input);
       confirmedHandles.add("replay");
       yield* enrollment.reconcile(first.digest);
@@ -377,11 +404,13 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const enrollment = yield* RegistrationEnrollment;
       const intent = yield* makeIntent("wrongowner");
       const decoded = yield* decodeRegisterIntentV1(intent);
+
       const ownerSignature = yield* Effect.promise(() =>
         wrongAccount.signTypedData(
           makeRegisterIntentTypedDataV1(domain, decoded)
         )
       );
+
       const error = yield* enrollment
         .register({ admissionCode, intent, ownerSignature })
         .pipe(Effect.flip);
@@ -401,11 +430,13 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         const enrollment = yield* RegistrationEnrollment;
         const intent = yield* makeIntent("noinvite");
         const decoded = yield* decodeRegisterIntentV1(intent);
+
         const ownerSignature = yield* Effect.promise(() =>
           wrongAccount.signTypedData(
             makeRegisterIntentTypedDataV1(domain, decoded)
           )
         );
+
         const error = yield* enrollment
           .register({
             admissionCode: "BAD-000",
@@ -423,6 +454,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const admissionCode = "DDL-004";
       yield* createAdmission(admissionCode);
       const enrollment = yield* RegistrationEnrollment;
+
       for (const offset of [0n, 7200n]) {
         const error = yield* enrollment
           .register(
@@ -434,6 +466,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
             )
           )
           .pipe(Effect.flip);
+
         assert.instanceOf(error, RegistrationDeadlineInvalid);
       }
     })
@@ -445,24 +478,29 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       Effect.gen(function* () {
         const enrollment = yield* RegistrationEnrollment;
         const store = yield* RegistrationStore;
+
         for (const [handle, expectedTag, admissionCode] of [
           ["usednonce", "RegistrationNonceUsed", "NON-005"],
           ["takenhandle", "RegistrationHandleUnavailable", "HND-006"],
           ["takenowner", "RegistrationOwnerUnavailable", "OWN-007"],
         ] as const) {
           yield* createAdmission(admissionCode);
+
           const input = yield* registerInput(
             handle,
             600n,
             accountFor(13),
             admissionCode
           );
+
           const error = yield* enrollment.register(input).pipe(Effect.flip);
           assert.strictEqual(error._tag, expectedTag);
+
           const digest = yield* hashRegisterIntentV1(
             domain,
             yield* decodeRegisterIntentV1(input.intent)
           );
+
           assert.isTrue(Option.isNone(yield* store.get(digest)));
         }
       })
@@ -475,6 +513,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         const admissionCode = "FLR-008";
         yield* createAdmission(admissionCode);
         const enrollment = yield* RegistrationEnrollment;
+
         const submitted = yield* enrollment.register(
           yield* registerInput(
             "chainconflict",
@@ -483,6 +522,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
             admissionCode
           )
         );
+
         conflictingHandles.add("chainconflict");
         const failed = yield* enrollment.reconcile(submitted.digest);
 
@@ -491,6 +531,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           failed.failureCode,
           registrationReconciliationFailureCodes.chainConflict
         );
+
         const retry = yield* enrollment.register(
           yield* registerInput(
             "afterfailure",
@@ -499,6 +540,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
             admissionCode
           )
         );
+
         assert.strictEqual(retry.status, "submitted");
       }).pipe(
         Effect.ensuring(
@@ -513,14 +555,17 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       yield* createAdmission(admissionCode);
       const enrollment = yield* RegistrationEnrollment;
       const store = yield* RegistrationStore;
+
       const submitted = yield* enrollment.register(
         yield* registerInput("qidmismatch", 600n, accountFor(16), admissionCode)
       );
+
       mismatchedConfirmationHandles.add("qidmismatch");
 
       const error = yield* enrollment
         .reconcile(submitted.digest)
         .pipe(Effect.flip);
+
       assert.instanceOf(error, RegistrationProtocolError);
       assert.strictEqual(error.operation, "reconcile-chain");
       assert.strictEqual(
@@ -530,7 +575,9 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
 
       const { codeHash } =
         yield* decodeRegistrationAdmissionCode(admissionCode);
+
       const { client: db } = yield* Database;
+
       const [admission] = yield* db
         .select({
           claimedByDigest: registrationAdmissionCodes.claimedByDigest,
@@ -538,6 +585,7 @@ layer(RegistrationEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         })
         .from(registrationAdmissionCodes)
         .where(eq(registrationAdmissionCodes.codeHash, codeHash));
+
       assert.strictEqual(admission?.claimedByDigest, submitted.digest);
       assert.isNull(admission?.consumedAt);
     }).pipe(
@@ -554,6 +602,7 @@ layer(RetryEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const admissionCode = "TRY-009";
       yield* createAdmission(admissionCode);
       const enrollment = yield* RegistrationEnrollment;
+
       const input = yield* registerInput(
         "broadcastretry",
         600n,
@@ -576,12 +625,14 @@ layer(RetryEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           .pipe(Effect.flip),
         RegistrationRelayerError
       );
+
       const result = yield* enrollment.reconcile(
         yield* hashRegisterIntentV1(
           domain,
           yield* decodeRegisterIntentV1(input.intent)
         )
       );
+
       assert.strictEqual(result.status, "submitted");
       assert.strictEqual(retryBroadcastAttempts, 3);
     })
@@ -589,6 +640,7 @@ layer(RetryEnrollmentTestLive, { timeout: "30 seconds" })((it) => {
 });
 
 let expiredReadyReplayPrepareAttempts = 0;
+
 layer(
   enrollmentLayer(
     readyReplayRelayerLayer(() => {
@@ -605,6 +657,7 @@ layer(
         yield* createAdmission(admissionCode);
         const enrollment = yield* RegistrationEnrollment;
         const store = yield* RegistrationStore;
+
         const input = yield* registerInput(
           "expiredchain",
           600n,
@@ -624,6 +677,7 @@ layer(
           domain,
           yield* decodeRegisterIntentV1(input.intent)
         );
+
         const failed = Option.getOrThrow(yield* store.get(digest));
         assert.strictEqual(failed.status, "failed");
         assert.strictEqual(
@@ -635,6 +689,7 @@ layer(
 });
 
 let abandonedReplayPrepareAttempts = 0;
+
 layer(
   enrollmentLayer(
     readyReplayRelayerLayer(() => {
@@ -663,14 +718,17 @@ layer(
           handleCode,
           "abandoned-first"
         );
+
         assert.instanceOf(
           yield* enrollment.register(abandoned).pipe(Effect.flip),
           RegistrationRelayerError
         );
+
         const abandonedDigest = yield* hashRegisterIntentV1(
           domain,
           yield* decodeRegisterIntentV1(abandoned.intent)
         );
+
         assert.strictEqual(
           Option.getOrThrow(yield* store.get(abandonedDigest)).status,
           "ready"
@@ -683,10 +741,12 @@ layer(
           ownerCode,
           "abandoned-owner"
         );
+
         assert.instanceOf(
           yield* enrollment.register(ownerBlocker).pipe(Effect.flip),
           RegistrationRelayerError
         );
+
         const ownerBlockerDigest = yield* hashRegisterIntentV1(
           domain,
           yield* decodeRegisterIntentV1(ownerBlocker.intent)
@@ -699,6 +759,7 @@ layer(
           replacementCode,
           "abandoned-second"
         );
+
         assert.instanceOf(
           yield* enrollment.register(replacement).pipe(Effect.flip),
           RegistrationRelayerError
@@ -712,10 +773,12 @@ layer(
           Option.getOrThrow(yield* store.get(ownerBlockerDigest)).status,
           "failed"
         );
+
         const replacementDigest = yield* hashRegisterIntentV1(
           domain,
           yield* decodeRegisterIntentV1(replacement.intent)
         );
+
         assert.strictEqual(
           Option.getOrThrow(yield* store.get(replacementDigest)).status,
           "ready"

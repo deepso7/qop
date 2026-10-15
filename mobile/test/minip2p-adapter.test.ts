@@ -14,6 +14,7 @@ const native = vi.hoisted(() => {
       data?: ArrayBuffer;
     };
   }
+
   class Endpoint {
     static latest: Endpoint;
     events: NativeEvent[] = [];
@@ -34,11 +35,13 @@ const native = vi.hoisted(() => {
     stop() {
       this.doorbell = undefined;
     }
+    // oxlint-disable-next-line class-methods-use-this -- The SDK acknowledges reads on the endpoint instance; the fake has nothing to release.
     streamConsumed() {}
     uniffiDestroy() {
       this.events.length = 0;
     }
   }
+
   return { Endpoint };
 });
 
@@ -54,12 +57,14 @@ vi.mock("../node_modules/@minip2p/react-native/lib/module/native.js", () => ({
   generateSecretKey: vi.fn(),
   peerIdFromSecretKey: vi.fn(),
 }));
+
 vi.mock(
   "../node_modules/@minip2p/react-native/lib/module/NativeMinip2p.js",
   () => ({
     default: { setMdnsEnabled: vi.fn() },
   })
 );
+
 vi.mock(
   "../node_modules/@minip2p/react-native/lib/module/hooks.js",
   () => ({})
@@ -118,6 +123,7 @@ const openNativeStream = async () => {
   });
   fake.doorbell?.onEventsReady();
   await vi.runAllTimersAsync();
+
   return { endpoint, fake, identity, stream: await opened };
 };
 

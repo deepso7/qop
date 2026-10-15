@@ -45,11 +45,13 @@ const ToggleGroup = ({
 
 const useToggleGroupContext = () => {
   const context = React.useContext(ToggleGroupContext);
+
   if (context === null) {
     throw new Error(
       "ToggleGroup compound components cannot be rendered outside the ToggleGroup component"
     );
   }
+
   return context;
 };
 
@@ -69,6 +71,7 @@ const ToggleGroupItem = ({
   const context = useToggleGroupContext();
   const { value } = ToggleGroupPrimitive.useRootContext();
   const resolvedSize = context.size || size || "default";
+
   const textClassName = cn(
     "text-foreground font-medium",
     toggleTextSizes[resolvedSize],
@@ -114,6 +117,7 @@ const ToggleGroupIcon = ({
   ...props
 }: React.ComponentProps<typeof Icon>) => {
   const textClass = React.useContext(TextClassContext);
+
   return (
     <Icon className={cn("size-4 shrink-0", textClass, className)} {...props} />
   );

@@ -19,8 +19,10 @@ import type { RegistrationIntentStatus } from "../registration/types.ts";
 
 const uint256 = (name: string) =>
   numeric(name, { mode: "bigint", precision: 78, scale: 0 });
+
 const uint64 = (name: string) =>
   numeric(name, { mode: "bigint", precision: 20, scale: 0 });
+
 const address = (name: string) => char(name, { length: 42 }).$type<Address>();
 const hash32 = (name: string) => char(name, { length: 66 }).$type<Hash>();
 const signature = (name: string) => char(name, { length: 132 }).$type<Hex>();

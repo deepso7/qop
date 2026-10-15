@@ -25,12 +25,14 @@ const apiRecordFromStatus = (
       apiStatus: result.success.status,
     };
   }
+
   if (result.failure.operation === "missing") {
     return {
       apiRecord: "missing",
       apiStatus: null,
     };
   }
+
   return {
     apiRecord: "unknown",
     apiStatus: null,
@@ -69,18 +71,23 @@ export const loadOccupyingApproval = <T extends OccupyingApproval>({
 }): Effect.Effect<T | null, unknown> =>
   Effect.gen(function* () {
     const pending = yield* store.loadApproval();
+
     if (!pending) {
       return null;
     }
+
     if (!apiUrl && !getStatus) {
       return pending;
     }
+
     const lookup =
       getStatus ??
       ((digest: string) => getDeviceActionStatus(apiUrl ?? "", digest));
+
     const status = yield* lookup(pending.digest).pipe(Effect.result);
     const chainTime = yield* latestTimestamp().pipe(Effect.result);
     const { apiRecord, apiStatus } = apiRecordFromStatus(status);
+
     const occupies = occupiesApprovalSlot({
       apiRecord,
       apiStatus,
@@ -89,9 +96,12 @@ export const loadOccupyingApproval = <T extends OccupyingApproval>({
       membership: "pending",
       operation: pending.operation,
     });
+
     if (!occupies) {
       yield* store.clearApproval();
+
       return null;
     }
+
     return pending;
   });

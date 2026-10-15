@@ -28,15 +28,18 @@ export const mapDeviceActionHttpError = (
         kind: "in-flight",
       });
     }
+
     case "DeviceActionTransitionConflict": {
       return new DeviceActionConflict({
         actual: error.actual,
         kind: "transition-conflict",
       });
     }
+
     case "DeviceActionIntentNotFound": {
       return new DeviceActionNotFound({ digest: error.digest });
     }
+
     case "DeviceActionDeadlineInvalid":
     case "DeviceActionIntentConflict":
     case "DeviceActionRosterInvalid":
@@ -46,6 +49,7 @@ export const mapDeviceActionHttpError = (
     case "DeviceActionProtocolError": {
       return new DeviceActionInvalid();
     }
+
     default: {
       return new DeviceActionServiceUnavailable();
     }

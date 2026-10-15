@@ -26,11 +26,14 @@ import { TestDatabaseLive } from "./support/registration-database.ts";
 
 const OWNER_PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000001";
+
 const ownerAccount = privateKeyToAccount(OWNER_PRIVATE_KEY);
 const owner = testAddress(ownerAccount.address.toLowerCase());
+
 const REGISTRY_ADDRESS = testAddress(
   "0x1111111111111111111111111111111111111111"
 );
+
 const transactionHash = testHash("device-action");
 const DEVICE_KEY = testHash("cli-device");
 
@@ -70,6 +73,7 @@ const accounts = new Map<bigint, RegistryAccount>();
 
 const DeviceActionChainTestLive = Layer.sync(DeviceActionChain, () => {
   receipts = new Map();
+
   return DeviceActionChain.of({
     account: (qid) => Effect.sync(() => accounts.get(qid) ?? account),
     blockTimestamp: Effect.succeed(1_700_000_000n),
@@ -140,11 +144,13 @@ layer(EnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const encodedIntent = encodedIntentFor("42", "1700000600");
       const intent = yield* decodeAddDeviceIntentV1(encodedIntent);
       const digest = yield* hashAddDeviceIntentV1(domain, intent);
+
       const ownerSignature = yield* Effect.promise(() =>
         ownerAccount.signTypedData(
           makeAddDeviceIntentTypedDataV1(domain, intent)
         )
       );
+
       const encoded = yield* encodeAddDeviceIntentV1(intent);
       receipts.set(transactionHash, {
         blockNumber: 100n,
@@ -157,6 +163,7 @@ layer(EnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         operation: "add",
         ownerSignature,
       });
+
       assert.strictEqual(submitted.digest, digest);
       assert.strictEqual(submitted.status, "confirmed");
       const store = yield* DeviceActionStore;
@@ -174,11 +181,13 @@ layer(EnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         const encodedIntent = encodedIntentFor("43", "1700000600");
         const intent = yield* decodeAddDeviceIntentV1(encodedIntent);
         const digest = yield* hashAddDeviceIntentV1(domain, intent);
+
         const ownerSignature = yield* Effect.promise(() =>
           ownerAccount.signTypedData(
             makeAddDeviceIntentTypedDataV1(domain, intent)
           )
         );
+
         const encoded = yield* encodeAddDeviceIntentV1(intent);
         receipts.set(transactionHash, {
           blockNumber: 100n,
@@ -190,11 +199,13 @@ layer(EnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           operation: "add",
           ownerSignature,
         });
+
         const replay = yield* enrollment.submit({
           intent: encoded,
           operation: "add",
           ownerSignature,
         });
+
         assert.strictEqual(replay.status, "confirmed");
         assert.strictEqual(replay.digest, digest);
       })
@@ -206,19 +217,23 @@ layer(EnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       Effect.gen(function* () {
         receipts.clear();
         const enrollment = yield* DeviceActionEnrollment;
+
         const first = yield* decodeAddDeviceIntentV1(
           encodedIntentFor("77", "1700000600")
         );
+
         const firstSignature = yield* Effect.promise(() =>
           ownerAccount.signTypedData(
             makeAddDeviceIntentTypedDataV1(domain, first)
           )
         );
+
         const submitted = yield* enrollment.submit({
           intent: yield* encodeAddDeviceIntentV1(first),
           operation: "add",
           ownerSignature: firstSignature,
         });
+
         assert.strictEqual(submitted.status, "submitted");
         receipts.set(transactionHash, {
           blockNumber: 100n,
@@ -231,21 +246,25 @@ layer(EnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           nonce: 10n,
           qid: 77n,
         });
+
         const next = yield* decodeAddDeviceIntentV1({
           ...encodedIntentFor("77", "1700000599"),
           deviceKey: testHash("next-device"),
           nonce: "10",
         });
+
         const nextSignature = yield* Effect.promise(() =>
           ownerAccount.signTypedData(
             makeAddDeviceIntentTypedDataV1(domain, next)
           )
         );
+
         const result = yield* enrollment.submit({
           intent: yield* encodeAddDeviceIntentV1(next),
           operation: "add",
           ownerSignature: nextSignature,
         });
+
         assert.notStrictEqual(result.digest, submitted.digest);
         const store = yield* DeviceActionStore;
         const previous = yield* store.get(submitted.digest);
@@ -262,26 +281,32 @@ layer(EnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const enrollment = yield* DeviceActionEnrollment;
       const encodedIntent = encodedIntentFor("44", "1700000600");
       const intent = yield* decodeAddDeviceIntentV1(encodedIntent);
+
       const ownerSignature = yield* Effect.promise(() =>
         ownerAccount.signTypedData(
           makeAddDeviceIntentTypedDataV1(domain, intent)
         )
       );
+
       const encoded = yield* encodeAddDeviceIntentV1(intent);
       yield* enrollment.submit({
         intent: encoded,
         operation: "add",
         ownerSignature,
       });
+
       const otherIntent = yield* decodeAddDeviceIntentV1(
         encodedIntentFor("44", "1700000599")
       );
+
       const otherSignature = yield* Effect.promise(() =>
         ownerAccount.signTypedData(
           makeAddDeviceIntentTypedDataV1(domain, otherIntent)
         )
       );
+
       const otherEncoded = yield* encodeAddDeviceIntentV1(otherIntent);
+
       const result = yield* enrollment
         .submit({
           intent: otherEncoded,
@@ -289,7 +314,9 @@ layer(EnrollmentTestLive, { timeout: "30 seconds" })((it) => {
           ownerSignature: otherSignature,
         })
         .pipe(Effect.result);
+
       assert.strictEqual(result._tag, "Failure");
+
       if (result._tag === "Failure") {
         assert.strictEqual(
           result.failure instanceof DeviceActionInFlightConflict,
@@ -306,22 +333,26 @@ layer(EnrollmentTestLive, { timeout: "30 seconds" })((it) => {
       const encodedIntent = encodedIntentFor("45", "1700000000");
       const intent = yield* decodeAddDeviceIntentV1(encodedIntent);
       const digest = yield* hashAddDeviceIntentV1(domain, intent);
+
       const ownerSignature = yield* Effect.promise(() =>
         ownerAccount.signTypedData(
           makeAddDeviceIntentTypedDataV1(domain, intent)
         )
       );
+
       const encoded = yield* encodeAddDeviceIntentV1(intent);
       receipts.set(transactionHash, {
         blockNumber: 100n,
         logs: [addEventLog(45n, DEVICE_KEY, 9n)],
         status: "success",
       });
+
       const submitted = yield* enrollment.submit({
         intent: encoded,
         operation: "add",
         ownerSignature,
       });
+
       assert.strictEqual(submitted.digest, digest);
       assert.strictEqual(submitted.status, "confirmed");
     })
@@ -337,11 +368,13 @@ layer(EnrollmentTestLive, { timeout: "30 seconds" })((it) => {
         const encodedIntent = encodedIntentFor("46", "1700000000");
         const intent = yield* decodeAddDeviceIntentV1(encodedIntent);
         const digest = yield* hashAddDeviceIntentV1(domain, intent);
+
         const ownerSignature = yield* Effect.promise(() =>
           ownerAccount.signTypedData(
             makeAddDeviceIntentTypedDataV1(domain, intent)
           )
         );
+
         yield* store.create({
           accountNonce: intent.nonce,
           deadline: intent.deadline,

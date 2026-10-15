@@ -10,6 +10,7 @@ import type { RegistryAccount } from "../src/registry/types.ts";
 import { testHash } from "./support/ethereum.ts";
 
 const OWNER = "0x1111111111111111111111111111111111111111" satisfies Address;
+
 const NEXT_OWNER =
   "0x2222222222222222222222222222222222222222" satisfies Address;
 
@@ -27,10 +28,12 @@ const makeReader = () => {
   let accountValue = account();
   let handleQid: bigint | null = 1n;
   const calls = { account: 0, qidByHandle: 0, qidByOwner: 0 };
+
   const chain: RegistryChainContract = {
     account: (qid) =>
       Effect.sync(() => {
         calls.account += 1;
+
         return {
           blockNumber: BigInt(calls.account),
           value: { ...accountValue, qid },
@@ -39,11 +42,13 @@ const makeReader = () => {
     qidByHandle: () =>
       Effect.sync(() => {
         calls.qidByHandle += 1;
+
         return { blockNumber: 1n, value: handleQid };
       }),
     qidByOwner: () =>
       Effect.sync(() => {
         calls.qidByOwner += 1;
+
         return { blockNumber: 1n, value: 1n };
       }),
     registrationProbe: () =>
@@ -57,6 +62,7 @@ const makeReader = () => {
         },
       }),
   };
+
   return {
     calls,
     layer: RegistryReader.layer.pipe(
@@ -76,6 +82,7 @@ describe("registry reader", () => {
     "returns the device roster and distinguishes cached from fresh reads",
     () => {
       const fixture = makeReader();
+
       return Effect.gen(function* () {
         const reader = yield* RegistryReader;
         const first = yield* reader.cached.account(1n);
@@ -94,6 +101,7 @@ describe("registry reader", () => {
   it.effect("refreshes handle misses", () => {
     const fixture = makeReader();
     fixture.setHandleQid(null);
+
     return Effect.gen(function* () {
       const reader = yield* RegistryReader;
       assert.isNull((yield* reader.cached.qidByHandle("alice")).value);
@@ -113,6 +121,7 @@ describe("registry reader", () => {
     "invalidates account and owner mappings after owner rotation",
     () => {
       const fixture = makeReader();
+
       return Effect.gen(function* () {
         const reader = yield* RegistryReader;
         yield* reader.cached.account(1n);

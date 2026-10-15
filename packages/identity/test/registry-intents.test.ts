@@ -51,6 +51,7 @@ import {
 
 const PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000001";
+
 const SECOND_PRIVATE_KEY =
   "0x0000000000000000000000000000000000000000000000000000000000000002";
 
@@ -122,16 +123,21 @@ describe("registry intents", () => {
   it.effect("round-trips strict canonical wire values", () =>
     Effect.gen(function* () {
       const register = yield* decodeRegisterIntentV1(encodedRegisterIntent);
+
       const rotateOwner = yield* decodeRotateOwnerIntentV1(
         encodedRotateOwnerIntent
       );
+
       const recoverOwner = yield* decodeRecoverOwnerIntentV1(
         encodedRecoverOwnerIntent
       );
+
       const addDevice = yield* decodeAddDeviceIntentV1(encodedAddDeviceIntent);
+
       const removeDevice = yield* decodeRemoveDeviceIntentV1(
         encodedRemoveDeviceIntent
       );
+
       const wipeDevices = yield* decodeWipeDevicesIntentV1(
         encodedWipeDevicesIntent
       );
@@ -172,16 +178,21 @@ describe("registry intents", () => {
     Effect.gen(function* () {
       const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
       const register = yield* decodeRegisterIntentV1(encodedRegisterIntent);
+
       const rotateOwner = yield* decodeRotateOwnerIntentV1(
         encodedRotateOwnerIntent
       );
+
       const recoverOwner = yield* decodeRecoverOwnerIntentV1(
         encodedRecoverOwnerIntent
       );
+
       const addDevice = yield* decodeAddDeviceIntentV1(encodedAddDeviceIntent);
+
       const removeDevice = yield* decodeRemoveDeviceIntentV1(
         encodedRemoveDeviceIntent
       );
+
       const wipeDevices = yield* decodeWipeDevicesIntentV1(
         encodedWipeDevicesIntent
       );
@@ -216,6 +227,7 @@ describe("registry intents", () => {
   it.effect("matches the Solidity register-intent compatibility vectors", () =>
     Effect.gen(function* () {
       const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
+
       for (const [encoded, expected] of [
         [encodedRegisterIntent, expectedDigests.register],
         [
@@ -264,13 +276,17 @@ describe("registry intents", () => {
       const secondAccount = privateKeyToAccount(SECOND_PRIVATE_KEY);
       const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
       const register = yield* decodeRegisterIntentV1(encodedRegisterIntent);
+
       const rotateOwner = yield* decodeRotateOwnerIntentV1(
         encodedRotateOwnerIntent
       );
+
       const addDevice = yield* decodeAddDeviceIntentV1(encodedAddDeviceIntent);
+
       const removeDevice = yield* decodeRemoveDeviceIntentV1(
         encodedRemoveDeviceIntent
       );
+
       const wipeDevices = yield* decodeWipeDevicesIntentV1(
         encodedWipeDevicesIntent
       );
@@ -278,24 +294,29 @@ describe("registry intents", () => {
       const registerSignature = yield* Effect.promise(() =>
         account.signTypedData(makeRegisterIntentTypedDataV1(domain, register))
       ).pipe(Effect.flatMap(normalizeEcdsaSignature));
+
       const rotateOwnerSignature = yield* Effect.promise(() =>
         account.signTypedData(
           makeRotateOwnerIntentTypedDataV1(domain, rotateOwner)
         )
       ).pipe(Effect.flatMap(normalizeEcdsaSignature));
+
       const newOwnerSignature = yield* Effect.promise(() =>
         secondAccount.signTypedData(
           makeRotateOwnerIntentTypedDataV1(domain, rotateOwner)
         )
       ).pipe(Effect.flatMap(normalizeEcdsaSignature));
+
       const addDeviceSignature = yield* Effect.promise(() =>
         account.signTypedData(makeAddDeviceIntentTypedDataV1(domain, addDevice))
       ).pipe(Effect.flatMap(normalizeEcdsaSignature));
+
       const removeDeviceSignature = yield* Effect.promise(() =>
         account.signTypedData(
           makeRemoveDeviceIntentTypedDataV1(domain, removeDevice)
         )
       ).pipe(Effect.flatMap(normalizeEcdsaSignature));
+
       const wipeDevicesSignature = yield* Effect.promise(() =>
         account.signTypedData(
           makeWipeDevicesIntentTypedDataV1(domain, wipeDevices)
@@ -357,6 +378,7 @@ describe("registry intents", () => {
     Effect.gen(function* () {
       const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
       const intent = yield* decodeRegisterIntentV1(encodedRegisterIntent);
+
       const signature = yield* signRegisterIntentV1(
         domain,
         intent,
@@ -374,14 +396,17 @@ describe("registry intents", () => {
     Effect.gen(function* () {
       const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
       const addDevice = yield* decodeAddDeviceIntentV1(encodedAddDeviceIntent);
+
       const removeDevice = yield* decodeRemoveDeviceIntentV1(
         encodedRemoveDeviceIntent
       );
+
       const addSignature = yield* signAddDeviceIntentV1(
         domain,
         addDevice,
         hexToBytes(PRIVATE_KEY)
       );
+
       const removeSignature = yield* signRemoveDeviceIntentV1(
         domain,
         removeDevice,
@@ -441,6 +466,7 @@ describe("registry intents", () => {
           { ...encoded, unexpected: true },
           strictParseOptions
         ).pipe(Effect.flip);
+
         assert.deepStrictEqual(formatIssue(error.issue).issues, [
           { message, path: ["unexpected"] },
         ]);
@@ -454,6 +480,7 @@ describe("registry intents", () => {
         ...encodedRegisterIntent,
         deviceKey: `0x${"00".repeat(32)}`,
       }).pipe(Effect.flip);
+
       assert.deepStrictEqual(formatIssue(registerError.issue).issues, [
         { message: "Expected a non-zero device key", path: ["deviceKey"] },
       ]);
@@ -462,6 +489,7 @@ describe("registry intents", () => {
         ...encodedAddDeviceIntent,
         deviceKey: `0x${"00".repeat(32)}`,
       }).pipe(Effect.flip);
+
       assert.deepStrictEqual(formatIssue(addError.issue).issues, [
         { message: "Expected a non-zero device key", path: ["deviceKey"] },
       ]);
@@ -470,6 +498,7 @@ describe("registry intents", () => {
         ...encodedRemoveDeviceIntent,
         deviceKey: `0x${"00".repeat(32)}`,
       }).pipe(Effect.flip);
+
       assert.deepStrictEqual(formatIssue(removeError.issue).issues, [
         { message: "Expected a non-zero device key", path: ["deviceKey"] },
       ]);
@@ -479,9 +508,11 @@ describe("registry intents", () => {
   it.effect("signs WipeDevicesIntentV1 with the owner key", () =>
     Effect.gen(function* () {
       const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
+
       const wipeDevices = yield* decodeWipeDevicesIntentV1(
         encodedWipeDevicesIntent
       );
+
       const signature = yield* signWipeDevicesIntentV1(
         domain,
         wipeDevices,
@@ -498,9 +529,11 @@ describe("registry intents", () => {
   it.effect("signs RecoverOwnerIntentV1 with the owner key", () =>
     Effect.gen(function* () {
       const domain = yield* decodeIdentityEip712DomainV1(encodedDomain);
+
       const recoverOwner = yield* decodeRecoverOwnerIntentV1(
         encodedRecoverOwnerIntent
       );
+
       const signature = yield* signRecoverOwnerIntentV1(
         domain,
         recoverOwner,

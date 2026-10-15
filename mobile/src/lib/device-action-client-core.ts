@@ -33,6 +33,7 @@ const ErrorResponse = Schema.Struct({
 });
 
 export type SubmittedDeviceAction = typeof SubmittedResponse.Type;
+
 export type ReconciledDeviceAction = typeof ReconciledResponse.Type;
 
 export interface DeviceActionSubmitInput {
@@ -50,9 +51,11 @@ export class DeviceActionClientError extends Data.TaggedError(
 
 const configuredApiUrl = () => {
   const configured = process.env.EXPO_PUBLIC_API_URL;
+
   if (!configured) {
     return null;
   }
+
   return configured.replace(/\/$/u, "");
 };
 
@@ -66,17 +69,20 @@ export const createDeviceActionClient = ({
     init?: RequestInit
   ) {
     const root = configuredApiUrl();
+
     if (!root) {
       return yield* new DeviceActionClientError({
         kind: "configuration",
         status: null,
       });
     }
+
     const response = yield* Effect.tryPromise({
       catch: () =>
         new DeviceActionClientError({ kind: "network", status: null }),
       try: () => fetchImpl(new URL(path, `${root}/`), init),
     });
+
     const body = yield* Effect.tryPromise({
       catch: () =>
         new DeviceActionClientError({
@@ -86,8 +92,10 @@ export const createDeviceActionClient = ({
       // SAFETY: The response JSON is decoded immediately below.
       try: () => response.json() as Promise<unknown>,
     });
+
     if (!response.ok) {
       const parsed = Schema.decodeUnknownOption(ErrorResponse)(body);
+
       return yield* new DeviceActionClientError({
         kind:
           parsed._tag === "Some"
@@ -96,6 +104,7 @@ export const createDeviceActionClient = ({
         status: response.status,
       });
     }
+
     return body;
   });
 

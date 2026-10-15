@@ -28,6 +28,7 @@ import {
 } from "./support/registration-database.ts";
 
 const signature = testSignature("1B");
+
 const owner = (id: number): Address =>
   testAddress(`0x${id.toString(16).padStart(40, "0")}`);
 
@@ -35,6 +36,7 @@ const deadlineAfter = Effect.fn("test.deadlineAfter")(function* (
   seconds: number
 ) {
   const now = yield* DateTime.now;
+
   return BigInt(Math.floor(DateTime.toEpochMillis(now) / 1000) + seconds);
 });
 
@@ -67,6 +69,7 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
         const store = yield* RegistrationStore;
         const admissions = yield* RegistrationAdmission;
         const registration = input(1, "alice", yield* deadlineAfter(60));
+
         const created = yield* store.create({
           ...registration,
           deviceKey: uppercaseHash(registration.deviceKey),
@@ -78,9 +81,11 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
         assert.strictEqual(created.digest, registration.digest);
         assert.strictEqual(created.deviceKey, registration.deviceKey);
         assert.strictEqual(created.ownerSignature, testSignature("00"));
+
         const claimed = yield* admissions
           .validate(registration.admissionCodeHash)
           .pipe(Effect.flip);
+
         assert.strictEqual(claimed._tag, "RegistrationAdmissionUnauthorized");
         assert.strictEqual(
           Option.getOrThrow(yield* store.get(registration.digest)).digest,
@@ -98,6 +103,7 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
         const conflict = yield* store
           .create(input(3, "shared", deadline))
           .pipe(Effect.flip);
+
         assert.instanceOf(conflict, RegistrationActiveHandleConflict);
         assert.strictEqual(conflict.handle, "shared");
         assert.match(conflict.digest, /^0x[0-9a-f]{64}$/u);
@@ -118,6 +124,7 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
           ...input(5, "retry", deadline, first.owner),
           admissionCodeHash: first.admissionCodeHash,
         };
+
         assert.strictEqual((yield* store.create(replacement)).status, "ready");
       })
     );
@@ -131,18 +138,21 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
           const registration = input(6, "relay", yield* deadlineAfter(60));
           yield* store.create(registration);
           const allocated: bigint[] = [];
+
           const submitted = yield* store.prepareSubmission(
             registration.digest,
             Effect.succeed(5n),
             (nonce) =>
               Effect.sync(() => {
                 allocated.push(nonce);
+
                 return {
                   serializedTransaction: "0x02aa" as const,
                   transactionHash: testHash("transaction"),
                 };
               })
           );
+
           const second = input(8, "relaynext", yield* deadlineAfter(60));
           yield* store.create(second);
           yield* store.prepareSubmission(
@@ -151,12 +161,14 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
             (nonce) =>
               Effect.sync(() => {
                 allocated.push(nonce);
+
                 return {
                   serializedTransaction: "0x02bb" as const,
                   transactionHash: testHash("transaction-next"),
                 };
               })
           );
+
           const confirmed = yield* store.markConfirmed(
             registration.digest,
             42n
@@ -166,9 +178,11 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
           assert.strictEqual(submitted.status, "submitted");
           assert.strictEqual(confirmed.status, "confirmed");
           assert.strictEqual(confirmed.qid, 42n);
+
           const denied = yield* admissions
             .validate(registration.admissionCodeHash)
             .pipe(Effect.flip);
+
           assert.strictEqual(denied._tag, "RegistrationAdmissionUnauthorized");
         })
     );
@@ -187,6 +201,7 @@ layer(RegistrationStoreLockTestLive, { timeout: "30 seconds" })((it) => {
         yield* admissions.create(registration.admissionCodeHash);
         const locked = yield* Deferred.make<boolean>();
         const release = yield* Deferred.make<boolean>();
+
         const lockFiber = yield* Effect.forkChild(
           db.transaction((tx) =>
             Effect.gen(function* () {
@@ -205,6 +220,7 @@ layer(RegistrationStoreLockTestLive, { timeout: "30 seconds" })((it) => {
             })
           )
         );
+
         yield* Deferred.await(locked);
         const createFiber = yield* Effect.forkChild(store.create(registration));
         yield* Effect.yieldNow;
@@ -234,6 +250,7 @@ layer(RegistrationStoreLockTestLive, { timeout: "30 seconds" })((it) => {
 
       const locked = yield* Deferred.make<boolean>();
       const releaseLock = yield* Deferred.make<boolean>();
+
       const lockFiber = yield* Effect.forkChild(
         db.transaction((tx) =>
           Effect.gen(function* () {
@@ -252,6 +269,7 @@ layer(RegistrationStoreLockTestLive, { timeout: "30 seconds" })((it) => {
           })
         )
       );
+
       yield* Deferred.await(locked);
 
       const createFiber = yield* Effect.forkChild(store.create(registration));

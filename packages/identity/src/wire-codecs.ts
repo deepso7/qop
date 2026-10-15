@@ -4,9 +4,11 @@ import { Effect, Schema, SchemaIssue, SchemaTransformation } from "effect";
 const ED25519_PEER_ID_LENGTH = 38;
 const ED25519_PEER_ID_STRING_LENGTH = 52;
 const ED25519_PEER_ID_PREFIX = Uint8Array.from([0, 36, 8, 1, 18, 32]);
+
 // secp256k1 n/2 (low-s threshold).
 const SECP256K1_HALF_ORDER =
   0x7f_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_ff_5d_57_6e_73_57_a4_50_1d_df_e9_2f_46_68_1b_20_a0n;
+
 const SECP256K1_ORDER = SECP256K1_HALF_ORDER * 2n + 1n;
 const UINT64_MAX = 2n ** 64n - 1n;
 const UINT256_MAX = 2n ** 256n - 1n;
@@ -21,9 +23,11 @@ const hasEd25519PeerIdPrefix = (bytes: Uint8Array): boolean => {
 
 const bytesToBigInt = (bytes: Uint8Array): bigint => {
   let value = 0n;
+
   for (const byte of bytes) {
     value = value * 256n + BigInt(byte);
   }
+
   return value;
 };
 
@@ -34,6 +38,7 @@ const isCanonicalEcdsaSignature = (bytes: Uint8Array): boolean => {
 
   const r = bytesToBigInt(bytes.subarray(0, 32));
   const s = bytesToBigInt(bytes.subarray(32, 64));
+
   return r > 0n && r < SECP256K1_ORDER && s > 0n && s <= SECP256K1_HALF_ORDER;
 };
 
@@ -85,9 +90,11 @@ export const Base64Url32 = CanonicalBase64Url32.pipe(
             }),
           try: () => {
             const bytes = base64urlnopad.decode(value);
+
             if (base64urlnopad.encode(bytes) !== value) {
               throw new Error("Non-canonical base64url encoding");
             }
+
             return bytes;
           },
         }),
@@ -115,6 +122,7 @@ export const RegistrationAdmissionCode = RegistrationAdmissionCodeInput.pipe(
     SchemaTransformation.transform({
       decode: (value) => {
         const compact = value.replace("-", "").toUpperCase();
+
         return `${compact.slice(0, 3)}-${compact.slice(3)}`;
       },
       encode: (value) => value,
@@ -142,9 +150,11 @@ export const Base64Url64 = CanonicalBase64Url64.pipe(
             }),
           try: () => {
             const bytes = base64urlnopad.decode(value);
+
             if (base64urlnopad.encode(bytes) !== value) {
               throw new Error("Non-canonical base64url encoding");
             }
+
             return bytes;
           },
         }),
@@ -220,9 +230,11 @@ export const normalizeEcdsaSignature = Effect.fn(
     Effect.map((signature) => {
       const bytes = hex.decode(signature.toLowerCase().slice(2));
       const recovery = bytes.at(-1);
+
       if (recovery === 27 || recovery === 28) {
         bytes[64] = recovery - 27;
       }
+
       return `0x${hex.encode(bytes)}`;
     }),
     Effect.flatMap(Schema.decodeEffect(EcdsaSignature))

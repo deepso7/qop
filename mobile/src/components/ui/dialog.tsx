@@ -35,6 +35,7 @@ const DialogOverlay = ({
 
   const onOverlayPress = (event: GestureResponderEvent) => {
     onPress?.(event);
+
     if (event.target === event.currentTarget && !event.isDefaultPrevented()) {
       onOpenChange(false);
     }

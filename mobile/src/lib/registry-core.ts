@@ -3,6 +3,7 @@ export {
   RegistryReaderError,
   registryAbi,
 } from "@qop/protocol";
+
 export type {
   RegistryAccount,
   RegistryDevice,

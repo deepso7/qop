@@ -6,6 +6,7 @@ export {
   createRegistrationClient,
   RegistrationClientError,
 } from "./registration-client-core";
+
 export type {
   RegisterInput,
   RegisteredRegistration,

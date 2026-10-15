@@ -28,6 +28,7 @@ export const mapRegistrationHttpError = (
     case "RegistrationSignatureMismatch": {
       return new RegistrationUnauthorized();
     }
+
     case "RegistrationHandleUnavailable": {
       return error.qid === undefined
         ? new RegistrationConflict({ kind: "handle-unavailable" })
@@ -36,9 +37,11 @@ export const mapRegistrationHttpError = (
             qid: error.qid.toString(),
           });
     }
+
     case "RegistrationActiveHandleConflict": {
       return new RegistrationConflict({ kind: "handle-unavailable" });
     }
+
     case "RegistrationOwnerUnavailable": {
       return error.qid === undefined
         ? new RegistrationConflict({ kind: "owner-unavailable" })
@@ -47,28 +50,34 @@ export const mapRegistrationHttpError = (
             qid: error.qid.toString(),
           });
     }
+
     case "RegistrationActiveOwnerConflict": {
       return new RegistrationConflict({ kind: "owner-unavailable" });
     }
+
     case "RegistrationNonceUsed":
     case "RegistrationNonceConflict": {
       return new RegistrationConflict({ kind: "nonce-used" });
     }
+
     case "RegistrationTransitionConflict": {
       return new RegistrationConflict({
         actual: error.actual,
         kind: "transition-conflict",
       });
     }
+
     case "RegistrationIntentNotFound": {
       return new RegistrationNotFound({ digest: error.digest });
     }
+
     case "IdentityCryptoError":
     case "RegistrationDeadlineInvalid":
     case "RegistrationInputError":
     case "RegistryInputError": {
       return new RegistrationInvalid();
     }
+
     default: {
       return new RegistrationServiceUnavailable();
     }

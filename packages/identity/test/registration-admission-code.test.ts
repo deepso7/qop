@@ -10,6 +10,7 @@ describe("registration admission codes", () => {
         const code = yield* Schema.decodeUnknownEffect(
           RegistrationAdmissionCode
         )(input);
+
         assert.strictEqual(code, "X1W-YT3");
         assert.strictEqual(
           yield* Schema.encodeEffect(RegistrationAdmissionCode)(code),

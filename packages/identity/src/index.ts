@@ -14,6 +14,7 @@ export {
   Uint256,
   UnixSeconds,
 } from "./wire-codecs.ts";
+
 export {
   deviceKeyFromEd25519SecretKey,
   deviceKeyFromPeerId,
@@ -21,10 +22,12 @@ export {
   peerIdFromDeviceKey,
   peerIdFromEd25519SecretKey,
 } from "./device-key.ts";
+
 export {
   DeviceEncryptionCryptoError,
   encryptionPublicKeyFromSecretKey,
 } from "./device-encryption.ts";
+
 export {
   decodeIdentityEip712DomainV1,
   IdentityCryptoError,
@@ -33,13 +36,16 @@ export {
   identityEip712DomainVersion,
   type IdentityEip712DomainV1Encoded,
 } from "./eip712.ts";
+
 export { identityProtocolVersion } from "./version.ts";
+
 export {
   decodeRecoveryKeyV1,
   encodeRecoveryKeyV1,
   ownerAddressFromRecoveryKeyV1,
   RecoveryKeyError,
 } from "./recovery-key.ts";
+
 export {
   AddDeviceIntentV1,
   addDeviceIntentEip712Types,
@@ -97,4 +103,5 @@ export {
   type RotateOwnerIntentV1Encoded,
   type WipeDevicesIntentV1Encoded,
 } from "./registry-intents.ts";
+
 export { strictParseOptions } from "./internal.ts";

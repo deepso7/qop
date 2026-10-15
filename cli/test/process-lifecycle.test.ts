@@ -21,7 +21,9 @@ describe("CLI process lifecycle", () => {
       stallThresholdMs: 1000,
       wallNow: () => 0,
     });
+
     let epoch = 0;
+
     const lifecycle = createProcessLifecycle({
       adapter,
       observeMs: 60_000,
@@ -30,10 +32,12 @@ describe("CLI process lifecycle", () => {
       },
       onSigcont: (handler) => {
         handler();
+
         return noop;
       },
       setObserveInterval: () => noop,
     });
+
     expect(epoch).toBe(1);
     expect(lifecycle.adapter.takeInvalidation()).toBe(true);
     expect(lifecycle.adapter.takeInvalidation()).toBe(false);
@@ -45,12 +49,14 @@ describe("CLI process lifecycle", () => {
       monotonicNow: () => performance.now(),
       wallNow: () => Date.now(),
     });
+
     const lifecycle = createProcessLifecycle({
       adapter,
       observeMs: 60_000,
       onInterrupt: noop,
       setObserveInterval: () => noop,
     });
+
     process.kill(process.pid, "SIGCONT");
     await delay(50);
     expect(adapter.takeInvalidation()).toBe(true);
@@ -61,13 +67,16 @@ describe("CLI process lifecycle", () => {
     // One observe branch: monotonic paused, wall ran. Stall observe is the other.
     let monotonic = 0;
     let wall = 0;
+
     const adapter = createLifecycleAdapter({
       monotonicNow: () => monotonic,
       stallThresholdMs: 1000,
       wallNow: () => wall,
     });
+
     let epoch = 0;
     let tick = noop;
+
     const lifecycle = createProcessLifecycle({
       adapter,
       observeMs: 60_000,
@@ -77,9 +86,11 @@ describe("CLI process lifecycle", () => {
       onSigcont: () => noop,
       setObserveInterval: (handler) => {
         tick = handler;
+
         return noop;
       },
     });
+
     expect(epoch).toBe(0);
     wall += 60_000;
     monotonic += 10;
@@ -94,13 +105,16 @@ describe("CLI process lifecycle", () => {
     // and the wall−monotonic sleep-gap did not. SIGCONT was not delivered.
     let monotonic = 0;
     let wall = 0;
+
     const adapter = createLifecycleAdapter({
       monotonicNow: () => monotonic,
       stallThresholdMs: 1000,
       wallNow: () => wall,
     });
+
     let epoch = 0;
     let tick = noop;
+
     const lifecycle = createProcessLifecycle({
       adapter,
       observeMs: 60_000,
@@ -110,9 +124,11 @@ describe("CLI process lifecycle", () => {
       onSigcont: () => noop,
       setObserveInterval: (handler) => {
         tick = handler;
+
         return noop;
       },
     });
+
     expect(epoch).toBe(0);
     wall += 123_096;
     monotonic += 123_094.7825;
@@ -134,7 +150,9 @@ describe("CLI process lifecycle", () => {
         monotonicNow: () => 0,
         wallNow: () => 0,
       });
+
       let intervalRunning = false;
+
       const result = yield* withProcessLifecycle(
         {
           adapter,
@@ -142,6 +160,7 @@ describe("CLI process lifecycle", () => {
           onSigcont: () => noop,
           setObserveInterval: () => {
             intervalRunning = true;
+
             return () => {
               intervalRunning = false;
             };
@@ -149,6 +168,7 @@ describe("CLI process lifecycle", () => {
         },
         () => Effect.fail("loadSecret")
       ).pipe(Effect.result);
+
       expect(result._tag).toBe("Failure");
       expect(intervalRunning).toBe(false);
     })

@@ -9,6 +9,7 @@ import {
 
 const names = (values: readonly { readonly name?: string }[]) =>
   values.map((value) => value.name);
+
 const dialect = new PgDialect();
 
 describe("registration database schema", () => {
@@ -85,9 +86,11 @@ describe("registration database schema", () => {
       "registration_intents_failure_check",
     ]);
     const [statusCheck] = config.checks;
+
     if (!statusCheck) {
       throw new Error("Missing registration status check");
     }
+
     assert.strictEqual(
       dialect.sqlToQuery(statusCheck.value).sql,
       `"registration_intents"."status" in ('ready', 'submitted', 'confirmed', 'failed')`
@@ -97,6 +100,7 @@ describe("registration database schema", () => {
         if (!index.config.where) {
           throw new Error(`Missing predicate for ${index.config.name}`);
         }
+
         return dialect.sqlToQuery(index.config.where).sql;
       }),
       [

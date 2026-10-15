@@ -60,6 +60,7 @@ const stateForIdentity = (
   registration: LocalRegistration | null = null
 ): IdentityState => {
   let status: IdentityStatus = "ready";
+
   if (identity === null) {
     status = "absent";
   } else if (registration?.status !== "confirmed") {
@@ -67,6 +68,7 @@ const stateForIdentity = (
   } else if (identity.backupState === "pending") {
     status = "backup";
   }
+
   return {
     error: null,
     identity,
@@ -107,6 +109,7 @@ const runOperation = <A>(
       onComplete();
     }
   };
+
   return run();
 };
 
@@ -124,6 +127,7 @@ export const createIdentityStore = ({
     revealLocalIdentityRecoveryKey,
     updateLocalIdentityBackupState,
   } = identityVault;
+
   const { deleteLocalRegistration, loadLocalRegistration } = registration;
   let loadGeneration = 0;
   let createOperation: Promise<IdentityResult<LocalIdentity>> | null = null;
@@ -137,6 +141,7 @@ export const createIdentityStore = ({
       if (resetOperation || get().status === "resetting") {
         return Promise.resolve(Result.fail(makeIdentityVaultError("create")));
       }
+
       if (createOperation) {
         return createOperation;
       }
@@ -149,12 +154,14 @@ export const createIdentityStore = ({
         registration: null,
         status: "creating",
       });
+
       const effect = createLocalIdentity(handle).pipe(
         Effect.tap((identity) =>
           Effect.sync(() => {
             if (resetOperation) {
               return;
             }
+
             set(stateForIdentity(identity));
           })
         ),
@@ -163,6 +170,7 @@ export const createIdentityStore = ({
             if (resetOperation) {
               return;
             }
+
             set({
               error,
               identity: null,
@@ -174,10 +182,13 @@ export const createIdentityStore = ({
         ),
         Effect.result
       );
+
       const operation = runOperation(effect, () => {
         createOperation = null;
       });
+
       createOperation = operation;
+
       return operation;
     },
 
@@ -185,13 +196,16 @@ export const createIdentityStore = ({
       if (resetOperation || get().status === "resetting") {
         return Promise.resolve();
       }
+
       const generation = loadGeneration + 1;
       loadGeneration = generation;
+
       if (get().status === "loading") {
         set(initialState);
       } else {
         set({ isHydrating: true });
       }
+
       return Effect.runPromise(
         loadLocalIdentity().pipe(
           Effect.matchEffect({
@@ -253,6 +267,7 @@ export const createIdentityStore = ({
 
       loadGeneration += 1;
       set({ error: null, isHydrating: false, status: "resetting" });
+
       const effect = Effect.tryPromise({
         catch: () => makeIdentityVaultError("delete"),
         try: async () => {
@@ -283,10 +298,13 @@ export const createIdentityStore = ({
         ),
         Effect.result
       );
+
       const operation = runOperation(effect, () => {
         resetOperation = null;
       });
+
       resetOperation = operation;
+
       return operation;
     },
 
@@ -303,6 +321,7 @@ export const createIdentityStore = ({
       }
 
       const { identity } = get();
+
       if (!identity || resetOperation || get().status === "resetting") {
         return Effect.runPromise(
           Effect.fail(makeIdentityVaultError("missing-identity")).pipe(
@@ -317,6 +336,7 @@ export const createIdentityStore = ({
             if (resetOperation) {
               return;
             }
+
             set({
               error: null,
               identity: updatedIdentity,
@@ -328,13 +348,16 @@ export const createIdentityStore = ({
           })
         )
       );
+
       const operation = runOperation(
         effect.pipe(Effect.asVoid, Effect.result),
         () => {
           backupStateOperation = null;
         }
       );
+
       backupStateOperation = operation;
+
       return operation;
     },
   }));

@@ -33,9 +33,11 @@ describe("outbox records", () => {
     const encoded = await Effect.runPromise(
       Schema.encodeEffect(OutboxRecordV1)(queued)
     );
+
     const decoded = await Effect.runPromise(
       Schema.decodeUnknownEffect(OutboxRecordV1)(encoded)
     );
+
     expect(decoded).toEqual(queued);
   });
 
@@ -46,6 +48,7 @@ describe("outbox records", () => {
         status: "sending",
       }).pipe(Effect.result)
     );
+
     expect(result._tag).toBe("Failure");
   });
 
@@ -56,6 +59,7 @@ describe("outbox records", () => {
         toQid: "01",
       }).pipe(Effect.result)
     );
+
     expect(result._tag).toBe("Failure");
   });
 

@@ -23,9 +23,11 @@ const NativeOnlyAnimatedView = (
     // SAFETY: Animated view props always contain React children supplied by the caller.
     return props.children as React.ReactNode;
   }
+
   if (props.as === "Pressable") {
     return <AnimatedPressable {...props} />;
   }
+
   return <Animated.View {...props} />;
 };
 

@@ -10,6 +10,7 @@ import type { RegistryAccount } from "@/lib/registry-core";
 const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
 
 const id = "c56a4180-65aa-42ec-a945-5fd21dec0538";
+
 const frame = {
   fromHandle: "alice",
   id,
@@ -17,7 +18,9 @@ const frame = {
   text: "hello",
   v: 1 as const,
 };
+
 const contact = { handle: "bob", peerId: "peer-stale", qid: "1" };
+
 const account: RegistryAccount = {
   blockNumber: 1n,
   deviceKey: `0x${"22".repeat(32)}`,
@@ -42,16 +45,19 @@ const makeEndpoint = (read: () => Promise<Uint8Array | undefined>) => {
     (): Effect.Effect<RegistryAccount | null, RegistryReaderError> =>
       Effect.succeed(account)
   );
+
   const lookupHandle = vi.fn(
     (): Effect.Effect<RegistryAccount | null, RegistryReaderError> =>
       Effect.succeed(account)
   );
+
   const sessions = createPeerSessions({
     getContactByQid: () => Promise.resolve(null),
     lookupDeviceKey,
     lookupHandle,
     upsertContact: () => Promise.resolve(),
   });
+
   const stream = {
     closeWrite: vi.fn(),
     connId: 1,
@@ -60,7 +66,9 @@ const makeEndpoint = (read: () => Promise<Uint8Array | undefined>) => {
     reset: vi.fn(),
     write: vi.fn(async () => {}),
   };
+
   sessions.opened(stream);
+
   const endpoint = {
     connect: vi.fn().mockImplementation(() => Promise.resolve()),
     connectedPeers: vi.fn((): string[] => []),
@@ -70,6 +78,7 @@ const makeEndpoint = (read: () => Promise<Uint8Array | undefined>) => {
         Promise.resolve({ peerId: PEER_BOB })
     ),
   };
+
   return { endpoint, lookupDeviceKey, lookupHandle, sessions, stream };
 };
 
@@ -78,6 +87,7 @@ const ackReader = (ackId: string) => {
     encodeAck({ ack: ackId, v: 1 }),
     undefined,
   ];
+
   return () => Promise.resolve(chunks.shift());
 };
 
@@ -132,14 +142,17 @@ describe("performSend", () => {
     const order: string[] = [];
     endpoint.connect.mockImplementation(() => {
       order.push("connect");
+
       return Promise.resolve({ peerId: PEER_BOB });
     });
     endpoint.waitPeerReady = vi.fn(() => {
       order.push("ready");
+
       return Promise.resolve({ peerId: PEER_BOB });
     });
     endpoint.openStream.mockImplementation(() => {
       order.push("open");
+
       return Promise.resolve(stream);
     });
 
@@ -176,6 +189,7 @@ describe("performSend", () => {
   it("keeps sending on a verified connection during an RPC outage", async () => {
     const { endpoint, stream, sessions, lookupDeviceKey, lookupHandle } =
       makeEndpoint(ackReader(id));
+
     await performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 });
     const deviceCalls = lookupDeviceKey.mock.calls.length;
     lookupDeviceKey.mockReturnValue(
@@ -196,6 +210,7 @@ describe("performSend", () => {
     const { endpoint, stream, sessions, lookupDeviceKey } = makeEndpoint(
       ackReader(id)
     );
+
     await Effect.runPromise(sessions.verify(stream, contact.handle));
     endpoint.openStream.mockImplementation(() => {
       sessions.closed(stream);
@@ -204,6 +219,7 @@ describe("performSend", () => {
       lookupDeviceKey.mockReturnValue(
         Effect.fail(new RegistryReaderError({ operation: "rpc" }))
       );
+
       return Promise.resolve(stream);
     });
     await expect(
@@ -270,6 +286,7 @@ describe("performSend", () => {
           signal.addEventListener("abort", () => {
             aborted = true;
           });
+
           return pending.promise;
         },
       })
@@ -326,10 +343,12 @@ describe("performSend", () => {
       signal: controller.signal,
       timeoutMs: 10_000,
     });
+
     const rejected = sending.then(
       () => false,
       () => true
     );
+
     await vi.waitFor(() => expect(endpoint.openStream).toHaveBeenCalledOnce());
     controller.abort(new Error("endpoint stopped"));
     expect(await rejected).toBe(true);
@@ -343,6 +362,7 @@ describe("performSend", () => {
     const { endpoint, lookupDeviceKey, sessions, stream } = makeEndpoint(
       ackReader(id)
     );
+
     const pending = Promise.withResolvers<RegistryAccount>();
     let aborted = false;
     lookupDeviceKey.mockReturnValueOnce(
@@ -352,6 +372,7 @@ describe("performSend", () => {
           signal.addEventListener("abort", () => {
             aborted = true;
           });
+
           return pending.promise;
         },
       })
@@ -382,6 +403,7 @@ describe("performSend", () => {
   it("rejects a streaming ack that exceeds the payload limit", async () => {
     const oversized = new Uint8Array(MAX_CHAT_PAYLOAD_BYTES + 1);
     const chunks: (Uint8Array | undefined)[] = [oversized, undefined];
+
     const { endpoint, stream, sessions } = makeEndpoint(() =>
       Promise.resolve(chunks.shift())
     );
@@ -395,8 +417,10 @@ describe("performSend", () => {
   it("falls through to the next roster device when the phone cannot be dialed", async () => {
     const peerCli = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
     const cliDeviceKey = `0x${"33".repeat(32)}`;
+
     const { endpoint, lookupDeviceKey, lookupHandle, sessions, stream } =
       makeEndpoint(ackReader(id));
+
     const multiAccount: RegistryAccount = {
       ...account,
       devices: [
@@ -404,6 +428,7 @@ describe("performSend", () => {
         { deviceKey: cliDeviceKey, peerId: peerCli },
       ],
     };
+
     lookupDeviceKey.mockReturnValue(Effect.succeed(multiAccount));
     lookupHandle.mockReturnValue(Effect.succeed(multiAccount));
     sessions.closed(stream);
@@ -412,6 +437,7 @@ describe("performSend", () => {
       if (peerId === PEER_BOB) {
         return Promise.reject(new Error("phone offline"));
       }
+
       return Promise.resolve({ peerId });
     });
 
@@ -432,8 +458,10 @@ describe("performSend", () => {
   it("falls through when a live authorized phone cannot be dialed", async () => {
     const peerCli = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
     const cliDeviceKey = `0x${"33".repeat(32)}`;
+
     const { endpoint, lookupDeviceKey, lookupHandle, sessions, stream } =
       makeEndpoint(ackReader(id));
+
     const multiAccount: RegistryAccount = {
       ...account,
       devices: [
@@ -441,6 +469,7 @@ describe("performSend", () => {
         { deviceKey: cliDeviceKey, peerId: peerCli },
       ],
     };
+
     lookupDeviceKey.mockReturnValue(Effect.succeed(multiAccount));
     lookupHandle.mockReturnValue(Effect.succeed(multiAccount));
     await Effect.runPromise(sessions.verify(stream, contact.handle));
@@ -449,6 +478,7 @@ describe("performSend", () => {
       if (peerId === PEER_BOB) {
         return Promise.reject(new Error("phone offline"));
       }
+
       return Promise.resolve({ peerId });
     });
 
@@ -468,8 +498,10 @@ describe("performSend", () => {
   it("passes remaining send budget to the next roster candidate", async () => {
     const peerCli = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
     const cliDeviceKey = `0x${"33".repeat(32)}`;
+
     const { endpoint, lookupDeviceKey, lookupHandle, sessions, stream } =
       makeEndpoint(ackReader(id));
+
     const multiAccount: RegistryAccount = {
       ...account,
       devices: [
@@ -477,6 +509,7 @@ describe("performSend", () => {
         { deviceKey: cliDeviceKey, peerId: peerCli },
       ],
     };
+
     lookupDeviceKey.mockReturnValue(Effect.succeed(multiAccount));
     lookupHandle.mockReturnValue(Effect.succeed(multiAccount));
     sessions.closed(stream);
@@ -486,6 +519,7 @@ describe("performSend", () => {
         await Effect.runPromise(Effect.sleep(20));
         throw new Error("phone offline");
       }
+
       return { peerId };
     });
 
@@ -501,8 +535,10 @@ describe("performSend", () => {
   it("does not give each roster candidate a fresh timeout", async () => {
     const peerCli = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
     const cliDeviceKey = `0x${"33".repeat(32)}`;
+
     const { endpoint, lookupDeviceKey, lookupHandle, sessions, stream } =
       makeEndpoint(ackReader(id));
+
     const multiAccount: RegistryAccount = {
       ...account,
       devices: [
@@ -510,6 +546,7 @@ describe("performSend", () => {
         { deviceKey: cliDeviceKey, peerId: peerCli },
       ],
     };
+
     lookupDeviceKey.mockReturnValue(Effect.succeed(multiAccount));
     lookupHandle.mockReturnValue(Effect.succeed(multiAccount));
     sessions.closed(stream);
@@ -521,9 +558,11 @@ describe("performSend", () => {
       performSend({ contact, endpoint, frame, sessions, timeoutMs: 80 })
     ).rejects.toThrow("Timed out");
     expect(Date.now() - startedAt).toBeLessThan(140);
+
     const timeouts = endpoint.connect.mock.calls.map(
       ([, options]) => options?.timeoutMs
     );
+
     expect(timeouts[0]).toBeLessThanOrEqual(80);
     expect(timeouts.slice(1).every((timeoutMs) => timeoutMs < 80)).toBe(true);
     hung.resolve(await resolvedUndefined());
@@ -532,8 +571,10 @@ describe("performSend", () => {
   it("does not fall through after writing a frame", async () => {
     const peerCli = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
     const cliDeviceKey = `0x${"33".repeat(32)}`;
+
     const { endpoint, lookupDeviceKey, lookupHandle, sessions, stream } =
       makeEndpoint(ackReader("9b2c40a8-705b-4f3b-a3cc-3d723711d851"));
+
     const multiAccount: RegistryAccount = {
       ...account,
       devices: [
@@ -541,6 +582,7 @@ describe("performSend", () => {
         { deviceKey: cliDeviceKey, peerId: peerCli },
       ],
     };
+
     lookupDeviceKey.mockReturnValue(Effect.succeed(multiAccount));
     lookupHandle.mockReturnValue(Effect.succeed(multiAccount));
 
@@ -557,6 +599,7 @@ describe("performSend", () => {
 describe("withTimeout", () => {
   it("rejects after the deadline", async () => {
     vi.useFakeTimers();
+
     try {
       const pending = Promise.withResolvers<never>();
       const result = withTimeout(pending.promise, 100);

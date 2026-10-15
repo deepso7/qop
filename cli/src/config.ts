@@ -22,15 +22,19 @@ export const configuredRegistry = Effect.fn("cli.configuredRegistry")(
     const registryAddress = process.env.QOP_REGISTRY_ADDRESS;
     const chainIdInput = process.env.QOP_REGISTRY_CHAIN_ID ?? "31337";
     const apiUrl = process.env.QOP_API_URL;
+
     if (!rpcUrl || !registryAddress || !isAddress(registryAddress)) {
       return yield* envError;
     }
+
     const chainId = yield* Schema.decodeUnknownEffect(ChainId)(
       chainIdInput
     ).pipe(Effect.mapError(() => envError));
+
     const publicClient = createPublicClient({
       transport: http(rpcUrl, { batch: true }),
     });
+
     const reader = createRegistryReader({
       client: {
         getBlock: async ({ blockNumber, signal } = {}) => {
@@ -46,9 +50,11 @@ export const configuredRegistry = Effect.fn("cli.configuredRegistry")(
             },
             { signal }
           );
+
           if (!block) {
             throw new Error("Block not found");
           }
+
           return { timestamp: BigInt(block.timestamp) };
         },
         getBlockNumber: async ({ signal } = {}) => {
@@ -56,10 +62,12 @@ export const configuredRegistry = Effect.fn("cli.configuredRegistry")(
             { method: "eth_blockNumber" },
             { signal }
           );
+
           return BigInt(blockNumber);
         },
         readContract: async (parameters, { signal } = {}) => {
           const { blockNumber, ...rest } = parameters;
+
           const request =
             blockNumber === undefined
               ? {
@@ -73,10 +81,12 @@ export const configuredRegistry = Effect.fn("cli.configuredRegistry")(
                   blockNumber,
                   requestOptions: { signal },
                 };
+
           const result = await publicClient.readContract(
             // SAFETY: The bound address and ABI were validated before this call.
             request as Parameters<typeof publicClient.readContract>[0]
           );
+
           // SAFETY: The fixed ABI limits viem's result to the registry result union.
           return result as Awaited<
             ReturnType<RegistryReadClient["readContract"]>
@@ -84,6 +94,7 @@ export const configuredRegistry = Effect.fn("cli.configuredRegistry")(
         },
       },
     });
+
     return {
       apiUrl: apiUrl?.replace(/\/$/u, "") ?? null,
       chainId: chainId.toString(),

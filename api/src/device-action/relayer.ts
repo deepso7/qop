@@ -75,13 +75,17 @@ const encodeIntent = (intent: DeviceActionIntent) => ({
 export const makeDeviceActionRelayer = Effect.fn("DeviceActionRelayer.make")(
   function* (input: string) {
     const env = yield* Env;
+
     if (env.CHAIN_ID > BigInt(Number.MAX_SAFE_INTEGER)) {
       return yield* new DeviceActionRelayerError({ operation: "configure" });
     }
+
     if (!isAddress(env.REGISTRY_ADDRESS)) {
       return yield* new DeviceActionRelayerError({ operation: "configure" });
     }
+
     const registryAddress = env.REGISTRY_ADDRESS;
+
     const privateKey = yield* Schema.decodeUnknownEffect(PrivateKey)(
       input
     ).pipe(
@@ -89,24 +93,29 @@ export const makeDeviceActionRelayer = Effect.fn("DeviceActionRelayer.make")(
         () => new DeviceActionRelayerError({ operation: "configure" })
       )
     );
+
     if (!isHex(privateKey)) {
       return yield* new DeviceActionRelayerError({ operation: "configure" });
     }
+
     const account = yield* Effect.try({
       catch: () => new DeviceActionRelayerError({ operation: "configure" }),
       try: () => privateKeyToAccount(privateKey),
     });
+
     const chain = {
       id: Number(env.CHAIN_ID),
       name: "QOP Registry",
       nativeCurrency: { decimals: 18, name: "Ether", symbol: "ETH" },
       rpcUrls: { default: { http: [env.RPC_URL.toString()] } },
     } as const;
+
     const client = createWalletClient({
       account,
       chain,
       transport: http(env.RPC_URL.toString()),
     });
+
     const publicClient = createPublicClient({
       chain,
       transport: http(env.RPC_URL.toString()),
@@ -121,8 +130,10 @@ export const makeDeviceActionRelayer = Effect.fn("DeviceActionRelayer.make")(
       if (nonce < 0n || nonce > BigInt(Number.MAX_SAFE_INTEGER)) {
         return yield* new DeviceActionRelayerError({ operation: "prepare" });
       }
+
       const schema =
         operation === "add" ? AddDeviceIntentV1 : RemoveDeviceIntentV1;
+
       yield* Schema.encodeEffect(schema)(intent).pipe(
         Effect.andThen(
           Schema.decodeUnknownEffect(EcdsaSignature)(ownerSignature)
@@ -131,6 +142,7 @@ export const makeDeviceActionRelayer = Effect.fn("DeviceActionRelayer.make")(
           () => new DeviceActionRelayerError({ operation: "prepare" })
         )
       );
+
       return yield* Effect.tryPromise({
         catch: () => new DeviceActionRelayerError({ operation: "prepare" }),
         try: async () => {
@@ -139,13 +151,16 @@ export const makeDeviceActionRelayer = Effect.fn("DeviceActionRelayer.make")(
             args: [encodeIntent(intent), ownerSignature],
             functionName: operation === "add" ? "addDevice" : "removeDevice",
           });
+
           const request = await client.prepareTransactionRequest({
             account,
             data,
             nonce: Number(nonce),
             to: registryAddress,
           });
+
           const serializedTransaction = await client.signTransaction(request);
+
           return {
             serializedTransaction,
             transactionHash: keccak256(serializedTransaction),
@@ -179,9 +194,11 @@ export const makeDeviceActionRelayer = Effect.fn("DeviceActionRelayer.make")(
       ) {
         return yield* new DeviceActionRelayerError({ operation: "broadcast" });
       }
+
       if (yield* transactionExists(prepared.transactionHash)) {
         return prepared.transactionHash;
       }
+
       return yield* Effect.tryPromise({
         catch: () => new DeviceActionRelayerError({ operation: "broadcast" }),
         try: () =>

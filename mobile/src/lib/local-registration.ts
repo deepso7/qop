@@ -10,6 +10,7 @@ export {
   createLocalRegistration,
   LocalRegistrationError,
 } from "./local-registration-core";
+
 export type {
   LocalRegistration,
   LocalRegistrationDependencies,

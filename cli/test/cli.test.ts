@@ -29,6 +29,7 @@ describe("qop Effect CLI", () => {
   it.effect("parses link --account and start --to/--message", () =>
     Effect.gen(function* () {
       const calls: string[] = [];
+
       const command = createQopCommand({
         runLink: (handle) =>
           Effect.sync(() => {
@@ -43,6 +44,7 @@ describe("qop Effect CLI", () => {
             calls.push("status");
           }),
       });
+
       const run = Command.runWith(command, { version: CLI_VERSION });
 
       yield* run(["link", "--account", "alice"]).pipe(
@@ -63,11 +65,13 @@ describe("qop Effect CLI", () => {
         runStart: () => Effect.void,
         runStatus: () => Effect.void,
       });
+
       const result = yield* Command.runWith(command, { version: CLI_VERSION })([
         "link",
         "--account",
         "Alice",
       ]).pipe(Effect.provide(CliTestLayer), Effect.result);
+
       expect(result._tag).toBe("Failure");
     })
   );

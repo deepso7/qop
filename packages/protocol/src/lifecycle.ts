@@ -32,10 +32,12 @@ export const createLifecycleAdapter = ({
     const slept = wallDelta - monotonicDelta >= stallThresholdMs;
     const stalled = monotonicDelta >= stallThresholdMs;
     const clockStepped = wallDelta < 0;
+
     if (slept || stalled || clockStepped) {
       generation += 1;
       pendingInvalidation = true;
     }
+
     return generation;
   };
 
@@ -43,6 +45,7 @@ export const createLifecycleAdapter = ({
   const markInterrupted = () => {
     generation += 1;
     pendingInvalidation = true;
+
     return generation;
   };
 
@@ -50,6 +53,7 @@ export const createLifecycleAdapter = ({
     observe();
     const shouldInvalidate = pendingInvalidation;
     pendingInvalidation = false;
+
     return shouldInvalidate;
   };
 

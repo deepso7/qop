@@ -28,6 +28,7 @@ import { InboxRecordV1, OutboxQid, OutboxRecordV1Schema } from "./outbox.ts";
  * status. `expired` and a disk V2 schema are deferred.
  */
 export const SYNC_PROTOCOL = "/qop/sync/1";
+
 /** One inbox record can wrap a max chat frame, so the cap is above 16 KB. */
 export const MAX_SYNC_PAYLOAD_BYTES = 64 * 1024;
 export const SYNC_POLL_MAX_IDS = 32;
@@ -62,7 +63,9 @@ export const SyncHandoffV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected sync handoff field",
 });
+
 export { SyncHandoffV1Schema as SyncHandoffV1 };
+
 export type SyncHandoffV1 = typeof SyncHandoffV1Schema.Type;
 
 export const SyncPollV1Schema = Schema.Struct({
@@ -72,7 +75,9 @@ export const SyncPollV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected sync poll field",
 });
+
 export { SyncPollV1Schema as SyncPollV1 };
+
 export type SyncPollV1 = typeof SyncPollV1Schema.Type;
 
 export const SyncCatchupV1Schema = Schema.Struct({
@@ -82,7 +87,9 @@ export const SyncCatchupV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected sync catchup field",
 });
+
 export { SyncCatchupV1Schema as SyncCatchupV1 };
+
 export type SyncCatchupV1 = typeof SyncCatchupV1Schema.Type;
 
 export const SyncRequestV1Schema = Schema.Union([
@@ -90,7 +97,9 @@ export const SyncRequestV1Schema = Schema.Union([
   SyncPollV1Schema,
   SyncCatchupV1Schema,
 ]);
+
 export { SyncRequestV1Schema as SyncRequestV1 };
+
 export type SyncRequestV1 = typeof SyncRequestV1Schema.Type;
 
 export const SyncHeldV1Schema = Schema.Struct({
@@ -100,7 +109,9 @@ export const SyncHeldV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected sync held field",
 });
+
 export { SyncHeldV1Schema as SyncHeldV1 };
+
 export type SyncHeldV1 = typeof SyncHeldV1Schema.Type;
 
 export const SyncReceiptV1Schema = Schema.Struct({
@@ -110,7 +121,9 @@ export const SyncReceiptV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected sync receipt field",
 });
+
 export { SyncReceiptV1Schema as SyncReceiptV1 };
+
 export type SyncReceiptV1 = typeof SyncReceiptV1Schema.Type;
 
 export const SyncReceiptsV1Schema = Schema.Struct({
@@ -122,7 +135,9 @@ export const SyncReceiptsV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected sync receipts field",
 });
+
 export { SyncReceiptsV1Schema as SyncReceiptsV1 };
+
 export type SyncReceiptsV1 = typeof SyncReceiptsV1Schema.Type;
 
 export const SyncInboxItemV1Schema = Schema.Struct({
@@ -131,7 +146,9 @@ export const SyncInboxItemV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected sync inbox item field",
 });
+
 export { SyncInboxItemV1Schema as SyncInboxItemV1 };
+
 export type SyncInboxItemV1 = typeof SyncInboxItemV1Schema.Type;
 
 export const SyncInboxV1Schema = Schema.Struct({
@@ -143,7 +160,9 @@ export const SyncInboxV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected sync inbox field",
 });
+
 export { SyncInboxV1Schema as SyncInboxV1 };
+
 export type SyncInboxV1 = typeof SyncInboxV1Schema.Type;
 
 export const SyncErrorV1Schema = Schema.Struct({
@@ -154,7 +173,9 @@ export const SyncErrorV1Schema = Schema.Struct({
 }).annotate({
   messageUnexpectedKey: "Unexpected sync error field",
 });
+
 export { SyncErrorV1Schema as SyncErrorV1 };
+
 export type SyncErrorV1 = typeof SyncErrorV1Schema.Type;
 
 export const SyncResponseV1Schema = Schema.Union([
@@ -163,7 +184,9 @@ export const SyncResponseV1Schema = Schema.Union([
   SyncInboxV1Schema,
   SyncErrorV1Schema,
 ]);
+
 export { SyncResponseV1Schema as SyncResponseV1 };
+
 export type SyncResponseV1 = typeof SyncResponseV1Schema.Type;
 
 export class SyncCodecError extends Data.TaggedError("SyncCodecError")<{
@@ -209,6 +232,7 @@ const parseJson = (bytes: Uint8Array) =>
     if (bytes.byteLength > MAX_SYNC_PAYLOAD_BYTES) {
       return yield* new SyncCodecError({ operation: "oversized" });
     }
+
     return yield* Effect.try({
       catch: () => new SyncCodecError({ operation: "frame" }),
       // SAFETY: JSON.parse is untyped; the sync schema is decoded next.
@@ -220,6 +244,7 @@ export const decodeSyncRequestV1 = Effect.fn(
   "@qop/protocol/decodeSyncRequestV1"
 )(function* (bytes: Uint8Array) {
   const json = yield* parseJson(bytes);
+
   return yield* Schema.decodeUnknownEffect(SyncRequestV1Schema)(
     json,
     strictParseOptions
@@ -230,6 +255,7 @@ export const decodeSyncResponseV1 = Effect.fn(
   "@qop/protocol/decodeSyncResponseV1"
 )(function* (bytes: Uint8Array) {
   const json = yield* parseJson(bytes);
+
   return yield* Schema.decodeUnknownEffect(SyncResponseV1Schema)(
     json,
     strictParseOptions

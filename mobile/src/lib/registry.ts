@@ -10,6 +10,7 @@ export {
   RegistryReaderError,
   registryAbi,
 } from "./registry-core";
+
 export type { RegistryAccount, RegistryReadClient } from "./registry-core";
 
 const configurationError = () =>
@@ -46,41 +47,54 @@ export const createConfiguredRegistry = ({
     ) {
       return yield* configurationError();
     }
+
     yield* Effect.try({
       catch: configurationError,
       try: () => new URL(rpcUrl),
     });
+
     const expectedChainId = yield* Schema.decodeUnknownEffect(ChainId)(
       registryChainId
     ).pipe(Effect.mapError(configurationError));
+
     const client = createClient(rpcUrl, registryAddress);
+
     const actualChainId = yield* Effect.tryPromise({
       catch: () => new RegistryReaderError({ operation: "rpc" }),
       try: (signal) => client.getChainId({ signal }),
     });
+
     if (BigInt(actualChainId) !== expectedChainId) {
       return yield* configurationError();
     }
+
     return createRegistryReader({ client });
   });
+
   const initialization = Semaphore.makeUnsafe(1);
   let initializedReader: ReturnType<typeof createRegistryReader> | undefined;
   let permanentError: RegistryReaderError | undefined;
+
   const cachedConfiguredReader = initialization.withPermit(
     Effect.gen(function* () {
       if (permanentError) {
         return yield* permanentError;
       }
+
       if (!initializedReader) {
         const result = yield* configuredReader().pipe(Effect.result);
+
         if (Result.isFailure(result)) {
           if (result.failure.operation === "configuration") {
             permanentError = result.failure;
           }
+
           return yield* result.failure;
         }
+
         initializedReader = result.success;
       }
+
       return initializedReader;
     })
   );
@@ -90,17 +104,20 @@ export const createConfiguredRegistry = ({
       Effect.flatMap((reader) => reader.lookupHandle(handle))
     )
   );
+
   const lookupOwner = Effect.fn("Registry.lookupOwner")((owner: string) =>
     cachedConfiguredReader.pipe(
       Effect.flatMap((reader) => reader.lookupOwner(owner))
     )
   );
+
   const lookupDeviceKey = Effect.fn("Registry.lookupDeviceKey")(
     (deviceKey: string) =>
       cachedConfiguredReader.pipe(
         Effect.flatMap((reader) => reader.lookupDeviceKey(deviceKey))
       )
   );
+
   const listActiveDevices = Effect.fn("Registry.listActiveDevices")(
     (qid: bigint) =>
       cachedConfiguredReader.pipe(
@@ -133,6 +150,7 @@ export const createConfiguredRegistry = ({
 const configuredRegistry = createConfiguredRegistry({
   createClient: (rpcUrl, registryAddress) => {
     const publicClient = createPublicClient({ transport: http(rpcUrl) });
+
     return {
       getBlock: async ({ blockNumber, signal } = {}) => {
         const block = await publicClient.request(
@@ -147,9 +165,11 @@ const configuredRegistry = createConfiguredRegistry({
           },
           { signal }
         );
+
         if (!block) {
           throw new Error("Block not found");
         }
+
         return { timestamp: BigInt(block.timestamp) };
       },
       // Membership freshness depends on a current head — never reuse a
@@ -159,6 +179,7 @@ const configuredRegistry = createConfiguredRegistry({
           { method: "eth_blockNumber" },
           { dedupe: false, signal }
         );
+
         return BigInt(blockNumber);
       },
       getChainId: async ({ signal } = {}) => {
@@ -166,10 +187,12 @@ const configuredRegistry = createConfiguredRegistry({
           { method: "eth_chainId" },
           { dedupe: true, signal }
         );
+
         return Number(chainId);
       },
       readContract: async (parameters, { signal } = {}) => {
         const { blockNumber, ...rest } = parameters;
+
         const request =
           blockNumber === undefined
             ? {
@@ -183,10 +206,12 @@ const configuredRegistry = createConfiguredRegistry({
                 blockNumber,
                 requestOptions: { signal },
               };
+
         // SAFETY: The bound address and ABI were validated before this call.
         const result = await publicClient.readContract(
           request as Parameters<typeof publicClient.readContract>[0]
         );
+
         // SAFETY: The fixed ABI limits viem's result to the registry result union.
         return result as Awaited<
           ReturnType<RegistryReadClient["readContract"]>

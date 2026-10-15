@@ -28,14 +28,17 @@ const formatConversationTime = (timestamp: number | null) => {
   if (!timestamp) {
     return;
   }
+
   const date = new Date(timestamp);
   const now = new Date();
+
   if (date.toDateString() === now.toDateString()) {
     return date.toLocaleTimeString(undefined, {
       hour: "numeric",
       minute: "2-digit",
     });
   }
+
   return date.toLocaleDateString(undefined, {
     day: "numeric",
     month: "short",
@@ -48,10 +51,12 @@ const ChatsScreen = () => {
   const [conversations, setConversations] = React.useState<Conversation[]>([]);
   const [loaded, setLoaded] = React.useState(false);
   const [loadError, setLoadError] = React.useState(false);
+
   const [retryCount, retryLoad] = React.useReducer(
     (count: number) => count + 1,
     0
   );
+
   const connectedPeerIds = useP2pStore((state) => state.connectedPeerIds);
   const revision = useP2pStore((state) => state.revision);
   const contentContainerStyle = useResolveClassNames("pb-24");
@@ -66,9 +71,11 @@ const ChatsScreen = () => {
   useFocusEffect(
     React.useCallback(() => {
       let active = true;
+
       const load = async (_revision: number, _retryCount: number) => {
         try {
           const rows = await listConversations();
+
           if (active) {
             setConversations(rows);
             setLoadError(false);
@@ -78,11 +85,14 @@ const ChatsScreen = () => {
             setLoadError(true);
           }
         }
+
         if (active) {
           setLoaded(true);
         }
       };
+
       void load(revision, retryCount);
+
       return () => {
         active = false;
       };
@@ -90,6 +100,7 @@ const ChatsScreen = () => {
   );
 
   const normalizedQuery = query.trim().toLocaleLowerCase();
+
   const filteredConversations = React.useMemo(
     () =>
       conversations.filter(({ handle, latestMessageText }) =>
@@ -99,11 +110,14 @@ const ChatsScreen = () => {
       ),
     [conversations, normalizedQuery]
   );
+
   const openConversation = React.useCallback(async (item: Conversation) => {
     if (isOpeningConversation.current) {
       return;
     }
+
     isOpeningConversation.current = true;
+
     try {
       await KeyboardController.dismiss();
       router.push({ params: { id: item.qid }, pathname: "/chat/[id]" });
@@ -112,6 +126,7 @@ const ChatsScreen = () => {
       isOpeningConversation.current = false;
     }
   }, []);
+
   const renderConversation = React.useCallback<ListRenderItem<Conversation>>(
     ({ index, item }) => (
       <ChatRow
@@ -156,6 +171,7 @@ const ChatsScreen = () => {
     if (!loaded) {
       return null;
     }
+
     if (conversations.length > 0) {
       return (
         <Empty>
@@ -168,6 +184,7 @@ const ChatsScreen = () => {
         </Empty>
       );
     }
+
     return (
       <Empty>
         <EmptyHeader>

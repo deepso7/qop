@@ -23,6 +23,7 @@ const NOT_FOUND_DIGEST = testHash("not-found");
 const IN_FLIGHT_DIGEST = testHash("in-flight");
 const TRANSACTION_HASH = testHash("transaction");
 const SIGNATURE = testSignature("00");
+
 const intent = {
   deadline: "1700000600",
   deviceKey: testHash("device"),
@@ -81,6 +82,7 @@ const DeviceActionEnrollmentTestLive = Layer.succeed(
       if (input.intent.deadline === "1") {
         return Effect.fail(new DeviceActionDeadlineInvalid({ deadline: 1n }));
       }
+
       if (input.intent.deviceKey === testHash("conflict")) {
         return Effect.fail(
           new DeviceActionInFlightConflict({
@@ -89,7 +91,9 @@ const DeviceActionEnrollmentTestLive = Layer.succeed(
           })
         );
       }
+
       assert.deepStrictEqual(input, payload);
+
       return Effect.succeed({
         digest: DIGEST,
         status: "submitted" as const,
@@ -135,9 +139,11 @@ describe("device-action HTTP API", () => {
         status: "submitted",
         transactionHash: TRANSACTION_HASH,
       });
+
       const reconciledResponse = yield* Effect.promise(() =>
         handler(new Request(`http://qop.test/v1/device-actions/${DIGEST}`))
       );
+
       assert.deepStrictEqual(yield* json(reconciledResponse), {
         digest: DIGEST,
         failureCode: null,
@@ -151,15 +157,19 @@ describe("device-action HTTP API", () => {
     Effect.gen(function* () {
       for (const operation of ["add", "remove"] as const) {
         const body = { ...payload, operation };
+
         const extraTopLevel = yield* postDeviceAction({
           ...body,
           unexpected: true,
         });
+
         assert.strictEqual(extraTopLevel.status, 400);
+
         const extraInIntent = yield* postDeviceAction({
           ...body,
           intent: { ...intent, unexpected: true },
         });
+
         assert.strictEqual(extraInIntent.status, 400);
       }
     })
@@ -171,26 +181,31 @@ describe("device-action HTTP API", () => {
         ...payload,
         intent: { ...intent, deadline: "1" },
       });
+
       assert.strictEqual(invalid.status, 422);
       assert.strictEqual(
         (yield* json<{ _tag: string }>(invalid))._tag,
         "DeviceActionInvalid"
       );
+
       const conflict = yield* postDeviceAction({
         ...payload,
         intent: { ...intent, deviceKey: testHash("conflict") },
       });
+
       assert.strictEqual(conflict.status, 409);
       assert.deepStrictEqual(yield* json(conflict), {
         _tag: "DeviceActionConflict",
         digest: IN_FLIGHT_DIGEST,
         kind: "in-flight",
       });
+
       const notFound = yield* Effect.promise(() =>
         handler(
           new Request(`http://qop.test/v1/device-actions/${NOT_FOUND_DIGEST}`)
         )
       );
+
       assert.strictEqual(notFound.status, 404);
       assert.strictEqual(
         (yield* json<{ _tag: string }>(notFound))._tag,
@@ -206,12 +221,14 @@ describe("device-action HTTP API", () => {
         status: "submitted",
         transactionHash: TRANSACTION_HASH,
       } as const;
+
       const reconciled = {
         digest: DIGEST,
         failureCode: null,
         status: "confirmed",
         transactionHash: TRANSACTION_HASH,
       } as const;
+
       for (const [schema, value] of [
         [SubmitDeviceActionPayload, payload],
         [SubmittedDeviceActionResponse, submitted],

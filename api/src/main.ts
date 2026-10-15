@@ -23,6 +23,7 @@ const ApplicationLive = Layer.unwrap(
           )
         )
       );
+
       const deviceActions = DeviceActionEnrollmentLive.pipe(
         Layer.provide(
           deviceActionRelayerLayer(env.RELAYER_PRIVATE_KEY).pipe(
@@ -30,10 +31,12 @@ const ApplicationLive = Layer.unwrap(
           )
         )
       );
+
       const routes = QopHttpApiRoutes.pipe(
         Layer.provide(registration),
         Layer.provide(deviceActions)
       );
+
       return HttpRouter.serve(routes).pipe(
         Layer.provideMerge(
           NodeHttpServer.layer(createServer, { port: env.PORT })

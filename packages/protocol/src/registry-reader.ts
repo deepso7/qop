@@ -69,25 +69,31 @@ export const registryAbi = [
 const CanonicalDeviceKey = DeviceKey.pipe(
   Schema.decodeTo(DeviceKey.pipe(Schema.flip))
 );
+
 const EthereumAddressInput = Schema.String.check(
   Schema.isPattern(/^0x[0-9a-f]{40}$/iu)
 );
+
 const Hex32Input = Schema.String.check(Schema.isPattern(/^0x[0-9a-f]{64}$/iu));
+
 const OwnerVersion = Schema.Int.check(
   Schema.makeFilter((value) => value >= 0 && value <= 2 ** 32 - 1, {
     expected: "a uint32 owner version",
   })
 );
+
 const RegisteredAt = Schema.BigInt.check(
   Schema.makeFilter((value) => value >= 0n && value <= 2n ** 64n - 1n, {
     expected: "a uint64 registration timestamp",
   })
 );
+
 const ChainQid = Schema.BigInt.check(
   Schema.makeFilter((value) => value >= 0n && value <= 2n ** 256n - 1n, {
     expected: "a uint256 qid",
   })
 );
+
 const ContractAccountResult = Schema.Struct({
   handle: Handle,
   nonce: ChainQid,
@@ -95,6 +101,7 @@ const ContractAccountResult = Schema.Struct({
   ownerVersion: OwnerVersion,
   registeredAt: RegisteredAt,
 });
+
 const ContractDeviceKeysResult = Schema.Array(Hex32Input);
 
 type RegistryContractResult =
@@ -174,6 +181,7 @@ const withOptionalBlockNumber = (
   if (blockNumber === undefined) {
     return base;
   }
+
   return { ...base, blockNumber };
 };
 
@@ -194,16 +202,19 @@ export const createRegistryReader = ({
   // Missing getBlockNumber (or untagged calls) cannot claim freshness.
   const captureHead = Effect.fn("RegistryReader.captureHead")(function* () {
     const { getBlockNumber } = client;
+
     if (!getBlockNumber) {
       return {
         blockNumber: undefined,
         freshness: "stale" as const,
       };
     }
+
     const blockNumber = yield* Effect.tryPromise({
       catch: () => readerError("rpc"),
       try: (signal) => getBlockNumber({ signal }),
     });
+
     return {
       blockNumber,
       freshness: "fresh" as const,
@@ -216,13 +227,16 @@ export const createRegistryReader = ({
     const deviceKey = yield* Schema.decodeUnknownEffect(CanonicalDeviceKey)(
       deviceKeyInput.toLowerCase()
     ).pipe(Effect.mapError(() => readerError("decode")));
+
     const deviceKeyBytes = yield* Schema.decodeUnknownEffect(Hex32)(
       deviceKey
     ).pipe(Effect.mapError(() => readerError("decode")));
+
     const peerId = yield* peerIdFromDeviceKey(deviceKeyBytes).pipe(
       Effect.flatMap(Schema.encodeEffect(PeerId)),
       Effect.mapError(() => readerError("decode"))
     );
+
     return { deviceKey, peerId } satisfies RegistryDevice;
   });
 
@@ -232,6 +246,7 @@ export const createRegistryReader = ({
     const keys = yield* Schema.decodeUnknownEffect(ContractDeviceKeysResult)(
       result
     ).pipe(Effect.mapError(() => readerError("decode")));
+
     return yield* Effect.forEach(keys, decodeDevice, { concurrency: 1 });
   });
 
@@ -247,6 +262,7 @@ export const createRegistryReader = ({
           blockNumber
         )
       );
+
       return yield* decodeDevices(result);
     }
   );
@@ -270,6 +286,7 @@ export const createRegistryReader = ({
   const listActiveDevices = Effect.fn("RegistryReader.listActiveDevices")(
     function* (qid: bigint) {
       const head = yield* captureHead();
+
       return yield* listActiveDevicesAt(qid, head.blockNumber);
     }
   );
@@ -302,7 +319,9 @@ export const createRegistryReader = ({
         head.blockNumber
       )
     );
+
     const devices = yield* decodeDevices(devicesResult);
+
     const {
       owner: ownerInput,
       ownerVersion,
@@ -312,18 +331,23 @@ export const createRegistryReader = ({
     } = yield* Schema.decodeUnknownEffect(ContractAccountResult)(result).pipe(
       Effect.mapError(() => readerError("decode"))
     );
+
     const owner = yield* Schema.decodeUnknownEffect(EthereumAddress)(
       ownerInput.toLowerCase()
     ).pipe(Effect.mapError(() => readerError("decode")));
+
     const preferred = preferredDeviceKey?.toLowerCase();
+
     // Do not fall back to devices[0] before membership check — a stale
     // qidByDeviceKey hit must not return another device's account.
     const selected = preferred
       ? devices.find((device) => device.deviceKey === preferred)
       : devices[0];
+
     if (preferred && !selected) {
       return null;
     }
+
     const accountResult: RegistryAccount = {
       // Untagged reads report 0n; sessions must not treat that as a new head.
       blockNumber: head.blockNumber ?? 0n,
@@ -339,6 +363,7 @@ export const createRegistryReader = ({
       qid,
       registeredAt,
     };
+
     return accountResult;
   });
 
@@ -348,7 +373,9 @@ export const createRegistryReader = ({
     const handle = yield* Schema.decodeUnknownEffect(Handle)(input).pipe(
       Effect.mapError(() => readerError("invalid-handle"))
     );
+
     const head = yield* captureHead();
+
     const qid = yield* readContract(
       withOptionalBlockNumber(
         {
@@ -359,6 +386,7 @@ export const createRegistryReader = ({
         head.blockNumber
       )
     ).pipe(Effect.flatMap(readQid));
+
     return qid === 0n ? null : yield* accountAt(qid, head);
   });
 
@@ -368,7 +396,9 @@ export const createRegistryReader = ({
     const owner = yield* Schema.decodeUnknownEffect(EthereumAddress)(
       input.toLowerCase()
     ).pipe(Effect.mapError(() => readerError("decode")));
+
     const head = yield* captureHead();
+
     const qid = yield* readContract(
       withOptionalBlockNumber(
         {
@@ -379,6 +409,7 @@ export const createRegistryReader = ({
         head.blockNumber
       )
     ).pipe(Effect.flatMap(readQid));
+
     return qid === 0n ? null : yield* accountAt(qid, head);
   });
 
@@ -388,7 +419,9 @@ export const createRegistryReader = ({
       const deviceKey = yield* Schema.decodeUnknownEffect(CanonicalDeviceKey)(
         input.toLowerCase()
       ).pipe(Effect.mapError(() => readerError("decode")));
+
       const head = yield* captureHead();
+
       const qid = yield* readContract(
         withOptionalBlockNumber(
           {
@@ -399,6 +432,7 @@ export const createRegistryReader = ({
           head.blockNumber
         )
       ).pipe(Effect.flatMap(readQid));
+
       return qid === 0n ? null : yield* accountAt(qid, head, deviceKey);
     }
   );
@@ -409,7 +443,9 @@ export const createRegistryReader = ({
     if (qid === 0n) {
       return null;
     }
+
     const head = yield* captureHead();
+
     return yield* accountAt(qid, head);
   });
 
@@ -417,14 +453,18 @@ export const createRegistryReader = ({
     function* () {
       const { getBlock } = client;
       const head = yield* captureHead();
+
       if (!getBlock || head.blockNumber === undefined) {
         return yield* readerError("rpc");
       }
+
       const { blockNumber } = head;
+
       const block = yield* Effect.tryPromise({
         catch: () => readerError("rpc"),
         try: (signal) => getBlock({ blockNumber, signal }),
       });
+
       return block.timestamp;
     }
   );
@@ -434,7 +474,9 @@ export const createRegistryReader = ({
       const deviceKey = yield* Schema.decodeUnknownEffect(CanonicalDeviceKey)(
         input.toLowerCase()
       ).pipe(Effect.mapError(() => readerError("decode")));
+
       const head = yield* captureHead();
+
       const result = yield* readContract(
         withOptionalBlockNumber(
           {
@@ -445,6 +487,7 @@ export const createRegistryReader = ({
           head.blockNumber
         )
       );
+
       return yield* Schema.decodeUnknownEffect(Schema.Boolean)(result).pipe(
         Effect.mapError(() => readerError("decode"))
       );

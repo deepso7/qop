@@ -52,14 +52,18 @@ describe("CLI pairing session", () => {
     Effect.gen(function* () {
       const offer =
         yield* Schema.decodeUnknownEffect(PairingOfferV1)(encodedOffer);
+
       yield* encodePairingOfferV1(offer);
+
       const session = createCliPairingSession({
         loadApproval: () => Effect.succeed(null),
         nowSeconds,
         offer,
         saveApproval: () => Effect.void,
       });
+
       const secret = hexToBytes(`0x${"11".repeat(32)}`);
+
       const hello = {
         challenge: `0x${"33".repeat(32)}`,
         secret: `0x${"11".repeat(32)}`,
@@ -67,6 +71,7 @@ describe("CLI pairing session", () => {
         type: "hello" as const,
         v: 1 as const,
       };
+
       yield* session.hello(
         "phone-a",
         secret,
@@ -74,10 +79,13 @@ describe("CLI pairing session", () => {
         snapshot,
         hello
       );
+
       const second = yield* session
         .hello("phone-b", secret, `0x${"22".repeat(32)}`, snapshot, hello)
         .pipe(Effect.result);
+
       expect(second._tag).toBe("Failure");
+
       if (second._tag === "Failure") {
         expect(second.failure).toBeInstanceOf(PairingSessionError);
       }
@@ -88,12 +96,14 @@ describe("CLI pairing session", () => {
     Effect.gen(function* () {
       const offer =
         yield* Schema.decodeUnknownEffect(PairingOfferV1)(encodedOffer);
+
       const session = createCliPairingSession({
         loadApproval: () => Effect.succeed(null),
         nowSeconds: () => 1_700_003_601n,
         offer,
         saveApproval: () => Effect.void,
       });
+
       const expired = yield* session
         .hello(
           "phone-a",
@@ -109,7 +119,9 @@ describe("CLI pairing session", () => {
           }
         )
         .pipe(Effect.result);
+
       expect(expired._tag).toBe("Failure");
+
       if (expired._tag === "Failure") {
         expect(expired.failure.operation).toBe("expired");
       }
@@ -122,7 +134,9 @@ describe("CLI pairing session", () => {
       Effect.gen(function* () {
         const offer =
           yield* Schema.decodeUnknownEffect(PairingOfferV1)(encodedOffer);
+
         let stored: DeviceActionApprovalV1Encoded | undefined;
+
         const session = createCliPairingSession({
           loadApproval: () =>
             stored
@@ -134,10 +148,12 @@ describe("CLI pairing session", () => {
             encodeDeviceActionApprovalV1(record).pipe(
               Effect.map((encoded) => {
                 stored = encoded;
+
                 return encoded;
               })
             ),
         });
+
         const hello = {
           challenge: `0x${"33".repeat(32)}`,
           secret: encodedOffer.secret,
@@ -145,6 +161,7 @@ describe("CLI pairing session", () => {
           type: "hello" as const,
           v: 1 as const,
         };
+
         yield* session.hello(
           "phone-a",
           encodedOffer.secret,
@@ -152,17 +169,21 @@ describe("CLI pairing session", () => {
           snapshot,
           hello
         );
+
         const domain = yield* decodeIdentityEip712DomainV1({
           chainId: snapshot.chainId,
           verifyingContract: snapshot.registry,
         });
+
         const intent = yield* decodeAddDeviceIntentV1({
           deadline: "1700003600",
           deviceKey: encodedOffer.deviceKey,
           nonce: "9",
           qid: "42",
         });
+
         const digest = yield* hashAddDeviceIntentV1(domain, intent);
+
         const ownerSignature = yield* signAddDeviceIntentV1(
           domain,
           intent,
@@ -170,6 +191,7 @@ describe("CLI pairing session", () => {
             "0x0000000000000000000000000000000000000000000000000000000000000001"
           )
         ).pipe(Effect.flatMap(Schema.encodeEffect(EcdsaSignature)));
+
         const encoded = {
           digest,
           domain: {
@@ -187,28 +209,36 @@ describe("CLI pairing session", () => {
           ownerSignature,
           v: 1 as const,
         };
+
         const record = yield* decodeDeviceActionApprovalV1(encoded);
+
         const first = yield* session.receiveApproval(
           "phone-a",
           record,
           snapshot,
           encodedOffer.sessionId
         );
+
         expect(first.kind).toBe("saved");
+
         const replay = yield* session.receiveApproval(
           "phone-a",
           record,
           snapshot,
           encodedOffer.sessionId
         );
+
         expect(replay.kind).toBe("saved");
+
         const otherIntent = yield* decodeAddDeviceIntentV1({
           deadline: "1700003600",
           deviceKey: encodedOffer.deviceKey,
           nonce: "10",
           qid: "42",
         });
+
         const otherDigest = yield* hashAddDeviceIntentV1(domain, otherIntent);
+
         const otherSignature = yield* signAddDeviceIntentV1(
           domain,
           otherIntent,
@@ -216,6 +246,7 @@ describe("CLI pairing session", () => {
             "0x0000000000000000000000000000000000000000000000000000000000000001"
           )
         ).pipe(Effect.flatMap(Schema.encodeEffect(EcdsaSignature)));
+
         const otherRecord = yield* decodeDeviceActionApprovalV1({
           ...encoded,
           digest: otherDigest,
@@ -227,12 +258,14 @@ describe("CLI pairing session", () => {
           },
           ownerSignature: otherSignature,
         });
+
         const conflict = yield* session.receiveApproval(
           "phone-a",
           otherRecord,
           snapshot,
           encodedOffer.sessionId
         );
+
         expect(conflict.kind).toBe("conflict");
       })
   );
@@ -243,7 +276,9 @@ describe("CLI pairing session", () => {
       Effect.gen(function* () {
         const offer =
           yield* Schema.decodeUnknownEffect(PairingOfferV1)(encodedOffer);
+
         let saved = false;
+
         const session = createCliPairingSession({
           loadApproval: () => Effect.succeed(null),
           nowSeconds,
@@ -253,6 +288,7 @@ describe("CLI pairing session", () => {
               saved = true;
             }),
         });
+
         yield* session.hello(
           "phone-a",
           encodedOffer.secret,
@@ -266,17 +302,21 @@ describe("CLI pairing session", () => {
             v: 1,
           }
         );
+
         const domain = yield* decodeIdentityEip712DomainV1({
           chainId: snapshot.chainId,
           verifyingContract: snapshot.registry,
         });
+
         const intent = yield* decodeAddDeviceIntentV1({
           deadline: "1700003600",
           deviceKey: encodedOffer.deviceKey,
           nonce: "9",
           qid: "42",
         });
+
         const digest = yield* hashAddDeviceIntentV1(domain, intent);
+
         const ownerSignature = yield* signAddDeviceIntentV1(
           domain,
           intent,
@@ -284,6 +324,7 @@ describe("CLI pairing session", () => {
             "0x0000000000000000000000000000000000000000000000000000000000000002"
           )
         ).pipe(Effect.flatMap(Schema.encodeEffect(EcdsaSignature)));
+
         const record = yield* decodeDeviceActionApprovalV1({
           digest,
           domain: {
@@ -301,9 +342,11 @@ describe("CLI pairing session", () => {
           ownerSignature,
           v: 1,
         });
+
         const rejected = yield* session
           .receiveApproval("phone-a", record, snapshot, encodedOffer.sessionId)
           .pipe(Effect.result);
+
         expect(rejected._tag).toBe("Failure");
         expect(saved).toBe(false);
       })

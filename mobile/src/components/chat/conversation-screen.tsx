@@ -55,9 +55,11 @@ const ConversationSeparator = () => <View className="h-2.5" />;
 
 const getMessagePresentation = (item: StoredMessage) => {
   const outgoing = item.direction === "out";
+
   if (item.status === "failed") {
     return { metaStatus: undefined, outgoing, tone: "failed" as const };
   }
+
   if (item.status === "sending") {
     return {
       metaStatus: "sending" as const,
@@ -65,6 +67,7 @@ const getMessagePresentation = (item: StoredMessage) => {
       tone: "pending" as const,
     };
   }
+
   if (item.status === "held") {
     return {
       metaStatus: "sending" as const,
@@ -72,6 +75,7 @@ const getMessagePresentation = (item: StoredMessage) => {
       tone: "pending" as const,
     };
   }
+
   return {
     metaStatus: item.status === "sent" ? ("sent" as const) : undefined,
     outgoing,
@@ -87,6 +91,7 @@ const ConversationMessageRow = ({
   retry: (id: string) => void;
 }) => {
   const { metaStatus, outgoing, tone } = getMessagePresentation(item);
+
   return (
     <Message align={outgoing ? "end" : "start"}>
       <MessageContent>
@@ -111,7 +116,9 @@ const ConversationMessageRow = ({
     </Message>
   );
 };
+
 const ConversationMessage = React.memo(ConversationMessageRow);
+
 ConversationMessage.displayName = "ConversationMessage";
 
 const EmptyConversation = () => (
@@ -144,12 +151,15 @@ const pathLabel = (path: Path | undefined) => {
     case "directDialed": {
       return "Direct";
     }
+
     case "directPunched": {
       return "Direct (hole-punched)";
     }
+
     case "relayed": {
       return "Relayed";
     }
+
     default: {
       return "None";
     }
@@ -170,15 +180,18 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
   const [draft, setDraft] = React.useState("");
   const [messages, setMessages] = React.useState<StoredMessage[]>([]);
   const [loadError, setLoadError] = React.useState(false);
+
   const [retryCount, retryLoad] = React.useReducer(
     (count: number) => count + 1,
     0
   );
+
   // A dial may resolve a newer peerId than the persisted contact after device-key rotation.
   const [dialTarget, setDialTarget] = React.useState(() => ({
     contactPeerId: contact.peerId,
     peerId: contact.peerId,
   }));
+
   const connectedPeerIds = useP2pStore((state) => state.connectedPeerIds);
   const connectTo = useP2pStore((state) => state.connectTo);
   const retryMessage = useP2pStore((state) => state.retryMessage);
@@ -188,6 +201,7 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
   const relayReserved = useP2pStore((state) => state.relayReserved);
   const peerPaths = useP2pStore((state) => state.peerPaths);
   const p2pError = useP2pStore((state) => state.error);
+
   const dialPeerId =
     dialTarget.contactPeerId === contact.peerId
       ? dialTarget.peerId
@@ -199,13 +213,16 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
   useFocusEffect(
     React.useCallback(() => {
       let active = true;
+
       const refresh = async (_revision: number, _retryCount: number) => {
         try {
           const rows = await listMessages(contact.qid);
+
           if (active) {
             setMessages(rows);
             setLoadError(false);
             const latestReceivedAt = rows.at(-1)?.receivedAt;
+
             if (latestReceivedAt !== undefined) {
               try {
                 await markConversationRead(contact.qid, latestReceivedAt);
@@ -220,7 +237,9 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
           }
         }
       };
+
       void refresh(revision, retryCount);
+
       return () => {
         active = false;
       };
@@ -236,6 +255,7 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
       if (status !== "running" || reachable) {
         return;
       }
+
       const fiber = Effect.runFork(
         Effect.promise(() =>
           connectTo({ handle: contact.handle, qid: contact.qid })
@@ -250,6 +270,7 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
           Effect.repeat(Schedule.spaced(REDIAL_INTERVAL_MS))
         )
       );
+
       return () => {
         Effect.runFork(Fiber.interrupt(fiber));
       };
@@ -270,21 +291,26 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
     },
     [contact.qid, retryMessage]
   );
+
   const renderItem = React.useCallback<ListRenderItem<StoredMessage>>(
     ({ item }) => <ConversationMessage item={item} retry={retry} />,
     [retry]
   );
+
   const submit = React.useCallback(() => {
     const text = draft.trim();
+
     if (!text || status !== "running") {
       return;
     }
+
     void selectionHaptic();
     setDraft("");
     void sendMessage(contact, text);
   }, [contact, draft, sendMessage, status]);
 
   let connectionLabel = "Not connected";
+
   if (status === "failed" || status === "stopped") {
     connectionLabel = "P2P unavailable";
   } else if (status === "starting") {
@@ -292,10 +318,13 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
   } else if (reachable) {
     connectionLabel = "Connected";
   }
+
   const copyPeerId = React.useCallback(async () => {
     await Clipboard.setStringAsync(dialPeerId);
   }, [dialPeerId]);
+
   const canSend = status === "running" && draft.trim().length > 0;
+
   const composerStyle = useAnimatedStyle(
     () => ({
       paddingBottom: interpolate(

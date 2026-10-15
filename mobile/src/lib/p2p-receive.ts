@@ -20,14 +20,19 @@ const readStreamChunks = async (
   byteLength = 0
 ): Promise<{ readonly byteLength: number; readonly chunks: Uint8Array[] }> => {
   const chunk = await stream.read();
+
   if (!chunk) {
     return { byteLength, chunks };
   }
+
   const nextLength = byteLength + chunk.byteLength;
+
   if (nextLength > MAX_CHAT_PAYLOAD_BYTES) {
     throw new Error("Chat frame exceeds 16 KB");
   }
+
   chunks.push(chunk);
+
   return readStreamChunks(stream, chunks, nextLength);
 };
 
@@ -35,10 +40,12 @@ const readStream = async (stream: Pick<ReceiveStream, "read">) => {
   const { byteLength, chunks } = await readStreamChunks(stream);
   const bytes = new Uint8Array(byteLength);
   let offset = 0;
+
   for (const chunk of chunks) {
     bytes.set(chunk, offset);
     offset += chunk.byteLength;
   }
+
   return bytes;
 };
 
@@ -55,8 +62,10 @@ export const readVerifiedChat = (
       if (stream.protocolId !== CHAT_PROTOCOL) {
         return null;
       }
+
       const frame = decodeFrame(await readStream(stream));
       const contact = await resolveSender(stream, frame.fromHandle);
+
       return contact ? { contact, frame } : null;
     })(),
     timeoutMs,

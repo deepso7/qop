@@ -51,17 +51,21 @@ const verifyOwnerSigner = (
     const domain = yield* decodeIdentityEip712DomainV1(record.domain).pipe(
       Effect.mapError(mismatch)
     );
+
     const intent = yield* decodeAddDeviceIntentV1(record.intent).pipe(
       Effect.mapError(mismatch)
     );
+
     const signature = yield* Schema.decodeUnknownEffect(EcdsaSignature)(
       asHex(record.ownerSignature)
     ).pipe(Effect.mapError(mismatch));
+
     const signer = yield* recoverAddDeviceIntentSignerV1(
       domain,
       intent,
       signature
     ).pipe(Effect.mapError(mismatch));
+
     if (signer !== snapshot.owner.toLowerCase()) {
       return yield* mismatch();
     }
@@ -87,6 +91,7 @@ export const createCliPairingSession = <E>({
     if (BigInt(offer.expiresAt) <= nowSeconds()) {
       return Effect.fail(new PairingSessionError({ operation: "expired" }));
     }
+
     return Effect.void;
   };
 
@@ -109,16 +114,20 @@ export const createCliPairingSession = <E>({
     if (replay) {
       return Effect.void;
     }
+
     if (asQidString(record.intent.nonce) !== asQidString(snapshot.nonce)) {
       return Effect.fail(mismatch());
     }
+
     const deadline = BigInt(record.intent.deadline);
+
     if (
       deviceActionDeadlineExpired(deadline, snapshot.chainTime) ||
       deadline > snapshot.chainTime + BigInt(DEVICE_ACTION_DEADLINE_SECONDS)
     ) {
       return Effect.fail(mismatch());
     }
+
     return assertOfferFresh();
   };
 
@@ -130,29 +139,38 @@ export const createCliPairingSession = <E>({
     challenge: PairingFrameV1 & { readonly type: "hello" }
   ) {
     yield* assertOfferFresh();
+
     if (asHex(secret) !== asHex(offer.secret)) {
       return yield* new PairingSessionError({ operation: "secret" });
     }
+
     if (asHex(challenge.sessionId) !== asHex(offer.sessionId)) {
       return yield* new PairingSessionError({ operation: "mismatch" });
     }
+
     if (snapshot.chainId !== asQidString(offer.chainId)) {
       return yield* new PairingSessionError({ operation: "mismatch" });
     }
+
     if (snapshot.registry !== offer.registry) {
       return yield* new PairingSessionError({ operation: "mismatch" });
     }
+
     if (asQidString(snapshot.qid) !== asQidString(offer.qid)) {
       return yield* new PairingSessionError({ operation: "mismatch" });
     }
+
     if (!snapshot.devices.includes(phoneDeviceKey.toLowerCase())) {
       return yield* new PairingSessionError({ operation: "membership" });
     }
+
     if (claimedPeerId && claimedPeerId !== peerId) {
       return yield* new PairingSessionError({ operation: "claimed" });
     }
+
     claimedPeerId = peerId;
     claimedPhoneKey = phoneDeviceKey.toLowerCase();
+
     return {
       chainId: offer.chainId,
       challenge: challenge.challenge,
@@ -175,33 +193,43 @@ export const createCliPairingSession = <E>({
       if (!claimedPeerId) {
         return yield* new PairingSessionError({ operation: "unclaimed" });
       }
+
       if (peerId !== claimedPeerId) {
         return yield* new PairingSessionError({ operation: "claimed" });
       }
+
       if (asHex(sessionId) !== asHex(offer.sessionId)) {
         return yield* mismatch();
       }
+
       yield* verifyApprovalDigest(record).pipe(Effect.mapError(mismatch));
+
       if (!approvalMatchesAccount(record, snapshot)) {
         return yield* mismatch();
       }
+
       if (!claimedPhoneKey || !snapshot.devices.includes(claimedPhoneKey)) {
         return yield* new PairingSessionError({ operation: "membership" });
       }
+
       const pending = yield* loadApproval();
       const ack = acknowledgeApproval(pending, record);
+
       if (ack.kind === "conflict") {
         return ack;
       }
+
       const replay = pending !== null && pending.digest === record.digest;
       yield* assertNewOccupancy(record, snapshot, replay);
       yield* verifyOwnerSigner(record, snapshot);
+
       if (
         ack.kind === "saved" &&
         (!pending || pending.digest !== record.digest)
       ) {
         yield* saveApproval(record);
       }
+
       return ack;
     }
   );

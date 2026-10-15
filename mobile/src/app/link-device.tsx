@@ -36,12 +36,15 @@ const linkFailureMessage = (
     case "conflict": {
       return "Another device action is still in flight.";
     }
+
     case "submit": {
       return "Could not reach the qop API. Try again.";
     }
+
     case "timeout": {
       return "Still waiting on the API. Try again to resume the same approval.";
     }
+
     default: {
       return "Could not finish linking. Run the link command again and retry.";
     }
@@ -60,9 +63,11 @@ const LinkDeviceSheet = () => {
   const pairConnect = useP2pStore((state) => state.pairConnect);
   const pairWaitPeerReady = useP2pStore((state) => state.pairWaitPeerReady);
   const openPairingStream = useP2pStore((state) => state.openPairingStream);
+
   const invalidateOwnHolders = useP2pStore(
     (state) => state.invalidateOwnHolders
   );
+
   const p2pStatus = useP2pStore((state) => state.status);
   const [text, setText] = React.useState("");
   // When the text last changed; expiry is checked against it, not render time.
@@ -75,16 +80,20 @@ const LinkDeviceSheet = () => {
     () => ({
       connect: async (target: ConnectTarget) => {
         const connected = await pairConnect(target);
+
         if (!connected) {
           throw new Error("Could not connect");
         }
+
         return connected;
       },
       openPairingStream: async (id: string) => {
         const stream = await openPairingStream(id);
+
         if (!stream) {
           throw new Error("Could not open pairing stream");
         }
+
         return stream;
       },
       waitPeerReady: pairWaitPeerReady,
@@ -95,19 +104,24 @@ const LinkDeviceSheet = () => {
   // Validate while typing, so there is no separate review step.
   const payload = React.useMemo((): Payload => {
     const trimmed = text.trim();
+
     if (!trimmed) {
       return { kind: "empty" };
     }
+
     const decoded = Effect.runSync(
       decodePairingPayload(trimmed, editedAtSeconds).pipe(Effect.result)
     );
+
     if (Result.isFailure(decoded)) {
       return {
         kind: "invalid",
         reason: "Not a valid pairing payload, or it has expired.",
       };
     }
+
     const domain = trustedIdentityDomain();
+
     const sameAccount = Effect.runSync(
       assertOfferMatchesAccount(decoded.success, {
         chainId: domain.chainId,
@@ -115,12 +129,14 @@ const LinkDeviceSheet = () => {
         registry: domain.verifyingContract,
       }).pipe(Effect.result)
     );
+
     if (Result.isFailure(sameAccount)) {
       return {
         kind: "invalid",
         reason: `This payload is for a different account. Use --account ${identity?.handle ?? "<handle>"}.`,
       };
     }
+
     return { kind: "valid", offer: decoded.success };
   }, [editedAtSeconds, identity?.handle, registration?.qid, text]);
 
@@ -145,6 +161,7 @@ const LinkDeviceSheet = () => {
       const domain = trustedIdentityDomain();
       setError(undefined);
       setProgress("Connecting to your computer…");
+
       const handshake = await Effect.runPromise(
         handshakePairing(
           transport,
@@ -157,13 +174,17 @@ const LinkDeviceSheet = () => {
           () => Crypto.getRandomBytesAsync(32)
         ).pipe(Effect.result)
       );
+
       if (Result.isFailure(handshake)) {
         setError(
           "Could not reach your computer. Keep the link command running and try again."
         );
+
         return;
       }
+
       setProgress("Approving…");
+
       const result = await Effect.runPromise(
         completeDeviceLink({
           deviceKey: asHex(offer.deviceKey),
@@ -174,6 +195,7 @@ const LinkDeviceSheet = () => {
           transport,
         }).pipe(Effect.result)
       );
+
       if (Result.isFailure(result)) {
         const { failure } = result;
         setError(
@@ -183,16 +205,20 @@ const LinkDeviceSheet = () => {
               : undefined
           )
         );
+
         return;
       }
+
       if (result.success?.membership !== "linked") {
         setError(
           result.success?.membership === "removed"
             ? "This device was linked and later removed. Run the link command again."
             : "The approval finished, but the device did not become active."
         );
+
         return;
       }
+
       invalidateOwnHolders();
       void successHaptic();
       router.back();
@@ -209,12 +235,16 @@ const LinkDeviceSheet = () => {
     ) {
       return;
     }
+
     const { offer } = payload;
+
     // The sheet may have stayed open past the offer's expiry.
     if (BigInt(offer.expiresAt) <= BigInt(Math.floor(Date.now() / 1000))) {
       setError("This payload has expired. Run the link command again.");
+
       return;
     }
+
     // A ref, not state: a second tap can land before the re-render.
     // approve() reports failures via setError and never throws.
     linking.current = true;
@@ -224,6 +254,7 @@ const LinkDeviceSheet = () => {
   }, [approve, identity, payload, registration]);
 
   const p2pReady = p2pStatus === "running";
+
   const fingerprint =
     payload.kind === "valid"
       ? pairingFingerprint(asHex(payload.offer.deviceKey))

@@ -28,6 +28,7 @@ const getSubmenuIcon = (open: boolean) => {
   if (Platform.OS === "web") {
     return ChevronRight;
   }
+
   return open ? ChevronUp : ChevronDown;
 };
 
@@ -44,10 +45,12 @@ const ContextMenuSubTrigger = ({
 }) => {
   const { open } = ContextMenuPrimitive.useSubContext();
   const icon = getSubmenuIcon(open);
+
   const textClassName = cn(
     "group-active:text-accent-foreground text-sm select-none",
     open && "text-accent-foreground"
   );
+
   return (
     <TextClassContext.Provider value={textClassName}>
       <ContextMenuPrimitive.SubTrigger

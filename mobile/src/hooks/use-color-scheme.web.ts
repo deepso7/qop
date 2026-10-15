@@ -14,6 +14,7 @@ export const useColorScheme = () => {
     () => true,
     () => false
   );
+
   const colorScheme = useRNColorScheme();
 
   if (hasHydrated) {

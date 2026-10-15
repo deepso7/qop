@@ -24,6 +24,7 @@ describe("device encryption keys", () => {
         const error = yield* encryptionPublicKeyFromSecretKey(secretKey).pipe(
           Effect.flip
         );
+
         assert.strictEqual(error.operation, "derive-public-key");
       }
     })

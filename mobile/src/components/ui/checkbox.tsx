@@ -10,12 +10,14 @@ import { cn } from "@/lib/utils";
 const CheckboxPrimitive = { ...CheckboxPrimitiveModule };
 
 const DEFAULT_HIT_SLOP = 14;
+
 const indicatorEnter = new Keyframe({
   0: { opacity: 0, transform: [{ scale: 0.92 }] },
   100: { opacity: 1, transform: [{ scale: 1 }] },
 })
   .duration(140)
   .reduceMotion(ReduceMotion.System);
+
 const indicatorExit = new Keyframe({
   0: { opacity: 1, transform: [{ scale: 1 }] },
   100: { opacity: 0, transform: [{ scale: 0.92 }] },

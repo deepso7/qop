@@ -2,6 +2,7 @@ import type { ExpoConfig } from "expo/config";
 
 // Single source of app config. Pick a variant with APP_VARIANT (defaults to production).
 type AppVariant = "development" | "preview" | "production";
+
 interface AppVariantConfig {
   readonly backgroundColor: string;
   readonly identifier: string;
@@ -37,9 +38,11 @@ const isAppVariant = (value: string): value is AppVariant =>
 
 const getAppVariant = (): AppVariant => {
   const appVariant = process.env.APP_VARIANT ?? "production";
+
   if (isAppVariant(appVariant)) {
     return appVariant;
   }
+
   throw new Error(`Unknown APP_VARIANT: ${appVariant}`);
 };
 

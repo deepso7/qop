@@ -13,6 +13,7 @@ const encodedDomain = {
 } as const;
 
 const formatIssue = SchemaIssue.makeFormatterStandardSchemaV1();
+
 type Json = typeof Schema.Json.Type;
 
 const expectDomainIssue = Effect.fn("@qop/identity/test/expectDomainIssue")(
@@ -21,6 +22,7 @@ const expectDomainIssue = Effect.fn("@qop/identity/test/expectDomainIssue")(
       input,
       strictParseOptions
     ).pipe(Effect.flip);
+
     assert.deepStrictEqual(formatIssue(error.issue).issues, [
       { message, path },
     ]);

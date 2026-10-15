@@ -3,6 +3,7 @@ import { Effect } from "effect";
 import { openCliOutboxStore } from "../src/outbox-store.ts";
 
 const root = process.argv.at(2);
+
 if (!root) {
   process.stderr.write("usage: outbox-open-worker <root>\n");
   process.exit(2);

@@ -34,12 +34,14 @@ const contact = { handle: "alice", qid: "1" };
 describe("recipientPeerIds account hints", () => {
   it("makes zero lookupHandle calls when an account is supplied", async () => {
     const lookupHandle = vi.fn(() => Effect.succeed(account()));
+
     const sessions = createPeerSessions({
       getContactByQid: () => Promise.resolve(null),
       lookupDeviceKey: () => Effect.succeed(account()),
       lookupHandle,
       upsertContact: () => Promise.resolve(),
     });
+
     await expect(
       Effect.runPromise(sessions.recipientPeerIds(contact, account()))
     ).resolves.toEqual([PEER_ALICE, PEER_CLI]);
@@ -48,21 +50,27 @@ describe("recipientPeerIds account hints", () => {
 
   it("fails identity when the passed account handle or qid does not match", async () => {
     const lookupHandle = vi.fn(() => Effect.succeed(account()));
+
     const sessions = createPeerSessions({
       getContactByQid: () => Promise.resolve(null),
       lookupDeviceKey: () => Effect.succeed(account()),
       lookupHandle,
       upsertContact: () => Promise.resolve(),
     });
+
     const mismatched = { ...account(), handle: "bob", qid: 99n };
+
     const result = await Effect.runPromise(
       sessions.recipientPeerIds(contact, mismatched).pipe(Effect.result)
     );
+
     expect(result._tag).toBe("Failure");
+
     if (result._tag === "Failure") {
       expect(result.failure).toBeInstanceOf(PeerVerificationError);
       expect(result.failure.operation).toBe("identity");
     }
+
     expect(lookupHandle).not.toHaveBeenCalled();
   });
 });

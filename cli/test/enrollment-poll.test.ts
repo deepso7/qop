@@ -10,16 +10,19 @@ describe("CLI enrollment poll", () => {
   it.effect("keeps polling after API confirmed until the roster agrees", () =>
     Effect.gen(function* () {
       let lookups = 0;
+
       const snapshot = yield* pollEnrollmentState({
         delayMs: 0,
         expectedQid: 42n,
         getStatus: () => Effect.succeed("confirmed" as const),
         lookup: () => {
           lookups += 1;
+
           return Effect.succeed(lookups >= 3 ? { qid: 42n } : null);
         },
         maxAttempts: 10,
       });
+
       expect(lookups).toBeGreaterThan(1);
       expect(snapshot.state).toBe("linked");
       expect(snapshot.historicallyAdded).toBe(true);
@@ -37,6 +40,7 @@ describe("CLI enrollment poll", () => {
         lookupRemoved: () => Effect.succeed(false),
         maxAttempts: 3,
       });
+
       expect(snapshot.state).toBe("pending");
       expect(snapshot.historicallyAdded).toBe(false);
       expect(snapshot.apiStatus).toBe("confirmed");
@@ -53,6 +57,7 @@ describe("CLI enrollment poll", () => {
           lookup: () => Effect.succeed(null),
           lookupRemoved: () => Effect.succeed(true),
         });
+
         expect(snapshot.state).toBe("removed");
         expect(snapshot.historicallyAdded).toBe(true);
         expect(snapshot.apiStatus).toBe("confirmed");
@@ -71,6 +76,7 @@ describe("CLI enrollment poll", () => {
           lookupRemoved: () => Effect.succeed(true),
           maxAttempts: 3,
         });
+
         expect(snapshot.state).toBe("removed");
         expect(snapshot.historicallyAdded).toBe(true);
         expect(snapshot.apiStatus).toBe("confirmed");
@@ -85,6 +91,7 @@ describe("CLI enrollment poll", () => {
         lookup: () => Effect.succeed(null),
         lookupRemoved: () => Effect.fail(new Error("rpc")),
       });
+
       expect(snapshot.state).toBe("pending");
       expect(snapshot.historicallyAdded).toBe(false);
     })
@@ -97,6 +104,7 @@ describe("CLI enrollment poll", () => {
         expectedQid: 42n,
         lookup: () => Effect.succeed({ qid: 42n }),
       });
+
       expect(snapshot.state).toBe("linked");
     })
   );
@@ -109,6 +117,7 @@ describe("CLI enrollment poll", () => {
         getStatus: () => Effect.succeed("expired" as const),
         lookup: () => Effect.succeed(null),
       });
+
       expect(expired.state).toBe("pending");
       expect(expired.apiStatus).toBe("expired");
       expect(expired.historicallyAdded).toBe(false);
@@ -119,6 +128,7 @@ describe("CLI enrollment poll", () => {
         getStatus: () => Effect.succeed("reverted" as const),
         lookup: () => Effect.succeed(null),
       });
+
       expect(reverted.state).toBe("pending");
       expect(reverted.apiStatus).toBe("reverted");
     })
@@ -127,16 +137,19 @@ describe("CLI enrollment poll", () => {
   it.effect("stops after maxAttempts when status requests keep failing", () =>
     Effect.gen(function* () {
       let gets = 0;
+
       const snapshot = yield* pollEnrollmentState({
         delayMs: 0,
         expectedQid: 42n,
         getStatus: () => {
           gets += 1;
+
           return Effect.fail(new Error("unavailable"));
         },
         lookup: () => Effect.succeed(null),
         maxAttempts: 3,
       });
+
       expect(gets).toBe(3);
       expect(snapshot.state).toBe("pending");
       expect(snapshot.apiStatus).toBeNull();

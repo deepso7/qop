@@ -93,4 +93,5 @@ export {
   EmptyMedia,
   EmptyTitle,
 };
+
 export type { EmptyMediaProps, EmptyProps };

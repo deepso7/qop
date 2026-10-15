@@ -32,6 +32,7 @@ describe("pairing codecs", () => {
       Effect.gen(function* () {
         const offer =
           yield* Schema.decodeUnknownEffect(PairingOfferV1)(encodedOffer);
+
         const payload = yield* encodePairingOfferV1(offer);
         const decoded = yield* decodePairingOfferV1(payload, 1_700_000_000n);
         assert.strictEqual(decoded.qid.toString(), "42");
@@ -41,6 +42,7 @@ describe("pairing codecs", () => {
           payload,
           1_700_003_600n
         ).pipe(Effect.result);
+
         assert.strictEqual(
           expired._tag === "Failure" &&
             expired.failure instanceof PairingCodecError &&
@@ -51,6 +53,7 @@ describe("pairing codecs", () => {
         const version = yield* decodePairingOfferV1("qop-pair2.abc", 1n).pipe(
           Effect.result
         );
+
         assert.strictEqual(
           version._tag === "Failure" &&
             version.failure instanceof PairingCodecError &&
@@ -68,10 +71,12 @@ describe("pairing codecs", () => {
         type: "approvalSaved" as const,
         v: 1 as const,
       };
+
       const frame = yield* Schema.decodeUnknownEffect(PairingFrameV1)(encoded);
       const bytes = yield* encodePairingFrameV1(frame);
       const decoded = yield* decodePairingFrameV1(bytes);
       assert.strictEqual(decoded.type, "approvalSaved");
+
       if (decoded.type === "approvalSaved") {
         assert.strictEqual(decoded.digest, encoded.digest);
       }

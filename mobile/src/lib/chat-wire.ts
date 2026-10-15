@@ -9,4 +9,5 @@ export {
   decodeAck,
   assertAckMatches,
 } from "@qop/protocol";
+
 export type { ChatFrame, ChatAck } from "@qop/protocol";

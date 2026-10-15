@@ -12,6 +12,7 @@ const RpcRequest = Schema.Struct({
   method: Schema.String,
   params: Schema.Array(Schema.Unknown),
 });
+
 const decodeRequests = Schema.decodeUnknownSync(
   Schema.fromJsonString(Schema.Array(RpcRequest))
 );
@@ -19,13 +20,17 @@ const decodeRequests = Schema.decodeUnknownSync(
 describe("device action chain time", () => {
   it("uses latest chain time despite a nonzero confirmation depth", async () => {
     const requests: string[] = [];
+
     const server = createServer(async (request, response) => {
       let body = "";
+
       for await (const chunk of request) {
         body += String(chunk);
       }
+
       const replies = decodeRequests(body).map((rpc) => {
         requests.push(`${rpc.method}:${String(rpc.params[0])}`);
+
         return {
           id: rpc.id,
           jsonrpc: "2.0",
@@ -39,15 +44,19 @@ describe("device action chain time", () => {
                 },
         };
       });
+
       response.setHeader("content-type", "application/json");
       response.end(JSON.stringify(replies));
     });
+
     server.listen(0, "127.0.0.1");
     await once(server, "listening");
+
     try {
       const address = Schema.decodeUnknownSync(
         Schema.Struct({ port: Schema.Number })
       )(server.address());
+
       const env = Layer.succeed(
         Env,
         Env.of({
@@ -61,14 +70,17 @@ describe("device action chain time", () => {
           RPC_URL: new URL(`http://127.0.0.1:${address.port}`),
         })
       );
+
       const timestamp = await Effect.runPromise(
         Effect.gen(function* () {
           const chain = yield* DeviceActionChain;
+
           return yield* chain.blockTimestamp;
         }).pipe(
           Effect.provide(DeviceActionChain.layer.pipe(Layer.provide(env)))
         )
       );
+
       expect(timestamp).toBe(1_700_001_200n);
       expect(requests).toEqual(["eth_getBlockByNumber:latest"]);
     } finally {

@@ -28,17 +28,21 @@ export const getDeviceActionStatus = Effect.fn("cli.getDeviceActionStatus")(
       catch: () => new DeviceActionStatusError({ operation: "network" }),
       try: () => fetch(`${apiUrl}/v1/device-actions/${digest}`),
     });
+
     if (response.status === 404) {
       return yield* new DeviceActionStatusError({ operation: "missing" });
     }
+
     const body = yield* Effect.tryPromise({
       catch: () => new DeviceActionStatusError({ operation: "decode" }),
       // SAFETY: JSON is decoded with ReconciledResponse immediately below.
       try: () => response.json() as Promise<unknown>,
     });
+
     if (!response.ok) {
       return yield* new DeviceActionStatusError({ operation: "network" });
     }
+
     return yield* Schema.decodeUnknownEffect(ReconciledResponse)(body).pipe(
       Effect.mapError(
         () => new DeviceActionStatusError({ operation: "decode" })

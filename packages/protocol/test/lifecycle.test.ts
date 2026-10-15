@@ -13,6 +13,7 @@ describe("lifecycle adapter", () => {
     // Sleep-gap branch (monotonic paused). Stall observe is the other branch.
     let monotonic = 0;
     let wall = 0;
+
     const adapter = createLifecycleAdapter({
       monotonicNow: () => monotonic,
       stallThresholdMs: 1000,
@@ -31,6 +32,7 @@ describe("lifecycle adapter", () => {
     // fires and the wall−monotonic sleep-gap does not.
     let monotonic = 0;
     let wall = 0;
+
     const adapter = createLifecycleAdapter({
       monotonicNow: () => monotonic,
       stallThresholdMs: 1000,
@@ -45,6 +47,7 @@ describe("lifecycle adapter", () => {
   it("invalidates on an explicit resume even when clocks did not jump", () => {
     const monotonic = 0;
     const wall = 0;
+
     const adapter = createLifecycleAdapter({
       monotonicNow: () => monotonic,
       stallThresholdMs: 1000,

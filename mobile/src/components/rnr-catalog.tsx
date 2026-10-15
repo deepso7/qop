@@ -147,10 +147,12 @@ const RnrCatalog = () => {
   const [menubarValue, setMenubarValue] = useState<string>();
   const [outlineTogglePressed, setOutlineTogglePressed] = useState(false);
   const [radioValue, setRadioValue] = useState("balanced");
+
   const [selectValue, setSelectValue] = useState<Option>({
     label: "Balanced",
     value: "balanced",
   });
+
   const [tabValue, setTabValue] = useState("preview");
   const [toggleGroupValue, setToggleGroupValue] = useState(["bold"]);
   const [togglePressed, setTogglePressed] = useState(false);

@@ -21,6 +21,7 @@ export interface ContactInput {
 }
 
 export type MessageDirection = "in" | "out";
+
 export type MessageStatus = "failed" | "held" | "received" | "sending" | "sent";
 
 export interface StoredMessage {
@@ -81,6 +82,7 @@ const failInterruptedMessagesSql = `UPDATE messages SET status = 'failed'
   WHERE direction = 'out' AND status = 'sending'`;
 
 const MESSAGES_SCHEMA_VERSION = 5;
+
 const messagesStatusCheck =
   "status IN ('sending','sent','failed','received','held')";
 
@@ -88,10 +90,13 @@ const migrateMessagesSchema = async (database: SQLite.SQLiteDatabase) => {
   const rows = await database.getAllAsync<{ user_version: number }>(
     "PRAGMA user_version"
   );
+
   const version = rows[0]?.user_version ?? 0;
+
   if (version >= MESSAGES_SCHEMA_VERSION) {
     return;
   }
+
   if (version < 2) {
     await database.execAsync(`
       CREATE TABLE messages_v2 (
@@ -113,12 +118,14 @@ const migrateMessagesSchema = async (database: SQLite.SQLiteDatabase) => {
       PRAGMA user_version = 2;
     `);
   }
+
   if (version < 3) {
     await database.execAsync(`
       ALTER TABLE messages ADD COLUMN holder_peer_id TEXT;
       PRAGMA user_version = 3;
     `);
   }
+
   if (version < 4) {
     await database.execAsync(`
       CREATE TABLE messages_v4 (
@@ -142,6 +149,7 @@ const migrateMessagesSchema = async (database: SQLite.SQLiteDatabase) => {
       PRAGMA user_version = 4;
     `);
   }
+
   if (version < 5) {
     await database.execAsync(`
       CREATE TABLE IF NOT EXISTS holder_cursors(
@@ -183,11 +191,13 @@ const openDatabase = async () => {
   `);
   await migrateMessagesSchema(database);
   await database.execAsync(failInterruptedMessagesSql);
+
   return database;
 };
 
 const getDatabase = async () => {
   databasePromise ??= openDatabase();
+
   try {
     return await databasePromise;
   } catch (error) {
@@ -241,10 +251,12 @@ FROM contacts`;
 
 export const getContactByQid = async (qid: string): Promise<Contact | null> => {
   const database = await getDatabase();
+
   const row = await database.getFirstAsync<ContactRow>(
     `${contactSelect} WHERE qid = ?`,
     qid
   );
+
   return row ? contactFromRow(row) : null;
 };
 
@@ -252,10 +264,12 @@ export const getContactByPeerId = async (
   peerId: string
 ): Promise<Contact | null> => {
   const database = await getDatabase();
+
   const row = await database.getFirstAsync<ContactRow>(
     `${contactSelect} WHERE peer_id = ?`,
     peerId
   );
+
   return row ? contactFromRow(row) : null;
 };
 
@@ -263,15 +277,18 @@ export const getContactByHandle = async (
   handle: string
 ): Promise<Contact | null> => {
   const database = await getDatabase();
+
   const row = await database.getFirstAsync<ContactRow>(
     `${contactSelect} WHERE handle = ?`,
     handle
   );
+
   return row ? contactFromRow(row) : null;
 };
 
 export const listConversations = async (): Promise<Conversation[]> => {
   const database = await getDatabase();
+
   const rows = await database.getAllAsync<ConversationRow>(`
     SELECT
       contacts.qid,
@@ -302,6 +319,7 @@ export const listConversations = async (): Promise<Conversation[]> => {
       )
     ORDER BY COALESCE(latest.received_at, contacts.created_at) DESC
   `);
+
   return rows.map((row) => ({
     ...contactFromRow(row),
     latestMessageText: row.latestMessageText,
@@ -315,6 +333,7 @@ export const markConversationRead = async (
   throughReceivedAt?: number
 ): Promise<void> => {
   const database = await getDatabase();
+
   if (throughReceivedAt !== undefined) {
     await database.runAsync(
       `UPDATE contacts
@@ -323,8 +342,10 @@ export const markConversationRead = async (
       throughReceivedAt,
       qid
     );
+
     return;
   }
+
   await database.runAsync(
     `UPDATE contacts
      SET last_read_at = COALESCE(
@@ -342,6 +363,7 @@ export const insertMessage = async (
 ): Promise<boolean> => {
   const database = await getDatabase();
   const receivedAt = Date.now();
+
   // Use local arrival order for display and unread tracking, even if the clock
   // moves backward or several messages arrive in the same millisecond.
   const result = await database.runAsync(
@@ -360,6 +382,7 @@ export const insertMessage = async (
     message.status,
     message.holderPeerId ?? null
   );
+
   return result.changes > 0;
 };
 
@@ -378,10 +401,13 @@ export const advanceMessageStatus = async (
   contactQid: string
 ): Promise<boolean> => {
   const allowedFrom = ADVANCE_FROM[status];
+
   if (allowedFrom.length === 0) {
     return false;
   }
+
   const database = await getDatabase();
+
   const result = await database.runAsync(
     `UPDATE messages SET status = ?, holder_peer_id = NULL
      WHERE id = ? AND contact_qid = ? AND status IN (${allowedFrom
@@ -392,6 +418,7 @@ export const advanceMessageStatus = async (
     contactQid,
     ...allowedFrom
   );
+
   return result.changes > 0;
 };
 
@@ -402,6 +429,7 @@ export const markMessageHeld = async (
   contactQid: string
 ): Promise<boolean> => {
   const database = await getDatabase();
+
   const result = await database.runAsync(
     `UPDATE messages
      SET status = 'held', holder_peer_id = ?
@@ -410,6 +438,7 @@ export const markMessageHeld = async (
     id,
     contactQid
   );
+
   return result.changes > 0;
 };
 
@@ -454,6 +483,7 @@ export const getMessageById = async (
   contactQid?: string
 ): Promise<StoredMessage | null> => {
   const database = await getDatabase();
+
   const row =
     contactQid === undefined
       ? await database.getFirstAsync<MessageRow>(
@@ -465,6 +495,7 @@ export const getMessageById = async (
           id,
           contactQid
         );
+
   return row ? messageFromRow(row) : null;
 };
 
@@ -472,19 +503,23 @@ export const listMessages = async (
   contactQid: string
 ): Promise<StoredMessage[]> => {
   const database = await getDatabase();
+
   const rows = await database.getAllAsync<MessageRow>(
     `${messageSelect} WHERE contact_qid = ? ORDER BY received_at, rowid`,
     contactQid
   );
+
   return rows.map(messageFromRow);
 };
 
 export const listOutgoingPending = async (): Promise<StoredMessage[]> => {
   const database = await getDatabase();
+
   const rows = await database.getAllAsync<MessageRow>(
     `${messageSelect} WHERE direction = 'out' AND status IN ('failed','held','sending')
      ORDER BY received_at, rowid`
   );
+
   return rows.map(messageFromRow);
 };
 
@@ -499,10 +534,12 @@ export const deleteAll = async (): Promise<void> => {
 
 export const getHolderInboxCursor = async (peerId: string): Promise<number> => {
   const database = await getDatabase();
+
   const row = await database.getFirstAsync<{ inboxSeq: number }>(
     `SELECT inbox_seq AS inboxSeq FROM holder_cursors WHERE holder_peer_id = ?`,
     peerId
   );
+
   return row?.inboxSeq ?? 0;
 };
 

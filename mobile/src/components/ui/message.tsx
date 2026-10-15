@@ -71,6 +71,7 @@ const MessageAvatar = ({
   ...props
 }: React.ComponentProps<typeof View>) => {
   const align = React.use(MessageContext);
+
   return (
     <View
       className={cn("shrink-0", align === "end" && "order-2", className)}
@@ -84,6 +85,7 @@ const MessageContent = ({
   ...props
 }: React.ComponentProps<typeof View>) => {
   const align = React.use(MessageContext);
+
   return (
     <View
       className={cn(
@@ -108,6 +110,7 @@ const MessageFooter = ({
   ...props
 }: React.ComponentProps<typeof View>) => {
   const align = React.use(MessageContext);
+
   return (
     <View
       className={cn(
@@ -147,6 +150,7 @@ const MessageBubble = ({
 }: MessageBubbleProps) => {
   const align = React.use(MessageContext);
   const resolvedPosition = position ?? "single";
+
   const textClassName =
     tone === "outgoing" || tone === "failed" || tone === "pending"
       ? "text-primary-foreground"
@@ -259,9 +263,11 @@ const getMessageStatusIcon = (status: MessageMetaProps["status"]) => {
   if (status === "read") {
     return CheckCheck;
   }
+
   if (status === "sent") {
     return Check;
   }
+
   return Clock3;
 };
 
@@ -300,6 +306,7 @@ const MessageReactions = ({
   ...props
 }: React.ComponentProps<typeof View>) => {
   const align = React.use(MessageContext);
+
   return (
     <View
       className={cn(
@@ -434,8 +441,10 @@ const triggerLongPressFeedback = async () => {
       await Haptics.performAndroidHapticsAsync(
         Haptics.AndroidHaptics.Long_Press
       );
+
       return;
     }
+
     await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   } catch {
     // Haptic feedback is optional and should never block the menu.
@@ -446,6 +455,7 @@ const getBlurTint = (colorScheme: ReturnType<typeof useColorScheme>) => {
   if (Platform.OS === "ios") {
     return "default" as const;
   }
+
   return colorScheme === "dark" ? ("dark" as const) : ("light" as const);
 };
 
@@ -466,21 +476,27 @@ const getMessageMenuPosition = ({
 }) => {
   const separators = actions.filter((action) => action.separatorBefore).length;
   const menuHeight = actions.length * MENU_ROW_HEIGHT + separators;
+
   const groupHeight =
     REACTION_RAIL_HEIGHT + 10 + (rect?.height ?? 0) + 12 + menuHeight;
+
   const desiredTop = (rect?.y ?? 0) - REACTION_RAIL_HEIGHT - 10;
+
   const top = Math.max(
     54,
     Math.min(desiredTop, windowHeight - groupHeight - 24)
   );
+
   const desiredLeft =
     align === "end"
       ? (rect?.x ?? 0) + (rect?.width ?? 0) - surfaceWidth
       : (rect?.x ?? 0);
+
   const left = Math.max(
     16,
     Math.min(desiredLeft, windowWidth - surfaceWidth - 16)
   );
+
   return { left, top };
 };
 
@@ -729,15 +745,19 @@ const MessageLongPressMenu = ({
 
     if (open) {
       AccessibilityInfo.announceForAccessibility("Message actions opened");
+
       const task = InteractionManager.runAfterInteractions(() => {
         requestAnimationFrame(() => {
           const actionNode = findNodeHandle(firstActionRef.current);
+
           if (actionNode) {
             AccessibilityInfo.setAccessibilityFocus(actionNode);
           }
         });
       });
+
       wasOpen.current = true;
+
       return () => task.cancel();
     }
 
@@ -745,6 +765,7 @@ const MessageLongPressMenu = ({
       wasOpen.current = false;
       requestAnimationFrame(() => {
         const triggerNode = findNodeHandle(triggerRef.current);
+
         if (triggerNode) {
           AccessibilityInfo.setAccessibilityFocus(triggerNode);
         }
@@ -906,6 +927,7 @@ const MessageTypingDot = ({ index }: { index: number }) => {
   React.useEffect(() => {
     if (reduceMotion) {
       progress.set(0);
+
       return;
     }
 
@@ -934,6 +956,7 @@ const MessageTypingDot = ({ index }: { index: number }) => {
 
   const animatedStyle = useAnimatedStyle(() => {
     const value = progress.get();
+
     return {
       opacity: 0.55 + value * 0.45,
       transform: [{ translateY: value * -2 }, { scale: 1 + value * 0.12 }],
@@ -1014,4 +1037,5 @@ export {
 };
 
 export type { MessageAction, MessageLongPressMenuProps };
+
 export type { MessageBubbleProps, MessageMetaProps, MessageProps };

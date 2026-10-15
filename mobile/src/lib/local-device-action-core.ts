@@ -21,6 +21,7 @@ import type { createDeviceActionClient } from "./device-action-client-core";
 import type { createRegistryReader } from "./registry-core";
 
 const STORAGE_KEY = "qop.device-action.v1";
+
 const StoredDeviceAction = Schema.Struct({
   acknowledged: Schema.Boolean,
   apiStatus: Schema.NullOr(
@@ -42,6 +43,7 @@ const StoredDeviceAction = Schema.Struct({
 });
 
 const StoredDeviceActionJson = Schema.fromJsonString(StoredDeviceAction);
+
 export type LocalDeviceAction = typeof StoredDeviceAction.Type;
 
 export class LocalDeviceActionError extends Data.TaggedError(
@@ -86,6 +88,7 @@ const apiRecordFromGetFailure = (
   if (failure.status === 404 || failure.operation === "missing") {
     return "missing";
   }
+
   return "unknown";
 };
 
@@ -117,6 +120,7 @@ const storedFromIncoming = (
       record: decoded,
     };
   }
+
   return {
     acknowledged: options?.acknowledged ?? false,
     apiStatus: null,
@@ -141,9 +145,11 @@ export const createLocalDeviceAction = ({
       catch: () => localError("read"),
       try: () => secureStore.get(STORAGE_KEY),
     });
+
     if (!encoded) {
       return null;
     }
+
     return yield* Schema.decodeUnknownEffect(StoredDeviceActionJson)(
       encoded,
       strictParseOptions
@@ -156,6 +162,7 @@ export const createLocalDeviceAction = ({
     const encoded = yield* Schema.encodeEffect(StoredDeviceActionJson)(
       value
     ).pipe(Effect.mapError(() => localError("write")));
+
     yield* Effect.tryPromise({
       catch: () => localError("write"),
       try: () => secureStore.set(STORAGE_KEY, encoded),
@@ -165,6 +172,7 @@ export const createLocalDeviceAction = ({
   const refreshStored = Effect.fn("LocalDeviceAction.refreshStored")(
     function* () {
       const existing = yield* readStored();
+
       if (!existing) {
         return {
           apiRecord: "missing" as const,
@@ -172,14 +180,18 @@ export const createLocalDeviceAction = ({
           stored: null,
         };
       }
+
       const encoded = yield* Schema.encodeEffect(DeviceActionApprovalV1)(
         existing.record
       ).pipe(Effect.mapError(() => localError("decode")));
+
       const api = yield* deviceActionClient
         .get(encoded.digest)
         .pipe(Effect.result);
+
       let apiRecord: DeviceActionApiRecord = "unknown";
       let apiStatus: DeviceActionApiStatus | null = existing.apiStatus;
+
       if (Result.isSuccess(api)) {
         apiRecord = "present";
         apiStatus = api.success.status;
@@ -187,18 +199,23 @@ export const createLocalDeviceAction = ({
         const parsed = Schema.decodeUnknownOption(DeviceActionGetFailure)(
           api.failure
         );
+
         apiRecord =
           parsed._tag === "Some"
             ? apiRecordFromGetFailure(parsed.value)
             : "unknown";
       }
+
       const chainTimeResult = yield* registry
         .latestTimestamp()
         .pipe(Effect.result);
+
       const chainTime = Result.isSuccess(chainTimeResult)
         ? chainTimeResult.success
         : undefined;
+
       const account = yield* registry.lookupDeviceKey(encoded.intent.deviceKey);
+
       const membership = enrollmentMembership({
         activeQid: account?.qid ?? null,
         expectedQid: BigInt(existing.record.intent.qid),
@@ -206,6 +223,7 @@ export const createLocalDeviceAction = ({
           existing.historicallyAdded ||
           account?.qid === BigInt(existing.record.intent.qid),
       });
+
       const stored: LocalDeviceAction = {
         ...existing,
         apiStatus,
@@ -216,7 +234,9 @@ export const createLocalDeviceAction = ({
           ? (api.success.transactionHash ?? existing.transactionHash)
           : existing.transactionHash,
       };
+
       yield* writeStored(stored);
+
       return { apiRecord, chainTime, stored };
     }
   );
@@ -231,7 +251,9 @@ export const createLocalDeviceAction = ({
           const decoded = yield* decodeDeviceActionApprovalV1(record).pipe(
             Effect.mapError(() => localError("decode"))
           );
+
           const refreshed = yield* refreshStored();
+
           const pending =
             refreshed.stored &&
             occupiesStored(refreshed.stored, {
@@ -240,13 +262,17 @@ export const createLocalDeviceAction = ({
             })
               ? refreshed.stored.record
               : null;
+
           const ack = acknowledgeApproval(pending, decoded);
+
           if (ack.kind === "conflict") {
             return yield* localError("conflict");
           }
+
           const stored = storedFromIncoming(refreshed.stored, decoded, options);
           // Persist before the approval can reach the CLI or API.
           yield* writeStored(stored);
+
           return stored;
         })
       )
@@ -257,11 +283,14 @@ export const createLocalDeviceAction = ({
       lock.withPermit(
         Effect.gen(function* () {
           const existing = yield* readStored();
+
           if (!existing || existing.record.digest !== digest) {
             return yield* localError("acknowledge");
           }
+
           const stored = { ...existing, acknowledged: true };
           yield* writeStored(stored);
+
           return stored;
         })
       )
@@ -272,13 +301,16 @@ export const createLocalDeviceAction = ({
       lock.withPermit(
         Effect.gen(function* () {
           const existing = yield* readStored();
+
           if (!existing?.acknowledged) {
             return yield* localError("acknowledge");
           }
+
           if (!existing.submitted) {
             const encoded = yield* Schema.encodeEffect(DeviceActionApprovalV1)(
               existing.record
             ).pipe(Effect.mapError(() => localError("decode")));
+
             const result = yield* deviceActionClient
               .submit({
                 intent: encoded.intent,
@@ -286,28 +318,36 @@ export const createLocalDeviceAction = ({
                 ownerSignature: encoded.ownerSignature,
               })
               .pipe(Effect.mapError(() => localError("submit")));
+
             const submitted: LocalDeviceAction = {
               ...existing,
               apiStatus: result.status,
               submitted: true,
               transactionHash: result.transactionHash,
             };
+
             yield* writeStored(submitted);
+
             return submitted;
           }
+
           const status = yield* deviceActionClient
             .get(existing.record.digest)
             .pipe(Effect.result);
+
           if (Result.isFailure(status)) {
             return existing;
           }
+
           const refreshed: LocalDeviceAction = {
             ...existing,
             apiStatus: status.success.status,
             transactionHash:
               status.success.transactionHash ?? existing.transactionHash,
           };
+
           yield* writeStored(refreshed);
+
           return refreshed;
         })
       )
@@ -319,6 +359,7 @@ export const createLocalDeviceAction = ({
     lock.withPermit(
       Effect.gen(function* () {
         const refreshed = yield* refreshStored();
+
         return refreshed.stored;
       })
     )
@@ -329,9 +370,11 @@ export const createLocalDeviceAction = ({
       Effect.gen(function* () {
         for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
           const stored = yield* reconcileMembership();
+
           if (!stored) {
             return null;
           }
+
           if (
             enrollmentPollComplete({
               apiStatus: stored.apiStatus,
@@ -341,8 +384,10 @@ export const createLocalDeviceAction = ({
           ) {
             return stored;
           }
+
           yield* Effect.sleep(delayMs);
         }
+
         return yield* localError("timeout");
       })
   );
@@ -352,6 +397,7 @@ export const createLocalDeviceAction = ({
       lock.withPermit(
         Effect.gen(function* () {
           const refreshed = yield* refreshStored();
+
           if (
             !refreshed.stored ||
             !occupiesStored(refreshed.stored, {
@@ -361,14 +407,17 @@ export const createLocalDeviceAction = ({
           ) {
             return null;
           }
+
           if (refreshed.stored.record.operation !== operation) {
             return null;
           }
+
           if (
             asHex(refreshed.stored.record.intent.deviceKey) !== asHex(deviceKey)
           ) {
             return null;
           }
+
           return yield* encodeDeviceActionApprovalV1(
             refreshed.stored.record
           ).pipe(Effect.mapError(() => localError("decode")));

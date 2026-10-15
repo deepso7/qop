@@ -18,6 +18,7 @@ export const decodeRegistrationAdmissionCode = Effect.fn(
   const code = yield* Schema.decodeUnknownEffect(RegistrationAdmissionCode)(
     input
   );
+
   return {
     code,
     codeHash: keccak256(
@@ -58,6 +59,7 @@ export class RegistrationAdmission extends Context.Service<
         codeHash: Hash
       ) {
         const now = epochSeconds(yield* DateTime.now);
+
         const rows = yield* db
           .select({ codeHash: registrationAdmissionCodes.codeHash })
           .from(registrationAdmissionCodes)
@@ -73,6 +75,7 @@ export class RegistrationAdmission extends Context.Service<
             )
           )
           .limit(1);
+
         if (rows.length === 0) {
           return yield* new RegistrationAdmissionUnauthorized({ codeHash });
         }
@@ -87,6 +90,7 @@ export class RegistrationAdmission extends Context.Service<
           .values({ codeHash, expiresAt })
           .onConflictDoNothing()
           .returning({ codeHash: registrationAdmissionCodes.codeHash });
+
         return inserted.length === 1;
       });
 

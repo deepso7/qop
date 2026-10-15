@@ -134,10 +134,12 @@ const Button = ({
   const defaultHitSlop = getDefaultHitSlop(size);
   const reduceMotion = useReducedMotion();
   const scale = useSharedValue(1);
+
   const textClassName = useMemo(
     () => buttonTextVariants({ size, variant }),
     [size, variant]
   );
+
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.get() }],
   }));
@@ -146,6 +148,7 @@ const Button = ({
     if (!reduceMotion) {
       scale.set(withTiming(0.98, { duration: 100 }));
     }
+
     onPressIn?.(event);
   };
 
@@ -153,6 +156,7 @@ const Button = ({
     if (!reduceMotion) {
       scale.set(withSpring(1, { dampingRatio: 1, duration: 180 }));
     }
+
     onPressOut?.(event);
   };
 
@@ -184,4 +188,5 @@ const Button = ({
 };
 
 export { Button, buttonTextVariants, buttonVariants };
+
 export type { ButtonProps };

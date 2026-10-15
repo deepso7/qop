@@ -8,6 +8,7 @@ export {
   createLocalDeviceAction,
   LocalDeviceActionError,
 } from "./local-device-action-core";
+
 export type { LocalDeviceAction } from "./local-device-action-core";
 
 const secureStoreOptions: SecureStore.SecureStoreOptions = {

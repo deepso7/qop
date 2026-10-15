@@ -61,6 +61,7 @@ type BadgeProps = React.ComponentProps<typeof View> &
 
 const Badge = ({ className, variant, asChild, ...props }: BadgeProps) => {
   const Component = asChild ? Slot : View;
+
   const textClassName = useMemo(
     () => badgeTextVariants({ variant }),
     [variant]
@@ -77,4 +78,5 @@ const Badge = ({ className, variant, asChild, ...props }: BadgeProps) => {
 };
 
 export { Badge, badgeTextVariants, badgeVariants };
+
 export type { BadgeProps };

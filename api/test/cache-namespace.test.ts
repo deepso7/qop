@@ -8,11 +8,13 @@ describe("cache namespace", () => {
   it.effect("coalesces concurrent cache misses", () =>
     Effect.gen(function* () {
       let lookups = 0;
+
       const cache = yield* createCacheNamespace({
         capacity: 10,
         lookup: (key: string) =>
           Effect.sync(() => {
             lookups += 1;
+
             return key.length;
           }),
         policy: {
@@ -38,11 +40,13 @@ describe("cache namespace", () => {
     Effect.gen(function* () {
       let origin = "first";
       let lookups = 0;
+
       const cache = yield* createCacheNamespace({
         capacity: 10,
         lookup: () =>
           Effect.sync(() => {
             lookups += 1;
+
             return origin;
           }),
         policy: {
@@ -71,6 +75,7 @@ describe("cache namespace", () => {
   it.effect("supports an explicit origin refresh", () =>
     Effect.gen(function* () {
       let origin = 1;
+
       const cache = yield* createCacheNamespace({
         capacity: 10,
         lookup: () => Effect.sync(() => origin),
@@ -94,18 +99,23 @@ describe("cache namespace", () => {
       const secondLookupStarted = yield* Deferred.make<boolean>();
       const releaseSecondLookup = yield* Deferred.make<boolean>();
       let lookups = 0;
+
       const cache = yield* createCacheNamespace({
         capacity: 10,
         lookup: () =>
           Effect.gen(function* () {
             lookups += 1;
+
             if (lookups === 1) {
               yield* Deferred.succeed(firstLookupStarted, true);
               yield* Deferred.await(releaseFirstLookup);
+
               return "pre-invalidation";
             }
+
             yield* Deferred.succeed(secondLookupStarted, true);
             yield* Deferred.await(releaseSecondLookup);
+
             return "post-invalidation";
           }),
         policy: {
@@ -123,6 +133,7 @@ describe("cache namespace", () => {
       const secondInvalidation = yield* Effect.forkChild(
         cache.invalidate("account")
       );
+
       yield* Effect.yieldNow;
       assert.isUndefined(secondInvalidation.pollUnsafe());
 
@@ -141,19 +152,24 @@ describe("cache namespace", () => {
       const refreshStarted = yield* Deferred.make<boolean>();
       const releaseRefresh = yield* Deferred.make<boolean>();
       let lookups = 0;
+
       const cache = yield* createCacheNamespace({
         capacity: 10,
         lookup: () =>
           Effect.gen(function* () {
             lookups += 1;
+
             if (lookups === 1) {
               return "initial";
             }
+
             if (lookups === 2) {
               yield* Deferred.succeed(refreshStarted, true);
               yield* Deferred.await(releaseRefresh);
+
               return "pre-invalidation";
             }
+
             return "post-invalidation";
           }),
         policy: {
@@ -191,6 +207,7 @@ describe("cache namespace", () => {
       let maximumActive = 0;
       let phase: "refresh" | "seed" = "seed";
       let refreshLookups = 0;
+
       const cache = yield* createCacheNamespace({
         capacity: 10,
         lookup: (key: string) =>
@@ -202,15 +219,19 @@ describe("cache namespace", () => {
             refreshLookups += 1;
             active += 1;
             maximumActive = Math.max(maximumActive, active);
+
             if (refreshLookups === 2) {
               yield* Deferred.succeed(twoRefreshesStarted, true);
             }
+
             yield* Deferred.await(releaseRefreshes);
             active -= 1;
             completed += 1;
+
             if (completed === 2) {
               yield* Deferred.succeed(twoRefreshesCompleted, true);
             }
+
             return `refresh-${key}`;
           }),
         policy: {
@@ -219,11 +240,13 @@ describe("cache namespace", () => {
         },
         refreshConcurrency: 2,
       });
+
       const keys = ["a", "b", "c", "d", "e"];
 
       for (const key of keys) {
         yield* cache.cached(key);
       }
+
       phase = "refresh";
       yield* TestClock.adjust(Duration.seconds(2));
       yield* Effect.all(
@@ -247,6 +270,7 @@ describe("cache namespace", () => {
         const admitted = yield* Deferred.make<boolean>();
         const continueAdmission = yield* Deferred.make<boolean>();
         const backgroundFinished = yield* Deferred.make<boolean>();
+
         const controlledSemaphore = {
           ...semaphore,
           release: (permits: number) =>
@@ -258,10 +282,12 @@ describe("cache namespace", () => {
           takeIfAvailable: (permits: number) =>
             Effect.gen(function* () {
               const acquired = yield* semaphore.takeIfAvailable(permits);
+
               if (acquired) {
                 yield* Deferred.succeed(admitted, true);
                 yield* Deferred.await(continueAdmission);
               }
+
               return acquired;
             }),
           withPermitsIfAvailable:
@@ -274,6 +300,7 @@ describe("cache namespace", () => {
                   Effect.gen(function* () {
                     yield* Deferred.succeed(admitted, true);
                     yield* Deferred.await(continueAdmission);
+
                     return yield* effect;
                   })
                 )
@@ -281,6 +308,7 @@ describe("cache namespace", () => {
                   Effect.tap(() => Deferred.succeed(backgroundFinished, true))
                 ),
         };
+
         const cache = yield* createCacheNamespace({
           backgroundRefreshSemaphore: controlledSemaphore,
           capacity: 1,

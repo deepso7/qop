@@ -16,6 +16,7 @@ const deadlineAfter = Effect.fn("test.deadlineAfter")(function* (
   seconds: number
 ) {
   const now = yield* DateTime.now;
+
   return BigInt(Math.floor(DateTime.toEpochMillis(now) / 1000) + seconds);
 });
 
@@ -58,11 +59,13 @@ layer(StoreTestLive, { timeout: "30 seconds" })((it) => {
       const store = yield* DeviceActionStore;
       const deadline = yield* deadlineAfter(60);
       yield* store.create(deviceInput(2, deadline, 100n));
+
       const result = yield* store
         .create(deviceInput(3, deadline, 100n))
         .pipe(Effect.result);
 
       assert.strictEqual(result._tag, "Failure");
+
       if (result._tag === "Failure") {
         assert.strictEqual(
           result.failure instanceof DeviceActionInFlightConflict,
@@ -77,6 +80,7 @@ layer(StoreTestLive, { timeout: "30 seconds" })((it) => {
       const deviceActions = yield* DeviceActionStore;
       const deadline = yield* deadlineAfter(60);
       const first = yield* deviceActions.create(deviceInput(4, deadline, 200n));
+
       const submittedFirst = yield* deviceActions.prepareSubmission(
         first.digest,
         Effect.succeed(7n),
@@ -86,11 +90,13 @@ layer(StoreTestLive, { timeout: "30 seconds" })((it) => {
             transactionHash: testHash(`device-${nonce}`),
           })
       );
+
       assert.strictEqual(submittedFirst.transactionHash, testHash("device-7"));
 
       const second = yield* deviceActions.create(
         deviceInput(5, deadline, 201n)
       );
+
       const submittedSecond = yield* deviceActions.prepareSubmission(
         second.digest,
         Effect.succeed(0n),
@@ -100,6 +106,7 @@ layer(StoreTestLive, { timeout: "30 seconds" })((it) => {
             transactionHash: testHash(`device-${nonce}`),
           })
       );
+
       assert.strictEqual(submittedSecond.transactionHash, testHash("device-8"));
     })
   );

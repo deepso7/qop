@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 
 const TogglePrimitive = { ...TogglePrimitiveModule };
 const toggleHitSlop = { default: 0, lg: 0, sm: 6 } as const;
+
 const toggleTextSizes = {
   default: "text-sm",
   lg: "text-base",
@@ -85,6 +86,7 @@ const ToggleIcon = ({
   ...props
 }: React.ComponentProps<typeof Icon>) => {
   const textClass = React.useContext(TextClassContext);
+
   return (
     <Icon className={cn("size-4 shrink-0", textClass, className)} {...props} />
   );

@@ -40,9 +40,11 @@ export const makeRegistrationSigner = Effect.fn("RegistrationSigner.make")(
         () => new RegistrationSignerError({ operation: "configure" })
       )
     );
+
     if (!isHex(privateKey)) {
       return yield* new RegistrationSignerError({ operation: "configure" });
     }
+
     const account = yield* Effect.try({
       catch: () => new RegistrationSignerError({ operation: "configure" }),
       try: () => privateKeyToAccount(privateKey),
@@ -57,19 +59,23 @@ export const makeRegistrationSigner = Effect.fn("RegistrationSigner.make")(
         try: () =>
           account.signTypedData(makeRegisterIntentTypedDataV1(domain, intent)),
       });
+
       const bytes = yield* normalizeEcdsaSignature(walletSignature).pipe(
         Effect.mapError(
           () => new RegistrationSignerError({ operation: "sign" })
         )
       );
+
       const signature = yield* Schema.encodeEffect(EcdsaSignature)(bytes).pipe(
         Effect.mapError(
           () => new RegistrationSignerError({ operation: "sign" })
         )
       );
+
       if (!isHex(signature)) {
         return yield* new RegistrationSignerError({ operation: "sign" });
       }
+
       return signature;
     });
 

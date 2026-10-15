@@ -33,6 +33,7 @@ export type StoredRegistrationIntent = InferSelectModel<
 >;
 
 type TransactionCallback = Parameters<DatabaseClient["transaction"]>[0];
+
 type Transaction = Parameters<TransactionCallback>[0];
 
 const find = (client: DatabaseClient | Transaction, digest: Hash) =>
@@ -164,9 +165,11 @@ export class RegistrationStore extends Context.Service<
         expected: readonly RegistrationIntentStatus[]
       ): Effect.fn.Return<never, RegistrationStoreError> {
         const current = yield* find(tx, digest);
+
         if (!current) {
           return yield* new RegistrationIntentNotFound({ digest });
         }
+
         return yield* new RegistrationTransitionConflict({
           actual: current.status,
           digest,
@@ -176,6 +179,7 @@ export class RegistrationStore extends Context.Service<
 
       const get = Effect.fn("RegistrationStore.get")(function* (digest: Hash) {
         const canonicalDigest = yield* normalizeRegistrationDigest(digest);
+
         return Option.fromUndefinedOr(yield* find(db, canonicalDigest));
       });
 
@@ -187,10 +191,12 @@ export class RegistrationStore extends Context.Service<
         return yield* db.transaction((tx) =>
           Effect.gen(function* () {
             const replay = yield* find(tx, canonical.digest);
+
             if (replay) {
               if (isExactCreateReplay(replay, canonical)) {
                 return replay;
               }
+
               return yield* new RegistrationIntentConflict({
                 digest: canonical.digest,
               });
@@ -208,9 +214,11 @@ export class RegistrationStore extends Context.Service<
               .limit(1)
               .for("update")
               .pipe(Effect.map((rows) => rows.at(0)));
+
             const now = yield* DateTime.now;
             const nowSeconds = epochSeconds(now);
             const nowDate = DateTime.toDateUtc(now);
+
             if (
               !admission ||
               admission.consumedAt !== null ||
@@ -243,6 +251,7 @@ export class RegistrationStore extends Context.Service<
                   )
                 )
                 .returning({ codeHash: registrationAdmissionCodes.codeHash });
+
               if (claimed.length === 0) {
                 return yield* new RegistrationAdmissionUnauthorized({
                   codeHash: canonical.admissionCodeHash,
@@ -261,18 +270,22 @@ export class RegistrationStore extends Context.Service<
               .values({ ...canonical, status: "ready", updatedAt: nowDate })
               .onConflictDoNothing()
               .returning();
+
             const created = inserted.at(0);
+
             if (created) {
               return created;
             }
 
             const concurrentReplay = yield* find(tx, canonical.digest);
+
             if (
               concurrentReplay &&
               isExactCreateReplay(concurrentReplay, canonical)
             ) {
               return concurrentReplay;
             }
+
             const [handleConflict] = yield* tx
               .select({ digest: registrationIntents.digest })
               .from(registrationIntents)
@@ -283,12 +296,14 @@ export class RegistrationStore extends Context.Service<
                 )
               )
               .limit(1);
+
             if (handleConflict) {
               return yield* new RegistrationActiveHandleConflict({
                 digest: handleConflict.digest,
                 handle: canonical.handle,
               });
             }
+
             const [ownerConflict] = yield* tx
               .select({ digest: registrationIntents.digest })
               .from(registrationIntents)
@@ -299,12 +314,14 @@ export class RegistrationStore extends Context.Service<
                 )
               )
               .limit(1);
+
             if (ownerConflict) {
               return yield* new RegistrationActiveOwnerConflict({
                 digest: ownerConflict.digest,
                 owner: canonical.owner,
               });
             }
+
             return yield* new RegistrationNonceConflict({
               nonce: canonical.registrationNonce,
             });
@@ -316,18 +333,21 @@ export class RegistrationStore extends Context.Service<
         Effect.fn("RegistrationStore.prepareSubmission")(
           function* (digest, pendingNonce, prepare) {
             const canonicalDigest = yield* normalizeRegistrationDigest(digest);
+
             return yield* db.transaction((tx) =>
               Effect.gen(function* () {
                 yield* tx
                   .insert(registrationRelayerState)
                   .values({ id: 1, nextNonce: 0n })
                   .onConflictDoNothing();
+
                 const relayerState = yield* tx
                   .select()
                   .from(registrationRelayerState)
                   .where(eq(registrationRelayerState.id, 1))
                   .for("update")
                   .pipe(Effect.map((rows) => rows.at(0)));
+
                 if (!relayerState) {
                   return yield* new RegistrationIntentNotFound({
                     digest: canonicalDigest,
@@ -335,12 +355,14 @@ export class RegistrationStore extends Context.Service<
                 }
 
                 const current = yield* findForUpdate(tx, canonicalDigest);
+
                 if (
                   current &&
                   ["confirmed", "submitted"].includes(current.status)
                 ) {
                   return current;
                 }
+
                 if (current?.status !== "ready") {
                   return yield* transitionFailure(
                     tx,
@@ -350,23 +372,29 @@ export class RegistrationStore extends Context.Service<
                 }
 
                 const chainNonce = yield* pendingNonce;
+
                 const nonce =
                   chainNonce > relayerState.nextNonce
                     ? chainNonce
                     : relayerState.nextNonce;
+
                 const submission = yield* prepare(nonce);
+
                 const transactionHash = yield* normalizeTransactionHash(
                   submission.transactionHash
                 );
+
                 const serializedTransaction =
                   yield* normalizeSerializedTransaction(
                     submission.serializedTransaction
                   );
+
                 const submittedAt = DateTime.toDateUtc(yield* DateTime.now);
                 yield* tx
                   .update(registrationRelayerState)
                   .set({ nextNonce: nonce + 1n })
                   .where(eq(registrationRelayerState.id, 1));
+
                 const updated = yield* tx
                   .update(registrationIntents)
                   .set({
@@ -383,6 +411,7 @@ export class RegistrationStore extends Context.Service<
                     )
                   )
                   .returning();
+
                 return (
                   updated[0] ??
                   (yield* transitionFailure(
@@ -401,6 +430,7 @@ export class RegistrationStore extends Context.Service<
           const canonicalDigest = yield* normalizeRegistrationDigest(digest);
           const canonicalQid = yield* normalizeRegistrationQid(qid);
           const now = DateTime.toDateUtc(yield* DateTime.now);
+
           return yield* db.transaction((tx) =>
             Effect.gen(function* () {
               const updated = yield* tx
@@ -418,21 +448,26 @@ export class RegistrationStore extends Context.Service<
                   )
                 )
                 .returning();
+
               const confirmed = updated.at(0);
+
               if (!confirmed) {
                 const current = yield* find(tx, canonicalDigest);
+
                 if (
                   current?.status === "confirmed" &&
                   current.qid === canonicalQid
                 ) {
                   return current;
                 }
+
                 return yield* transitionFailure(
                   tx,
                   canonicalDigest,
                   registrationTransitionSources.confirm
                 );
               }
+
               yield* tx
                 .update(registrationAdmissionCodes)
                 .set({ consumedAt: now })
@@ -449,6 +484,7 @@ export class RegistrationStore extends Context.Service<
                     isNull(registrationAdmissionCodes.consumedAt)
                   )
                 );
+
               return confirmed;
             })
           );
@@ -462,6 +498,7 @@ export class RegistrationStore extends Context.Service<
       ) {
         const canonicalDigest = yield* normalizeRegistrationDigest(digest);
         const now = DateTime.toDateUtc(yield* DateTime.now);
+
         return yield* db.transaction((tx) =>
           Effect.gen(function* () {
             const updated = yield* tx
@@ -474,7 +511,9 @@ export class RegistrationStore extends Context.Service<
                 )
               )
               .returning();
+
             const failed = updated.at(0);
+
             if (failed) {
               yield* tx
                 .update(registrationAdmissionCodes)
@@ -492,15 +531,19 @@ export class RegistrationStore extends Context.Service<
                     isNull(registrationAdmissionCodes.consumedAt)
                   )
                 );
+
               return failed;
             }
+
             const current = yield* find(tx, canonicalDigest);
+
             if (
               current?.status === "failed" &&
               current.failureCode === failureCode
             ) {
               return current;
             }
+
             return yield* transitionFailure(
               tx,
               canonicalDigest,

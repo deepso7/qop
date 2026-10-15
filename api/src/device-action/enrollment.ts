@@ -125,6 +125,7 @@ export class DeviceActionEnrollment extends Context.Service<
       const env = yield* Env;
       const relayer = yield* DeviceActionRelayer;
       const store = yield* DeviceActionStore;
+
       const domain: IdentityEip712DomainV1 =
         yield* decodeIdentityEip712DomainV1({
           chainId: env.CHAIN_ID.toString(),
@@ -180,6 +181,7 @@ export class DeviceActionEnrollment extends Context.Service<
               expected: ["submitted", "confirmed"],
             });
           }
+
           return {
             digest: stored.digest,
             status: stored.status,
@@ -195,6 +197,7 @@ export class DeviceActionEnrollment extends Context.Service<
         intent: DeviceActionIntent
       ) {
         let submitted = stored;
+
         if (stored.status === "ready") {
           submitted = yield* store.prepareSubmission(
             stored.digest,
@@ -208,9 +211,11 @@ export class DeviceActionEnrollment extends Context.Service<
               )
           );
         }
+
         if (submitted.status === "confirmed") {
           return submitted;
         }
+
         if (
           submitted.status !== "submitted" ||
           submitted.transactionHash === null ||
@@ -221,16 +226,19 @@ export class DeviceActionEnrollment extends Context.Service<
             operation: "verify-state",
           });
         }
+
         const transactionHash = yield* relayer.broadcast({
           serializedTransaction: submitted.serializedTransaction,
           transactionHash: submitted.transactionHash,
         });
+
         if (transactionHash !== submitted.transactionHash) {
           return yield* new DeviceActionProtocolError({
             cause: "Relayer returned a different transaction hash",
             operation: "verify-state",
           });
         }
+
         return submitted;
       });
 
@@ -240,14 +248,19 @@ export class DeviceActionEnrollment extends Context.Service<
         if (stored.transactionHash === null) {
           return stored;
         }
+
         const receipt = yield* chain.receipt(stored.transactionHash);
+
         if (!receipt) {
           return stored;
         }
+
         const latest = yield* chain.latestBlock;
+
         if (latest < receipt.blockNumber + BigInt(env.REGISTRY_CONFIRMATIONS)) {
           return stored;
         }
+
         if (receipt.status === "reverted") {
           return yield* store.markTerminal(
             stored.digest,
@@ -255,6 +268,7 @@ export class DeviceActionEnrollment extends Context.Service<
             "DEVICE_ACTION_REVERTED"
           );
         }
+
         const matched = matchingDeviceActionEvent(
           receipt.logs,
           stored.operation,
@@ -262,12 +276,14 @@ export class DeviceActionEnrollment extends Context.Service<
           stored.deviceKey,
           stored.accountNonce
         );
+
         if (!matched) {
           return yield* new DeviceActionProtocolError({
             cause: "Receipt lacks a matching registry event",
             operation: "reconcile",
           });
         }
+
         return yield* store.markConfirmed(stored.digest);
       });
 
@@ -276,21 +292,27 @@ export class DeviceActionEnrollment extends Context.Service<
       )(function* (stored: StoredDeviceActionIntent) {
         if (stored.status === "submitted") {
           const confirmed = yield* confirmFromReceipt(stored);
+
           if (confirmed.status !== "submitted") {
             return confirmed;
           }
+
           const intent = yield* decodeIntent(stored.operation, {
             deadline: stored.deadline.toString(),
             deviceKey: stored.deviceKey,
             nonce: stored.accountNonce.toString(),
             qid: stored.qid.toString(),
           });
+
           const submitted = yield* resumeSubmission(confirmed, intent);
+
           return submitted.status === "submitted"
             ? yield* confirmFromReceipt(submitted)
             : submitted;
         }
+
         const chainTime = yield* chain.blockTimestamp;
+
         // Contract ExpiredIntent is `block.timestamp > deadline`. Equality is
         // still executable — clients trust this terminal status.
         if (stored.status === "ready" && chainTime > stored.deadline) {
@@ -300,13 +322,16 @@ export class DeviceActionEnrollment extends Context.Service<
             "DEVICE_ACTION_EXPIRED"
           );
         }
+
         const intent = yield* decodeIntent(stored.operation, {
           deadline: stored.deadline.toString(),
           deviceKey: stored.deviceKey,
           nonce: stored.accountNonce.toString(),
           qid: stored.qid.toString(),
         });
+
         const submitted = yield* resumeSubmission(stored, intent);
+
         return submitted.status === "submitted"
           ? yield* confirmFromReceipt(submitted)
           : submitted;
@@ -321,6 +346,7 @@ export class DeviceActionEnrollment extends Context.Service<
           const signature = yield* decodeSignature(ownerSignature);
           const recovered = yield* recoverSigner(operation, intent, signature);
           const account = yield* chain.account(intent.qid);
+
           if (account.owner !== recovered) {
             return yield* new DeviceActionSignatureMismatch({
               expected: account.owner,
@@ -328,24 +354,30 @@ export class DeviceActionEnrollment extends Context.Service<
               recovered: recovered as Address,
             });
           }
+
           if (account.nonce !== intent.nonce) {
             return yield* new DeviceActionRosterInvalid({ kind: "nonce" });
           }
+
           const deviceKey = toHex(intent.deviceKey);
           const active = account.devices.includes(deviceKey);
+
           if (operation === "add") {
             if (active) {
               return yield* new DeviceActionRosterInvalid({ kind: "active" });
             }
+
             if (yield* chain.deviceKeyRemoved(deviceKey)) {
               return yield* new DeviceActionRosterInvalid({ kind: "removed" });
             }
+
             if (account.devices.length >= 4) {
               return yield* new DeviceActionRosterInvalid({ kind: "cap" });
             }
           } else if (!active) {
             return yield* new DeviceActionRosterInvalid({ kind: "active" });
           }
+
           yield* chain.simulate(operation, intent, ownerSignature);
         }
       );
@@ -354,11 +386,14 @@ export class DeviceActionEnrollment extends Context.Service<
         input: SubmitDeviceAction
       ) {
         const intent = yield* decodeIntent(input.operation, input.intent);
+
         const ownerSignature = yield* normalizeRegistrationOwnerSignature(
           input.ownerSignature
         );
+
         const digest = yield* hashIntent(input.operation, intent);
         const replay = yield* store.get(digest);
+
         if (Option.isSome(replay)) {
           if (
             replay.value.status === "reverted" ||
@@ -370,10 +405,12 @@ export class DeviceActionEnrollment extends Context.Service<
               expected: ["ready", "submitted", "confirmed"],
             });
           }
+
           return yield* toSubmitted(yield* reconcileActive(replay.value));
         }
 
         const chainTime = yield* chain.blockTimestamp;
+
         if (
           chainTime > intent.deadline ||
           intent.deadline > chainTime + deviceActionMaxDeadlineSeconds
@@ -400,24 +437,30 @@ export class DeviceActionEnrollment extends Context.Service<
           ownerSignature,
           qid: intent.qid,
         });
+
         const stored = yield* create.pipe(
           Effect.catchTag("DeviceActionInFlightConflict", (conflict) =>
             Effect.gen(function* () {
               const previous = yield* store.get(conflict.digest);
+
               if (Option.isNone(previous)) {
                 return yield* conflict;
               }
+
               const reconciled = yield* reconcileActive(previous.value);
+
               if (
                 reconciled.status === "ready" ||
                 reconciled.status === "submitted"
               ) {
                 return yield* conflict;
               }
+
               return yield* create;
             })
           )
         );
+
         return yield* toSubmitted(yield* reconcileActive(stored));
       });
 
@@ -425,10 +468,13 @@ export class DeviceActionEnrollment extends Context.Service<
         function* (inputDigest: Hash) {
           const digest = yield* normalizeRegistrationDigest(inputDigest);
           const storedOption = yield* store.get(digest);
+
           if (Option.isNone(storedOption)) {
             return yield* new DeviceActionIntentNotFound({ digest });
           }
+
           const stored = storedOption.value;
+
           if (stored.status !== "ready" && stored.status !== "submitted") {
             return {
               digest: stored.digest,
@@ -437,7 +483,9 @@ export class DeviceActionEnrollment extends Context.Service<
               transactionHash: stored.transactionHash,
             } satisfies ReconciledDeviceAction;
           }
+
           const reconciled = yield* reconcileActive(stored);
+
           return {
             digest: reconciled.digest,
             failureCode: reconciled.failureCode,

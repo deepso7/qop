@@ -26,6 +26,7 @@ export const TestDatabaseLive = Layer.effect(
       await schema.apply();
     });
     const client = yield* PgliteDrizzle.makeWithDefaults();
+
     // SAFETY: The PGlite client implements every query operation used through
     // DatabaseClient; only Drizzle's driver-specific types differ.
     return Database.of({
@@ -39,6 +40,7 @@ export const RegistrationStoreTestLive = Layer.effect(
   Effect.gen(function* () {
     const admission = yield* RegistrationAdmission;
     const store = yield* RegistrationStore;
+
     return RegistrationStore.of({
       ...store,
       create: (input) =>
