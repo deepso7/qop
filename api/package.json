@@ -13,23 +13,23 @@
     "typecheck": "tsc --project tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@effect/platform-node": "4.0.4",
-    "@effect/sql-pg": "4.0.4",
+    "@effect/platform-node": "4.0.5",
+    "@effect/sql-pg": "4.0.5",
     "@qop/identity": "workspace:*",
     "drizzle-orm": "1.0.0-rc.5-5935859",
     "effect": "catalog:",
     "pg": "8.23.1",
-    "viem": "2.57.7"
+    "viem": "2.57.10"
   },
   "devDependencies": {
-    "@effect/sql-pglite": "4.0.4",
-    "@effect/vitest": "4.0.4",
-    "@electric-sql/pglite": "0.5.10",
+    "@effect/sql-pglite": "4.0.5",
+    "@effect/vitest": "4.0.5",
+    "@electric-sql/pglite": "0.5.11",
     "@types/node": "26.6.5",
     "@types/pg": "8.23.1",
     "drizzle-kit": "1.0.0-rc.5-5935859",
     "esbuild": "0.28.2",
     "typescript": "catalog:",
-    "vitest": "5.0.4"
+    "vitest": "5.0.5"
   }
 }

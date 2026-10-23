@@ -148,11 +148,11 @@ const ConversationTitle = ({
 
 const pathLabel = (path: Path | undefined) => {
   switch (path?.kind) {
-    case "directDialed": {
+    case "direct": {
       return "Direct";
     }
 
-    case "directPunched": {
+    case "punched": {
       return "Direct (hole-punched)";
     }
 

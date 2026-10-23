@@ -590,7 +590,7 @@ describe("performCatchup", () => {
     const bytes = stream.write.mock.calls[0]?.[0];
 
     if (!(bytes instanceof Uint8Array)) {
-      throw new Error("expected a catchup frame");
+      throw new TypeError("expected a catchup frame");
     }
 
     expect(await Effect.runPromise(decodeSyncRequestV1(bytes))).toEqual({
@@ -730,7 +730,7 @@ describe("performPoll", () => {
         const bytes = stream.write.mock.calls[0]?.[0];
 
         if (!(bytes instanceof Uint8Array)) {
-          throw new Error("expected a poll frame");
+          throw new TypeError("expected a poll frame");
         }
 
         return Effect.runPromise(decodeSyncRequestV1(bytes));

@@ -1,6 +1,7 @@
 import { Search, X } from "lucide-react-native";
 import * as React from "react";
 import { Pressable, TextInput, View } from "react-native";
+import type { TextInputInstance } from "react-native";
 
 import { Icon } from "@/components/ui/icon";
 import { cn } from "@/lib/utils";
@@ -21,7 +22,7 @@ const ChatSearchRender = (
     value,
     ...props
   }: ChatSearchProps,
-  ref: React.ForwardedRef<TextInput>
+  ref: React.ForwardedRef<TextInputInstance>
 ) => {
   const [uncontrolledValue, setUncontrolledValue] = React.useState(
     defaultValue ?? ""

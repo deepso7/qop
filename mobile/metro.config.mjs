@@ -1,4 +1,4 @@
-import { getDefaultConfig } from "expo/metro-config.js";
+import { getDefaultConfig } from "expo/metro-config";
 import { withUniwindConfig } from "uniwind/metro";
 
 const config = getDefaultConfig(import.meta.dirname);

@@ -8,7 +8,6 @@ import { Check, CheckCheck, Clock3, Plus } from "lucide-react-native";
 import * as React from "react";
 import {
   AccessibilityInfo,
-  InteractionManager,
   Platform,
   Pressable,
   StyleSheet,
@@ -17,6 +16,7 @@ import {
   useColorScheme,
   useWindowDimensions,
 } from "react-native";
+import type { ViewInstance } from "react-native";
 import Animated, {
   Easing,
   FadeIn,
@@ -506,7 +506,7 @@ const MessageActionRows = ({
   onRunAction,
 }: {
   actions: MessageAction[];
-  firstActionRef: React.RefObject<View | null>;
+  firstActionRef: React.RefObject<ViewInstance | null>;
   onRunAction: (action: MessageAction) => void;
 }) => (
   <>
@@ -568,7 +568,7 @@ const MessageLongPressOverlay = ({
   blurTarget: ReturnType<typeof useBlurTarget>;
   children: React.ReactNode;
   colorScheme: ReturnType<typeof useColorScheme>;
-  firstActionRef: React.RefObject<View | null>;
+  firstActionRef: React.RefObject<ViewInstance | null>;
   left: number;
   onAddReaction: () => void;
   onClose: () => void;
@@ -678,8 +678,8 @@ const MessageLongPressMenu = ({
   onReaction,
   reactions = DEFAULT_REACTIONS,
 }: MessageLongPressMenuProps) => {
-  const triggerRef = React.useRef<View>(null);
-  const firstActionRef = React.useRef<View>(null);
+  const triggerRef = React.useRef<ViewInstance>(null);
+  const firstActionRef = React.useRef<ViewInstance>(null);
   const wasOpen = React.useRef(false);
   const portalName = React.useId();
   const [open, setOpen] = React.useState(false);
@@ -746,7 +746,7 @@ const MessageLongPressMenu = ({
     if (open) {
       AccessibilityInfo.announceForAccessibility("Message actions opened");
 
-      const task = InteractionManager.runAfterInteractions(() => {
+      const task = requestIdleCallback(() => {
         requestAnimationFrame(() => {
           const actionNode = findNodeHandle(firstActionRef.current);
 
@@ -758,7 +758,7 @@ const MessageLongPressMenu = ({
 
       wasOpen.current = true;
 
-      return () => task.cancel();
+      return () => cancelIdleCallback(task);
     }
 
     if (wasOpen.current) {

@@ -95,6 +95,7 @@ export default {
   plugins: [
     "expo-router",
     "expo-font",
+    "expo-image",
     "expo-secure-store",
     "expo-sqlite",
     [
@@ -110,6 +111,8 @@ export default {
         resizeMode: "contain",
       },
     ],
+    "expo-status-bar",
+    "expo-web-browser",
     ["expo-dev-client", { addGeneratedScheme: appVariant === "development" }],
   ],
   scheme: variant.scheme,

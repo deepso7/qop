@@ -127,7 +127,7 @@ const publicIdentity = Effect.fn("IdentityVault.publicIdentity")(function* ({
 export interface IdentityVaultDependencies {
   readonly makeInstallMarker: () => {
     readonly exists: boolean;
-    readonly write: (value: string) => void;
+    readonly writeSync: (value: string) => void;
   };
   readonly randomBytes: () => Promise<Uint8Array>;
   readonly secureStore: {
@@ -165,7 +165,7 @@ export const createIdentityVault = ({
   )(() =>
     Effect.try({
       catch: () => vaultError("install-state"),
-      try: () => sandboxInstallMarker().write(INSTALL_STORAGE_VALUE),
+      try: () => sandboxInstallMarker().writeSync(INSTALL_STORAGE_VALUE),
     })
   );
 

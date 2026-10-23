@@ -43,7 +43,7 @@ P2P and fully decentralised apps can easily become complicated and difficult to 
 
 ## EXPO
 
-- Read the exact versioned docs at https://docs.expo.dev/versions/v57.0.0/ and relevant skills before writing any code.
+- Read the exact versioned docs at https://docs.expo.dev/versions/v58.0.0/ and relevant skills before writing any code.
 
 ## Vendored Repositories
 

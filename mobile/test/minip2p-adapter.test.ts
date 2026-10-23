@@ -46,13 +46,19 @@ const native = vi.hoisted(() => {
 });
 
 vi.mock("../node_modules/@minip2p/react-native/lib/module/native.js", () => ({
+  CloseOutcome: {},
+  ConfigCapability: {},
+  ConnectTarget: {},
   DiscoverySource: {},
   DriverFailureKind: {},
   EndpointErrorKind: {},
   FfiError_Tags: {},
+  MdnsFailureKind: {},
   NatErrorKind: {},
   P2pEndpoint: native.Endpoint,
   Reachability: {},
+  TimeoutLimit: {},
+  WindowLimit: {},
   circuitAddress: vi.fn(),
   generateSecretKey: vi.fn(),
   peerIdFromSecretKey: vi.fn(),

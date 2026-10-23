@@ -3,7 +3,7 @@ engineStrict: true
 saveExact: true
 
 catalog:
-  effect: 4.0.4
+  effect: 4.0.5
   typescript: 7.0.2
 
 packages:
@@ -13,7 +13,8 @@ packages:
   - packages/*
 
 overrides:
-  "@react-native/metro-config": 0.86.3
+  "@react-native/metro-config": 0.88.0
+  "@effect/platform-node-shared": 4.0.5
 
 allowBuilds:
   dtrace-provider: true
@@ -23,11 +24,3 @@ allowBuilds:
 
 patchedDependencies:
   drizzle-orm@1.0.0-rc.5-5935859: patches/drizzle-orm@1.0.0-rc.5-5935859.patch
-
-minimumReleaseAgeExclude:
-  - "@expo/cli@57.0.31"
-  - "@expo/router-server@57.0.13"
-  - babel-preset-expo@57.0.16
-  - expo@57.0.30
-  - "@expo/ui@57.0.25"
-  - expo-router@57.0.28

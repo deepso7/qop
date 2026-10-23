@@ -122,7 +122,12 @@ const useP2pStore = createP2pStore({
     bindAppState: () => () => {},
     endpoint: {
       activeReservation: () => {},
-      close: () => {},
+      close: () =>
+        Promise.resolve({
+          outcome: "Drained",
+          reason: "close",
+          unfinished: [],
+        }),
       connect: () => Promise.reject(new Error("No dial in handoff fixture")),
       connectedPeers,
       disconnect: vi.fn(),

@@ -38,7 +38,7 @@ const loadVault = () =>
 
         return fileSystemMock.markers.has(INSTALL_MARKER_FILENAME);
       },
-      write: () => {
+      writeSync: () => {
         if (fileSystemMock.failWrite) {
           throw new Error("marker write failed");
         }

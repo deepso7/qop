@@ -1,7 +1,6 @@
 import { Minip2p, bindAppState } from "@minip2p/react-native";
 import { randomUUID } from "expo-crypto";
 import { AppState } from "react-native";
-import type { AppStateStatus } from "react-native";
 
 import { useIdentityStore } from "./identity-store";
 import { loadDeviceSecretKey } from "./identity-vault";
@@ -45,7 +44,7 @@ export const useP2pStore = createP2pStore({
   performSend,
   randomUUID,
   subscribeAppResume: (onResume) => {
-    let previous: AppStateStatus = AppState.currentState;
+    let previous = AppState.currentState;
 
     const subscription = AppState.addEventListener("change", (next) => {
       if (

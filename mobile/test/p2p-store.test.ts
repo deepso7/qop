@@ -53,6 +53,13 @@ type InboundStream = Connection & {
 };
 
 let closed: Parameters<P2pEndpoint["onClose"]>[0] | undefined;
+
+const closeReport = {
+  outcome: "Drained",
+  reason: "close",
+  unfinished: [],
+} as const;
+
 let driverFailed: ((event: { detail: string }) => void) | undefined;
 let connectionEstablished: ((connection: Connection) => void) | undefined;
 let onStream: ((stream: InboundStream) => void) | undefined;
@@ -142,7 +149,7 @@ const useP2pStore = createP2pStore({
     bindAppState: () => () => {},
     endpoint: {
       activeReservation: () => {},
-      close: () => {},
+      close: () => Promise.resolve(closeReport),
       connect,
       connectedPeers,
       disconnect,
@@ -286,7 +293,7 @@ describe("interrupted sends", () => {
 
   it("makes an endpoint-interrupted send retryable with its original ID", async () => {
     const { id, pending } = await beginSend();
-    closed?.({ reason: "close" });
+    closed?.(closeReport);
     pending.reject(new Error("connection closed"));
     await vi.waitFor(async () =>
       expect(await getMessageById(id)).toMatchObject({ status: "failed" })
@@ -331,7 +338,7 @@ describe("interrupted sends", () => {
 
   it("restarts from failed before retrying a message", async () => {
     const { id, pending } = await beginSend();
-    closed?.({ reason: "close" });
+    closed?.(closeReport);
     pending.reject(new Error("connection closed"));
     await vi.waitFor(async () =>
       expect(await getMessageById(id)).toMatchObject({ status: "failed" })
@@ -350,7 +357,7 @@ describe("interrupted sends", () => {
 
   it("coalesces concurrent retries for the same message", async () => {
     const { id, pending } = await beginSend();
-    closed?.({ reason: "close" });
+    closed?.(closeReport);
     pending.reject(new Error("connection closed"));
     await vi.waitFor(async () =>
       expect(await getMessageById(id)).toMatchObject({ status: "failed" })
@@ -370,7 +377,7 @@ describe("interrupted sends", () => {
 
   it("retries after a capped stop cancels an abandoned retry", async () => {
     const { id, pending } = await beginSend();
-    closed?.({ reason: "close" });
+    closed?.(closeReport);
     pending.reject(new Error("connection closed"));
     await vi.waitFor(async () =>
       expect(await getMessageById(id)).toMatchObject({ status: "failed" })
@@ -527,11 +534,9 @@ describe("peer paths", () => {
     path.mockReturnValue({ kind: "relayed", relayPeerId: "relay" });
     await useP2pStore.getState().start();
     expect(useP2pStore.getState().peerPaths[PEER_BOB]?.kind).toBe("relayed");
-    path.mockReturnValue({ kind: "directPunched" });
+    path.mockReturnValue({ kind: "punched" });
     pathUpgraded?.();
-    expect(useP2pStore.getState().peerPaths[PEER_BOB]?.kind).toBe(
-      "directPunched"
-    );
+    expect(useP2pStore.getState().peerPaths[PEER_BOB]?.kind).toBe("punched");
   });
 });
 
@@ -541,7 +546,7 @@ describe("connectTo", () => {
     isPeerReady.mockReturnValue(false);
     connect.mockResolvedValue({
       connectId: 1,
-      path: { kind: "directDialed" },
+      path: { kind: "direct" },
       peerId: PEER_BOB,
     });
 

@@ -1,7 +1,9 @@
 import type { TabTriggerSlotProps, TabListProps } from "expo-router/ui";
 import { Tabs, TabList, TabTrigger, TabSlot } from "expo-router/ui";
 import { SymbolView } from "expo-symbols";
+import type { RefAttributes } from "react";
 import { Pressable, View } from "react-native";
+import type { ViewInstance } from "react-native";
 
 import { useTheme } from "@/constants/theme";
 
@@ -9,11 +11,16 @@ import { ExternalLink } from "./external-link";
 import { Surface } from "./ui/surface";
 import { Text } from "./ui/text";
 
+// expo-router still types the slot ref as the `View` component; RN's strict
+// API wants the host instance, which is what TabTrigger actually passes.
+type TabButtonProps = Omit<TabTriggerSlotProps, "ref"> &
+  RefAttributes<ViewInstance>;
+
 export const TabButton = ({
   children,
   isFocused,
   ...props
-}: TabTriggerSlotProps) => (
+}: TabButtonProps) => (
   <Pressable {...props} className="min-h-11 justify-center active:opacity-70">
     <Surface
       className="min-h-11 justify-center rounded-md px-4"
