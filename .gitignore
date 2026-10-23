@@ -145,3 +145,6 @@ vite.config.ts.timestamp-*
 .repos/
 .codex-tasks/
 .DS_Store
+
+# Vercel CLI link and build output
+.vercel

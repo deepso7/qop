@@ -40,7 +40,8 @@ const Port = Schema.NumberFromString.check(
 export const EnvSchema = Schema.Struct({
   CHAIN_ID: ChainId,
   DATABASE_URL: Schema.Trim.check(Schema.isNonEmpty()),
-  PORT: Port,
+  // Only the Node server listens on it; Vercel functions don't set it.
+  PORT: Port.pipe(Schema.withDecodingDefaultKey(Effect.succeed("3000"))),
   REGISTRATION_PRIVATE_KEY: PrivateKey,
   REGISTRY_ADDRESS: RegistryAddress,
   REGISTRY_CONFIRMATIONS: Confirmations,
