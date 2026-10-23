@@ -39,10 +39,24 @@ Schema changes use `db:push`; this package does not commit migration files. This
 
 ## Deployment
 
-`pnpm --filter @qop/api build` bundles the API into a single `dist/main.mjs`. `api/Dockerfile` builds it and ships only that bundle plus the node binary. Build it from the repo root:
+`pnpm --filter @qop/api build` bundles the API twice: `dist/main.mjs` is a Node server, and `.vercel/output` is a prebuilt Vercel deployment with one function serving every path.
+
+### Docker
+
+`api/Dockerfile` ships only `dist/main.mjs` plus the node binary. Build it from the repo root:
 
 ```sh
 docker build -f api/Dockerfile -t qop-api .
 ```
 
 Pass the variables from `.env.example` as container environment variables. The container listens on `PORT`, which defaults to `3000`.
+
+### Vercel
+
+Vercel runs `src/vercel.ts`, a fetch handler over the same routes, as a Node.js function. `vercel.json` installs only the API's workspace dependencies and runs the build. Vercel then deploys `.vercel/output` as-is rather than compiling TypeScript itself, because its TypeScript builder doesn't work with TypeScript 7. Project setup:
+
+- Set **Root Directory** to `api` and keep "Include files outside the root directory" enabled.
+- Add the variables from `.env.example` except `PORT`, plus `ENABLE_EXPERIMENTAL_COREPACK=1` so the build uses the pnpm version pinned in the root `package.json`.
+- Use Neon's pooled connection string (the `-pooler` host, with `sslmode=require`) for `DATABASE_URL`, and put the function region next to the database.
+
+Vercel only pins Node majors, so the install skips the root `engines` check on the exact Node version.
