@@ -19,6 +19,24 @@
       "skillPath": "skills/engineering/ask-matt/SKILL.md",
       "computedHash": "0cd14026efa0330083cbc7adf590976c162b60e02f696a8dcce96f0b4dab8a72"
     },
+    "blume": {
+      "source": "haydenbleasel/blume",
+      "sourceType": "github",
+      "skillPath": "skills/blume/SKILL.md",
+      "computedHash": "282e79ef5cd50b10371134b1d172fc528c60ae9a3cc12a03e9f192df858961ad"
+    },
+    "blume-update-docs": {
+      "source": "haydenbleasel/blume",
+      "sourceType": "github",
+      "skillPath": "skills/blume-update-docs/SKILL.md",
+      "computedHash": "484f1f58068762161d7322dfb52383684156b52a8998c44d918e80e9d91ec7a3"
+    },
+    "blume-write-skill": {
+      "source": "haydenbleasel/blume",
+      "sourceType": "github",
+      "skillPath": "skills/blume-write-skill/SKILL.md",
+      "computedHash": "f25a13c2ec6683d20c3e4bd695c1be963cd586ac9e332f296985cff9e2dd7fbc"
+    },
     "claude-handoff": {
       "source": "mattpocock/skills",
       "sourceType": "github",
