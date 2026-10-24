@@ -1,0 +1,86 @@
+---
+title: Privacy Policy
+description: What data qop handles, where it goes, and what stays on your device.
+---
+
+_Last updated: October 24, 2026_
+
+qop is a peer-to-peer messaging app. Messages travel directly between devices, and qop has no message servers. This policy covers the qop mobile app, the qop CLI, and the qop API.
+
+## What we don't collect
+
+qop does not ask for or collect your phone number, email address, contacts, location, photos, or microphone or camera access. The app includes no analytics, advertising, crash-reporting, or tracking SDKs.
+
+## Your account
+
+Your account is a handle you choose and a set of cryptographic keys created on your device.
+
+- **Owner key (recovery key):** controls your account. It's generated on your device and never sent to us. It leaves your device only if you export it yourself.
+- **Device keys:** each device you use has its own key pair. Only the public half is shared.
+
+### Public registry
+
+qop accounts are recorded in a public smart contract on the Ethereum blockchain. When you register or link a device, the following become **public and permanent**:
+
+- your handle
+- your owner address
+- your account number
+- the public keys of devices added to or removed from your account, with timestamps
+
+Anyone can read this data, and blockchain records cannot be deleted. Removing a device marks it as removed, but its history stays on the chain.
+
+## The qop API
+
+The app uses the qop API to submit registry transactions for you, so you don't need to pay blockchain fees. To do that, it receives and stores:
+
+- the handle, owner address, and device public key in your request
+- signatures that authorize the request
+- a hashed copy of the invite code you used
+- the resulting transaction and its status
+
+The API does not receive or store messages, contacts, or private keys. These records are kept to operate the service, and most of them match what is already public on chain. The API is hosted on Vercel with a Neon Postgres database. Like any web service, our hosting providers may log technical request data such as IP addresses.
+
+## Messages
+
+- **No server storage:** messages are sent directly between devices over minip2p connections, which are encrypted in transit. qop does not run servers that store messages.
+- **Relay:** when two devices can't connect directly, traffic may pass through a minip2p relay server. The relay can see IP addresses and which peers are connecting, and when.
+- **Peers see your IP:** like other peer-to-peer apps, devices you connect to directly can see your IP address.
+- **Your own CLI:** if you link the qop CLI, it can hold messages for your phone while the phone is offline. These are stored on the computer running the CLI, not on our servers.
+
+## Blockchain lookups
+
+To find people and check their devices, the app reads the public registry through a blockchain RPC provider (currently Alchemy). That provider can see your IP address and which handles or accounts you look up.
+
+## Data on your device
+
+Your keys are kept in your device's secure storage (iOS Keychain or Android Keystore). Your contacts and message history are kept in a local database on your device.
+
+**Log out** in the app deletes your keys, contacts, and messages from that device. If you haven't exported your recovery key, you can't recover your account after logging out.
+
+## Permissions
+
+- **Local network (iOS) and Wi-Fi state (Android):** for peer-to-peer networking.
+- **Clipboard:** used only when you paste a device-pairing code or copy your peer ID.
+
+## Deleting your data
+
+- **On your device:** use **Log out** to delete local data.
+- **Linked devices:** you can remove a linked device from your account in the app.
+- **Public registry:** handles and device history on the blockchain cannot be deleted by anyone, including us.
+- **API records:** to ask us to delete them, contact us below. Data that is already on chain stays public.
+
+## Children
+
+qop is not directed at children under 13.
+
+## Open source
+
+qop is open source. You can check how it handles data in the [source code](https://github.com/deepso7/qop).
+
+## Changes
+
+We'll update this page when our data practices change, and show the new date at the top.
+
+## Contact
+
+For privacy questions or deletion requests, open an issue at [github.com/deepso7/qop/issues](https://github.com/deepso7/qop/issues).
