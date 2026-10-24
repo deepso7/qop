@@ -18,7 +18,7 @@
   "dependencies": {
     "@expo/material-symbols": "0.1.1",
     "@expo/ui": "58.0.22",
-    "@minip2p/react-native": "0.10.2",
+    "@minip2p/react-native": "0.10.4",
     "@qop/identity": "workspace:*",
     "@qop/protocol": "workspace:*",
     "@rn-primitives/accordion": "1.5.2",

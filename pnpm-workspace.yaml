@@ -24,3 +24,15 @@ allowBuilds:
 
 patchedDependencies:
   drizzle-orm@1.0.0-rc.5-5935859: patches/drizzle-orm@1.0.0-rc.5-5935859.patch
+
+minimumReleaseAgeExclude:
+  - "@minip2p/core@0.10.4"
+  - "@minip2p/node-darwin-arm64@0.10.4"
+  - "@minip2p/node-darwin-x64@0.10.4"
+  - "@minip2p/node-linux-arm64-gnu@0.10.4"
+  - "@minip2p/node-linux-arm64-musl@0.10.4"
+  - "@minip2p/node-linux-x64-gnu@0.10.4"
+  - "@minip2p/node-linux-x64-musl@0.10.4"
+  - "@minip2p/node-win32-x64-msvc@0.10.4"
+  - "@minip2p/node@0.10.4"
+  - "@minip2p/react-native@0.10.4"
