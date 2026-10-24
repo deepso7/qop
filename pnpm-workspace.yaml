@@ -22,7 +22,6 @@ allowBuilds:
   esbuild: true
   msgpackr-extract: false
   protobufjs: true
-
 patchedDependencies:
   drizzle-orm@1.0.0-rc.5-5935859: patches/drizzle-orm@1.0.0-rc.5-5935859.patch
 
@@ -47,3 +46,5 @@ permissions:
     skills: true
   ultracite:
     skills: false
+  workerd:
+    build: true
