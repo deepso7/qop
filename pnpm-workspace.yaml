@@ -11,6 +11,7 @@ packages:
   - cli
   - mobile
   - packages/*
+  - web
 
 overrides:
   "@react-native/metro-config": 0.88.0
@@ -36,3 +37,13 @@ minimumReleaseAgeExclude:
   - "@minip2p/node-win32-x64-msvc@0.10.4"
   - "@minip2p/node@0.10.4"
   - "@minip2p/react-native@0.10.4"
+
+permissions:
+  blume:
+    skills: true
+  drizzle-kit:
+    skills: true
+  expo-sqlite:
+    skills: true
+  ultracite:
+    skills: false
