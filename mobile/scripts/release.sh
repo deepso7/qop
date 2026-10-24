@@ -22,8 +22,11 @@ case "$platform" in
     pnpm eas submit -p ios --profile "$profile" --non-interactive --path "$artifact"
     ;;
   android)
-    echo "android release flow not set up yet" >&2
-    exit 1
+    artifact="./build-$profile.aab"
+    # Local Gradle builds need the SDK; default to Android Studio's install path.
+    ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}" \
+      pnpm eas build -p android --profile "$profile" --local --non-interactive --output "$artifact"
+    pnpm eas submit -p android --profile "$profile" --non-interactive --path "$artifact"
     ;;
   *)
     echo "unknown platform: $platform" >&2
