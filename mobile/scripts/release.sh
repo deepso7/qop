@@ -12,6 +12,9 @@ cd "$(dirname "$0")/.."
 # eas submit reads app.config.ts outside the build profile's env, so pin the
 # variant for it to resolve the right bundle identifier and stored API key.
 export APP_VARIANT="$profile"
+# CocoaPods crashes under a non-UTF-8 locale; EAS only sets LANG, which a
+# C/POSIX LC_CTYPE or LC_ALL from the shell still overrides.
+export LC_ALL=en_US.UTF-8
 
 case "$platform" in
   ios)
