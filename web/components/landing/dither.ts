@@ -70,7 +70,10 @@ export const toneDither = (
     throw new Error("2D canvas context unavailable");
   }
 
-  const still = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  // Reduced motion draws one still frame; followed live, so turning it on
+  // while the page is open stops the animation (and turning it off resumes it).
+  const motion = matchMedia("(prefers-reduced-motion: reduce)");
+  let still = motion.matches;
   let frame = 0;
   let cols = 0;
   let rows = 0;
@@ -141,13 +144,21 @@ export const toneDither = (
     }
   });
 
+  const onMotionChange = () => {
+    still = motion.matches;
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(still ? () => draw(0) : draw);
+  };
+
   observer.observe(canvas);
+  motion.addEventListener("change", onMotionChange);
   resize();
   frame = requestAnimationFrame(draw);
 
   return () => {
     cancelAnimationFrame(frame);
     observer.disconnect();
+    motion.removeEventListener("change", onMotionChange);
   };
 };
 
