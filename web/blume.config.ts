@@ -9,6 +9,10 @@ export default defineConfig({
   description: "Peer-to-peer messaging with nothing in the middle.",
   // The pixel wordmark, in currentColor so it follows the theme.
   logo: { image: "/logo.svg", text: "" },
+  // Privacy lives in the footer, not the header.
+  footer: {
+    links: [{ label: "Privacy", href: "/privacy" }],
+  },
   // Colours and the dark theme live in theme.css; these set the accent for
   // generated assets (OG cards) and the fonts.
   theme: {
