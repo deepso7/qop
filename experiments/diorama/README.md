@@ -2,6 +2,8 @@
 
 A 10 second looping isometric pixel-art diorama. Left of the stream, two people chat through the usual apps: every message goes up to the tower, the eye reads it, a copy lands on the data pile and an ad pops up. Right of the stream, two people chat on qop: messages go straight from phone to phone, and the tower can only squint.
 
+![The diorama at 2 s, 4 s and 8 s](preview.png)
+
 Vite + TypeScript + Three.js, rendered at 192×192, Bayer-dithered and upscaled with nearest neighbour.
 
 ```sh
@@ -10,7 +12,7 @@ pnpm dev                 # live, quantised to the same 30 fps frames as a record
                          # ?t=4 holds one moment
 pnpm shots               # shots/t0.png … t8.png
 pnpm record              # frames/0000.png … 0299.png, then ffmpeg (see scripts/record.ts)
-pnpm build               # dist/, ~455 KB JS
+pnpm build               # dist/, ~456 KB JS
 ```
 
 | file | what |
