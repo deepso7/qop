@@ -67,7 +67,7 @@ camera.position.set(60, 60, 60);
 
 camera.lookAt(0, 0, 0);
 
-camera.position.add(new Vector3(0, 1.8, 0));
+camera.position.add(new Vector3(0, 2.8, 0));
 
 camera.updateMatrixWorld();
 
@@ -389,7 +389,7 @@ export const createDiorama = () => {
       const bob = (Math.floor(t * 4) % 2) * 0.5;
       place(question, [
         tower.cell[0] + 1.5,
-        tower.height + 3.5 + bob,
+        tower.height + 3 + bob,
         tower.cell[1] + 1.5,
       ]);
     }
