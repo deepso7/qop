@@ -21,12 +21,18 @@ const { route, navigation, searchEnabled, searchStrings, searchLocale, searchVer
 
 const overTide = route === "/";
 
+// Chips are pale on the tide and a quiet surface on the page. h-8 chips with
+// py-4 make the header h-16, like Blume's own.
+const chip = ["flex h-8 items-center notch-sm text-sm", overTide ? "bg-foam text-on-foam" : "bg-surface text-ink"];
+const iconChip = [...chip, "w-8 cursor-pointer justify-center border-0 p-0 hover:text-brand"];
+
 const links = [
   { label: "docs", href: "/docs" },
   { label: "github", href: "https://github.com" },
 ];
 
-// 9x9 pixel icons, drawn one unit square per "#".
+// 9x9 pixel icons, drawn one unit square per "#". Each renders in a size-6
+// box at 2px per pixel (viewBox padded to 12 units).
 const ICONS = {
   moon: ["...####..", "..###....", ".###.....", ".###.....", ".###.....", ".###.....", ".###.....", "..###....", "...####.."],
   sun: ["....#....", ".#.....#.", "...###...", "..#####..", "#.#####.#", "..#####..", "...###...", ".#.....#.", "....#...."],
@@ -37,41 +43,58 @@ const toPath = (rows: readonly string[]) =>
   rows.flatMap((row, y) => [...row].map((c, x) => (c === "#" ? `M${x} ${y}h1v1h-1z` : ""))).join("");
 ---
 
-<header class="qh" data-blume-header data-over-tide={overTide ? "" : undefined}>
+<header
+  class:list={[
+    "z-40 flex items-center gap-2 px-6 py-4",
+    overTide ? "absolute inset-x-0 top-0" : "sticky top-0 bg-paper",
+  ]}
+  data-blume-header
+>
   {
     !overTide && (
       <button
         type="button"
-        class="qh-chip qh-icon qh-menu"
+        class:list={[iconChip, "lg:hidden"]}
         aria-controls="blume-nav-drawer"
         aria-expanded="false"
         aria-label="Toggle navigation"
         data-blume-nav-toggle
       >
-        <svg viewBox="0 0 9 9" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
+        <svg class="size-6" viewBox="-1.5 -1.5 12 12" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
           <path d={toPath(ICONS.menu)} />
         </svg>
       </button>
     )
   }
-  <a href="/" class="qh-mark" aria-label="qop home">
-    <svg viewBox="16 16 96 96" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
+  <!-- The app-icon mark on a tile that inverts per theme (see theme.css). -->
+  <a href="/" class="grid size-8 place-items-center bg-mark-tile text-mark notch-sm" aria-label="qop home">
+    <svg class="size-6" viewBox="0 0 128 128" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
       <path d="M32 16h64v32H32zM16 32h32v64H16zM80 32h32v64H80zM32 80h64v32H32z" />
     </svg>
   </a>
-  <nav class="qh-chip qh-nav" aria-label="Site">
+  <nav class:list={[chip, "hidden gap-6 px-4 sm:flex"]} aria-label="Site">
     {
       links.map((l) => (
-        <a href={l.href} aria-current={route.startsWith(l.href) ? "page" : undefined}>
+        <a
+          href={l.href}
+          class="hover:text-brand aria-[current=page]:text-brand"
+          aria-current={route.startsWith(l.href) ? "page" : undefined}
+        >
           {l.label}
         </a>
       ))
     }
   </nav>
-  <div class="qh-actions">
+  <div class="ml-auto flex gap-2">
     {
       searchEnabled && (
-        <span class="qh-chip qh-search">
+        <span
+          class:list={[
+            chip,
+            // Blume's search trigger, restyled to fill the chip.
+            "[&_[data-blume-search-open]]:size-8 [&_[data-blume-search-open]]:rounded-none [&_[data-blume-search-open]]:text-inherit [&_[data-blume-search-open]:hover]:bg-transparent [&_[data-blume-search-open]:hover]:text-brand",
+          ]}
+        >
           <Search
             assistantEnabled={assistantEnabled}
             locale={searchLocale}
@@ -83,15 +106,15 @@ const toPath = (rows: readonly string[]) =>
         </span>
       )
     }
-    <button type="button" class="qh-chip qh-icon" data-blume-theme-toggle aria-label="Toggle dark mode">
-      <svg class="qh-moon" viewBox="0 0 9 9" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
+    <button type="button" class:list={iconChip} data-blume-theme-toggle aria-label="Toggle dark mode">
+      <svg class="size-6 dark:hidden" viewBox="-1.5 -1.5 12 12" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
         <path d={toPath(ICONS.moon)} />
       </svg>
-      <svg class="qh-sun" viewBox="0 0 9 9" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
+      <svg class="hidden size-6 dark:block" viewBox="-1.5 -1.5 12 12" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
         <path d={toPath(ICONS.sun)} />
       </svg>
     </button>
-    <a href="/#download" class="qh-chip qh-cta">Download</a>
+    <a href="/#download" class:list={[chip, "px-4 hover:text-brand"]}>Download</a>
   </div>
 </header>
 
@@ -152,112 +175,3 @@ const toPath = (rows: readonly string[]) =>
   });
 </script>
 
-<style>
-  .qh {
-    /* Chips are pale on the tide, and a quiet surface on the page. */
-    --chip-bg: var(--qp-element);
-    --chip-fg: var(--qp-ink);
-    position: sticky;
-    top: 0;
-    z-index: 40;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    /* Same box on every page, so chips don't jump when navigating. */
-    padding: 1.1rem 1.5rem;
-    background: var(--qp-paper);
-  }
-  .qh[data-over-tide] {
-    --chip-bg: var(--qp-foam);
-    --chip-fg: var(--qp-on-foam);
-    position: absolute;
-    inset: 0 0 auto;
-    background: none;
-  }
-  a {
-    color: inherit;
-    text-decoration: none;
-  }
-  .qh-chip {
-    display: flex;
-    align-items: center;
-    height: 2.15rem;
-    background: var(--chip-bg);
-    color: var(--chip-fg);
-    font-size: 0.9rem;
-    clip-path: var(--qp-notch-sm);
-  }
-  /* The app-icon mark as a square tile, inverted per theme (see theme.css). */
-  .qh-mark {
-    display: grid;
-    place-items: center;
-    width: 2.15rem;
-    height: 2.15rem;
-    background: var(--qp-mark-tile);
-    color: var(--qp-mark);
-    clip-path: var(--qp-notch-sm);
-  }
-  .qh-mark svg,
-  .qh-icon svg {
-    width: 18px;
-    height: 18px;
-  }
-  .qh-nav {
-    gap: 1.4rem;
-    padding: 0 0.9rem;
-  }
-  .qh-nav a:hover,
-  .qh-nav [aria-current] {
-    color: var(--qp-orange);
-  }
-  .qh-actions {
-    display: flex;
-    gap: 0.5rem;
-    margin-left: auto;
-  }
-  .qh-icon {
-    justify-content: center;
-    width: 2.15rem;
-    padding: 0;
-    border: 0;
-    cursor: pointer;
-  }
-  .qh-icon:hover,
-  .qh-cta:hover {
-    color: var(--qp-orange);
-  }
-  .qh-sun,
-  :global(:root[data-theme="dark"]) .qh-moon {
-    display: none;
-  }
-  :global(:root[data-theme="dark"]) .qh-sun {
-    display: block;
-  }
-  /* Blume's search trigger, restyled to fill the chip. */
-  .qh-search :global([data-blume-search-open]) {
-    width: 2.15rem;
-    height: 2.15rem;
-    border-radius: 0;
-    color: inherit;
-  }
-  .qh-search :global([data-blume-search-open]:hover) {
-    background: none;
-    color: var(--qp-orange);
-  }
-  .qh-cta {
-    padding: 0 0.9rem;
-  }
-  .qh-menu {
-    display: none;
-  }
-  @media (max-width: 64rem) {
-    .qh-menu {
-      display: flex;
-    }
-  }
-  @media (max-width: 40rem) {
-    .qh-nav {
-      display: none;
-    }
-  }
-</style>
