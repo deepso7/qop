@@ -9,6 +9,13 @@ export default defineConfig({
   description: "Peer-to-peer messaging with nothing in the middle.",
   // The pixel wordmark, in currentColor so it follows the theme.
   logo: { image: "/logo.svg", text: "" },
+  // The docs sidebar covers /docs only, so the landing and privacy pages stay
+  // standalone. The header itself is our own (components/site-header.astro).
+  navigation: {
+    tabs: [{ label: "Docs", path: "/docs" }],
+  },
+  // qop has no analytics, so Blume's "Was this page helpful?" would record nothing.
+  feedback: false,
   // Privacy lives in the footer, not the header.
   footer: {
     links: [{ label: "Privacy", href: "/privacy" }],
