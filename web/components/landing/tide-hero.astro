@@ -28,17 +28,37 @@
 <script>
   import { tide } from "./tide";
 
-  const canvas = document.querySelector<HTMLCanvasElement>("[data-tide]");
-  const root = document.documentElement;
+  // Blume's client router swaps pages without a reload and runs this module
+  // once, so (re)mount on every page load and stop before each swap.
+  let stop: (() => void) | undefined;
 
-  if (canvas) {
-    const mount = () => tide(canvas, root.dataset.theme === "dark" ? "dark" : "light");
-    let stop = mount();
+  const mount = () => {
+    const canvas = document.querySelector<HTMLCanvasElement>("[data-tide]");
 
-    new MutationObserver(() => {
-      stop();
-      stop = mount();
-    }).observe(root, { attributes: true, attributeFilter: ["data-theme"] });
-  }
+    if (!canvas) {
+      return;
+    }
+
+    // Draw in the current theme, and redraw when the reader toggles it.
+    const root = document.documentElement;
+    const draw = () => tide(canvas, root.dataset.theme === "dark" ? "dark" : "light");
+    let stopTide = draw();
+    const observer = new MutationObserver(() => {
+      stopTide();
+      stopTide = draw();
+    });
+
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    stop = () => {
+      stopTide();
+      observer.disconnect();
+    };
+  };
+
+  document.addEventListener("astro:page-load", mount);
+  document.addEventListener("astro:before-swap", () => {
+    stop?.();
+    stop = undefined;
+  });
 </script>
 

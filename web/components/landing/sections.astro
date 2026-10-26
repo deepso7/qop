@@ -19,8 +19,9 @@ const small = "text-xs tracking-wide uppercase";
 const row = "grid gap-2 py-2 md:grid-cols-3 md:items-baseline md:gap-4";
 
 const platforms = [
-  { key: "iOS", value: "App Store", href: "#" },
-  { key: "Android", value: "Google Play", href: "#" },
+  // No store listings yet: shown as text until there are real links.
+  { key: "iOS", value: "App Store" },
+  { key: "Android", value: "Google Play" },
   { key: "Terminal", value: "qop link --account you", href: "/docs", mono: true },
 ];
 ---
@@ -57,9 +58,15 @@ const platforms = [
           <div class={row}>
             <dt class:list={[small, "text-subtle"]}>{p.key}</dt>
             <dd class="text-lg tracking-tight md:col-span-2 md:text-2xl">
-              <a href={p.href} class:list={["hover:text-brand", p.mono && "font-mono tracking-tighter"]}>
-                {p.value} <span aria-hidden="true">↗</span>
-              </a>
+              {p.href ? (
+                <a href={p.href} class:list={["hover:text-brand", p.mono && "font-mono tracking-tighter"]}>
+                  {p.value} <span aria-hidden="true">↗</span>
+                </a>
+              ) : (
+                <span>
+                  {p.value} <span class="text-subtle">soon</span>
+                </span>
+              )}
             </dd>
           </div>
         ))
