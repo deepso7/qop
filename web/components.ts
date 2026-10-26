@@ -6,8 +6,9 @@ export default defineComponents({
     Sections: "./components/landing/sections.astro",
     TideHero: "./components/landing/tide-hero.astro",
   },
-  // One header for the whole site: the landing page and every docs page.
+  // One header and footer for the whole site: the landing page and every docs page.
   layout: {
     Header: "./components/site-header.astro",
+    Footer: "./components/site-footer.astro",
   },
 });
