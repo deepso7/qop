@@ -14,9 +14,9 @@
   /* Pale chips that sit on the tide in both themes, with fixed dark text. */
   --qp-foam: #f7eadf;
   --qp-on-foam: oklch(0.17 0.008 250);
-  /* The app-icon mark: terracotta o on a near-black tile, inverted in dark. */
+  /* The mark: terracotta o on a pale tile in light, the near-black app-icon tile in dark. */
   --qp-mark: #b96c45;
-  --qp-mark-tile: #0d1012;
+  --qp-mark-tile: var(--qp-foam);
 
   /* Stepped corners: the pixel version of a rounded rect. */
   --qp-notch: polygon(
@@ -79,7 +79,7 @@
   --qp-muted: oklch(0.72 0.015 55);
   --qp-orange: oklch(0.7 0.12 48);
   --qp-link: oklch(0.74 0.12 50);
-  --qp-mark-tile: var(--qp-foam);
+  --qp-mark-tile: #0d1012;
 
   --blume-background: var(--qp-paper);
   --blume-foreground: var(--qp-ink);
