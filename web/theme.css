@@ -14,6 +14,8 @@
   /* Pale chips that sit on the tide in both themes, with fixed dark text. */
   --qp-foam: oklch(0.944 0.02 62.9);
   --qp-on-foam: oklch(0.17 0.008 250);
+  /* Orange text on those pale chips: fixed, since the chips don't change. */
+  --qp-link-on-foam: oklch(0.5 0.11 45);
   /* The mark: terracotta o on a pale tile in light, the near-black app-icon tile in dark. */
   --qp-mark: oklch(0.609 0.112 46.7);
   --qp-mark-tile: var(--qp-foam);
@@ -140,20 +142,32 @@ html {
   --color-ink: var(--qp-ink);
   --color-surface: var(--qp-element);
   --color-subtle: var(--qp-muted);
+  /* brand is for fills and art; link is the AA text shade of it. */
   --color-brand: var(--qp-orange);
+  --color-link: var(--qp-link);
+  --color-link-on-foam: var(--qp-link-on-foam);
   --color-foam: var(--qp-foam);
   --color-on-foam: var(--qp-on-foam);
   --color-mark: var(--qp-mark);
   --color-mark-tile: var(--qp-mark-tile);
 }
 
-/* Stepped (pixel) corners. */
+/* Stepped (pixel) corners. The clip would cut off an outer focus ring, so
+   draw it just inside the edge. */
 @utility notch {
   clip-path: var(--qp-notch);
+
+  &:focus-visible {
+    outline-offset: -2px;
+  }
 }
 
 @utility notch-sm {
   clip-path: var(--qp-notch-sm);
+
+  &:focus-visible {
+    outline-offset: -2px;
+  }
 }
 
 /* The landing page runs edge to edge: drop the padding Blume's <main> adds. */

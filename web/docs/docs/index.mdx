@@ -1,8 +1,22 @@
 ---
 title: Introduction
-description: Welcome to your new documentation site. Edit this page or add Markdown files beside it, and Blume turns each file into a page.
+description: qop is a minimal, secure messaging app. Messages go straight from your phone to theirs, with no message servers in between.
 ---
 
-Welcome to **Blume**, the open-source docs framework for humans and agents.
+qop is built on [minip2p](https://minip2p.com). It's open source and self-hostable.
 
-Edit `docs/index.mdx` and save: this page reloads with your changes.
+## How it works
+
+- **Peer to peer.** Messages travel directly between devices. qop has no message servers.
+- **Keys stay on your devices.** Your phone creates its keys and never sends the private halves to us.
+- **Identity on chain.** A public registry maps your handle to your owner address and device keys, so peers can check who they're talking to.
+- **No phone number.** You pick a handle instead.
+
+## Use it from the terminal
+
+The qop CLI links to your account as a second device, approved from your phone, and then chats as you. See the [CLI guide](https://github.com/deepso7/qop/tree/main/cli) to set it up.
+
+## More
+
+- [Source on GitHub](https://github.com/deepso7/qop)
+- [Privacy policy](/privacy)

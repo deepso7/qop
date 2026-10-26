@@ -24,7 +24,15 @@ const overTide = route === "/";
 // Chips are pale on the tide and a quiet surface on the page. h-8 chips with
 // py-4 make the header h-16, like Blume's own.
 const chip = ["flex h-8 items-center notch-sm text-sm", overTide ? "bg-foam text-on-foam" : "bg-surface text-ink"];
-const iconChip = [...chip, "w-8 cursor-pointer justify-center border-0 p-0 hover:text-brand"];
+
+// Orange hover text at AA contrast for the chip it sits on.
+const accent = overTide ? "hover:text-link-on-foam" : "hover:text-link";
+
+const searchAccent = overTide
+  ? "[&_[data-blume-search-open]:hover]:text-link-on-foam"
+  : "[&_[data-blume-search-open]:hover]:text-link";
+
+const iconChip = [...chip, "w-8 cursor-pointer justify-center border-0 p-0", accent];
 
 const links = [
   { label: "docs", href: "/docs" },
@@ -74,7 +82,7 @@ const toPath = (rows: readonly string[]) =>
       links.map((l) => (
         <a
           href={l.href}
-          class="hover:text-brand aria-[current=page]:text-brand"
+          class:list={[accent, "aria-[current=page]:text-link"]}
           aria-current={route.startsWith(l.href) ? "page" : undefined}
         >
           {l.label}
@@ -89,7 +97,8 @@ const toPath = (rows: readonly string[]) =>
           class:list={[
             chip,
             // Blume's search trigger, restyled to fill the chip.
-            "[&_[data-blume-search-open]]:size-8 [&_[data-blume-search-open]]:rounded-none [&_[data-blume-search-open]]:text-inherit [&_[data-blume-search-open]:hover]:bg-transparent [&_[data-blume-search-open]:hover]:text-brand",
+            "[&_[data-blume-search-open]]:size-8 [&_[data-blume-search-open]]:rounded-none [&_[data-blume-search-open]]:text-inherit [&_[data-blume-search-open]:hover]:bg-transparent",
+            searchAccent,
           ]}
         >
           <Search
@@ -111,7 +120,7 @@ const toPath = (rows: readonly string[]) =>
         <path d={toPath(ICONS.sun)} />
       </svg>
     </button>
-    <a href="/#download" class:list={[chip, "px-4 hover:text-brand"]}>Download</a>
+    <a href="/#download" class:list={[chip, "px-4", accent]}>Download</a>
   </div>
 </header>
 

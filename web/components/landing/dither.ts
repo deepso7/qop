@@ -59,7 +59,7 @@ export interface ToneOptions {
 }
 
 // Mounts a multi-shade dither onto a canvas sized by CSS, redrawn every frame
-// (once per resize under reduced motion); returns a stop function.
+// while visible (once per resize under reduced motion); returns a stop function.
 export const toneDither = (
   canvas: HTMLCanvasElement,
   { cell, ramp, field, overlay }: ToneOptions
@@ -74,7 +74,11 @@ export const toneDither = (
   // while the page is open stops the animation (and turning it off resumes it).
   const motion = matchMedia("(prefers-reduced-motion: reduce)");
   let still = motion.matches;
+  // Off-screen (scrolled past) the loop pauses, so it costs nothing there.
+  let visible = true;
   let frame = 0;
+
+  const running = () => !still && visible;
   let cols = 0;
   let rows = 0;
 
@@ -131,7 +135,7 @@ export const toneDither = (
 
     overlay?.(paint, t, cols, rows);
 
-    if (!still) {
+    if (running()) {
       frame = requestAnimationFrame(draw);
     }
   };
@@ -144,13 +148,28 @@ export const toneDither = (
     }
   });
 
-  const onMotionChange = () => {
-    still = motion.matches;
+  // Restart the loop, or draw one still frame when motion is reduced.
+  const restart = () => {
     cancelAnimationFrame(frame);
-    frame = requestAnimationFrame(still ? () => draw(0) : draw);
+    frame = requestAnimationFrame(running() ? draw : () => draw(0));
   };
 
+  const onMotionChange = () => {
+    still = motion.matches;
+    restart();
+  };
+
+  // Hiding just lets the loop stop on its next frame; showing restarts it.
+  const visibility = new IntersectionObserver(([entry]) => {
+    visible = entry.isIntersecting;
+
+    if (visible) {
+      restart();
+    }
+  });
+
   observer.observe(canvas);
+  visibility.observe(canvas);
   motion.addEventListener("change", onMotionChange);
   resize();
   frame = requestAnimationFrame(draw);
@@ -158,6 +177,7 @@ export const toneDither = (
   return () => {
     cancelAnimationFrame(frame);
     observer.disconnect();
+    visibility.disconnect();
     motion.removeEventListener("change", onMotionChange);
   };
 };

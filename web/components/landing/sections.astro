@@ -59,7 +59,7 @@ const platforms = [
             <dt class:list={[small, "text-subtle"]}>{p.key}</dt>
             <dd class="text-lg tracking-tight md:col-span-2 md:text-2xl">
               {p.href ? (
-                <a href={p.href} class:list={["hover:text-brand", p.mono && "font-mono tracking-tighter"]}>
+                <a href={p.href} class:list={["hover:text-link", p.mono && "font-mono tracking-tighter"]}>
                   {p.value} <span aria-hidden="true">↗</span>
                 </a>
               ) : (
