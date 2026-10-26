@@ -5,9 +5,10 @@ import { FPS, LOOP } from "./play";
 import { createPost, RES } from "./post";
 
 // Modes:
-//   default      plays live, but time is quantised to the same 30 fps frames as a recording
-//   ?t=4         holds a single moment (seconds into the loop)
-//   ?record=1    renders nothing on its own; scripts/record.ts calls window.diorama.draw(i)
+//   default         plays live, but time is quantised to the same 30 fps frames as a recording
+//   ?t=4            holds a single moment (seconds into the loop)
+//   reduced motion  holds t=4 instead of playing
+//   ?record=1       renders nothing on its own; scripts/record.ts calls window.diorama.draw(i)
 
 declare global {
   interface Window {
@@ -74,6 +75,10 @@ if (record) {
   draw(0);
 } else if (params.has("t")) {
   draw(Math.round(Number(params.get("t")) * FPS));
+} else if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+  // One still that shows both sides at work: an ad on the left, a qop message
+  // in flight on the right, and the tower's "?".
+  draw(4 * FPS);
 } else {
   // Only render when the 30 fps frame index moves on; faster displays would
   // otherwise redraw the same frame several times.

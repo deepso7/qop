@@ -74,24 +74,37 @@ camera.updateMatrixWorld();
 const right = new Vector3().setFromMatrixColumn(camera.matrixWorld, 0);
 const up = new Vector3().setFromMatrixColumn(camera.matrixWorld, 1);
 
+// Moves straight up the screen without leaving the ground plane. `right` is
+// already flat, so ground shadows can snap along these two and keep their height.
+const groundUp = new Vector3(-1, 0, -1).normalize();
+
 const half = island.size / 2;
 const v = new Vector3();
 
 /**
- * Puts an object at a cell-space position, snapped to the low-res pixel grid
- * on screen. Moving things then rasterise identically every time they pass a
- * spot, so nothing shimmers.
+ * Snaps a cell-space position to the low-res pixel grid on screen: sideways
+ * along `right`, vertically along `vertical`, then sets the object there.
  */
-const place = (o: Object3D, [x, y, z]: Vec3) => {
+const snap = (o: Object3D, [x, y, z]: Vec3, vertical: Vector3) => {
   v.set(x - half, y, z - half);
   const a = v.dot(right);
   const b = v.dot(up);
   v.addScaledVector(right, Math.round(a / PX) * PX - a).addScaledVector(
-    up,
-    Math.round(b / PX) * PX - b
+    vertical,
+    (Math.round(b / PX) * PX - b) / vertical.dot(up)
   );
   o.position.set(v.x + half, v.y, v.z + half);
 };
+
+/**
+ * Puts an object at a cell-space position, snapped to the pixel grid. Moving
+ * things then rasterise identically every time they pass a spot, so nothing
+ * shimmers.
+ */
+const place = (o: Object3D, p: Vec3) => snap(o, p, up);
+
+/** Like `place`, for flat decals that must stay at their height above the ground. */
+const placeOnGround = (o: Object3D, p: Vec3) => snap(o, p, groundUp);
 
 /** Where a person's phone is, for bubbles to leave from and land on. */
 const phoneOf = (at: Vec3, facing: Facing): Vec3 => {
@@ -195,7 +208,7 @@ const show = (b: { o: Object3D; blob: Object3D }, p: Vec3 | null) => {
 
   if (p) {
     place(b.o, [p[0], p[1], p[2] - 0.5]);
-    place(b.blob, [p[0], 0.02, p[2]]);
+    placeOnGround(b.blob, [p[0], 0.02, p[2]]);
   }
 };
 
