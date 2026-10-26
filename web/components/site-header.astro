@@ -163,7 +163,8 @@ const toPath = (rows: readonly string[]) =>
     display: flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.9rem 1.25rem;
+    /* Same box on every page, so chips don't jump when navigating. */
+    padding: 1.1rem 1.5rem;
     background: var(--qp-paper);
   }
   .qh[data-over-tide] {
@@ -171,7 +172,6 @@ const toPath = (rows: readonly string[]) =>
     --chip-fg: var(--qp-on-foam);
     position: absolute;
     inset: 0 0 auto;
-    padding: 1.4rem 1.75rem;
     background: none;
   }
   a {

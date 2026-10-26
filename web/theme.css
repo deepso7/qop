@@ -103,6 +103,11 @@
   --qp-scroll-thumb-hover: var(--qp-orange);
 }
 
+/* Reserve the scrollbar's space so short and long pages share one width. */
+html {
+  scrollbar-gutter: stable;
+}
+
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--qp-scroll-thumb) transparent;
