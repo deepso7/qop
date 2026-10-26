@@ -1,0 +1,102 @@
+---
+// "Tide" hero for the landing page: a full-bleed multi-shade dither (see
+// tide.ts) under the floating site header, with the copy on the bare paper
+// below the shore. The tide follows the site theme and redraws when it changes.
+---
+
+<section class="tide">
+  <canvas data-tide></canvas>
+  <div class="t-copy">
+    <p class="t-label">peer → peer</p>
+    <h1>Nothing in<br />the middle.</h1>
+    <p class="t-lede">qop sends each message straight from your phone to theirs. No server holds it, reads it, or keeps it.</p>
+    <div class="t-ctas">
+      <a class="t-btn" href="#download">Download</a>
+      <a class="t-link" href="/docs">$ qop --help</a>
+    </div>
+  </div>
+</section>
+
+<script>
+  import { tide } from "./tide";
+
+  const canvas = document.querySelector<HTMLCanvasElement>("[data-tide]");
+  const root = document.documentElement;
+
+  if (canvas) {
+    const mount = () => tide(canvas, root.dataset.theme === "dark" ? "dark" : "light");
+    let stop = mount();
+
+    new MutationObserver(() => {
+      stop();
+      stop = mount();
+    }).observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+  }
+</script>
+
+<style>
+  /* The landing page runs edge to edge: drop the padding Blume's <main> adds. */
+  :global(#blume-content:has([data-tide])) {
+    padding: 0;
+  }
+  .tide {
+    position: relative;
+    height: clamp(38rem, 88vh, 50rem);
+    overflow: hidden;
+  }
+  .tide canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .t-copy {
+    position: absolute;
+    left: max(1.75rem, calc((100% - 72rem) / 2 + 1.5rem));
+    bottom: 4rem;
+    max-width: 30rem;
+  }
+  .t-label {
+    margin: 0 0 0.9rem;
+    font-family: var(--blume-font-mono);
+    font-size: 0.8rem;
+    color: var(--qp-orange);
+  }
+  h1 {
+    margin: 0 0 1rem;
+    font-family: var(--blume-font-mono);
+    font-weight: 450;
+    font-size: clamp(2.5rem, 5vw, 3.75rem);
+    line-height: 1.05;
+    letter-spacing: -0.04em;
+  }
+  .t-lede {
+    margin: 0 0 1.75rem;
+    color: var(--qp-muted);
+    font-size: 1.05rem;
+    line-height: 1.55;
+  }
+  .t-ctas {
+    display: flex;
+    align-items: center;
+    gap: 1.25rem;
+  }
+  .t-btn {
+    padding: 0.6rem 1.1rem;
+    background: var(--qp-ink);
+    color: var(--qp-paper);
+    clip-path: var(--qp-notch);
+  }
+  .t-btn:hover {
+    background: var(--qp-orange);
+    color: var(--qp-on-foam);
+  }
+  .t-link {
+    font-family: var(--blume-font-mono);
+    font-size: 0.85rem;
+  }
+</style>

@@ -1,0 +1,264 @@
+---
+// qop's site header, used on every page through the `Header` layout slot
+// (components.ts): the app-icon mark, a nav chip, search, a pixel theme toggle
+// and Download. On the landing page (`/`) it floats over the tide with pale
+// chips; elsewhere it is a sticky bar on the page background.
+import Search from "blume/components/layout/Search.astro";
+import data from "blume:data";
+
+// The props Blume's built-in header receives that this one uses.
+interface Props {
+  readonly route: string;
+  readonly navigation: Parameters<typeof Search>[0]["navigation"];
+  readonly searchEnabled: boolean;
+  readonly searchStrings?: Parameters<typeof Search>[0]["strings"];
+  readonly searchLocale?: string;
+  readonly searchVersion?: string | null;
+  readonly assistantEnabled?: boolean;
+}
+
+const { route, navigation, searchEnabled, searchStrings, searchLocale, searchVersion = null, assistantEnabled = false } = Astro.props;
+
+const overTide = route === "/";
+
+const links = [
+  { label: "docs", href: "/docs" },
+  { label: "privacy", href: "/privacy" },
+  { label: "github", href: "https://github.com" },
+];
+
+// 9x9 pixel icons, drawn one unit square per "#".
+const ICONS = {
+  moon: ["...####..", "..###....", ".###.....", ".###.....", ".###.....", ".###.....", ".###.....", "..###....", "...####.."],
+  sun: ["....#....", ".#.....#.", "...###...", "..#####..", "#.#####.#", "..#####..", "...###...", ".#.....#.", "....#...."],
+  menu: [".........", "#########", "#########", ".........", "#########", "#########", ".........", "#########", "#########"],
+};
+
+const toPath = (rows: readonly string[]) =>
+  rows.flatMap((row, y) => [...row].map((c, x) => (c === "#" ? `M${x} ${y}h1v1h-1z` : ""))).join("");
+---
+
+<header class="qh" data-blume-header data-over-tide={overTide ? "" : undefined}>
+  {
+    !overTide && (
+      <button
+        type="button"
+        class="qh-chip qh-icon qh-menu"
+        aria-controls="blume-nav-drawer"
+        aria-expanded="false"
+        aria-label="Toggle navigation"
+        data-blume-nav-toggle
+      >
+        <svg viewBox="0 0 9 9" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
+          <path d={toPath(ICONS.menu)} />
+        </svg>
+      </button>
+    )
+  }
+  <a href="/" class="qh-mark" aria-label="qop home">
+    <svg viewBox="16 16 96 96" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
+      <path d="M32 16h64v32H32zM16 32h32v64H16zM80 32h32v64H80zM32 80h64v32H32z" />
+    </svg>
+  </a>
+  <nav class="qh-chip qh-nav" aria-label="Site">
+    {
+      links.map((l) => (
+        <a href={l.href} aria-current={route.startsWith(l.href) ? "page" : undefined}>
+          {l.label}
+        </a>
+      ))
+    }
+  </nav>
+  <div class="qh-actions">
+    {
+      searchEnabled && (
+        <span class="qh-chip qh-search">
+          <Search
+            assistantEnabled={assistantEnabled}
+            locale={searchLocale}
+            navigation={navigation}
+            popularPages={data.config.search.popular}
+            strings={searchStrings}
+            version={searchVersion}
+          />
+        </span>
+      )
+    }
+    <button type="button" class="qh-chip qh-icon" data-blume-theme-toggle aria-label="Toggle dark mode">
+      <svg class="qh-moon" viewBox="0 0 9 9" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
+        <path d={toPath(ICONS.moon)} />
+      </svg>
+      <svg class="qh-sun" viewBox="0 0 9 9" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
+        <path d={toPath(ICONS.sun)} />
+      </svg>
+    </button>
+    <a href="/#download" class="qh-chip qh-cta">Download</a>
+  </div>
+</header>
+
+<script>
+  // Replacing Blume's header drops its click handlers, so this mirrors them:
+  // the theme toggle (remembered under Blume's "blume-theme" key, which its
+  // head script reads on load) and the docs sidebar drawer on small screens.
+  const root = document.documentElement;
+
+  const save = (key: string, value: string) => {
+    try {
+      localStorage.setItem(key, value);
+    } catch {
+      // Storage blocked: the choice applies but isn't remembered.
+    }
+  };
+
+  // The drawer sits under the header; Blume's drawer styles read this offset.
+  const placeDrawer = () => {
+    const header = document.querySelector("[data-blume-header]");
+
+    if (header) {
+      root.style.setProperty("--blume-drawer-top", `${header.getBoundingClientRect().bottom}px`);
+    }
+  };
+
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null;
+
+    if (target?.closest("[data-blume-theme-toggle]")) {
+      const next = root.dataset.theme === "dark" ? "light" : "dark";
+
+      root.dataset.theme = next;
+      save("blume-theme", next);
+    }
+
+    if (target?.closest("[data-blume-nav-toggle]")) {
+      if (Object.hasOwn(root.dataset, "blumeNavOpen")) {
+        delete root.dataset.blumeNavOpen;
+      } else {
+        root.dataset.blumeNavOpen = "";
+        placeDrawer();
+      }
+    }
+  });
+
+  // Crossing into the desktop layout closes the drawer so its scroll lock can't outlive it.
+  addEventListener("resize", () => {
+    if (!Object.hasOwn(root.dataset, "blumeNavOpen")) {
+      return;
+    }
+
+    if (matchMedia("(min-width: 64rem)").matches) {
+      delete root.dataset.blumeNavOpen;
+    } else {
+      placeDrawer();
+    }
+  });
+</script>
+
+<style>
+  .qh {
+    /* Chips are pale on the tide, and a quiet surface on the page. */
+    --chip-bg: var(--qp-element);
+    --chip-fg: var(--qp-ink);
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.9rem 1.25rem;
+    background: var(--qp-paper);
+  }
+  .qh[data-over-tide] {
+    --chip-bg: var(--qp-foam);
+    --chip-fg: var(--qp-on-foam);
+    position: absolute;
+    inset: 0 0 auto;
+    padding: 1.4rem 1.75rem;
+    background: none;
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .qh-chip {
+    display: flex;
+    align-items: center;
+    height: 2.15rem;
+    background: var(--chip-bg);
+    color: var(--chip-fg);
+    font-size: 0.9rem;
+    clip-path: var(--qp-notch-sm);
+  }
+  /* The app-icon mark as a square tile, inverted per theme (see theme.css). */
+  .qh-mark {
+    display: grid;
+    place-items: center;
+    width: 2.15rem;
+    height: 2.15rem;
+    background: var(--qp-mark-tile);
+    color: var(--qp-mark);
+    clip-path: var(--qp-notch-sm);
+  }
+  .qh-mark svg,
+  .qh-icon svg {
+    width: 18px;
+    height: 18px;
+  }
+  .qh-nav {
+    gap: 1.4rem;
+    padding: 0 0.9rem;
+  }
+  .qh-nav a:hover,
+  .qh-nav [aria-current] {
+    color: var(--qp-orange);
+  }
+  .qh-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-left: auto;
+  }
+  .qh-icon {
+    justify-content: center;
+    width: 2.15rem;
+    padding: 0;
+    border: 0;
+    cursor: pointer;
+  }
+  .qh-icon:hover,
+  .qh-cta:hover {
+    color: var(--qp-orange);
+  }
+  .qh-sun,
+  :global(:root[data-theme="dark"]) .qh-moon {
+    display: none;
+  }
+  :global(:root[data-theme="dark"]) .qh-sun {
+    display: block;
+  }
+  /* Blume's search trigger, restyled to fill the chip. */
+  .qh-search :global([data-blume-search-open]) {
+    width: 2.15rem;
+    height: 2.15rem;
+    border-radius: 0;
+    color: inherit;
+  }
+  .qh-search :global([data-blume-search-open]:hover) {
+    background: none;
+    color: var(--qp-orange);
+  }
+  .qh-cta {
+    padding: 0 0.9rem;
+  }
+  .qh-menu {
+    display: none;
+  }
+  @media (max-width: 64rem) {
+    .qh-menu {
+      display: flex;
+    }
+  }
+  @media (max-width: 40rem) {
+    .qh-nav {
+      display: none;
+    }
+  }
+</style>
