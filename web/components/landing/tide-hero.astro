@@ -43,6 +43,7 @@
     const root = document.documentElement;
     const draw = () => tide(canvas, root.dataset.theme === "dark" ? "dark" : "light");
     let stopTide = draw();
+
     const observer = new MutationObserver(() => {
       stopTide();
       stopTide = draw();
@@ -56,6 +57,7 @@
   };
 
   document.addEventListener("astro:page-load", mount);
+
   document.addEventListener("astro:before-swap", () => {
     stop?.();
     stop = undefined;
