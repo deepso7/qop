@@ -55,4 +55,16 @@ export default defineConfig({
     "max-classes-per-file": "off",
     "promise/prefer-await-to-callbacks": "off",
   },
+  overrides: [
+    {
+      // Standalone Three.js experiments: Three classes are not Effect services,
+      // and voxel code leans on counters and bit math.
+      files: ["experiments/**"],
+      rules: {
+        "anti-slop-effect/no-service-constructor-imports": "off",
+        "no-bitwise": "off",
+        "no-plusplus": "off",
+      },
+    },
+  ],
 });
