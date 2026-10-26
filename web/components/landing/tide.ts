@@ -144,19 +144,29 @@ const build = (w: number, h: number): Scene => {
 export const tide = (canvas: HTMLCanvasElement, mode: TideMode) => {
   const { ramp, foam, line, collar, surf }: Palette = PALETTES[mode];
   let scene: Scene | undefined;
-  let key = "";
+  let sceneW = -1;
+  let sceneH = -1;
 
+  // `field` runs for every cell every frame, so these helpers allocate nothing.
   const at = (w: number, h: number) => {
-    if (key !== `${w}x${h}` || !scene) {
-      key = `${w}x${h}`;
+    if (!scene || sceneW !== w || sceneH !== h) {
+      sceneW = w;
+      sceneH = h;
       scene = build(w, h);
     }
 
     return scene;
   };
 
-  const nearMark = ({ s, marks }: Scene, x: number, y: number) =>
-    Math.min(...marks.map((m) => markDistance((x - m.x) / s, (y - m.y) / s)));
+  const nearMark = ({ s, marks }: Scene, x: number, y: number) => {
+    let best = Infinity;
+
+    for (const m of marks) {
+      best = Math.min(best, markDistance((x - m.x) / s, (y - m.y) / s));
+    }
+
+    return best;
+  };
 
   return toneDither(canvas, {
     cell: 4,
@@ -185,9 +195,10 @@ export const tide = (canvas: HTMLCanvasElement, mode: TideMode) => {
       // Two broken surf lines ride just behind the shore, set apart from the water.
       const wash = Math.sin(t * 0.7 + x * 0.05) * 0.008;
 
-      const onSurf = [0.012, 0.05].some(
-        (f) => Math.abs(d - f - wash) < 0.007 * noise(x * 0.08, t * 0.3) * 2
-      );
+      const band = 0.014 * noise(x * 0.08, t * 0.3);
+
+      const onSurf =
+        Math.abs(d - 0.012 - wash) < band || Math.abs(d - 0.05 - wash) < band;
 
       return onSurf ? surf : tone;
     },
