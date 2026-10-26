@@ -75,8 +75,18 @@ if (record) {
 } else if (params.has("t")) {
   draw(Math.round(Number(params.get("t")) * FPS));
 } else {
+  // Only render when the 30 fps frame index moves on; faster displays would
+  // otherwise redraw the same frame several times.
+  let last = -1;
+
   const tick = () => {
-    draw(Math.floor((performance.now() / 1000) * FPS));
+    const i = Math.floor((performance.now() / 1000) * FPS);
+
+    if (i !== last) {
+      last = i;
+      draw(i);
+    }
+
     requestAnimationFrame(tick);
   };
 

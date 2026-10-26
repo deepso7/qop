@@ -10,6 +10,8 @@
 //   ffmpeg -framerate 30 -i frames/%04d.png -vf "split[a][b];[a]palettegen[p];[b][p]paletteuse=dither=none" diorama.gif
 
 import { mkdir, rm } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { parseArgs } from "node:util";
 
 import { chromium } from "playwright";
@@ -27,7 +29,7 @@ const { values } = parseArgs({
 
 const scale = Number(values.scale);
 
-const root = new URL("..", import.meta.url).pathname;
+const root = fileURLToPath(new URL("..", import.meta.url));
 
 const server = values.dist
   ? await preview({ root, logLevel: "error", preview: { port: 0 } })
@@ -63,7 +65,8 @@ await page.waitForFunction(() => window.diorama !== undefined);
 const canvas = page.locator("#stage");
 const frames = await page.evaluate(() => window.diorama?.frames ?? 0);
 
-const out = values.shots ? "shots" : "frames";
+// Always inside the experiment, whatever directory the script is run from.
+const out = path.join(root, values.shots ? "shots" : "frames");
 
 await rm(out, { recursive: true, force: true });
 
@@ -79,10 +82,10 @@ for (const i of indices) {
   await page.evaluate((n) => window.diorama?.draw(n), i);
   const name = values.shots ? `t${i / 30}` : String(i).padStart(4, "0");
   // oxlint-disable-next-line no-await-in-loop -- sequential by design
-  await canvas.screenshot({ path: `${out}/${name}.png` });
+  await canvas.screenshot({ path: path.join(out, `${name}.png`) });
 }
 
-console.log(`wrote ${indices.length} PNGs to ${out}/`);
+console.log(`wrote ${indices.length} PNGs to ${out}`);
 
 await browser.close();
 
