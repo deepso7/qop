@@ -25,16 +25,30 @@ interface Palette {
 // Light: deep water darkens against the paper. Dark: it glows against the page.
 const PALETTES = {
   light: {
-    ramp: ["#EED5C3", "#E2B596", "#CF8F68", "#B96C45", "#8E4C2D", "#63311C"],
-    foam: "#F7EADF",
-    line: "#E2B596",
+    ramp: [
+      "oklch(0.889 0.037 58)",
+      "oklch(0.806 0.067 56.1)",
+      "oklch(0.705 0.094 52)",
+      "oklch(0.609 0.112 46.7)",
+      "oklch(0.49 0.1 44.8)",
+      "oklch(0.374 0.079 42.7)",
+    ],
+    foam: "oklch(0.944 0.02 62.9)",
+    line: "oklch(0.806 0.067 56.1)",
     collar: 6,
     surf: 0.8,
   },
   dark: {
-    ramp: ["#2B1E18", "#3E2A20", "#5A3725", "#7E4A2E", "#A65E3A", "#C9754A"],
-    foam: "#F7EADF",
-    line: "#EED5C3",
+    ramp: [
+      "oklch(0.249 0.023 45.9)",
+      "oklch(0.306 0.035 47.6)",
+      "oklch(0.374 0.058 47.6)",
+      "oklch(0.464 0.082 48.2)",
+      "oklch(0.557 0.107 46.3)",
+      "oklch(0.646 0.121 46.9)",
+    ],
+    foam: "oklch(0.944 0.02 62.9)",
+    line: "oklch(0.889 0.037 58)",
     collar: 1,
     surf: 5.6,
   },
