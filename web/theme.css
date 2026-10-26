@@ -1,0 +1,96 @@
+/* qop theme: warm paper and terracotta in light, a dark tide in dark.
+   The --qp-* tokens are qop's own (used by the landing page); the --blume-*
+   tokens restyle the docs from them, so both stay in sync. */
+
+:root {
+  --qp-paper: oklch(0.95 0.006 60);
+  --qp-ink: oklch(0.17 0.008 250);
+  --qp-element: oklch(0.911 0.0061 51.5);
+  --qp-border: oklch(0.833 0.0063 34.5);
+  --qp-muted: oklch(0.4508 0.00728 311.2);
+  /* Brand terracotta for fills and art; --qp-link is the AA-contrast text shade. */
+  --qp-orange: oklch(0.61 0.112 47);
+  --qp-link: oklch(0.5 0.11 45);
+  /* Pale chips that sit on the tide in both themes, with fixed dark text. */
+  --qp-foam: #f7eadf;
+  --qp-on-foam: oklch(0.17 0.008 250);
+  /* The app-icon mark: terracotta o on a near-black tile, inverted in dark. */
+  --qp-mark: #b96c45;
+  --qp-mark-tile: #0d1012;
+
+  /* Stepped corners: the pixel version of a rounded rect. */
+  --qp-notch: polygon(
+    0 6px,
+    3px 6px,
+    3px 3px,
+    6px 3px,
+    6px 0,
+    calc(100% - 6px) 0,
+    calc(100% - 6px) 3px,
+    calc(100% - 3px) 3px,
+    calc(100% - 3px) 6px,
+    100% 6px,
+    100% calc(100% - 6px),
+    calc(100% - 3px) calc(100% - 6px),
+    calc(100% - 3px) calc(100% - 3px),
+    calc(100% - 6px) calc(100% - 3px),
+    calc(100% - 6px) 100%,
+    6px 100%,
+    6px calc(100% - 3px),
+    3px calc(100% - 3px),
+    3px calc(100% - 6px),
+    0 calc(100% - 6px)
+  );
+  --qp-notch-sm: polygon(
+    0 3px,
+    3px 3px,
+    3px 0,
+    calc(100% - 3px) 0,
+    calc(100% - 3px) 3px,
+    100% 3px,
+    100% calc(100% - 3px),
+    calc(100% - 3px) calc(100% - 3px),
+    calc(100% - 3px) 100%,
+    3px 100%,
+    3px calc(100% - 3px),
+    0 calc(100% - 3px)
+  );
+
+  --blume-background: var(--qp-paper);
+  --blume-foreground: var(--qp-ink);
+  --blume-muted: var(--qp-element);
+  --blume-muted-foreground: var(--qp-muted);
+  --blume-border: var(--qp-border);
+  --blume-accent: var(--qp-link);
+  --blume-accent-foreground: var(--qp-paper);
+  --blume-code-background: oklch(0.975 0.004 60);
+  --blume-code-highlight: oklch(0.61 0.112 47 / 0.12);
+  --blume-code-highlight-border: oklch(0.61 0.112 47 / 0.6);
+  --blume-code-word: oklch(0.61 0.112 47 / 0.16);
+  --blume-code-word-border: oklch(0.61 0.112 47 / 0.5);
+  --blume-radius: 0.25rem;
+}
+
+:root[data-theme="dark"] {
+  --qp-paper: oklch(0.17 0.012 45);
+  --qp-ink: oklch(0.94 0.012 60);
+  --qp-element: oklch(0.23 0.014 45);
+  --qp-border: oklch(0.32 0.018 45);
+  --qp-muted: oklch(0.72 0.015 55);
+  --qp-orange: oklch(0.7 0.12 48);
+  --qp-link: oklch(0.74 0.12 50);
+  --qp-mark-tile: var(--qp-foam);
+
+  --blume-background: var(--qp-paper);
+  --blume-foreground: var(--qp-ink);
+  --blume-muted: var(--qp-element);
+  --blume-muted-foreground: var(--qp-muted);
+  --blume-border: var(--qp-border);
+  --blume-accent: var(--qp-link);
+  --blume-accent-foreground: var(--qp-paper);
+  --blume-code-background: oklch(0.2 0.013 45);
+  --blume-code-highlight: oklch(0.7 0.12 48 / 0.16);
+  --blume-code-highlight-border: oklch(0.7 0.12 48 / 0.6);
+  --blume-code-word: oklch(0.7 0.12 48 / 0.22);
+  --blume-code-word-border: oklch(0.7 0.12 48 / 0.55);
+}
