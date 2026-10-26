@@ -60,29 +60,40 @@ interface Scene {
 // Water depth at normalised (u, v): positive in the tide, negative on the paper.
 // The shoreline curves from high on the left to low on the right, breathing in
 // and out with small ripples along it.
-const depth = (u: number, v: number, t: number) =>
+// `k` is how landscape the canvas is (see `wideness`): on a tall phone screen the
+// shore flattens so the water stays above the copy instead of running down past it.
+const depth = (u: number, v: number, t: number, k: number) =>
   0.32 +
-  0.45 * u ** 1.6 -
+  0.04 * (1 - k) +
+  0.45 * k * u ** 1.6 -
   v +
   Math.sin(t * 0.45) * 0.018 +
   Math.sin(u * 12 + v * 5 - t * 0.9) * 0.01 +
   (noise(u * 7, v * 7 + t * 0.06) - 0.5) * 0.05;
 
+// 1 for a wide (desktop) canvas, falling towards 0 as it gets taller than wide.
+const wideness = (w: number, h: number) => Math.min(1, w / h / 1.6);
+
+const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
+
 // Lays out the peers (in cells) and rasterises the arc between them into an
 // ordered staircase of cells, so index = distance along the arc.
 const build = (w: number, h: number): Scene => {
-  const s = Math.max(2, Math.floor(h / 48));
+  const k = wideness(w, h);
+  // Mark scale: sized by the shorter side so phones get smaller peers.
+  const s = Math.max(2, Math.floor(Math.min(h / 48, w / 36)));
 
-  const centre = (u: number, v: number) => ({
-    x: Math.round(u * w - 4 * s),
-    y: Math.round(v * h - 4 * s),
+  // Peer positions blend from a portrait layout (k = 0) to the landscape one (k = 1).
+  const centre = (u0: number, v0: number, u1: number, v1: number) => ({
+    x: Math.round(lerp(u0, u1, k) * w - 4 * s),
+    y: Math.round(lerp(v0, v1, k) * h - 4 * s),
   });
 
-  const a = centre(0.5, 0.17);
-  const b = centre(0.84, 0.38);
+  const a = centre(0.26, 0.15, 0.5, 0.17);
+  const b = centre(0.72, 0.3, 0.84, 0.38);
   const p0 = { x: a.x + 7 * s + 1, y: a.y + 4 * s };
   const p2 = { x: b.x + s - 1, y: b.y + 4 * s };
-  const c = { x: w * 0.74, y: h * 0.1 };
+  const c = { x: w * lerp(0.62, 0.74, k), y: h * lerp(0.06, 0.1, k) };
   const path: Pt[] = [];
 
   for (let i = 0; i <= 2000; i += 1) {
@@ -137,7 +148,7 @@ export const tide = (canvas: HTMLCanvasElement, mode: TideMode) => {
     cell: 4,
     ramp,
     field: (x, y, t, w, h) => {
-      const d = depth(x / w, y / h, t);
+      const d = depth(x / w, y / h, t, wideness(w, h));
 
       // Wet sand just behind the wash, then bare paper for the copy.
       if (d < 0) {
@@ -180,7 +191,10 @@ export const tide = (canvas: HTMLCanvasElement, mode: TideMode) => {
           continue;
         }
 
-        if (depth(x / w, y / h, t) < 0.12 || nearMark(sc, x, y) < 2) {
+        if (
+          depth(x / w, y / h, t, wideness(w, h)) < 0.12 ||
+          nearMark(sc, x, y) < 2
+        ) {
           continue;
         }
 

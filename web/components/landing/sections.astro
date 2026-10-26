@@ -139,8 +139,10 @@ const platforms = [
   dt {
     color: var(--qp-muted);
   }
+  /* Blume's prose indents <dd>; these lists are flush. */
   dd {
     margin: 0;
+    padding: 0;
     color: var(--qp-ink);
     font-size: clamp(1.15rem, 1.8vw, 1.5rem);
     letter-spacing: -0.02em;
@@ -166,6 +168,25 @@ const platforms = [
     .list,
     dl div {
       grid-template-columns: 1fr;
+    }
+    /* Line up with the hero copy and tighten the desktop spacing. */
+    .profile,
+    .list {
+      gap: 0.5rem;
+      padding: 4rem 1.75rem 0;
+    }
+    .meta {
+      padding-inline: 1.75rem;
+    }
+    .big {
+      font-size: 1.65rem;
+    }
+    dl div {
+      gap: 0.15rem;
+      padding: 0.6rem 0;
+    }
+    .foot {
+      margin-top: 5rem;
     }
   }
 </style>
