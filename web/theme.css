@@ -94,3 +94,36 @@
   --blume-code-word: oklch(0.7 0.12 48 / 0.22);
   --blume-code-word-border: oklch(0.7 0.12 48 / 0.55);
 }
+
+/* Scrollbars: thin, square (pixel) thumb on a clear track, in theme colours.
+   Firefox and Chromium use the standard properties; older Safari, which lacks
+   them, falls back to the WebKit pseudo-elements (which can also tint on hover). */
+:root {
+  --qp-scroll-thumb: var(--qp-border);
+  --qp-scroll-thumb-hover: var(--qp-orange);
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--qp-scroll-thumb) transparent;
+}
+
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--qp-scroll-thumb);
+    border: 2px solid var(--qp-paper);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--qp-scroll-thumb-hover);
+  }
+}
