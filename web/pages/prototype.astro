@@ -1,0 +1,493 @@
+---
+// PROTOTYPE (throwaway): page directions for qop.sh, switchable with
+// ?variant=W|G and the bottom bar (or ← →). Blume's own header is hidden here;
+// the winner becomes a `Header` slot override.
+//   W "Waka": the whole page in the Waka Waka manner (see _prototype/WakaPage).
+//   G "Garden": the Peers hero as a shaped duotone panel with corner cut-outs.
+//   A "Antimattr": annotated line-drawing hero and bracket nav, Waka sections below.
+import PageLayout from "blume/components/layout/PageLayout.astro";
+import data from "blume:data";
+import PixelIcon from "./_prototype/PixelIcon.astro";
+import Sections from "./_prototype/Sections.astro";
+import WakaPage from "./_prototype/WakaPage.astro";
+import AntiHero from "./_prototype/AntiHero.astro";
+
+const { config } = data;
+const links = [
+  { label: "Docs", href: "/docs" },
+  { label: "CLI", href: "/docs" },
+  { label: "Privacy", href: "/privacy" },
+  { label: "GitHub", href: "https://github.com" },
+];
+---
+
+<PageLayout
+  site={{ title: config.title, description: config.description }}
+  logo={config.logo}
+  navigation={data.navigation}
+  fontCssVars={data.fontCssVars}
+  themeMode="light"
+  searchEnabled={config.search.enabled}
+  page={{ title: "qop prototype", route: "/prototype" }}
+  noindex={true}
+>
+  <div class="qp" data-variant="W">
+    <div data-v="W">
+      <WakaPage links={links} />
+    </div>
+
+    <div data-v="A">
+      <AntiHero links={links} />
+      <WakaPage links={links} intro={false} />
+    </div>
+
+    <div data-v="G">
+    <section class="hero-c">
+      <div class="g-tiles">
+        <a href="/" class="g-cut g-logo" aria-label="qop home">
+          <PixelIcon rows={["........", "..####..", ".######.", ".##..##.", ".##..##.", ".######.", "..####..", "........"]} size={56} />
+        </a>
+        <div class="g-cut g-navcut">
+          <nav class="g-pill">
+            {links.map((l) => <a href={l.href}>{l.label}</a>)}
+          </nav>
+        </div>
+        <div class="g-cut g-ctacut">
+          <a href="#download" class="g-pill g-cta">Download</a>
+        </div>
+      </div>
+      <div class="c-text">
+        <p class="label">peer → peer</p>
+        <h1 class="pixel">Nothing in<br />the middle.</h1>
+        <p class="lede">qop sends each message straight from your phone to theirs. No server holds it, reads it, or keeps it.</p>
+        <div class="ctas">
+          <a class="pill" href="#download">Download</a>
+          <a class="link mono" href="/docs">$ qop --help</a>
+        </div>
+      </div>
+      <canvas data-dither="peers"></canvas>
+    </section>
+
+    <Sections />
+    </div>
+  </div>
+
+  {
+    import.meta.env.DEV && (
+      <nav class="switcher" aria-label="Prototype variant">
+        <button data-step="-1" aria-label="Previous variant">←</button>
+        <span data-switch-label />
+        <button data-step="1" aria-label="Next variant">→</button>
+      </nav>
+    )
+  }
+</PageLayout>
+
+<script>
+  import { SOLID, dither, markDistance, noise, smoothstep, type Field } from "./_prototype/dither";
+
+  const ORANGE = "#B96C45";
+  const KEYS = ["W", "A", "G"] as const;
+  const NAMES = { W: "Waka", A: "Antimattr", G: "Garden" };
+  type Key = (typeof KEYS)[number];
+
+  // Two o peers joined by a dashed one-cell arc, with one packet crossing it
+  // every few seconds. Everything is static except the packet. Returns SOLID for
+  // the crisp marks/arc/packet, 0 for the paper cleared around them, or null
+  // where the motif doesn't reach.
+  type Pt = { x: number; y: number };
+  type Scene = { s: number; marks: readonly Pt[]; path: Pt[]; lane: Uint8Array };
+  const PERIOD = 7; // seconds per send: TRAVEL crossing, then a pause
+  const TRAVEL = 5;
+  let scene: Scene | undefined;
+  let sceneKey = "";
+
+  // Rasterises the arc once per size into an ordered, deduped list of cells (so
+  // index = arc length in cells) and a lane map: 1 = cleared, 2 = dash ink.
+  const build = (w: number, h: number): Scene => {
+    const s = Math.max(2, Math.floor(h / 34));
+    const a = { x: Math.round(w * 0.08), y: Math.round(h * 0.6) };
+    const b = { x: Math.round(w * 0.92 - 8 * s), y: Math.round(h * 0.2) };
+    const p0 = { x: a.x + 7 * s, y: a.y + 4 * s };
+    const p2 = { x: b.x + s, y: b.y + 4 * s };
+    const c = { x: (p0.x + p2.x) / 2, y: Math.min(p0.y, p2.y) - h * 0.22 };
+    const path: Pt[] = [];
+    for (let i = 0; i <= 2000; i++) {
+      const u = i / 2000;
+      const x = Math.round((1 - u) ** 2 * p0.x + 2 * (1 - u) * u * c.x + u * u * p2.x);
+      const y = Math.round((1 - u) ** 2 * p0.y + 2 * (1 - u) * u * c.y + u * u * p2.y);
+      const last = path.at(-1);
+      if (last?.x === x && last.y === y) continue;
+      // Skip the inner cell of an L-step so the line stays a clean staircase.
+      const prev = path.at(-2);
+      if (prev && Math.abs(prev.x - x) <= 1 && Math.abs(prev.y - y) <= 1) path.pop();
+      path.push({ x, y });
+    }
+    const lane = new Uint8Array(w * h);
+    path.forEach((p, i) => {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const px = p.x + dx;
+          const py = p.y + dy;
+          if (px >= 0 && py >= 0 && px < w && py < h) lane[py * w + px] ||= 1;
+        }
+      }
+      if (i % 4 < 2) lane[p.y * w + p.x] = 2;
+    });
+    return { s, marks: [a, b], path, lane };
+  };
+
+  const peers = (x: number, y: number, t: number, w: number, h: number): number | null => {
+    if (sceneKey !== `${w}x${h}`) {
+      sceneKey = `${w}x${h}`;
+      scene = build(w, h);
+    }
+    const { s, marks, path, lane } = scene!;
+    for (const m of marks) {
+      const d = markDistance((x - m.x) / s, (y - m.y) / s);
+      if (d === 0) return SOLID;
+      if (d < 0.5) return 0;
+    }
+    // Offset so the still (reduced-motion) frame shows the packet mid-flight.
+    const progress = ((t + 2.2) % PERIOD) / TRAVEL;
+    if (progress <= 1) {
+      const p = path[Math.round(progress * (path.length - 1))];
+      if (Math.abs(x - p.x) <= 1 && Math.abs(y - p.y) <= 1) return SOLID;
+    }
+    const l = lane[y * w + x];
+    return l === 2 ? SOLID : l === 1 ? 0 : null;
+  };
+
+  // Garden-style duotone "image": a faint paper lattice that gathers into one
+  // still tonal mass under the arc, lower right. With `quietCopy` the left side
+  // stays bare for the copy; the peers sit on top as solid ink.
+  const duotone = (quietCopy: boolean): Field => (x, y, t, w, h) => {
+    const fade = quietCopy ? smoothstep(w * 0.46, w * 0.64, x) : 1;
+    const mass = Math.exp(-(((x - w * 0.84) / (w * 0.4)) ** 2) - ((y - h) / (h * 0.5)) ** 2);
+    const grain = (noise(x * 0.06, y * 0.06) - 0.5) * 0.1 * (0.5 + mass);
+    const v = ((quietCopy ? 0.02 : 0.12) + mass * 0.46 + grain) * fade;
+    const ox = Math.floor(w * (quietCopy ? 0.52 : 0.2));
+    if (x >= ox) {
+      const ink = peers(x - ox, y, t, w - ox, h);
+      if (ink !== null) return ink;
+    }
+    return v;
+  };
+
+  const root = document.querySelector<HTMLElement>(".qp")!;
+  let stop = () => {};
+
+  const clock = document.querySelector("[data-clock]")!;
+  const tick = () => (clock.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }));
+  tick();
+  setInterval(tick, 10_000);
+
+  const show = (key: Key) => {
+    root.dataset.variant = key;
+    stop();
+    const canvas = root.querySelector<HTMLCanvasElement>(`[data-v="${key}"] canvas`);
+    stop = canvas ? dither(canvas, { cell: 4, color: ORANGE, field: duotone(key === "G") }) : () => {};
+    const label = document.querySelector("[data-switch-label]");
+    if (label) label.textContent = `${key} (${NAMES[key]})`;
+  };
+
+  const current = () => {
+    const v = new URLSearchParams(location.search).get("variant");
+    return KEYS.find((k) => k === v) ?? "W";
+  };
+
+  const step = (by: number) => {
+    const next = KEYS[(KEYS.indexOf(current()) + by + KEYS.length) % KEYS.length];
+    const url = new URL(location.href);
+    url.searchParams.set("variant", next);
+    history.replaceState(null, "", url);
+    show(next);
+  };
+
+  document.querySelectorAll<HTMLButtonElement>("[data-step]").forEach((b) => {
+    b.addEventListener("click", () => step(Number(b.dataset.step)));
+  });
+  addEventListener("keydown", (e) => {
+    const el = document.activeElement;
+    if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el as HTMLElement)?.isContentEditable) return;
+    if (e.key === "ArrowLeft") step(-1);
+    if (e.key === "ArrowRight") step(1);
+  });
+
+  show(current());
+</script>
+
+<style is:global>
+  :root {
+    --qp-orange: oklch(0.61 0.112 47);
+    --qp-black: oklch(0.17 0.008 250);
+    --qp-white: oklch(0.95 0.006 60);
+    --qp-element: oklch(0.911 0.0061 51.5);
+    --qp-border: oklch(0.833 0.0063 34.5);
+    --qp-muted: oklch(0.4508 0.00728 311.2);
+    /* Stepped corners: the pixel version of a rounded rect. */
+    --qp-notch: polygon(0 6px, 3px 6px, 3px 3px, 6px 3px, 6px 0, calc(100% - 6px) 0, calc(100% - 6px) 3px, calc(100% - 3px) 3px, calc(100% - 3px) 6px, 100% 6px, 100% calc(100% - 6px), calc(100% - 3px) calc(100% - 6px), calc(100% - 3px) calc(100% - 3px), calc(100% - 6px) calc(100% - 3px), calc(100% - 6px) 100%, 6px 100%, 6px calc(100% - 3px), 3px calc(100% - 3px), 3px calc(100% - 6px), 0 calc(100% - 6px));
+    --qp-notch-sm: polygon(0 3px, 3px 3px, 3px 0, calc(100% - 3px) 0, calc(100% - 3px) 3px, 100% 3px, 100% calc(100% - 3px), calc(100% - 3px) calc(100% - 3px), calc(100% - 3px) 100%, 3px 100%, 3px calc(100% - 3px), 0 calc(100% - 3px));
+    --blume-background: var(--qp-white);
+    --blume-foreground: var(--qp-black);
+    --blume-border: var(--qp-border);
+    --blume-accent: var(--qp-orange);
+  }
+</style>
+
+<style>
+  .qp {
+    color: var(--qp-black);
+    background: var(--qp-white);
+  }
+  canvas {
+    display: block;
+    width: 100%;
+  }
+  h1 {
+    font-size: clamp(2rem, 4vw, 2.75rem);
+    font-weight: 500;
+    line-height: 1.12;
+    letter-spacing: -0.025em;
+    margin: 0 0 1rem;
+  }
+  .label {
+    font-size: 0.8rem;
+    color: var(--qp-muted);
+    margin: 0 0 0.9rem;
+  }
+  .lede {
+    color: var(--qp-muted);
+    font-size: 1.05rem;
+    line-height: 1.55;
+    max-width: 30rem;
+    margin: 0 0 1.75rem;
+  }
+  .ctas {
+    display: flex;
+    gap: 1.25rem;
+    align-items: center;
+  }
+  .pill {
+    display: inline-block;
+    background: var(--qp-black);
+    color: var(--qp-white);
+    padding: 0.6rem 1.1rem;
+    font-size: 0.95rem;
+    text-decoration: none;
+    clip-path: var(--qp-notch);
+  }
+  .pill:hover {
+    background: var(--qp-orange);
+    color: var(--qp-black);
+  }
+  .link {
+    color: var(--qp-black);
+    text-decoration: none;
+    font-size: 0.95rem;
+  }
+  .mono {
+    font-family: var(--blume-font-mono);
+    font-size: 0.85rem;
+  }
+
+  /* Peers hero (chosen) */
+  .hero-c {
+    position: relative;
+    display: grid;
+    grid-template-columns: 1fr 1.2fr;
+    align-items: center;
+    gap: 2rem;
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 5rem 1.5rem;
+  }
+  .hero-c .pixel {
+    font-family: var(--blume-font-mono);
+    font-weight: 450;
+    font-size: clamp(2.5rem, 5vw, 3.75rem);
+    letter-spacing: -0.04em;
+    line-height: 1.05;
+  }
+  .hero-c .label {
+    font-family: var(--blume-font-mono);
+    color: var(--qp-orange);
+  }
+  .hero-c canvas {
+    height: 420px;
+  }
+  @media (max-width: 48rem) {
+    .hero-c {
+      grid-template-columns: 1fr;
+    }
+  }
+
+  /* Blume's header is replaced by the variants below. */
+  :global(body header.sticky.top-0) {
+    display: none;
+  }
+
+  [data-v] {
+    display: none;
+  }
+  .qp[data-variant="W"] [data-v="W"],
+  .qp[data-variant="A"] [data-v="A"],
+  .qp[data-variant="G"] [data-v="G"] {
+    display: block;
+  }
+
+  /* G: Garden. The hero is a rounded duotone panel; the logo, nav and CTA sit in
+     page-coloured cut-outs whose outline the panel wraps with rounded corners. */
+  .g-tiles {
+    display: none;
+  }
+  .qp[data-variant="G"] {
+    --g-r: 12px;
+    --g-paper: var(--qp-white);
+    padding: 0.75rem;
+  }
+  .qp[data-variant="G"] .hero-c {
+    max-width: none;
+    min-height: 40rem;
+    background: oklch(0.88 0.05 52);
+    border-radius: var(--g-r);
+    overflow: hidden;
+    padding: 10rem max(2rem, calc((100% - 72rem) / 2 + 1.5rem)) 6rem;
+  }
+  .qp[data-variant="G"] .hero-c canvas {
+    position: absolute;
+    inset: 0;
+    height: 100%;
+  }
+  .qp[data-variant="G"] .c-text {
+    position: relative;
+    z-index: 1;
+  }
+  .qp[data-variant="G"] .g-tiles {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+  }
+  .g-cut {
+    pointer-events: auto;
+    position: absolute;
+    top: 0;
+    display: flex;
+    align-items: center;
+    background: var(--g-paper);
+  }
+  /* Concave fillets: page-coloured squares with a quarter circle cut away,
+     rounding the panel where it meets a cut-out. */
+  .g-cut::before,
+  .g-cut::after {
+    content: "";
+    position: absolute;
+    width: var(--g-r);
+    height: var(--g-r);
+    background: radial-gradient(circle at var(--at), transparent calc(var(--g-r) - 0.5px), var(--g-paper) var(--g-r));
+  }
+  .g-logo {
+    left: 0;
+    width: 7.5rem;
+    height: 7.5rem;
+    justify-content: center;
+    color: var(--qp-orange);
+    border-bottom-right-radius: var(--g-r);
+  }
+  .g-logo::before {
+    --at: 100% 100%;
+    left: 0;
+    top: 100%;
+  }
+  .g-logo::after {
+    --at: 100% 100%;
+    left: 100%;
+    top: 3.25rem;
+  }
+  .g-navcut {
+    left: 7.5rem;
+    height: 3.25rem;
+    padding: 0 0.6rem 0 0;
+    border-bottom-right-radius: var(--g-r);
+  }
+  .g-navcut::before {
+    display: none;
+  }
+  .g-navcut::after {
+    --at: 100% 100%;
+    left: 100%;
+    top: 0;
+  }
+  .g-ctacut {
+    right: 0;
+    height: 3.25rem;
+    padding: 0 0.6rem;
+    border-bottom-left-radius: var(--g-r);
+  }
+  .g-ctacut::before {
+    --at: 0% 100%;
+    right: 100%;
+    top: 0;
+  }
+  .g-ctacut::after {
+    --at: 0% 100%;
+    right: 0;
+    top: 100%;
+  }
+  .g-pill {
+    display: flex;
+    gap: 1.1rem;
+    padding: 0.4rem 0.8rem;
+    background: oklch(0.99 0.002 60);
+    border-radius: 7px;
+    font-size: 0.9rem;
+  }
+  .g-pill a {
+    color: var(--qp-black);
+    text-decoration: none;
+  }
+  .g-pill a:hover {
+    color: var(--qp-orange);
+  }
+  .g-cta {
+    background: var(--qp-orange);
+    color: var(--qp-black);
+    text-decoration: none;
+  }
+  .g-cta:hover {
+    background: var(--qp-black);
+    color: var(--qp-white);
+  }
+
+  .switcher {
+    position: fixed;
+    bottom: 1.25rem;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.4rem 0.6rem;
+    background: #111;
+    color: #fff;
+    border-radius: 999px;
+    font: 500 0.8rem system-ui, sans-serif;
+    box-shadow: 0 6px 24px rgb(0 0 0 / 0.25);
+  }
+  .switcher button {
+    background: #333;
+    color: #fff;
+    border: 0;
+    border-radius: 999px;
+    width: 1.8rem;
+    height: 1.8rem;
+    cursor: pointer;
+  }
+  .switcher span {
+    min-width: 7rem;
+    text-align: center;
+  }
+</style>

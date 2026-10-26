@@ -1,0 +1,23 @@
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  width="352"
+  height="160"
+  viewBox="0 0 352 160"
+  role="img"
+  aria-labelledby="title description"
+  shape-rendering="crispEdges"
+>
+  <title id="title">qop</title>
+  <desc id="description">The lowercase letters qop drawn as orange pixels.</desc>
+
+  <g fill="#B96C45">
+    <!-- q -->
+    <path d="M32 16h64v32H32zM16 32h32v64H16zM80 32h32v112H80zM32 80h64v32H32z" />
+
+    <!-- o -->
+    <path d="M144 16h64v32h-64zM128 32h32v64h-32zM192 32h32v64h-32zM144 80h64v32h-64z" />
+
+    <!-- p -->
+    <path d="M240 16h80v32h-80zM240 16h32v128h-32zM304 32h32v64h-32zM272 80h48v32h-48z" />
+  </g>
+</svg>

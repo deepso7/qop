@@ -1,0 +1,266 @@
+---
+// PROTOTYPE: the whole page in the Waka Waka manner. Flat bone background, type
+// doing the work, tiny uppercase meta columns, one edge-to-edge dithered "photo",
+// plain label/value lists instead of cards and borders.
+// `intro={false}` drops the header, wordmark, meta row and photo, so another
+// hero can sit on top of the same About / lists / footer.
+type Props = { readonly links: readonly { label: string; href: string }[]; readonly intro?: boolean };
+
+const { links, intro = true } = Astro.props;
+
+const facts = [
+  { key: "Phone number", value: "Not needed. You pick a handle." },
+  { key: "Servers", value: "No message servers. Messages go device to device." },
+  { key: "Tracking", value: "No analytics, ads or crash reporters." },
+  { key: "Keys", value: "Made on your device and never sent to us." },
+  { key: "Source", value: "Open, and self-hostable." },
+  { key: "Terminal", value: "Link a second device and chat from the CLI." },
+];
+
+const platforms = [
+  { key: "iOS", value: "App Store", href: "#" },
+  { key: "Android", value: "Google Play", href: "#" },
+  { key: "Terminal", value: "qop link --account you", href: "/docs", mono: true },
+];
+---
+
+{
+  intro && (
+    <>
+<header class="head">
+  <a href="/" class="small">QOP</a>
+  <nav class="nav">
+    {links.map((l, i) => <a href={l.href}>{l.label}{i < links.length - 1 && ","}</a>)}
+  </nav>
+  <p class="small status"><span>Direct · <time data-clock>--:--</time></span><span class="dot" aria-hidden="true"></span></p>
+</header>
+
+<section class="mark" aria-label="qop">
+  <svg viewBox="0 16 352 128" shape-rendering="crispEdges" fill="currentColor" role="img" aria-label="qop">
+    <path d="M32 16h64v32H32zM16 32h32v64H16zM80 32h32v112H80zM32 80h64v32H32z" />
+    <path d="M144 16h64v32h-64zM128 32h32v64h-32zM192 32h32v64h-32zM144 80h64v32h-64z" />
+    <path d="M240 16h80v32h-80zM240 16h32v128h-32zM304 32h32v64h-32zM272 80h48v32h-48z" />
+  </svg>
+</section>
+
+<section class="meta small">
+  <span>Peer-to-peer messaging</span>
+  <span class="dot" aria-hidden="true"></span>
+  <span>No servers in the middle<br />No phone number</span>
+  <span>iOS, Android<br />and the terminal</span>
+  <span>Open source<br />©2026</span>
+</section>
+
+<figure class="photo">
+  <canvas></canvas>
+  <figcaption class="small">Fig. 1, two peers and nothing in the middle</figcaption>
+</figure>
+    </>
+  )
+}
+
+<section class="profile">
+  <p class="small label">About</p>
+  <p class="big">
+    <strong>qop</strong> is a messaging app where every message goes <span class="mono">straight from your phone to theirs.</span>{" "}
+    No servers in the middle, no phone number, and keys that never leave your devices.
+  </p>
+</section>
+
+<section class="list">
+  <p class="small label">What you keep</p>
+  <dl>
+    {
+      facts.map((f) => (
+        <div>
+          <dt class="small">{f.key}</dt>
+          <dd>{f.value}</dd>
+        </div>
+      ))
+    }
+  </dl>
+</section>
+
+<section class="list" id="download">
+  <p class="small label">Get qop</p>
+  <dl>
+    {
+      platforms.map((p) => (
+        <div>
+          <dt class="small">{p.key}</dt>
+          <dd>
+            <a href={p.href} class:list={{ mono: p.mono }}>
+              {p.value} <span aria-hidden="true">↗</span>
+            </a>
+          </dd>
+        </div>
+      ))
+    }
+  </dl>
+</section>
+
+<footer class="meta small foot">
+  <span>QOP</span>
+  <span class="dot" aria-hidden="true"></span>
+  <span>{links.map((l) => <a href={l.href}>{l.label}</a>)}</span>
+  <span>Built on minip2p</span>
+  <span>qop.sh<br />©2026</span>
+</footer>
+
+<style>
+  .small {
+    font-size: 0.68rem;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+    line-height: 1.35;
+    margin: 0;
+  }
+  a {
+    color: inherit;
+    text-decoration: none;
+  }
+  a:hover {
+    color: var(--qp-orange);
+  }
+  .mono {
+    font-family: var(--blume-font-mono);
+    letter-spacing: -0.03em;
+  }
+  .dot {
+    width: 7px;
+    height: 7px;
+    background: var(--qp-black);
+  }
+
+  .head {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    padding: 0.9rem 0.75rem;
+  }
+  .nav {
+    display: flex;
+    gap: 0.3rem;
+    font-size: 1rem;
+  }
+  .status {
+    justify-self: end;
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+  .status .dot {
+    animation: blink 1.6s steps(1) infinite;
+  }
+  @keyframes blink {
+    50% {
+      opacity: 0;
+    }
+  }
+
+  .mark {
+    padding: 2.5rem 0.75rem 0;
+  }
+  .mark svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    color: var(--qp-black);
+  }
+
+  .meta {
+    display: grid;
+    grid-template-columns: 1fr 1.6rem 1fr 1fr 1fr;
+    align-items: start;
+    padding: 2.5rem 0.75rem 3rem;
+  }
+  .meta .dot {
+    margin-top: 0.15rem;
+  }
+
+  /* The figure owns the size; the canvas just fills it, so redrawing can't resize it. */
+  .photo {
+    position: relative;
+    margin: 0 0.75rem;
+    aspect-ratio: 2 / 1;
+    min-height: 420px;
+    background: oklch(0.88 0.05 52);
+  }
+  .photo canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+  }
+  .photo figcaption {
+    position: absolute;
+    right: -0.6rem;
+    bottom: 0;
+    transform: rotate(-90deg) translateY(100%);
+    transform-origin: bottom right;
+    font-size: 0.6rem;
+  }
+
+  .profile,
+  .list {
+    display: grid;
+    grid-template-columns: 1fr 3fr;
+    gap: 1rem;
+    padding: 7rem 0.75rem 0;
+  }
+  .label {
+    padding-top: 0.9rem;
+  }
+  .big {
+    margin: 0;
+    font-size: clamp(2rem, 4.2vw, 3.6rem);
+    line-height: 1.12;
+    letter-spacing: -0.03em;
+    font-weight: 400;
+  }
+  .big strong {
+    font-weight: 600;
+  }
+
+  dl {
+    margin: 0;
+  }
+  dl div {
+    display: grid;
+    grid-template-columns: 1fr 2fr;
+    align-items: baseline;
+    gap: 1rem;
+    padding: 0.35rem 0;
+  }
+  dt {
+    color: var(--qp-muted);
+  }
+  dd {
+    margin: 0;
+    font-size: clamp(1.15rem, 1.8vw, 1.5rem);
+    letter-spacing: -0.02em;
+  }
+
+  .foot {
+    margin-top: 9rem;
+    padding-bottom: 1.25rem;
+  }
+  .foot a {
+    display: block;
+  }
+
+  @media (max-width: 48rem) {
+    .meta {
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+    }
+    .meta .dot {
+      display: none;
+    }
+    .profile,
+    .list,
+    dl div {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
