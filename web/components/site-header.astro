@@ -3,6 +3,7 @@
 // (components.ts): the app-icon mark, a nav chip, search, a pixel theme toggle
 // and Download. On the landing page (`/`) it floats over the tide with pale
 // chips; elsewhere it is a sticky bar on the page background.
+import Icon from "blume/components/Icon.astro";
 import Search from "blume/components/layout/Search.astro";
 import data from "blume:data";
 
@@ -39,17 +40,11 @@ const links = [
   { label: "github", href: "https://github.com/deepso7/qop" },
 ];
 
-// Pixel icons, drawn one unit square per "#". Each renders in a size-6 box at
-// 2px per pixel: the 9x9 menu in a viewBox padded to 12 units, the 11x11 theme
-// icons in one padded by half a unit.
-const ICONS = {
-  moon: ["....#......", "..##.......", ".###.......", ".###.......", "####.......", "####.......", "#####......", ".######..#.", ".#########.", "..#######..", "....###...."],
-  sun: [".....#.....", ".#...#...#.", "..#.....#..", "....###....", "...#####...", "##.#####.##", "...#####...", "....###....", "..#.....#..", ".#...#...#.", ".....#....."],
-  menu: [".........", "#########", "#########", ".........", "#########", "#########", ".........", "#########", "#########"],
-};
+// The 9x9 pixel menu icon, drawn one unit square per "#". It renders in a
+// size-6 box at 2px per pixel (viewBox padded to 12 units).
+const MENU = [".........", "#########", "#########", ".........", "#########", "#########", ".........", "#########", "#########"];
 
-const toPath = (rows: readonly string[]) =>
-  rows.flatMap((row, y) => [...row].map((c, x) => (c === "#" ? `M${x} ${y}h1v1h-1z` : ""))).join("");
+const menuPath = MENU.flatMap((row, y) => [...row].map((c, x) => (c === "#" ? `M${x} ${y}h1v1h-1z` : ""))).join("");
 ---
 
 <header
@@ -69,7 +64,7 @@ const toPath = (rows: readonly string[]) =>
     data-blume-nav-toggle
   >
     <svg class="size-6" viewBox="-1.5 -1.5 12 12" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
-      <path d={toPath(ICONS.menu)} />
+      <path d={menuPath} />
     </svg>
   </button>
   <!-- The app-icon mark on a tile that inverts per theme (see theme.css). -->
@@ -114,12 +109,9 @@ const toPath = (rows: readonly string[]) =>
       )
     }
     <button type="button" class:list={iconChip} data-blume-theme-toggle aria-label="Toggle dark mode">
-      <svg class="size-6 dark:hidden" viewBox="-0.5 -0.5 12 12" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
-        <path d={toPath(ICONS.moon)} />
-      </svg>
-      <svg class="hidden size-6 dark:block" viewBox="-0.5 -0.5 12 12" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
-        <path d={toPath(ICONS.sun)} />
-      </svg>
+      <!-- Blume's own toggle icons: the sun in light mode, the moon in dark. -->
+      <Icon name="sun" size={18} class="dark:hidden" />
+      <Icon name="moon" size={18} class="hidden dark:block" />
     </button>
     <a href="/#download" class:list={[chip, "px-4", accent]}>Download</a>
   </div>
