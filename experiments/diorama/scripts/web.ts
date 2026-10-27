@@ -1,12 +1,12 @@
 // Writes the website's copy of the loop from frames recorded at native size:
 //
-//   pnpm web   (node scripts/record.ts --scale 1 && node scripts/web.ts)
+//   pnpm web   (node scripts/record.ts --scale 1 --alpha && node scripts/web.ts)
 //
 //   web/public/diorama.webp   lossless animated WebP, all 300 frames, loops forever
 //   web/public/diorama.png    the t=4 still, for reduced motion
 //
-// Lossless keeps the backdrop exactly the site's foam, so it sits seamlessly on
-// a bg-foam tile; video's YUV decode shifts it a shade per browser.
+// Transparent, so the tile behind it can follow the site theme. Lossless keeps
+// the palette exact (video's YUV decode shifts colours a shade per browser).
 
 import { copyFile, readdir } from "node:fs/promises";
 import path from "node:path";
@@ -38,7 +38,7 @@ if (meta.width !== 192) {
 const delay = files.map((_, i) => (i % 3 === 2 ? 34 : 33));
 
 const webp = await sharp(files, { join: { animated: true } })
-  .webp({ lossless: true, effort: 6, loop: 0, delay })
+  .webp({ lossless: true, effort: 6, minSize: true, loop: 0, delay })
   .toFile(path.join(out, "diorama.webp"));
 
 await copyFile(files[4 * FPS], path.join(out, "diorama.png"));

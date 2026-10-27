@@ -4,8 +4,9 @@
 //   node scripts/record.ts --shots    → shots/t0.png, t2.png … t8.png
 //   node scripts/record.ts --scale 2  → smaller frames (default 4× the 192px render)
 //   node scripts/record.ts --dist     → record the production build (run `pnpm build` first)
+//   node scripts/record.ts --alpha    → transparent background instead of the page's
 //
-// For the website's loop: `pnpm web` (records at --scale 1, then scripts/web.ts).
+// For the website's loop: `pnpm web` (records at --scale 1 --alpha, then scripts/web.ts).
 //
 // Then e.g.:
 //   ffmpeg -framerate 30 -i frames/%04d.png -pix_fmt yuv420p -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2" diorama.mp4
@@ -25,6 +26,7 @@ const { values } = parseArgs({
   options: {
     shots: { type: "boolean" },
     dist: { type: "boolean" },
+    alpha: { type: "boolean" },
     scale: { type: "string", default: "4" },
   },
 });
@@ -64,6 +66,12 @@ await page.goto(`${url}?record=1`);
 
 await page.waitForFunction(() => window.diorama !== undefined);
 
+if (values.alpha) {
+  await page.addStyleTag({
+    content: "html, body { background: transparent; }",
+  });
+}
+
 const canvas = page.locator("#stage");
 const frames = await page.evaluate(() => window.diorama?.frames ?? 0);
 
@@ -84,7 +92,10 @@ for (const i of indices) {
   await page.evaluate((n) => window.diorama?.draw(n), i);
   const name = values.shots ? `t${i / 30}` : String(i).padStart(4, "0");
   // oxlint-disable-next-line no-await-in-loop -- sequential by design
-  await canvas.screenshot({ path: path.join(out, `${name}.png`) });
+  await canvas.screenshot({
+    path: path.join(out, `${name}.png`),
+    omitBackground: values.alpha,
+  });
 }
 
 console.log(`wrote ${indices.length} PNGs to ${out}`);
