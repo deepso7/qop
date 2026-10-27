@@ -355,6 +355,20 @@ export const createLocalEnrollment = ({
             });
           }
 
+          // The add landed but the key isn't on the roster: another device
+          // removed this phone. Before the deadline this could still be a
+          // lagging roster read, so only conclude it once the add has lapsed.
+          if (
+            status === "confirmed" &&
+            (yield* chainTime()) >= BigInt(enrollment.deadline)
+          ) {
+            return yield* write({
+              ...enrollment,
+              failureCode: "REMOVED",
+              status: "failed",
+            });
+          }
+
           return enrollment;
         }
 

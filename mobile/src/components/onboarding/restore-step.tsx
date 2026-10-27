@@ -69,6 +69,10 @@ const getFailureMessage = (failureCode: string | null, handle: string) => {
       return `@${handle}’s recovery key changed. Use the new one.`;
     }
 
+    case "REMOVED": {
+      return `This phone was removed from @${handle}. Start over to add it again.`;
+    }
+
     case "EXPIRED": {
       return "The request expired before it went through. Try again.";
     }
@@ -392,16 +396,20 @@ const AddingPhone = ({
   onStartOver: () => void;
   stopped: boolean;
 }) => {
+  // A changed owner or a removed device key can't be retried: starting over
+  // makes a fresh device key (and takes the current recovery key).
+  const final = failureCode === "OWNER_CHANGED" || failureCode === "REMOVED";
+
   const footer = stopped ? (
     <>
-      {failureCode === "OWNER_CHANGED" ? null : (
+      {final ? null : (
         <PixelButton busy={busy} label="Try again" onPress={onRetry} />
       )}
       {busy ? null : (
         <PixelButton
-          label="Use a different key"
+          label={final ? "Start over" : "Use a different key"}
           onPress={onStartOver}
-          variant={failureCode === "OWNER_CHANGED" ? "primary" : "quiet"}
+          variant={final ? "primary" : "quiet"}
         />
       )}
     </>
@@ -451,7 +459,13 @@ export interface RestoreStepProps {
 // (an identity restored on this phone), it opens on the progress log.
 export const RestoreStep = ({ onBack, onStartOver }: RestoreStepProps) => {
   const [input, setInput] = React.useState("");
-  const [account, setAccount] = React.useState<RecoveryAccount>();
+
+  // The account found for a key, kept with that exact key so editing the
+  // field mid-lookup can't pair a different key with this handle.
+  const [found, setFound] = React.useState<{
+    account: RecoveryAccount;
+    key: string;
+  }>();
 
   const {
     addPhone,
@@ -481,7 +495,9 @@ export const RestoreStep = ({ onBack, onStartOver }: RestoreStepProps) => {
       return;
     }
 
-    setAccount(await findAccount(key));
+    const account = await findAccount(key);
+
+    setFound(account ? { account, key } : undefined);
   };
 
   // A pasted key that checks out goes straight to the lookup.
@@ -511,7 +527,8 @@ export const RestoreStep = ({ onBack, onStartOver }: RestoreStepProps) => {
     );
   }
 
-  if (account) {
+  if (found) {
+    const { account } = found;
     const full = account.deviceCount >= account.maxDevices;
 
     return (
@@ -524,19 +541,19 @@ export const RestoreStep = ({ onBack, onStartOver }: RestoreStepProps) => {
               disabled={full}
               label="Yes, add this phone"
               onPress={() => {
-                void addPhone(recoveryKey, account.handle);
+                void addPhone(found.key, account.handle);
               }}
             />
             {busy ? null : (
               <PixelButton
                 label="Not me, use a different key"
-                onPress={() => setAccount(undefined)}
+                onPress={() => setFound(undefined)}
                 variant="quiet"
               />
             )}
           </>
         }
-        onBack={busy ? undefined : () => setAccount(undefined)}
+        onBack={busy ? undefined : () => setFound(undefined)}
         step={2}
       >
         <View className="gap-4">

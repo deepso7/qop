@@ -17,13 +17,11 @@ export const useP2pStore = createP2pStore({
   },
   getIdentityHandle: () => useIdentityStore.getState().identity?.handle,
   getOwnDevice: () => {
-    const { identity, registration } = useIdentityStore.getState();
+    // `qid` is set once this phone belongs to its account, whether it
+    // registered the account or was restored onto it.
+    const { identity, qid } = useIdentityStore.getState();
 
-    if (
-      identity === null ||
-      registration === null ||
-      registration.qid === null
-    ) {
+    if (identity === null || qid === null) {
       return;
     }
 
@@ -31,7 +29,7 @@ export const useP2pStore = createP2pStore({
       deviceKey: identity.deviceKey,
       handle: identity.handle,
       peerId: identity.peerId,
-      qid: registration.qid.toString(),
+      qid,
     };
   },
   loadDeviceSecretKey,

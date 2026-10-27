@@ -404,6 +404,33 @@ describe("checkLocalEnrollment", () => {
     }
   );
 
+  it("waits on a confirmed add missing from the roster until the deadline, then fails as REMOVED", async () => {
+    const first = await submitted();
+
+    const confirmed = Effect.succeed({
+      digest: first.digest,
+      failureCode: null,
+      status: "confirmed" as const,
+      transactionHash: null,
+    });
+
+    // Before the deadline the roster read may just be lagging.
+    now = BigInt(first.deadline) - 1n;
+    clientMock.get.mockReturnValueOnce(confirmed);
+
+    await expect(
+      Effect.runPromise(loadEnrollment().checkLocalEnrollment())
+    ).resolves.toEqual(first);
+
+    // After it, another device must have removed this phone.
+    now = BigInt(first.deadline);
+    clientMock.get.mockReturnValueOnce(confirmed);
+
+    await expect(
+      Effect.runPromise(loadEnrollment().checkLocalEnrollment())
+    ).resolves.toMatchObject({ failureCode: "REMOVED", status: "failed" });
+  });
+
   it("resubmits when the relayer never saw it before the deadline", async () => {
     const first = await submitted();
     now = BigInt(first.deadline) - 1n;

@@ -1,4 +1,4 @@
-import { View } from "react-native";
+import { ScrollView, View } from "react-native";
 import Animated, { FadeIn, ReduceMotion } from "react-native-reanimated";
 
 import { Lede } from "@/components/onboarding/chrome";
@@ -17,35 +17,38 @@ export interface WelcomeProps {
 // The first screen: the two-peer art above, the pitch and actions below.
 export const Welcome = ({ onCreate, onRestore }: WelcomeProps) => (
   <Animated.View className="flex-1" entering={enter}>
-    {/* The art takes whatever height the copy leaves, under the status bar. */}
-    <View className="mt-safe flex-1">
-      <Peers />
-    </View>
-    <View className="pb-safe-offset-10 gap-8 px-6 pt-4">
-      <View className="gap-4">
-        <Text tone="link" variant="tag">
-          peer → peer
-        </Text>
-        <Text variant="hero">Nothing in{"\n"}the middle.</Text>
-        <Lede>
-          qop sends each message straight from your phone to theirs. Your keys
-          are made here and never leave it.
-        </Lede>
+    {/* The art takes whatever height the copy leaves, under the status bar;
+        with large text it shrinks away and the copy and actions scroll. */}
+    <ScrollView className="flex-1" contentContainerClassName="grow">
+      <View className="mt-safe flex-1">
+        <Peers />
       </View>
-      <View className="gap-2">
-        <PixelButton
-          accessibilityHint="Starts creating a new qop account"
-          label="Create your qop"
-          onPress={onCreate}
-          trailing="→"
-        />
-        <PixelButton
-          accessibilityHint="Restores your account with its recovery key"
-          label="I already have a qop"
-          onPress={onRestore}
-          variant="quiet"
-        />
+      <View className="pb-safe-offset-10 gap-8 px-6 pt-4">
+        <View className="gap-4">
+          <Text tone="link" variant="tag">
+            peer → peer
+          </Text>
+          <Text variant="hero">Nothing in{"\n"}the middle.</Text>
+          <Lede>
+            qop sends each message straight from your phone to theirs. Your keys
+            are made here and never leave it.
+          </Lede>
+        </View>
+        <View className="gap-2">
+          <PixelButton
+            accessibilityHint="Starts creating a new qop account"
+            label="Create your qop"
+            onPress={onCreate}
+            trailing="→"
+          />
+          <PixelButton
+            accessibilityHint="Restores your account with its recovery key"
+            label="I already have a qop"
+            onPress={onRestore}
+            variant="quiet"
+          />
+        </View>
       </View>
-    </View>
+    </ScrollView>
   </Animated.View>
 );
