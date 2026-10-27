@@ -1,0 +1,68 @@
+---
+title: Using the app
+description: Create your qop with an invitation code, save your recovery key, and start a chat by handle.
+---
+
+qop runs on iOS and Android. There are no store listings yet.
+
+## Create your qop
+
+You need an invitation code to register. Codes are six characters (`XXX-XXX`) and work once.
+
+<Steps>
+  <Step title="Choose a handle">
+    Tap **Create your qop** and pick the handle people will know you by. Use
+    lowercase letters, digits, and underscores, starting with a letter or digit,
+    up to 32 characters. The app tells you if it's taken. Handles are permanent.
+  </Step>
+  <Step title="Register">
+    Enter your invitation code and tap **Register**. The app creates your keys
+    on the device, signs the registration, and the qop API submits it to the
+    registry. Confirmation usually takes a few seconds.
+  </Step>
+  <Step title="Save your recovery key">
+    The app shows your recovery key, which starts with `qop1_`. Tap **Export
+    recovery key** and save it somewhere safe outside qop, such as a password
+    manager. On Android, confirm with **I saved the recovery key**. Then tap
+    **Continue**.
+  </Step>
+</Steps>
+
+<Callout type="warning">
+  Anyone with your recovery key controls your account, and qop can't reset or
+  replace it. See [Your recovery key](/docs/devices#your-recovery-key).
+</Callout>
+
+You can skip the backup with **I'll save it later**. Profile shows the recovery key as **Not backed up** until you export it.
+
+## Start a chat
+
+1. In **Chats**, start a new chat.
+2. Enter the other person's handle and tap **Look up**. The app reads their account straight from the registry.
+3. Tap **Start chat**.
+
+Messages are delivered only while the other person's device is reachable. If it isn't, the message shows **Not sent · Tap to retry**. If you've [linked the CLI](/docs/cli) and it's running, your phone hands the message to it instead, and it shows **Waiting on your CLI** until the CLI delivers it.
+
+## Your profile
+
+**Profile** shows your handle and peer ID, your recovery key backup status, and your devices. From there you can:
+
+- Export your recovery key again.
+- [Link a device](/docs/devices#link-a-device) such as the CLI, or remove one.
+- Log out.
+
+## Log out
+
+Logging out deletes your keys, contacts, and messages from this device. It doesn't remove the device's key from the registry.
+
+<Callout type="danger">
+  If you log out without your recovery key, you can't get the account back. The
+  app warns you when the key hasn't been exported.
+</Callout>
+
+## Permissions
+
+qop doesn't ask for your contacts, location, photos, camera, or microphone. It uses:
+
+- **Local network** (iOS) and **Wi-Fi state** (Android) for peer-to-peer connections.
+- **Clipboard** only when you paste a pairing code or copy your peer ID.
