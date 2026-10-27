@@ -45,6 +45,7 @@
       --color-muted-foreground: oklch(0.4508 0.00728 311.2);
       --color-accent: oklch(0.911 0.0061 51.5);
       --color-accent-foreground: var(--qop-black);
+      --color-online: oklch(0.723 0.219 149.6);
       --color-action: var(--qop-orange);
       --color-action-foreground: var(--qop-black);
       --color-popover: var(--qop-white);
@@ -72,6 +73,7 @@
       --color-muted-foreground: oklch(0.6692 0.00672 358.8);
       --color-accent: oklch(0.2168 0.00788 260.2);
       --color-accent-foreground: var(--qop-white);
+      --color-online: oklch(0.723 0.219 149.6);
       --color-action: var(--qop-orange);
       --color-action-foreground: var(--qop-black);
       --color-popover: var(--qop-black);
