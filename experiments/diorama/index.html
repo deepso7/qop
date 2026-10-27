@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>qop · same chat, different apps</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: #f7eadf;
+      }
+      body {
+        display: grid;
+        place-items: center;
+      }
+      canvas {
+        display: block;
+        image-rendering: pixelated;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas
+      id="stage"
+      role="img"
+      aria-label="A looping pixel-art scene on a floating island split by a stream. On the left, two people message each other through the usual apps: every message flies up to a surveillance tower whose eye reads it, keeps a copy, and an ad pops up over the receiver. On the right, two people message each other on qop: messages go straight from one to the other, and the tower can only show a question mark."
+    ></canvas>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

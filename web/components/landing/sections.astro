@@ -1,6 +1,7 @@
 ---
 // The landing page below the hero. Type doing the work, plain label/value
-// lists instead of cards and borders, then the shared site footer.
+// lists instead of cards and borders, one foam tile for the diorama,
+// then the shared site footer.
 // Spacing sits on even Tailwind steps; on phones everything aligns at px-6.
 import SiteFooter from "../site-footer.astro";
 
@@ -11,6 +12,12 @@ const facts = [
   { key: "Keys", value: "Made on your device and never sent to us." },
   { key: "Source", value: "Open, and self-hostable." },
   { key: "Terminal", value: "Link a second device and chat from the CLI." },
+];
+
+// Captions for the two halves of the diorama (experiments/diorama), left to right.
+const sides = [
+  { side: "Left", key: "The usual apps", value: "Every message passes the tower. It keeps a copy and sells you an ad." },
+  { side: "Right", key: "qop", value: "Straight from one phone to the other. The tower sees nothing." },
 ];
 
 // Shared class lists: section grids, small uppercase labels, list rows.
@@ -34,6 +41,40 @@ const platforms = [
       <span class="font-mono tracking-tighter">straight from your phone to theirs.</span> No servers in the middle, no phone
       number, and keys that never leave your devices.
     </p>
+  </section>
+
+  <section class={section}>
+    <p class:list={[small, "md:pt-4"]}>Same chat</p>
+    <!-- The diorama (experiments/diorama, `pnpm web`) as a lossless, transparent
+         192px loop on a tile that follows the theme, upscaled with hard edges.
+         Reduced motion gets a still. Below xl the captions sit side by side under
+         their halves (image at 3× from lg); from xl they stack beside it. -->
+    <figure class="bg-foam text-on-foam notch md:col-span-3 xl:flex xl:items-center dark:bg-surface dark:text-ink">
+      <picture class="xl:shrink-0">
+        <source media="(prefers-reduced-motion: reduce)" srcset="/diorama.png" />
+        <img
+          class="pixelated mx-auto block aspect-square w-full max-w-96 lg:w-144 lg:max-w-none"
+          src="/diorama.webp"
+          width="192"
+          height="192"
+          loading="lazy"
+          alt="A looping pixel-art island split by a stream. On the left, two people chat through the usual apps: every message flies up to a surveillance tower, which keeps a copy and pops an ad over the receiver. On the right, two people chat on qop: messages go straight from one to the other, and the tower can only show a question mark."
+        />
+      </picture>
+      <figcaption class="grid grid-cols-2 gap-4 px-4 pb-4 md:gap-8 md:px-8 md:pb-8 xl:max-w-md xl:grid-cols-1 xl:py-8 xl:pl-0">
+        {
+          sides.map((s) => (
+            <div>
+              <p class:list={[small, "mb-1"]}>
+                <span class="hidden text-subtle xl:inline">{s.side} · </span>
+                {s.key}
+              </p>
+              <p class="text-sm md:text-base">{s.value}</p>
+            </div>
+          ))
+        }
+      </figcaption>
+    </figure>
   </section>
 
   <section class={section}>
