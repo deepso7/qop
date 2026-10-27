@@ -1,6 +1,6 @@
 import * as TooltipPrimitiveModule from "@rn-primitives/tooltip";
 import * as React from "react";
-import { Platform, StyleSheet } from "react-native";
+import { Platform } from "react-native";
 import {
   FadeInDown,
   FadeInUp,
@@ -34,7 +34,7 @@ const TooltipContent = ({
   <TooltipPrimitive.Portal hostName={portalHost}>
     <FullWindowOverlay>
       <TooltipPrimitive.Overlay
-        style={Platform.select({ native: StyleSheet.absoluteFill })}
+        className="native:absolute native:inset-0"
         asChild={Platform.OS !== "web"}
       >
         <NativeOnlyAnimatedView

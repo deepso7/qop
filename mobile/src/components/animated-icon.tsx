@@ -1,54 +1,17 @@
-import { Image } from "expo-image";
 import * as SplashScreen from "expo-splash-screen";
 import { useState } from "react";
-import { Dimensions, StyleSheet, View } from "react-native";
+import { Dimensions, View } from "react-native";
 import Animated, { Easing, Keyframe } from "react-native-reanimated";
 import { scheduleOnRN } from "react-native-worklets";
 
 import expoLogo from "@/assets/images/expo-logo.png";
 import logoGlow from "@/assets/images/logo-glow.png";
-import { useTheme } from "@/constants/theme";
+import { Image } from "@/components/ui/image";
 
 const INITIAL_SCALE_FACTOR = Dimensions.get("screen").height / 90;
 const DURATION = 600;
 
-const styles = StyleSheet.create({
-  background: {
-    borderRadius: 40,
-    height: 128,
-    position: "absolute",
-    width: 128,
-  },
-  glow: {
-    height: 201,
-    position: "absolute",
-    width: 201,
-  },
-  iconContainer: {
-    alignItems: "center",
-    height: 128,
-    justifyContent: "center",
-    width: 128,
-    zIndex: 100,
-  },
-  image: {
-    height: 71,
-    width: 76,
-  },
-  imageContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  splashOverlay: {
-    ...StyleSheet.absoluteFill,
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 1000,
-  },
-});
-
 export const AnimatedSplashOverlay = () => {
-  const theme = useTheme();
   const [animate, setAnimate] = useState(false);
   const [visible, setVisible] = useState(true);
 
@@ -75,7 +38,7 @@ export const AnimatedSplashOverlay = () => {
     },
   });
 
-  const image = <Image style={styles.image} source={expoLogo} />;
+  const image = <Image className="h-17.75 w-19" source={expoLogo} />;
 
   return animate ? (
     <Animated.View
@@ -86,7 +49,7 @@ export const AnimatedSplashOverlay = () => {
           scheduleOnRN(setVisible, false);
         }
       })}
-      style={[styles.splashOverlay, { backgroundColor: theme.primary }]}
+      className="bg-primary absolute inset-0 z-1000 items-center justify-center"
     >
       {image}
     </Animated.View>
@@ -103,7 +66,7 @@ export const AnimatedSplashOverlay = () => {
           setAnimate(true);
         })();
       }}
-      style={[styles.splashOverlay, { backgroundColor: theme.primary }]}
+      className="bg-primary absolute inset-0 z-1000 items-center justify-center"
     >
       {image}
     </View>
@@ -146,33 +109,24 @@ const glowKeyframe = new Keyframe({
   },
 });
 
-export const AnimatedIcon = () => {
-  const theme = useTheme();
+export const AnimatedIcon = () => (
+  <View className="z-100 size-32 items-center justify-center">
+    <Animated.View
+      entering={glowKeyframe.duration(60 * 1000 * 4)}
+      className="absolute size-50.25"
+    >
+      <Image className="absolute size-50.25" source={logoGlow} />
+    </Animated.View>
 
-  return (
-    <View style={styles.iconContainer}>
-      <Animated.View
-        entering={glowKeyframe.duration(60 * 1000 * 4)}
-        style={styles.glow}
-      >
-        <Image style={styles.glow} source={logoGlow} />
-      </Animated.View>
-
-      <Animated.View
-        entering={keyframe.duration(DURATION)}
-        style={[
-          styles.background,
-          {
-            experimental_backgroundImage: `linear-gradient(180deg, ${theme.gradientStart}, ${theme.gradientEnd})`,
-          },
-        ]}
-      />
-      <Animated.View
-        style={styles.imageContainer}
-        entering={logoKeyframe.duration(DURATION)}
-      >
-        <Image style={styles.image} source={expoLogo} />
-      </Animated.View>
-    </View>
-  );
-};
+    <Animated.View
+      entering={keyframe.duration(DURATION)}
+      className="rounded-icon absolute size-32 bg-linear-to-b from-(--qop-orange-light) to-(--qop-orange-dark)"
+    />
+    <Animated.View
+      className="items-center justify-center"
+      entering={logoKeyframe.duration(DURATION)}
+    >
+      <Image className="h-17.75 w-19" source={expoLogo} />
+    </Animated.View>
+  </View>
+);

@@ -146,7 +146,9 @@ const NewChatRoute = () => {
             autoCapitalize="none"
             autoComplete="off"
             autoCorrect={false}
-            className="border-border bg-background-element dark:bg-background-element h-14 rounded-xl px-4 text-[18px]"
+            className="h-14"
+            size="lg"
+            variant="filled"
             editable={!lookingUp}
             enterKeyHint="search"
             maxLength={33}
@@ -162,12 +164,8 @@ const NewChatRoute = () => {
             value={handle}
           />
           <Text
-            className={
-              handle.length > 0 && !isValid
-                ? "text-destructive"
-                : "text-foreground-secondary"
-            }
             selectable
+            tone={handle.length > 0 && !isValid ? "destructive" : "secondary"}
             variant="caption"
           >
             {isValid ? `Look up @${handle}.` : getHandleHint(handle)}
@@ -181,33 +179,22 @@ const NewChatRoute = () => {
         </View>
 
         {message ? (
-          <Text className="text-destructive text-center" selectable>
+          <Text className="text-center" selectable tone="destructive">
             {message}
           </Text>
         ) : null}
 
         {result ? (
           <Animated.View entering={FadeIn.duration(reduceMotion ? 0 : 160)}>
-            <Surface
-              className="border-background-selected gap-4 rounded-xl border p-4"
-              tone="element"
-            >
+            <Surface tone="element" variant="outline">
               <View className="gap-1">
                 <Text selectable variant="large">
                   @{result.handle}
                 </Text>
-                <Text
-                  className="text-foreground-secondary"
-                  selectable
-                  variant="caption"
-                >
+                <Text selectable tone="secondary" variant="caption">
                   QID {result.qid.toString()}
                 </Text>
-                <Text
-                  className="text-foreground-secondary font-mono"
-                  selectable
-                  variant="caption"
-                >
+                <Text selectable tone="secondary" variant="mono">
                   Peer {(result.peerId ?? "none").slice(0, 12)}…
                 </Text>
               </View>

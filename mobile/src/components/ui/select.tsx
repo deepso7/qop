@@ -6,7 +6,7 @@ import {
   ChevronUpIcon,
 } from "lucide-react-native";
 import * as React from "react";
-import { Platform, StyleSheet, View } from "react-native";
+import { Platform, View } from "react-native";
 import { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
 import { FullWindowOverlay as RNFullWindowOverlay } from "react-native-screens";
 
@@ -139,7 +139,7 @@ const SelectContent = ({
   <SelectPrimitive.Portal hostName={portalHost}>
     <FullWindowOverlay>
       <SelectPrimitive.Overlay
-        style={Platform.select({ native: StyleSheet.absoluteFill })}
+        className="native:absolute native:inset-0"
         asChild={Platform.OS !== "web"}
       >
         <NativeOnlyAnimatedView

@@ -105,7 +105,7 @@ const ChatCatalog = () => {
     <View className="gap-7">
       <View className="gap-3">
         <SectionLabel>Message bubbles</SectionLabel>
-        <View className="border-border gap-3 rounded-[22px] border p-4">
+        <View className="border-border rounded-bubble gap-3 border p-4">
           <MessageDate>Today</MessageDate>
 
           <MessageGroup>
@@ -138,7 +138,7 @@ const ChatCatalog = () => {
           <Message align="end">
             <MessageContent>
               <MessageBubble tone="pending">
-                <Text className="text-foreground-secondary" selectable>
+                <Text selectable tone="secondary">
                   sending…
                 </Text>
                 <MessageMeta status="sending" time="8:14" />
@@ -185,7 +185,7 @@ const ChatCatalog = () => {
             name="payload-test.png"
             preview={
               <View className="bg-background-selected flex-1 items-center justify-center">
-                <Text className="text-foreground-secondary" variant="mono">
+                <Text tone="secondary" variant="mono">
                   image attachment
                 </Text>
               </View>
@@ -200,7 +200,7 @@ const ChatCatalog = () => {
 
       <View className="gap-3">
         <SectionLabel>Reactions</SectionLabel>
-        <View className="border-border gap-5 rounded-[22px] border p-4">
+        <View className="border-border rounded-bubble gap-5 border p-4">
           <Message>
             <MessageContent>
               <MessageLongPressMenu actions={messageActions} align="start">
@@ -232,19 +232,19 @@ const ChatCatalog = () => {
           </Message>
 
           <View className="gap-2">
-            <Text className="text-foreground-secondary" variant="caption">
+            <Text tone="secondary" variant="caption">
               Picker · touch and hold the outgoing bubble
             </Text>
             <MessageReactionPicker>
               {["👍", "❤️", "😂", "🎉", "🙏"].map((emoji) => (
                 <MessageReactionPickerItem emoji={emoji} key={emoji} />
               ))}
-              <MessageReactionAdd className="bg-background-selected border-0" />
+              <MessageReactionAdd variant="filled" />
             </MessageReactionPicker>
           </View>
 
           <View className="gap-2">
-            <Text className="text-foreground-secondary" variant="caption">
+            <Text tone="secondary" variant="caption">
               Who reacted
             </Text>
             <MessageReactors>
@@ -263,7 +263,7 @@ const ChatCatalog = () => {
 
       <View className="gap-3">
         <SectionLabel>Message scroller</SectionLabel>
-        <View className="border-border h-64 overflow-hidden rounded-[22px] border">
+        <View className="border-border rounded-bubble h-64 overflow-hidden border">
           <MessageScroller
             data={scrollerMessages}
             followOutput
@@ -308,10 +308,7 @@ const ChatCatalog = () => {
         <Empty className="min-h-64" variant="outline">
           <EmptyHeader>
             <EmptyMedia variant="icon">
-              <Icon
-                as={MessageCircle}
-                className="text-foreground-secondary size-6"
-              />
+              <Icon as={MessageCircle} className="size-6" tone="secondary" />
             </EmptyMedia>
             <EmptyTitle>No messages yet</EmptyTitle>
             <EmptyDescription>
@@ -329,20 +326,20 @@ const ChatCatalog = () => {
 
       <View className="gap-3">
         <SectionLabel>Composer</SectionLabel>
-        <View className="border-border gap-3 rounded-[22px] border p-4">
-          <ChatComposer className="border-0 p-0">
+        <View className="border-border rounded-bubble gap-3 border p-4">
+          <ChatComposer variant="bare">
             <ChatComposerButton kind="add" />
             <ChatComposerInput multiline={false} />
             <ChatComposerButton />
           </ChatComposer>
 
-          <ChatComposer className="border-0 p-0">
+          <ChatComposer variant="bare">
             <ChatComposerButton kind="add" />
             <ChatComposerInput defaultValue="going to send the new build over now, should be a few" />
             <ChatComposerButton />
           </ChatComposer>
 
-          <ChatComposer className="border-0 p-0">
+          <ChatComposer variant="bare">
             <ChatComposerButton disabled kind="add" />
             <ChatComposerInput
               editable={false}
@@ -351,7 +348,7 @@ const ChatCatalog = () => {
             <ChatComposerButton disabled />
           </ChatComposer>
 
-          <ChatComposer className="border-0 p-0">
+          <ChatComposer variant="bare">
             <ChatRecording duration="0:07" />
             <ChatComposerButton kind="stop" />
           </ChatComposer>

@@ -19,8 +19,6 @@ export const useTheme = () => {
     "--color-destructive",
     "--color-white",
     "--color-red-500",
-    "--qop-orange-light",
-    "--qop-orange-dark",
   ]);
 
   // SAFETY: These CSS variables are defined as color strings in mobile/global.css.
@@ -43,8 +41,6 @@ export const useTheme = () => {
     destructive,
     white,
     red500,
-    gradientStart,
-    gradientEnd,
   ] = colors;
 
   return {
@@ -55,8 +51,6 @@ export const useTheme = () => {
     border,
     cardForeground,
     destructive,
-    gradientEnd,
-    gradientStart,
     mutedForeground,
     popoverForeground,
     primary,

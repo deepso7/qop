@@ -1,5 +1,7 @@
 import { FlashList } from "@shopify/flash-list";
 import type { FlashListProps, FlashListRef } from "@shopify/flash-list";
+import { cva } from "class-variance-authority";
+import type { VariantProps } from "class-variance-authority";
 import { ArrowDown } from "lucide-react-native";
 import * as React from "react";
 import { View } from "react-native";
@@ -55,9 +57,20 @@ type MessageScrollerProps<ItemT> = Omit<
   onLayout?: FlashListProps<ItemT>["onLayout"];
   onScroll?: FlashListProps<ItemT>["onScroll"];
   scrollEdgeThreshold?: number;
-};
+} & VariantProps<typeof messageScrollerContentVariants>;
 
 const DEFAULT_SCROLL_EDGE_THRESHOLD = 8;
+
+const messageScrollerContentVariants = cva("px-4 py-3", {
+  defaultVariants: { variant: "default" },
+  variants: {
+    variant: {
+      default: "gap-2",
+      // No gap between rows: grouped messages space themselves.
+      grouped: "gap-0",
+    },
+  },
+});
 
 const MessageScrollerInner = <ItemT,>(
   {
@@ -78,6 +91,7 @@ const MessageScrollerInner = <ItemT,>(
     onLoad,
     onScroll,
     scrollEdgeThreshold = DEFAULT_SCROLL_EDGE_THRESHOLD,
+    variant,
     ...props
   }: MessageScrollerProps<ItemT>,
   forwardedRef: React.ForwardedRef<MessageScrollerHandle>
@@ -87,7 +101,7 @@ const MessageScrollerInner = <ItemT,>(
   const listOpacity = useSharedValue(reduceMotion ? 1 : 0);
 
   const contentClassStyle = useResolveClassNames(
-    cn("gap-2 px-4 py-3", contentClassName)
+    cn(messageScrollerContentVariants({ variant }), contentClassName)
   );
 
   const hasInitialPosition = React.useRef(false);
@@ -108,7 +122,7 @@ const MessageScrollerInner = <ItemT,>(
 
   const [showJumpToLatest, setShowJumpToLatest] = React.useState(false);
 
-  const listAnimatedStyle = useAnimatedStyle(() => ({
+  const animatedStyle = useAnimatedStyle(() => ({
     opacity: listOpacity.get(),
   }));
 
@@ -259,7 +273,7 @@ const MessageScrollerInner = <ItemT,>(
 
   return (
     <View className={cn("relative flex-1", className)}>
-      <Animated.View className="flex-1" style={listAnimatedStyle}>
+      <Animated.View className="flex-1" style={animatedStyle}>
         <FlashList
           {...props}
           contentContainerStyle={[contentClassStyle, contentContainerStyle]}
@@ -282,7 +296,6 @@ const MessageScrollerInner = <ItemT,>(
           onScroll={handleScroll}
           ref={listRef}
           scrollEventThrottle={16}
-          style={{ flex: 1 }}
         />
       </Animated.View>
 

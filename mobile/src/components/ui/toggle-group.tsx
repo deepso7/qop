@@ -115,12 +115,9 @@ const ToggleGroupItem = ({
 const ToggleGroupIcon = ({
   className,
   ...props
-}: React.ComponentProps<typeof Icon>) => {
-  const textClass = React.useContext(TextClassContext);
-
-  return (
-    <Icon className={cn("size-4 shrink-0", textClass, className)} {...props} />
-  );
-};
+}: React.ComponentProps<typeof Icon>) => (
+  // Icon already applies the item's TextClassContext colour.
+  <Icon className={cn("size-4 shrink-0", className)} {...props} />
+);
 
 export { ToggleGroup, ToggleGroupIcon, ToggleGroupItem };

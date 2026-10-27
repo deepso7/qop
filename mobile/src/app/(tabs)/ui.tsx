@@ -13,6 +13,7 @@ import {
 import { useState } from "react";
 import { View } from "react-native";
 import type { LayoutChangeEvent } from "react-native";
+import { ScopedVariables, withUniwind } from "uniwind";
 
 import expoLogo from "@/assets/images/expo-logo.png";
 import { AnimatedIcon } from "@/components/animated-icon";
@@ -29,17 +30,18 @@ import { Text } from "@/components/ui/text";
 import { WebBadge } from "@/components/web-badge";
 import { useTheme } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { cn } from "@/lib/utils";
 
-const ExpoSettingsGroupHeight = process.env.EXPO_OS === "android" ? 184 : 168;
+const Host = withUniwind(ExpoHost);
 
-type ExpoNativePreviewChildren =
-  | React.ReactNode
-  | ((contentWidth: number) => React.ReactNode);
+// Expo UI Column/Row read a universal `style` object (mapped to SwiftUI/Compose
+// modifiers). The explicit mapping hands them a plain object on native; the
+// default one would pass an array, which they ignore.
+const Column = withUniwind(ExpoColumn, {
+  style: { fromClassName: "className" },
+});
 
-const isExpoNativePreviewRenderProp = (
-  children: ExpoNativePreviewChildren
-): children is (contentWidth: number) => React.ReactNode =>
-  typeof children === "function";
+const Row = withUniwind(ExpoRow, { style: { fromClassName: "className" } });
 
 const ComponentSection = ({
   children,
@@ -47,23 +49,24 @@ const ComponentSection = ({
 }: React.PropsWithChildren<{ title: string }>) => (
   <View className="gap-2">
     <SectionLabel>{title}</SectionLabel>
-    <Surface className="border-background-selected gap-4 rounded-xl border p-4">
-      {children}
-    </Surface>
+    <Surface variant="outline">{children}</Surface>
   </View>
 );
 
+/**
+ * Hosts an Expo UI tree at a fixed height (`className`, e.g. `h-46`). Children
+ * render once the width is measured and can size to it with `w-(--preview-width)`.
+ */
 const ExpoNativePreview = ({
   children,
-  height,
+  className,
   inset = false,
   seedColor,
-}: {
-  children: ExpoNativePreviewChildren;
-  height: number;
+}: React.PropsWithChildren<{
+  className: string;
   inset?: boolean;
   seedColor?: string;
-}) => {
+}>) => {
   const [contentWidth, setContentWidth] = useState(0);
   const colorScheme = useColorScheme() === "dark" ? "dark" : "light";
 
@@ -78,16 +81,16 @@ const ExpoNativePreview = ({
     <View className="bg-background-element/50 overflow-hidden rounded-xl">
       <View className={inset ? "px-4 py-3" : undefined}>
         <View onLayout={handleLayout}>
-          <ExpoHost
+          <Host
+            className={cn("w-full", className)}
             colorScheme={colorScheme}
             ignoreSafeArea="all"
             seedColor={seedColor}
-            style={{ height, width: "100%" }}
           >
-            {isExpoNativePreviewRenderProp(children)
-              ? contentWidth > 0 && children(contentWidth)
-              : children}
-          </ExpoHost>
+            <ScopedVariables variables={{ "--preview-width": contentWidth }}>
+              {contentWidth > 0 && children}
+            </ScopedVariables>
+          </Host>
         </View>
       </View>
     </View>
@@ -103,51 +106,49 @@ const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
     <View className="gap-5">
       <View className="gap-2">
         <Text variant="label">Platform controls</Text>
-        <Text className="text-foreground-secondary" variant="caption">
+        <Text tone="secondary" variant="caption">
           Native rendering is intentional for settings and system preferences.
         </Text>
-        <ExpoNativePreview height={184} inset seedColor={theme.primary}>
-          {(contentWidth) => (
-            <ExpoColumn spacing={16} style={{ width: contentWidth }}>
-              <ExpoRow alignment="center" style={{ width: contentWidth }}>
-                <ExpoText textStyle={{ color: theme.text }}>
-                  Native controls
-                </ExpoText>
-                <ExpoSpacer flexible />
-                <ExpoSwitch
-                  onValueChange={setIsSwitchedOn}
-                  value={isSwitchedOn}
-                />
-              </ExpoRow>
-              <ExpoRow alignment="center" style={{ width: contentWidth }}>
-                <ExpoText textStyle={{ color: theme.textSecondary }}>
-                  Disabled switch
-                </ExpoText>
-                <ExpoSpacer flexible />
-                <ExpoSwitch
-                  disabled
-                  onValueChange={setIsSwitchedOn}
-                  value={false}
-                />
-              </ExpoRow>
+        <ExpoNativePreview className="h-46" inset seedColor={theme.primary}>
+          <Column className="w-(--preview-width)" spacing={16}>
+            <Row alignment="center" className="w-(--preview-width)">
               <ExpoText textStyle={{ color: theme.text }}>
-                {`Response length · ${Math.round(sliderValue)}`}
+                Native controls
               </ExpoText>
-              <ExpoSlider
-                max={100}
-                min={0}
-                onValueChange={setSliderValue}
-                step={1}
-                value={sliderValue}
+              <ExpoSpacer flexible />
+              <ExpoSwitch
+                onValueChange={setIsSwitchedOn}
+                value={isSwitchedOn}
               />
-            </ExpoColumn>
-          )}
+            </Row>
+            <Row alignment="center" className="w-(--preview-width)">
+              <ExpoText textStyle={{ color: theme.textSecondary }}>
+                Disabled switch
+              </ExpoText>
+              <ExpoSpacer flexible />
+              <ExpoSwitch
+                disabled
+                onValueChange={setIsSwitchedOn}
+                value={false}
+              />
+            </Row>
+            <ExpoText textStyle={{ color: theme.text }}>
+              {`Response length · ${Math.round(sliderValue)}`}
+            </ExpoText>
+            <ExpoSlider
+              max={100}
+              min={0}
+              onValueChange={setSliderValue}
+              step={1}
+              value={sliderValue}
+            />
+          </Column>
         </ExpoNativePreview>
       </View>
 
       <View className="gap-2">
         <Text variant="label">Native settings group</Text>
-        <ExpoNativePreview height={ExpoSettingsGroupHeight}>
+        <ExpoNativePreview className="android:h-46 h-42">
           <ExpoFieldGroup>
             <ExpoFieldGroup.Section title="Preferences">
               <ExpoRow alignment="center">
@@ -183,13 +184,13 @@ const UIScreen = () => {
       <Screen variant="catalog">
         <View className="gap-1 px-1 pb-1">
           <Text variant="title">UI</Text>
-          <Text className="text-foreground-secondary" variant="caption">
+          <Text tone="secondary" variant="caption">
             Shared product primitives and their current states.
           </Text>
         </View>
 
         <ComponentSection title="QOP · branded primitives">
-          <Text className="text-foreground-secondary" variant="caption">
+          <Text tone="secondary" variant="caption">
             Source-owned RNR components styled with Uniwind. Use these for
             product UI and branded interactions.
           </Text>
@@ -197,7 +198,7 @@ const UIScreen = () => {
         </ComponentSection>
 
         <ComponentSection title="QOP · chat primitives">
-          <Text className="text-foreground-secondary" variant="caption">
+          <Text tone="secondary" variant="caption">
             Composable message, delivery, attachment, reply, typing, and
             composer states for peer conversations.
           </Text>
@@ -205,7 +206,7 @@ const UIScreen = () => {
         </ComponentSection>
 
         <ComponentSection title="QOP · native platform primitives">
-          <Text className="text-foreground-secondary" variant="caption">
+          <Text tone="secondary" variant="caption">
             Expo UI controls reserved for settings and system-native
             presentation on SwiftUI and Jetpack Compose.
           </Text>
@@ -221,21 +222,21 @@ const UIScreen = () => {
           <Text variant="mono">const message = &quot;Code&quot;;</Text>
           <Text variant="link">Link text</Text>
           <Text variant="linkPrimary">Primary link text</Text>
-          <Text className="text-foreground-secondary" variant="body">
+          <Text tone="secondary" variant="body">
             Secondary text
           </Text>
         </ComponentSection>
 
         <ComponentSection title="Surfaces">
           <View className="flex-row gap-3">
-            <Surface className="border-background-selected flex-1 rounded-xl border p-4">
+            <Surface className="flex-1" variant="outline">
               <Text variant="caption">Default</Text>
             </Surface>
-            <Surface className="flex-1 rounded-xl p-4" tone="element">
+            <Surface className="flex-1" tone="element" variant="card">
               <Text variant="caption">Element</Text>
             </Surface>
           </View>
-          <Surface className="rounded-xl p-4" tone="selected">
+          <Surface tone="selected" variant="card">
             <Text variant="caption">Selected</Text>
           </Surface>
         </ComponentSection>
@@ -251,8 +252,9 @@ const UIScreen = () => {
         <ComponentSection title="Media">
           <View className="flex-row items-center gap-5">
             <Surface
-              className="h-20 w-20 items-center justify-center rounded-xl"
+              className="h-20 w-20 items-center justify-center"
               tone="element"
+              variant="card"
             >
               <Image
                 className="h-12 w-12"
@@ -262,7 +264,7 @@ const UIScreen = () => {
             </Surface>
             <View className="flex-1 gap-1">
               <Text variant="label">Expo Image</Text>
-              <Text className="text-foreground-secondary" variant="caption">
+              <Text tone="secondary" variant="caption">
                 Wrapped for Uniwind class names.
               </Text>
             </View>
@@ -295,7 +297,7 @@ const UIScreen = () => {
         onDismiss={() => setIsSheetPresented(false)}
         snapPoints={["half", "full"]}
       >
-        <ExpoColumn spacing={12} style={{ padding: 24 }}>
+        <Column className="p-6" spacing={12}>
           <ExpoText textStyle={{ fontSize: 20, fontWeight: "700" }}>
             Expo UI bottom sheet
           </ExpoText>
@@ -304,7 +306,7 @@ const UIScreen = () => {
           </ExpoText>
           <ExpoSpacer />
           <ExpoButton label="Done" onPress={() => setIsSheetPresented(false)} />
-        </ExpoColumn>
+        </Column>
       </ExpoBottomSheet>
     </View>
   );

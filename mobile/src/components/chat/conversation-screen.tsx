@@ -139,9 +139,11 @@ const ConversationTitle = ({
   online: boolean;
 }) => (
   <View className="items-center">
-    <Text className="text-foreground text-[17px] font-semibold">@{handle}</Text>
+    <Text variant="headline">@{handle}</Text>
     {online ? (
-      <Text className="text-foreground-secondary text-xs">online</Text>
+      <Text tone="secondary" variant="footnote">
+        online
+      </Text>
     ) : null}
   </View>
 );
@@ -325,7 +327,7 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
 
   const canSend = status === "running" && draft.trim().length > 0;
 
-  const composerStyle = useAnimatedStyle(
+  const animatedStyle = useAnimatedStyle(
     () => ({
       paddingBottom: interpolate(
         keyboardProgress.get(),
@@ -389,19 +391,19 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
         </View>
       ) : null}
       <MessageScroller
-        contentClassName="gap-0 px-4 py-3"
         data={messages}
         followOutput
         getMessageId={getMessageId}
         ItemSeparatorComponent={ConversationSeparator}
         ListEmptyComponent={loadError ? null : EmptyConversation}
         renderItem={renderItem}
+        variant="grouped"
       />
       <Animated.View
         className="border-border bg-background border-t px-3 pt-2"
-        style={composerStyle}
+        style={animatedStyle}
       >
-        <ChatComposer className="border-0 p-0">
+        <ChatComposer variant="bare">
           <ChatComposerInput
             accessibilityLabel="Message"
             editable={status === "running"}

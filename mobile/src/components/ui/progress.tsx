@@ -7,6 +7,7 @@ import Animated, {
   useDerivedValue,
   withSpring,
 } from "react-native-reanimated";
+import { ScopedVariables } from "uniwind";
 
 import { cn } from "@/lib/utils";
 
@@ -23,22 +24,27 @@ const WebIndicator = ({ value, className }: IndicatorProps) => {
   }
 
   return (
-    <View
-      className={cn(
-        "bg-primary h-full w-full flex-1 transition-all",
-        className
-      )}
-      style={{ transform: `translateX(-${100 - (value ?? 0)}%)` }}
+    <ScopedVariables
+      variables={{ "--progress-offset": `${100 - (value ?? 0)}%` }}
     >
-      <ProgressPrimitive.Indicator className={cn("h-full w-full", className)} />
-    </View>
+      <View
+        className={cn(
+          "bg-primary h-full w-full flex-1 -translate-x-(--progress-offset) transition-all",
+          className
+        )}
+      >
+        <ProgressPrimitive.Indicator
+          className={cn("h-full w-full", className)}
+        />
+      </View>
+    </ScopedVariables>
   );
 };
 
 const NativeIndicator = ({ value, className }: IndicatorProps) => {
   const progress = useDerivedValue(() => value ?? 0);
 
-  const indicator = useAnimatedStyle(
+  const animatedStyle = useAnimatedStyle(
     () => ({
       width: withSpring(
         `${interpolate(progress.value, [0, 100], [1, 100], Extrapolation.CLAMP)}%`,
@@ -55,7 +61,7 @@ const NativeIndicator = ({ value, className }: IndicatorProps) => {
   return (
     <ProgressPrimitive.Indicator asChild>
       <Animated.View
-        style={indicator}
+        style={animatedStyle}
         className={cn("bg-foreground h-full", className)}
       />
     </ProgressPrimitive.Indicator>

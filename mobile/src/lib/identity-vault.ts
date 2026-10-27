@@ -19,12 +19,14 @@ const secureStoreOptions: SecureStore.SecureStoreOptions = {
 export const {
   createLocalIdentity,
   deleteLocalIdentity,
+  importLocalIdentity,
   loadDeviceSecretKey,
   loadLocalIdentity,
   revealLocalIdentityRecoveryKey,
   signRegisterIntent,
   signRecoverOwnerIntent,
   signApprovedDeviceAction,
+  signOwnAddDeviceIntent,
   signWipeDevicesIntent,
   updateLocalIdentityBackupState,
 } = createIdentityVault({

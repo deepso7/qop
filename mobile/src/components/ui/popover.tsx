@@ -1,6 +1,6 @@
 import * as PopoverPrimitiveModule from "@rn-primitives/popover";
 import * as React from "react";
-import { Platform, StyleSheet } from "react-native";
+import { Platform } from "react-native";
 import { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
 import { FullWindowOverlay as RNFullWindowOverlay } from "react-native-screens";
 
@@ -29,7 +29,7 @@ const PopoverContent = ({
   <PopoverPrimitive.Portal hostName={portalHost}>
     <FullWindowOverlay>
       <PopoverPrimitive.Overlay
-        style={Platform.select({ native: StyleSheet.absoluteFill })}
+        className="native:absolute native:inset-0"
         asChild={Platform.OS !== "web"}
       >
         <NativeOnlyAnimatedView

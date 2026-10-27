@@ -1,3 +1,5 @@
+import { cva } from "class-variance-authority";
+import type { VariantProps } from "class-variance-authority";
 import { ArrowUp, Plus, Square } from "lucide-react-native";
 import * as React from "react";
 import type { Pressable } from "react-native";
@@ -8,17 +10,28 @@ import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
 
+const chatComposerVariants = cva(
+  "bg-background border-continuous rounded-bubble flex-row items-end gap-3",
+  {
+    defaultVariants: { variant: "default" },
+    variants: {
+      variant: {
+        // Embedded in a screen or catalog that frames it already.
+        bare: "",
+        default: "border-border border p-2",
+      },
+    },
+  }
+);
+
 const ChatComposer = ({
   className,
-  style,
+  variant,
   ...props
-}: React.ComponentProps<typeof View>) => (
+}: React.ComponentProps<typeof View> &
+  VariantProps<typeof chatComposerVariants>) => (
   <View
-    className={cn(
-      "border-border bg-background flex-row items-end gap-3 rounded-[22px] border p-2",
-      className
-    )}
-    style={[{ borderCurve: "continuous" }, style]}
+    className={cn(chatComposerVariants({ variant }), className)}
     {...props}
   />
 );
@@ -76,7 +89,7 @@ const ChatComposerInput = ({
 }: React.ComponentProps<typeof TextInput>) => (
   <TextInput
     className={cn(
-      "bg-background-element text-foreground max-h-40 min-h-11 flex-1 rounded-[20px] px-4 py-2.5 text-base leading-5",
+      "bg-background-element text-foreground rounded-panel border-continuous max-h-40 min-h-11 flex-1 px-4 py-2.5 text-base leading-5",
       className
     )}
     multiline
@@ -87,6 +100,21 @@ const ChatComposerInput = ({
     {...props}
   />
 );
+
+// A static waveform: bar heights from 10 to 25pt.
+const WAVEFORM = [
+  "h-2.5",
+  "h-4",
+  "h-5.5",
+  "h-3.25",
+  "h-6.25",
+  "h-2.75",
+  "h-4.75",
+  "h-3.5",
+  "h-6",
+  "h-3",
+  "h-4.5",
+];
 
 type ChatRecordingProps = React.ComponentProps<typeof View> & {
   duration: string;
@@ -106,19 +134,17 @@ const ChatRecording = ({
   >
     <View className="bg-destructive size-2.5 rounded-sm" />
     <View className="min-w-0 flex-1 flex-row items-center gap-1">
-      {[10, 16, 22, 13, 25, 11, 19, 14, 24, 12, 18].map((height, index) => (
+      {WAVEFORM.map((height, index) => (
         <View
-          className="bg-foreground-secondary min-w-1 flex-1 rounded-sm"
+          className={cn(
+            "bg-foreground-secondary min-w-1 flex-1 rounded-sm",
+            height
+          )}
           key={`${height}-${index}`}
-          style={{ height }}
         />
       ))}
     </View>
-    <Text
-      className="text-foreground-secondary text-sm"
-      selectable
-      style={{ fontVariant: ["tabular-nums"] }}
-    >
+    <Text className="text-foreground-secondary text-sm tabular-nums" selectable>
       {duration}
     </Text>
   </View>

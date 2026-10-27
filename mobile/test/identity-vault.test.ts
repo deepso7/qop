@@ -301,6 +301,95 @@ describe("identity vault", () => {
     );
   });
 
+  it("imports a recovery key with a new device key and signs only its own add", async () => {
+    const original = await loadVault();
+    await Effect.runPromise(original.createLocalIdentity("alice"));
+
+    const recoveryKey = await Effect.runPromise(
+      original.revealLocalIdentityRecoveryKey()
+    );
+
+    const first = await Effect.runPromise(original.loadLocalIdentity());
+
+    // A new phone: empty vault, then the user's key.
+    secureStoreMock.items.clear();
+    fileSystemMock.markers.clear();
+    const restoredVault = await loadVault();
+
+    const restored = await Effect.runPromise(
+      restoredVault.importLocalIdentity(recoveryKey, "alice")
+    );
+
+    expect(restored).toMatchObject({
+      backupState: "copied",
+      handle: "alice",
+      ownerAddress: first?.ownerAddress,
+    });
+    expect(restored.deviceKey).not.toBe(first?.deviceKey);
+
+    const domain = {
+      chainId: "31337",
+      verifyingContract: "0x1111111111111111111111111111111111111111",
+    } as const;
+
+    const intent = {
+      deadline: "1700003600",
+      deviceKey: restored.deviceKey,
+      nonce: "3",
+      qid: "42",
+    };
+
+    await expect(
+      Effect.runPromise(restoredVault.signOwnAddDeviceIntent(domain, intent))
+    ).resolves.toMatch(/^0x[0-9a-f]{130}$/u);
+
+    const other = await Effect.runPromise(
+      restoredVault
+        .signOwnAddDeviceIntent(domain, {
+          ...intent,
+          deviceKey: `0x${"0a".repeat(32)}`,
+        })
+        .pipe(Effect.result)
+    );
+
+    expect(Result.isFailure(other) && other.failure.operation).toBe("sign");
+  });
+
+  it("refuses to import a mistyped key or over an existing identity", async () => {
+    const {
+      createLocalIdentity,
+      importLocalIdentity,
+      revealLocalIdentityRecoveryKey,
+    } = await loadVault();
+
+    await Effect.runPromise(createLocalIdentity("alice"));
+
+    const recoveryKey = await Effect.runPromise(
+      revealLocalIdentityRecoveryKey()
+    );
+
+    const existing = await Effect.runPromise(
+      importLocalIdentity(recoveryKey, "alice").pipe(Effect.result)
+    );
+
+    expect(Result.isFailure(existing) && existing.failure.operation).toBe(
+      "already-exists"
+    );
+
+    // One changed character fails the checksum.
+    const last = recoveryKey.at(-1) === "0" ? "1" : "0";
+
+    const mistyped = await Effect.runPromise(
+      importLocalIdentity(`${recoveryKey.slice(0, -1)}${last}`, "alice").pipe(
+        Effect.result
+      )
+    );
+
+    expect(Result.isFailure(mistyped) && mistyped.failure.operation).toBe(
+      "create"
+    );
+  });
+
   it("ignores a leftover unpublished identity key", async () => {
     secureStoreMock.items.set("qop.identity.v2", "{}");
     const { loadLocalIdentity } = await loadVault();

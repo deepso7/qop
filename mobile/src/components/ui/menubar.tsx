@@ -7,8 +7,7 @@ import {
   ChevronUp,
 } from "lucide-react-native";
 import * as React from "react";
-import { Platform, Pressable, StyleSheet, Text, View } from "react-native";
-import type { StyleProp, ViewStyle } from "react-native";
+import { Platform, Pressable, Text, View } from "react-native";
 import { FadeIn, ReduceMotion } from "react-native-reanimated";
 import { FullWindowOverlay as RNFullWindowOverlay } from "react-native-screens";
 
@@ -63,7 +62,7 @@ const Menubar = ({
     <>
       {Platform.OS !== "web" && (value || valueProp) ? (
         <Portal name={`menubar-overlay-${id}`}>
-          <Pressable onPress={closeMenu} style={StyleSheet.absoluteFill} />
+          <Pressable className="absolute inset-0" onPress={closeMenu} />
         </Portal>
       ) : null}
       <MenubarPrimitive.Root
@@ -172,14 +171,12 @@ const MenubarSubContent = ({
 const MenubarContent = ({
   className,
   overlayClassName: _overlayClassName,
-  overlayStyle: _overlayStyle,
   portalHost,
   align = "start",
   alignOffset = -4,
   sideOffset = 8,
   ...props
 }: React.ComponentProps<typeof MenubarPrimitive.Content> & {
-  overlayStyle?: StyleProp<ViewStyle>;
   overlayClassName?: string;
   portalHost?: string;
 }) => (
@@ -188,8 +185,8 @@ const MenubarContent = ({
       <NativeOnlyAnimatedView
         as="Pressable"
         accessible={false}
+        className="absolute inset-0"
         entering={FadeIn.reduceMotion(ReduceMotion.System)}
-        style={StyleSheet.absoluteFill}
         pointerEvents="box-none"
       >
         <TextClassContext.Provider value="text-popover-foreground">
@@ -279,10 +276,7 @@ const MenubarCheckboxItem = ({
         <MenubarPrimitive.ItemIndicator>
           <Icon
             as={Check}
-            className={cn(
-              "text-foreground size-4",
-              Platform.select({ web: "pointer-events-none" })
-            )}
+            className="text-foreground web:pointer-events-none size-4"
           />
         </MenubarPrimitive.ItemIndicator>
       </View>

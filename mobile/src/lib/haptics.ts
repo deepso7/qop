@@ -16,3 +16,12 @@ export const successHaptic = async () => {
     // Unsupported devices can complete the action without tactile feedback.
   }
 };
+
+// A firmer tap for primary actions that move the user forward.
+export const primaryHaptic = async () => {
+  try {
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  } catch {
+    // Unsupported devices can complete the action without tactile feedback.
+  }
+};
