@@ -362,11 +362,14 @@ export const createLocalEnrollment = ({
             status === "confirmed" &&
             (yield* chainTime()) >= BigInt(enrollment.deadline)
           ) {
-            return yield* write({
-              ...enrollment,
-              failureCode: "REMOVED",
-              status: "failed",
-            });
+            // Re-read: the add may have landed after the roster read above.
+            const latest = yield* lookupOwner(identity.ownerAddress);
+
+            return yield* write(
+              latest && isActive(latest, identity)
+                ? { ...enrollment, status: "confirmed" }
+                : { ...enrollment, failureCode: "REMOVED", status: "failed" }
+            );
           }
 
           return enrollment;

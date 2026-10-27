@@ -431,6 +431,31 @@ describe("checkLocalEnrollment", () => {
     ).resolves.toMatchObject({ failureCode: "REMOVED", status: "failed" });
   });
 
+  it("confirms instead of REMOVED when the add lands during the check", async () => {
+    const first = await submitted();
+    now = BigInt(first.deadline);
+    // The first roster read misses the phone; the re-read sees it.
+    registryMock.lookupOwner
+      .mockReturnValueOnce(Effect.succeed(account()))
+      .mockReturnValueOnce(
+        Effect.succeed(
+          account({ deviceKeys: [OTHER_DEVICE_KEY, identity.deviceKey] })
+        )
+      );
+    clientMock.get.mockReturnValueOnce(
+      Effect.succeed({
+        digest: first.digest,
+        failureCode: null,
+        status: "confirmed",
+        transactionHash: null,
+      })
+    );
+
+    await expect(
+      Effect.runPromise(loadEnrollment().checkLocalEnrollment())
+    ).resolves.toMatchObject({ status: "confirmed" });
+  });
+
   it("resubmits when the relayer never saw it before the deadline", async () => {
     const first = await submitted();
     now = BigInt(first.deadline) - 1n;
