@@ -9,11 +9,11 @@ A qop network is three things you deploy, plus the minip2p relay. Every client m
 
 | Piece | Source | What you run |
 | --- | --- | --- |
-| [Identity registry](/docs/self-hosting/registry) | `contracts/` | A Solidity contract on any EVM chain |
+| [Identity registry](/docs/self-hosting/registry) | `contracts/` | A Solidity contract on a Cancun-compatible EVM chain |
 | [API](/docs/self-hosting/api) | `api/` | A Node service with a Postgres database |
 | [App](/docs/self-hosting/app) | `mobile/` | An Expo build configured for your registry and API |
 
-The [CLI](/docs/cli) uses the same settings as the app. Relays are public minip2p relays by default; set your own with `EXPO_PUBLIC_RELAY_ADDRS` and `QOP_RELAY_ADDRS`.
+The [CLI](/docs/cli) uses the same settings as the app. Neither has a built-in relay: the example env files set a public minip2p relay in `EXPO_PUBLIC_RELAY_ADDRS` and `QOP_RELAY_ADDRS`. Keep those values or replace them with your own relays.
 
 ## Prerequisites
 
