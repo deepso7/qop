@@ -48,14 +48,6 @@ export default defineConfig({
         "shadcn/require-static-classes": "warn",
       },
     },
-  ],
-  rules: {
-    "anti-slop-effect/no-service-constructor-imports": "error",
-    "func-names": "off",
-    "max-classes-per-file": "off",
-    "promise/prefer-await-to-callbacks": "off",
-  },
-  overrides: [
     {
       // Standalone Three.js experiments: Three classes are not Effect services,
       // and voxel code leans on counters and bit math.
@@ -67,4 +59,10 @@ export default defineConfig({
       },
     },
   ],
+  rules: {
+    "anti-slop-effect/no-service-constructor-imports": "error",
+    "func-names": "off",
+    "max-classes-per-file": "off",
+    "promise/prefer-await-to-callbacks": "off",
+  },
 });
