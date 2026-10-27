@@ -5,18 +5,34 @@ description: qop is a minimal, secure messaging app. Messages go straight from y
 
 qop is built on [minip2p](https://minip2p.com). It's open source and self-hostable.
 
-## How it works
+## At a glance
 
 - **Peer to peer.** Messages travel directly between devices. qop has no message servers.
 - **Keys stay on your devices.** Your phone creates its keys and never sends the private halves to us.
 - **Identity on chain.** A public registry maps your handle to your owner address and device keys, so peers can check who they're talking to.
 - **No phone number.** You pick a handle instead.
 
-## Use it from the terminal
+## Start here
 
-The qop CLI links to your account as a second device, approved from your phone, and then chats as you. See the [CLI guide](https://github.com/deepso7/qop/tree/main/cli) to set it up.
+<CardGroup cols={2}>
+  <Card title="How it works" href="/docs/how-it-works" icon="network">
+    Accounts, devices, the registry, and how a message gets delivered.
+  </Card>
+  <Card title="Using the app" href="/docs/app" icon="smartphone">
+    Create your qop, save your recovery key, and start a chat.
+  </Card>
+  <Card title="Devices and recovery" href="/docs/devices" icon="key-round">
+    Link or remove devices, and what your recovery key does.
+  </Card>
+  <Card title="CLI" href="/docs/cli" icon="terminal">
+    Link a computer as a second device and chat from the terminal.
+  </Card>
+  <Card title="Self-hosting" href="/docs/self-hosting" icon="server">
+    Run your own registry, API, and app build.
+  </Card>
+  <Card title="Privacy policy" href="/privacy" icon="shield">
+    What data qop handles and where it goes.
+  </Card>
+</CardGroup>
 
-## More
-
-- [Source on GitHub](https://github.com/deepso7/qop)
-- [Privacy policy](/privacy)
+The source is on [GitHub](https://github.com/deepso7/qop).

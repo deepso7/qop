@@ -1,0 +1,53 @@
+---
+title: Devices and recovery
+description: Link another device to your account, remove one, and keep your recovery key safe.
+---
+
+Your account can have up to four active devices. Each one has its own key, and your phone approves every change with your owner key.
+
+## Link a device
+
+Today the device you can link is the [qop CLI](/docs/cli).
+
+<Steps>
+  <Step title="Start linking on the new device">
+    On your computer, run `qop link --account <your_handle>`. It prints a **Pending device** fingerprint and a `qop-pair1.` pairing payload.
+  </Step>
+  <Step title="Paste the payload on your phone">
+    Go to **Profile → Devices → Link a device** and paste the payload.
+  </Step>
+  <Step title="Compare fingerprints">
+    The phone shows the device fingerprint. Only continue if it matches the **Pending device** in your terminal: a linked device can send and receive as you.
+  </Step>
+  <Step title="Approve">
+    Tap **Link device**. Your phone connects to the computer, signs the approval, and the qop API submits it to the registry. The terminal prints `Linked as @<handle>` once it's confirmed.
+  </Step>
+</Steps>
+
+Your phone must be online during approval, and the payload only works for the account it names.
+
+## Remove a device
+
+In **Profile → Devices**, tap the device you want to remove and confirm. Once the registry confirms it, the device can't send or receive as you. A connection that was already open can keep working until its next registry check, at most 60 seconds later. Your conversation history stays where it is.
+
+A removed key can't be added back. To link the same computer again, run `qop link` again and it generates a new key.
+
+## Your recovery key
+
+Your recovery key is your **owner key**. It controls the account: it approves new devices and removes old ones. It looks like this:
+
+```txt
+qop1_<43 characters>_<8 characters>
+```
+
+The last part is a checksum, so a mistyped key is detected instead of silently pointing at the wrong account.
+
+- It's created on your phone and stored in the iOS Keychain or Android Keystore. It never leaves the device unless you export it.
+- Export it from **Profile → Recovery key** and keep it somewhere private, such as a password manager.
+- Treat it like a password that can't be changed: anyone who has it controls your account.
+
+<Callout type="note">
+  The app can't restore an account from a recovery key yet. Keep your key
+  anyway: it's the only proof of ownership, and logging out without it loses the
+  account for good.
+</Callout>

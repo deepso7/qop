@@ -1,0 +1,68 @@
+---
+title: How it works
+description: Accounts, devices, the identity registry, and how qop delivers a message without a message server.
+---
+
+qop has four parts. Only one of them, the API, is a server that qop runs, and it never sees your messages.
+
+| Part | What it does |
+| --- | --- |
+| **Identity registry** | A smart contract that maps each handle to an owner address and a list of device keys. It's the single source of truth for who owns which handle. |
+| **API** | Pays the blockchain fees for registration and device changes. It checks your signatures and submits the transaction, but can't approve anything without them. |
+| **App and CLI** | Create keys on your device, look people up in the registry, and talk to other devices over minip2p. |
+| **minip2p** | The peer-to-peer transport. Devices connect directly, or through a relay when a direct path isn't possible. |
+
+## Accounts and devices
+
+An **account** is a permanent handle plus a numeric account ID (the _qid_). Two kinds of keys belong to it:
+
+- **Owner key.** Controls the account: it approves adding and removing devices. You can export it as your [recovery key](/docs/devices#your-recovery-key).
+- **Device keys.** Each device (a phone, a CLI) has its own key pair. The public half is recorded in the registry; the private half never leaves the device.
+
+An account can have up to four active devices at a time. Owning the account and being able to send messages are separate: a device key lets a device message as you, but only the owner key can change the device list.
+
+## The registry
+
+The registry is a public contract on Ethereum (qop currently runs on the Sepolia test network). It enforces the rules for every account:
+
+- Handles are 1–32 characters: lowercase letters, digits, and underscores, starting with a letter or digit. They're permanent.
+- Every change to an account is signed by its owner key.
+- A device key belongs to one account at a time. A removed key can't be added back; a device that's relinked gets a fresh key.
+
+Anyone can read the registry, and records on it can't be deleted. See the [privacy policy](/privacy#public-registry) for exactly what becomes public.
+
+Registration is invitation-only for now. The registry can be opened to everyone later, and once opened it can't be closed again.
+
+## Sending a message
+
+<Steps>
+  <Step title="Look up the handle">
+    The app reads the registry over a blockchain RPC provider to find the
+    recipient's account and active device keys.
+  </Step>
+  <Step title="Connect">
+    It opens a minip2p connection to one of those devices, directly or through a
+    relay. The connection is encrypted in transit.
+  </Step>
+  <Step title="Verify">
+    Both sides check the other's device key against the registry before any chat
+    message is accepted. The check is cached for at most 60 seconds, cleared
+    when the app resumes from the background, and redone on every new
+    connection.
+  </Step>
+  <Step title="Deliver">
+    The message is sent, stored on the recipient's device, and acknowledged.
+  </Step>
+</Steps>
+
+Because there is no message server, the recipient's device has to be reachable. If you've [linked the CLI](/docs/cli), it can hold messages for your phone while it's offline.
+
+## Terms
+
+**Pairing** connects a new device to your phone so you can approve it. Pairing alone doesn't let the device send messages.
+
+**Enrollment** adds the device's key to your account in the registry. From then on, it can send and receive as you.
+
+**Revocation** removes a device's key. The device can no longer message as you, but conversations other devices already received stay where they are.
+
+**Catch-up** is your phone reading messages a linked device saved while the phone was away, so they appear in the conversation when the phone returns.

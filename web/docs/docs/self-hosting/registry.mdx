@@ -1,0 +1,47 @@
+---
+title: Identity registry
+description: Deploy the QOPIdentityRegistry contract that maps handles to owners and device keys.
+---
+
+The registry is the authority for account ownership, handles, and device keys. Both the API and every client read it directly.
+
+## Roles
+
+Deploying sets two addresses:
+
+- **Registration admin.** Can rotate the registration signer while registration is gated, and can permanently open registration with `openRegistration()`. It can't be changed after deployment, so use a multisig or another durable contract account. A plain EOA isn't acceptable outside local development.
+- **Registration signer.** A hot key that co-signs registrations while they're invitation-gated. The API holds it as `REGISTRATION_PRIVATE_KEY`.
+
+Neither should be the API's funded relayer key.
+
+## Deploy locally
+
+Start a local chain with Anvil:
+
+```sh
+anvil
+```
+
+Then deploy from the repository root. For local development, the admin and signer can be Anvil test accounts.
+
+```sh
+REGISTRATION_ADMIN=0x... \
+REGISTRATION_SIGNER=0x... \
+forge script --root contracts contracts/script/DeployQOPIdentityRegistry.s.sol:DeployQOPIdentityRegistry \
+  --broadcast \
+  --private-key 0x... \
+  --rpc-url http://127.0.0.1:8545
+```
+
+Note the deployed address. It goes into the API's `REGISTRY_ADDRESS`, the app's `EXPO_PUBLIC_REGISTRY_ADDRESS`, and the CLI's `QOP_REGISTRY_ADDRESS`, alongside the matching chain ID.
+
+## Rules the contract enforces
+
+- Handles are 1–32 ASCII characters: lowercase letters, digits, and underscores, starting with a letter or digit. They're permanent.
+- Account IDs (qids) start at 1 and increase by one.
+- Registration needs the owner's signature over a first device key. While gated, it also needs the registration signer's signature over the same request.
+- An account can have up to four active devices. A device key belongs to one account at a time, and a removed key can't be added again.
+- Owner, device, and wipe actions share one per-account nonce, and every signature is bound to the chain and registry address with EIP-712.
+- After registration, anyone can relay a validly signed action.
+
+`contracts/README.md` lists every signed intent type, including owner rotation and recovery.

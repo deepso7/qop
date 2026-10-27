@@ -1,0 +1,66 @@
+---
+title: CLI
+description: Link the qop CLI to your account as a second device, approved from your phone, then chat from the terminal.
+---
+
+The qop CLI is a separate device on your account with its own key. You approve it from your phone, and then it sends and receives as you. While it runs, it can also hold messages for your phone when the phone is offline.
+
+The CLI runs on macOS and Linux and needs the Node.js version pinned in the root `package.json` (currently 24.22.1).
+
+## Set up
+
+There's no published package yet, so run it from the repository:
+
+```sh
+git clone https://github.com/deepso7/qop
+cd qop
+pnpm install
+```
+
+Run commands from the repository root with `pnpm --filter @qop/cli qop <command>`. The examples below shorten that to `qop`.
+
+## Configure
+
+The CLI reads its settings from environment variables. Copy `cli/.env.example` and export them, or use a loader such as direnv.
+
+| Variable | Description |
+| --- | --- |
+| `QOP_RPC_URL` | Blockchain RPC endpoint used to read the registry. |
+| `QOP_REGISTRY_ADDRESS` | Address of the identity registry contract. |
+| `QOP_REGISTRY_CHAIN_ID` | Chain ID of the registry. Defaults to `31337` (a local Anvil chain). |
+| `QOP_API_URL` | qop API URL, used to submit the device approval. |
+| `QOP_RELAY_ADDRS` | Comma-separated minip2p relay multiaddresses. |
+| `QOP_DATA_DIR` | Where the CLI keeps its key and messages. Defaults to `~/.local/share/qop`. |
+
+These must point at the same registry and chain as your phone.
+
+## Commands
+
+### `qop link --account <handle>`
+
+Creates a device key and prints a pairing payload. Approve it on your phone under **Profile → Devices → Link a device**; see [Link a device](/docs/devices#link-a-device). The command waits until the key is active on your account.
+
+It waits for a relay reservation before printing the payload, and falls back to local network addresses if the relay is unavailable. If the previous key was removed from your account, it generates a new one.
+
+### `qop status`
+
+Prints the CLI's account, qid, peer ID, device fingerprint, whether it's linked, and how many outgoing messages are queued.
+
+### `qop start`
+
+Checks that this device is still on your account, then runs until you stop it, sending and receiving messages.
+
+```sh
+qop start --to alice --message "hello from the terminal"
+```
+
+- **Outgoing.** `--to` and `--message` send one message. It's saved first, and if the recipient is offline, the CLI keeps it queued and retries while it runs, including after a restart.
+- **Incoming.** Messages are saved before they're acknowledged.
+- **Holding for your phone.** Your phone can hand pending messages to a running CLI. The CLI confirms only after saving them, and delivers them when the recipient is reachable.
+- **Catch-up.** When your phone comes back, it reads the replies the CLI saved while it was away, so they show up in order.
+
+## Where data lives
+
+Everything is in `QOP_DATA_DIR`: the device identity and `messages.db`, a SQLite database with the outbox and inbox. Nothing is stored on qop's servers.
+
+Only one `qop link` or `qop start` can run at a time per data directory.

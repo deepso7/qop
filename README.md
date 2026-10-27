@@ -26,6 +26,7 @@ Messages travel peer to peer. Identity lives on chain. A small API sponsors invi
 | `mobile/` | `mobile` | Expo app (Expo Router, minip2p, Effect) |
 | `packages/identity/` | `@qop/identity` | Identity primitives shared by the API, CLI, and app |
 | `packages/protocol/` | `@qop/protocol` | Pairing, registry reads, and live-session authorization |
+| `web/` | `@qop/web` | The qop.sh site and docs (Blume) |
 
 Each package has its own README with details on configuration and operation.
 
