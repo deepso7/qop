@@ -70,7 +70,6 @@
   --blume-code-highlight-border: oklch(0.61 0.112 47 / 0.6);
   --blume-code-word: oklch(0.61 0.112 47 / 0.16);
   --blume-code-word-border: oklch(0.61 0.112 47 / 0.5);
-  --blume-radius: 0.25rem;
 }
 
 :root[data-theme="dark"] {
@@ -168,6 +167,36 @@ html {
   &:focus-visible {
     outline-offset: -2px;
   }
+}
+
+/* Pixel docs chrome. No rounded corners anywhere: Blume's utilities are
+   layered, so this unlayered rule wins. Filled chips get stepped corners
+   instead, and Blume's Lucide icons draw with square ends and crisp edges. */
+*,
+::before,
+::after {
+  border-radius: 0;
+}
+
+.blume-nav-link,
+[data-blume-nav-tree] a,
+[data-blume-toc] a,
+[data-blume-page-actions] :is(a, button),
+[data-blume-dropdown] :is(a, button),
+[data-blume-search-results] a,
+[data-blume-search-filters] button,
+[data-blume-tablist] button {
+  clip-path: var(--qp-notch-sm);
+}
+
+[stroke-linecap="round"] {
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+svg:has(use[href^="#blume-i-"]),
+symbol[id^="blume-i-"] {
+  shape-rendering: crispEdges;
 }
 
 /* The landing page runs edge to edge: drop the padding Blume's <main> adds. */

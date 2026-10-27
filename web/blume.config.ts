@@ -20,10 +20,14 @@ export default defineConfig({
   // generated assets (OG cards) and the fonts.
   theme: {
     accent: { light: "oklch(0.5 0.11 45)", dark: "oklch(0.74 0.12 50)" },
-    radius: "sm",
+    radius: "none",
     fonts: {
       // Paper Mono (OFL, fonts/PaperMono-OFL.txt), self-hosted as a variable font.
       display: {
+        name: "Paper Mono",
+        variants: [{ src: "./fonts/PaperMono.woff2" }],
+      },
+      body: {
         name: "Paper Mono",
         variants: [{ src: "./fonts/PaperMono.woff2" }],
       },
