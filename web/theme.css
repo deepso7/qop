@@ -1,0 +1,214 @@
+/* qop theme: warm paper and terracotta in light, a dark tide in dark.
+   The --qp-* tokens are qop's own (used by the landing page); the --blume-*
+   tokens restyle the docs from them, so both stay in sync. */
+
+:root {
+  --qp-paper: oklch(0.95 0.006 60);
+  --qp-ink: oklch(0.17 0.008 250);
+  --qp-element: oklch(0.911 0.0061 51.5);
+  --qp-border: oklch(0.833 0.0063 34.5);
+  --qp-muted: oklch(0.4508 0.00728 311.2);
+  /* Brand terracotta for fills and art; --qp-link is the AA-contrast text shade. */
+  --qp-orange: oklch(0.61 0.112 47);
+  --qp-link: oklch(0.5 0.11 45);
+  /* Pale chips that sit on the tide in both themes, with fixed dark text. */
+  --qp-foam: oklch(0.944 0.02 62.9);
+  --qp-on-foam: oklch(0.17 0.008 250);
+  /* Orange text on those pale chips: fixed, since the chips don't change. */
+  --qp-link-on-foam: oklch(0.5 0.11 45);
+  /* The mark: terracotta o on a pale tile in light, the near-black app-icon tile in dark. */
+  --qp-mark: oklch(0.609 0.112 46.7);
+  --qp-mark-tile: var(--qp-foam);
+
+  /* Stepped corners: the pixel version of a rounded rect. */
+  --qp-notch: polygon(
+    0 6px,
+    3px 6px,
+    3px 3px,
+    6px 3px,
+    6px 0,
+    calc(100% - 6px) 0,
+    calc(100% - 6px) 3px,
+    calc(100% - 3px) 3px,
+    calc(100% - 3px) 6px,
+    100% 6px,
+    100% calc(100% - 6px),
+    calc(100% - 3px) calc(100% - 6px),
+    calc(100% - 3px) calc(100% - 3px),
+    calc(100% - 6px) calc(100% - 3px),
+    calc(100% - 6px) 100%,
+    6px 100%,
+    6px calc(100% - 3px),
+    3px calc(100% - 3px),
+    3px calc(100% - 6px),
+    0 calc(100% - 6px)
+  );
+  --qp-notch-sm: polygon(
+    0 3px,
+    3px 3px,
+    3px 0,
+    calc(100% - 3px) 0,
+    calc(100% - 3px) 3px,
+    100% 3px,
+    100% calc(100% - 3px),
+    calc(100% - 3px) calc(100% - 3px),
+    calc(100% - 3px) 100%,
+    3px 100%,
+    3px calc(100% - 3px),
+    0 calc(100% - 3px)
+  );
+
+  --blume-background: var(--qp-paper);
+  --blume-foreground: var(--qp-ink);
+  --blume-muted: var(--qp-element);
+  --blume-muted-foreground: var(--qp-muted);
+  --blume-border: var(--qp-border);
+  --blume-accent: var(--qp-link);
+  --blume-accent-foreground: var(--qp-paper);
+  --blume-code-background: oklch(0.975 0.004 60);
+  --blume-code-highlight: oklch(0.61 0.112 47 / 0.12);
+  --blume-code-highlight-border: oklch(0.61 0.112 47 / 0.6);
+  --blume-code-word: oklch(0.61 0.112 47 / 0.16);
+  --blume-code-word-border: oklch(0.61 0.112 47 / 0.5);
+}
+
+:root[data-theme="dark"] {
+  --qp-paper: oklch(0.17 0.012 45);
+  --qp-ink: oklch(0.94 0.012 60);
+  --qp-element: oklch(0.23 0.014 45);
+  --qp-border: oklch(0.32 0.018 45);
+  --qp-muted: oklch(0.72 0.015 55);
+  --qp-orange: oklch(0.7 0.12 48);
+  --qp-link: oklch(0.74 0.12 50);
+  --qp-mark-tile: oklch(0.171 0.006 237);
+
+  --blume-background: var(--qp-paper);
+  --blume-foreground: var(--qp-ink);
+  --blume-muted: var(--qp-element);
+  --blume-muted-foreground: var(--qp-muted);
+  --blume-border: var(--qp-border);
+  --blume-accent: var(--qp-link);
+  --blume-accent-foreground: var(--qp-paper);
+  --blume-code-background: oklch(0.2 0.013 45);
+  --blume-code-highlight: oklch(0.7 0.12 48 / 0.16);
+  --blume-code-highlight-border: oklch(0.7 0.12 48 / 0.6);
+  --blume-code-word: oklch(0.7 0.12 48 / 0.22);
+  --blume-code-word-border: oklch(0.7 0.12 48 / 0.55);
+}
+
+/* Scrollbars: thin, square (pixel) thumb on a clear track, in theme colours.
+   Firefox and Chromium use the standard properties; older Safari, which lacks
+   them, falls back to the WebKit pseudo-elements (which can also tint on hover). */
+:root {
+  --qp-scroll-thumb: var(--qp-border);
+  --qp-scroll-thumb-hover: var(--qp-orange);
+}
+
+/* Reserve the scrollbar's space so short and long pages share one width. */
+html {
+  scrollbar-gutter: stable;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--qp-scroll-thumb) transparent;
+}
+
+@supports not (scrollbar-color: auto) {
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--qp-scroll-thumb);
+    border: 2px solid var(--qp-paper);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--qp-scroll-thumb-hover);
+  }
+}
+
+/* qop tokens as Tailwind colours (bg-paper, text-ink, bg-foam, …). `inline`
+   keeps them pointing at the variables, so they follow the theme. */
+@theme inline {
+  --color-paper: var(--qp-paper);
+  --color-ink: var(--qp-ink);
+  --color-surface: var(--qp-element);
+  --color-subtle: var(--qp-muted);
+  /* brand is for fills and art; link is the AA text shade of it. */
+  --color-brand: var(--qp-orange);
+  --color-link: var(--qp-link);
+  --color-link-on-foam: var(--qp-link-on-foam);
+  --color-foam: var(--qp-foam);
+  --color-on-foam: var(--qp-on-foam);
+  --color-mark: var(--qp-mark);
+  --color-mark-tile: var(--qp-mark-tile);
+}
+
+/* Stepped (pixel) corners. The clip would cut off an outer focus ring, so
+   draw it just inside the edge. */
+@utility notch {
+  clip-path: var(--qp-notch);
+
+  &:focus-visible {
+    outline-offset: -2px;
+  }
+}
+
+@utility notch-sm {
+  clip-path: var(--qp-notch-sm);
+
+  &:focus-visible {
+    outline-offset: -2px;
+  }
+}
+
+/* Pixel docs chrome. No rounded corners anywhere: Blume's utilities are
+   layered, so this unlayered rule wins. Filled chips get stepped corners
+   instead, and Blume's Lucide icons draw with square ends and crisp edges. */
+*,
+::before,
+::after {
+  border-radius: 0;
+}
+
+.blume-nav-link,
+[data-blume-nav-tree] a,
+[data-blume-toc] a,
+[data-blume-page-actions] :is(a, button),
+[data-blume-dropdown] :is(a, button),
+[data-blume-search-results] a,
+[data-blume-search-filters] button,
+[data-blume-tablist] button {
+  clip-path: var(--qp-notch-sm);
+}
+
+[stroke-linecap="round"] {
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+svg:has(use[href^="#blume-i-"]),
+symbol[id^="blume-i-"] {
+  shape-rendering: crispEdges;
+}
+
+/* The landing page runs edge to edge: drop the padding Blume's <main> adds. */
+#blume-content:has([data-tide]) {
+  padding: 0;
+}
+
+/* Blume's article link style (.prose a) is unlayered, so it beats Tailwind's
+   layered utilities. Inside our own not-prose blocks, roll links back to the
+   layers so their utility classes (and Tailwind's reset) apply. */
+.not-prose :where(a) {
+  color: revert-layer;
+  font-weight: revert-layer;
+  text-decoration: revert-layer;
+}

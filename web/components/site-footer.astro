@@ -1,0 +1,21 @@
+---
+// qop's site footer: tiny uppercase columns with a pixel dot. The landing page
+// renders it after its sections; every docs page gets it through the `Footer`
+// layout slot (components.ts), so both ends of the site share one footer.
+const links = [
+  { label: "Docs", href: "/docs" },
+  { label: "Privacy", href: "/privacy" },
+  { label: "GitHub", href: "https://github.com/deepso7/qop" },
+];
+---
+
+<footer
+  class="not-prose grid grid-cols-2 items-start gap-6 px-6 pt-10 pb-6 text-xs tracking-wide text-ink uppercase md:grid-cols-5"
+  data-blume-footer
+>
+  <span>QOP</span>
+  <span class="hidden size-2 bg-ink md:block" aria-hidden="true"></span>
+  <span class="grid">{links.map((l) => <a href={l.href} class="hover:text-link">{l.label}</a>)}</span>
+  <span>Built on minip2p</span>
+  <span>qop.sh<br />©2026</span>
+</footer>

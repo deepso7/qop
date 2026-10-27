@@ -1,0 +1,80 @@
+---
+// The landing page below the hero. Type doing the work, plain label/value
+// lists instead of cards and borders, then the shared site footer.
+// Spacing sits on even Tailwind steps; on phones everything aligns at px-6.
+import SiteFooter from "../site-footer.astro";
+
+const facts = [
+  { key: "Phone number", value: "Not needed. You pick a handle." },
+  { key: "Servers", value: "No message servers. Messages go device to device." },
+  { key: "Tracking", value: "No analytics, ads or crash reporters." },
+  { key: "Keys", value: "Made on your device and never sent to us." },
+  { key: "Source", value: "Open, and self-hostable." },
+  { key: "Terminal", value: "Link a second device and chat from the CLI." },
+];
+
+// Shared class lists: section grids, small uppercase labels, list rows.
+const section = "grid gap-2 px-6 pt-16 md:grid-cols-4 md:gap-4 md:pt-28";
+const small = "text-xs tracking-wide uppercase";
+const row = "grid gap-2 py-2 md:grid-cols-3 md:items-baseline md:gap-4";
+
+const platforms = [
+  // No store listings yet: shown as text until there are real links.
+  { key: "iOS", value: "App Store" },
+  { key: "Android", value: "Google Play" },
+  { key: "Terminal", value: "qop link --account you", href: "/docs", mono: true },
+];
+---
+
+<div class="not-prose text-ink">
+  <section class={section}>
+    <p class:list={[small, "md:pt-4"]}>About</p>
+    <p class="text-3xl leading-tight tracking-tight md:col-span-3 md:text-6xl">
+      <strong class="font-semibold">qop</strong> is a messaging app where every message goes{" "}
+      <span class="font-mono tracking-tighter">straight from your phone to theirs.</span> No servers in the middle, no phone
+      number, and keys that never leave your devices.
+    </p>
+  </section>
+
+  <section class={section}>
+    <p class:list={[small, "md:pt-4"]}>What you keep</p>
+    <dl class="md:col-span-3">
+      {
+        facts.map((f) => (
+          <div class={row}>
+            <dt class:list={[small, "text-subtle"]}>{f.key}</dt>
+            <dd class="text-lg tracking-tight md:col-span-2 md:text-2xl">{f.value}</dd>
+          </div>
+        ))
+      }
+    </dl>
+  </section>
+
+  <section class={section} id="download">
+    <p class:list={[small, "md:pt-4"]}>Get qop</p>
+    <dl class="md:col-span-3">
+      {
+        platforms.map((p) => (
+          <div class={row}>
+            <dt class:list={[small, "text-subtle"]}>{p.key}</dt>
+            <dd class="text-lg tracking-tight md:col-span-2 md:text-2xl">
+              {p.href ? (
+                <a href={p.href} class:list={["hover:text-link", p.mono && "font-mono tracking-tighter"]}>
+                  {p.value} <span aria-hidden="true">↗</span>
+                </a>
+              ) : (
+                <span>
+                  {p.value} <span class="text-subtle">soon</span>
+                </span>
+              )}
+            </dd>
+          </div>
+        ))
+      }
+    </dl>
+  </section>
+
+  <div class="mt-20 md:mt-36">
+    <SiteFooter />
+  </div>
+</div>
