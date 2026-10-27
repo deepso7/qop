@@ -43,9 +43,9 @@ export const palette = {
   oldPants: 0x2c_32_47,
   oldBubble: 0x5c_95_f2,
 
-  // qop brand orange
+  // qop brand orange (--qp-orange in web/theme.css)
 
-  qop: 0xd2_78_4a,
+  qop: 0xb9_6c_45,
   qopPants: 0x4b_3a_34,
 
   ad: 0xff_4f_a0,

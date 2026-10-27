@@ -12,6 +12,7 @@ pnpm dev                 # live, quantised to the same 30 fps frames as a record
                          # ?t=4 holds one moment
 pnpm shots               # shots/t0.png … t8.png
 pnpm record              # frames/0000.png … 0299.png, then ffmpeg (see scripts/record.ts)
+pnpm web                 # web/public/diorama.webp (lossless loop) and .png (still) for the home page
 pnpm build               # dist/, ~456 KB JS
 ```
 
@@ -25,3 +26,4 @@ pnpm build               # dist/, ~456 KB JS
 | `post.ts` | low-res targets, light levels, Bayer dither, outline |
 | `loop.ts` | scene setup and `frame(t)` |
 | `main.ts` | renderer, live / `?t=` / `?record=1` modes |
+| `scripts/web.ts` | frames → the home page's animated WebP and still |

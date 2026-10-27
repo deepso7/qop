@@ -170,6 +170,11 @@ html {
   }
 }
 
+/* Upscale pixel art (the diorama) with hard edges, not blur. */
+@utility pixelated {
+  image-rendering: pixelated;
+}
+
 /* Pixel docs chrome. No rounded corners anywhere: Blume's utilities are
    layered, so this unlayered rule wins. Filled chips get stepped corners
    instead, and Blume's Lucide icons draw with square ends and crisp edges. */

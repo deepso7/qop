@@ -5,6 +5,8 @@
 //   node scripts/record.ts --scale 2  → smaller frames (default 4× the 192px render)
 //   node scripts/record.ts --dist     → record the production build (run `pnpm build` first)
 //
+// For the website's loop: `pnpm web` (records at --scale 1, then scripts/web.ts).
+//
 // Then e.g.:
 //   ffmpeg -framerate 30 -i frames/%04d.png -pix_fmt yuv420p -vf "pad=ceil(iw/2)*2:ceil(ih/2)*2" diorama.mp4
 //   ffmpeg -framerate 30 -i frames/%04d.png -vf "split[a][b];[a]palettegen[p];[b][p]paletteuse=dither=none" diorama.gif
