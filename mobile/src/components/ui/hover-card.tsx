@@ -1,6 +1,6 @@
 import * as HoverCardPrimitiveModule from "@rn-primitives/hover-card";
 import * as React from "react";
-import { Platform, StyleSheet } from "react-native";
+import { Platform } from "react-native";
 import { FadeIn, FadeOut, ReduceMotion } from "react-native-reanimated";
 import { FullWindowOverlay as RNFullWindowOverlay } from "react-native-screens";
 
@@ -26,7 +26,7 @@ const HoverCardContent = ({
   <HoverCardPrimitive.Portal>
     <FullWindowOverlay>
       <HoverCardPrimitive.Overlay
-        style={Platform.select({ native: StyleSheet.absoluteFill })}
+        className="native:absolute native:inset-0"
         asChild={Platform.OS !== "web"}
       >
         <NativeOnlyAnimatedView

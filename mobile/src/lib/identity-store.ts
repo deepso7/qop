@@ -4,10 +4,12 @@ import {
   createLocalIdentity,
   deleteLocalIdentity,
   IdentityVaultError,
+  importLocalIdentity,
   loadLocalIdentity,
   revealLocalIdentityRecoveryKey,
   updateLocalIdentityBackupState,
 } from "./identity-vault";
+import { deleteLocalEnrollment, loadLocalEnrollment } from "./local-enrollment";
 import {
   deleteLocalRegistration,
   loadLocalRegistration,
@@ -22,9 +24,11 @@ export type {
 
 export const useIdentityStore = createIdentityStore({
   deleteAllData: deleteAll,
+  enrollment: { deleteLocalEnrollment, loadLocalEnrollment },
   identityVault: {
     createLocalIdentity,
     deleteLocalIdentity,
+    importLocalIdentity,
     loadLocalIdentity,
     revealLocalIdentityRecoveryKey,
     updateLocalIdentityBackupState,

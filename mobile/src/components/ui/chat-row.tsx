@@ -38,10 +38,9 @@ const ChatRowIdentity = ({
   <View className="relative shrink-0">
     <View
       className={cn(
-        "bg-background-element size-14 items-center justify-center",
-        group ? "rounded-[18px]" : "rounded-full"
+        "bg-background-element border-continuous size-14 items-center justify-center",
+        group ? "rounded-tile" : "rounded-full"
       )}
-      style={{ borderCurve: "continuous" }}
     >
       {group ? (
         <Icon as={Users} className="text-foreground-secondary size-6" />
@@ -110,7 +109,7 @@ const ChatRowPreview = ({
 }) => (
   <Text
     className={cn(
-      "text-foreground-secondary text-[15px] leading-5",
+      "text-foreground-secondary text-subhead leading-5",
       hasUnread && "text-foreground font-medium"
     )}
     numberOfLines={1}
@@ -138,10 +137,9 @@ const ChatRowTrailing = ({
     {time ? (
       <Text
         className={cn(
-          "text-foreground-secondary text-xs",
+          "text-foreground-secondary text-xs tabular-nums",
           hasUnread && "text-primary font-medium"
         )}
-        style={{ fontVariant: ["tabular-nums"] }}
       >
         {time}
       </Text>
@@ -150,10 +148,7 @@ const ChatRowTrailing = ({
     )}
     {hasUnread ? (
       <View className="bg-primary min-w-5 items-center justify-center rounded-full px-1.5 py-0.5">
-        <Text
-          className="text-primary-foreground text-xs font-semibold"
-          style={{ fontVariant: ["tabular-nums"] }}
-        >
+        <Text className="text-primary-foreground text-xs font-semibold tabular-nums">
           {unreadCount > 99 ? "99+" : unreadCount}
         </Text>
       </View>
@@ -209,10 +204,12 @@ const ChatRowRender = (
         accessibilityRole={
           accessibilityRole ?? (opensConversation ? "button" : undefined)
         }
-        className="active:bg-background-element/70 flex-row items-center gap-3"
+        className={cn(
+          "active:bg-background-element/70 flex-row items-center gap-3",
+          disabled && "opacity-50"
+        )}
         disabled={disabled}
         onPress={onPress}
-        style={{ opacity: disabled ? 0.5 : 1 }}
         {...props}
       >
         <ChatRowIdentity
@@ -227,7 +224,7 @@ const ChatRowRender = (
             <View className="min-w-0 flex-1 gap-1">
               <View className="flex-row items-center gap-1.5">
                 <Text
-                  className="min-w-0 shrink text-[17px] leading-5 font-semibold"
+                  className="text-headline min-w-0 shrink leading-5 font-semibold"
                   numberOfLines={1}
                 >
                   {name}

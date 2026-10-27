@@ -7,6 +7,7 @@ import * as Crypto from "expo-crypto";
 import { useRouter } from "expo-router";
 import * as React from "react";
 import { ActivityIndicator, Platform, ScrollView, View } from "react-native";
+import { withUniwind } from "uniwind";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +29,9 @@ type Payload =
   | { readonly kind: "empty" }
   | { readonly kind: "invalid"; readonly reason: string }
   | { readonly kind: "valid"; readonly offer: PairingOfferV1 };
+
+// Native UIPasteControl, sized through classes.
+const PasteButton = withUniwind(Clipboard.ClipboardPasteButton);
 
 const linkFailureMessage = (
   operation: LocalDeviceActionError["operation"] | undefined
@@ -59,7 +63,7 @@ const LinkDeviceSheet = () => {
   const router = useRouter();
   const colors = useTheme();
   const identity = useIdentityStore((state) => state.identity);
-  const registration = useIdentityStore((state) => state.registration);
+  const accountQid = useIdentityStore((state) => state.qid);
   const pairConnect = useP2pStore((state) => state.pairConnect);
   const pairWaitPeerReady = useP2pStore((state) => state.pairWaitPeerReady);
   const openPairingStream = useP2pStore((state) => state.openPairingStream);
@@ -125,7 +129,7 @@ const LinkDeviceSheet = () => {
     const sameAccount = Effect.runSync(
       assertOfferMatchesAccount(decoded.success, {
         chainId: domain.chainId,
-        qid: registration?.qid ?? "",
+        qid: accountQid ?? "",
         registry: domain.verifyingContract,
       }).pipe(Effect.result)
     );
@@ -138,7 +142,7 @@ const LinkDeviceSheet = () => {
     }
 
     return { kind: "valid", offer: decoded.success };
-  }, [editedAtSeconds, identity?.handle, registration?.qid, text]);
+  }, [editedAtSeconds, identity?.handle, accountQid, text]);
 
   const changeText = React.useCallback((next: string) => {
     setText(next);
@@ -230,7 +234,7 @@ const LinkDeviceSheet = () => {
     if (
       payload.kind !== "valid" ||
       !identity ||
-      !registration?.qid ||
+      !accountQid ||
       linking.current
     ) {
       return;
@@ -248,10 +252,10 @@ const LinkDeviceSheet = () => {
     // A ref, not state: a second tap can land before the re-render.
     // approve() reports failures via setError and never throws.
     linking.current = true;
-    await approve(offer, identity.ownerAddress, registration.qid);
+    await approve(offer, identity.ownerAddress, accountQid);
     linking.current = false;
     setProgress(undefined);
-  }, [approve, identity, payload, registration]);
+  }, [approve, identity, accountQid, payload]);
 
   const p2pReady = p2pStatus === "running";
 
@@ -269,13 +273,13 @@ const LinkDeviceSheet = () => {
     >
       {/* Android form sheets have no navigation header to show the title. */}
       {Platform.OS === "android" ? (
-        <Text className="pt-4" variant="large">
+        <Text className="mt-4" variant="large">
           Link a device
         </Text>
       ) : null}
-      <Text className="text-foreground-secondary">
+      <Text tone="secondary">
         On your computer, run{" "}
-        <Text className="font-mono">qop link --account {identity?.handle}</Text>{" "}
+        <Text variant="monospace">qop link --account {identity?.handle}</Text>{" "}
         and paste the pairing payload it prints.
       </Text>
 
@@ -291,7 +295,7 @@ const LinkDeviceSheet = () => {
         />
         {Clipboard.isPasteButtonAvailable ? (
           // Native UIPasteControl pastes without the "Allow Paste" prompt.
-          <Clipboard.ClipboardPasteButton
+          <PasteButton
             acceptedContentTypes={["plain-text"]}
             backgroundColor={colors.backgroundElement}
             cornerStyle="medium"
@@ -303,7 +307,7 @@ const LinkDeviceSheet = () => {
                 changeText(data.text.trim());
               }
             }}
-            style={{ height: 44, width: 84 }}
+            className="h-11 w-21"
           />
         ) : (
           <Button
@@ -317,20 +321,20 @@ const LinkDeviceSheet = () => {
       </View>
 
       {payload.kind === "invalid" ? (
-        <Text className="text-destructive" variant="caption">
+        <Text tone="destructive" variant="caption">
           {payload.reason}
         </Text>
       ) : null}
 
       {fingerprint ? (
         <View className="bg-background-element gap-1 rounded-xl p-4">
-          <Text className="text-foreground-secondary" variant="caption">
+          <Text tone="secondary" variant="caption">
             Device fingerprint
           </Text>
-          <Text className="font-mono" selectable variant="large">
+          <Text selectable variant="fingerprint">
             {fingerprint}
           </Text>
-          <Text className="text-foreground-secondary" variant="caption">
+          <Text tone="secondary" variant="caption">
             Only link if this matches “Pending device” in your terminal. The
             device will be able to send and receive as you.
           </Text>
@@ -348,12 +352,12 @@ const LinkDeviceSheet = () => {
       </Button>
 
       {fingerprint && !p2pReady ? (
-        <Text className="text-foreground-secondary" variant="caption">
+        <Text tone="secondary" variant="caption">
           Waiting for this phone to come online…
         </Text>
       ) : null}
       {error ? (
-        <Text className="text-destructive" selectable variant="caption">
+        <Text selectable tone="destructive" variant="caption">
           {error}
         </Text>
       ) : null}

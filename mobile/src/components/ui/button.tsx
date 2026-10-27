@@ -2,7 +2,6 @@ import { cva } from "class-variance-authority";
 import type { VariantProps } from "class-variance-authority";
 import { useMemo } from "react";
 import { Platform, Pressable } from "react-native";
-import type { PressableStateCallbackType } from "react-native";
 import {
   createAnimatedComponent,
   useAnimatedStyle,
@@ -12,7 +11,6 @@ import {
   withTiming,
 } from "react-native-reanimated";
 
-import { isPressableStyleCallback } from "@/components/ui/pressable-style";
 import { TextClassContext } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
 
@@ -20,7 +18,7 @@ const AnimatedPressable = createAnimatedComponent(Pressable);
 
 const buttonVariants = cva(
   cn(
-    "group shrink-0 flex-row items-center justify-center gap-2 rounded-md shadow-none",
+    "group border-continuous shrink-0 flex-row items-center justify-center gap-2 rounded-md shadow-none",
     Platform.select({
       web: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive whitespace-nowrap outline-none transition-all focus-visible:ring-[3px] disabled:pointer-events-none [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0",
     })
@@ -37,6 +35,8 @@ const buttonVariants = cva(
           Platform.select({ web: "has-[>svg]:px-3" })
         ),
         icon: "size-11",
+        // A circular icon button, e.g. a header action.
+        iconRound: "size-11 rounded-full",
         lg: cn(
           "h-12 rounded-md px-6",
           Platform.select({ web: "has-[>svg]:px-4" })
@@ -91,6 +91,7 @@ const buttonTextVariants = cva(
       size: {
         default: "",
         icon: "",
+        iconRound: "",
         lg: "text-base",
         sm: "text-xs",
       },
@@ -114,7 +115,8 @@ const buttonTextVariants = cva(
   }
 );
 
-type ButtonProps = React.ComponentProps<typeof Pressable> &
+// No `style`: the press animation owns it. Use variants, or className for layout.
+type ButtonProps = Omit<React.ComponentProps<typeof Pressable>, "style"> &
   VariantProps<typeof buttonVariants>;
 
 const getDefaultHitSlop = (size: ButtonProps["size"]) =>
@@ -125,7 +127,6 @@ const Button = ({
   hitSlop,
   onPressIn,
   onPressOut,
-  style,
   variant,
   size,
   accessibilityState,
@@ -176,11 +177,7 @@ const Button = ({
         hitSlop={hitSlop ?? defaultHitSlop}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
-        style={(state: PressableStateCallbackType) => [
-          { borderCurve: "continuous" },
-          animatedStyle,
-          isPressableStyleCallback(style) ? style(state) : style,
-        ]}
+        style={animatedStyle}
         {...props}
       />
     </TextClassContext.Provider>

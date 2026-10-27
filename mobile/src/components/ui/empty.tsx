@@ -7,7 +7,7 @@ import { Text } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
 
 const emptyVariants = cva(
-  "items-center justify-center gap-6 rounded-[22px] px-6 py-10",
+  "rounded-bubble border-continuous items-center justify-center gap-6 px-6 py-10",
   {
     defaultVariants: { variant: "default" },
     variants: {
@@ -33,25 +33,24 @@ const EmptyHeader = ({
   <View className={cn("max-w-sm items-center gap-2", className)} {...props} />
 );
 
-const emptyMediaVariants = cva("items-center justify-center", {
-  defaultVariants: { variant: "default" },
-  variants: {
-    variant: {
-      default: "",
-      icon: "bg-background-element mb-2 size-14 rounded-[18px]",
+const emptyMediaVariants = cva(
+  "border-continuous items-center justify-center",
+  {
+    defaultVariants: { variant: "default" },
+    variants: {
+      variant: {
+        default: "",
+        icon: "bg-background-element rounded-tile mb-2 size-14",
+      },
     },
-  },
-});
+  }
+);
 
 type EmptyMediaProps = React.ComponentProps<typeof View> &
   VariantProps<typeof emptyMediaVariants>;
 
 const EmptyMedia = ({ className, variant, ...props }: EmptyMediaProps) => (
-  <View
-    className={cn(emptyMediaVariants({ variant }), className)}
-    style={{ borderCurve: "continuous" }}
-    {...props}
-  />
+  <View className={cn(emptyMediaVariants({ variant }), className)} {...props} />
 );
 
 const EmptyTitle = ({

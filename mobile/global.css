@@ -8,7 +8,21 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+  /* Chat surfaces, from small to large: avatar tiles, menus and fields, bubbles. */
+  --radius-tile: 18px;
+  --radius-panel: 20px;
+  --radius-bubble: 22px;
+  /* The app icon's corner, for the animated splash tile. */
+  --radius-icon: 40px;
+  /* iOS text styles the chat list and header follow (subheadline, headline). */
+  --text-subhead: 15px;
+  --text-headline: 17px;
   --spacing-hairline: hairlineWidth();
+  /* Paper Mono (OFL, assets/fonts/PaperMono-OFL.txt), the web's typeface, as
+     static faces loaded in app/_layout.tsx. RN takes one family per weight. */
+  --font-paper: "PaperMono-Regular";
+  --font-paper-medium: "PaperMono-Medium";
+  --font-paper-semibold: "PaperMono-SemiBold";
 }
 
 @theme static {
@@ -46,10 +60,13 @@
       --color-accent: oklch(0.911 0.0061 51.5);
       --color-accent-foreground: var(--qop-black);
       --color-online: oklch(0.723 0.219 149.6);
+      --color-link: oklch(0.5 0.11 45);
       --color-action: var(--qop-orange);
       --color-action-foreground: var(--qop-black);
       --color-popover: var(--qop-white);
       --color-popover-foreground: var(--qop-black);
+      /* Pale tile that sits on the tide in both themes (the web's --qp-foam). */
+      --color-foam: oklch(0.944 0.02 62.9);
       --color-primary: var(--qop-orange);
       --color-primary-foreground: var(--qop-black);
       --color-ring: var(--qop-orange);
@@ -74,10 +91,13 @@
       --color-accent: oklch(0.2168 0.00788 260.2);
       --color-accent-foreground: var(--qop-white);
       --color-online: oklch(0.723 0.219 149.6);
+      --color-link: oklch(0.74 0.12 50);
       --color-action: var(--qop-orange);
       --color-action-foreground: var(--qop-black);
       --color-popover: var(--qop-black);
       --color-popover-foreground: var(--qop-white);
+      /* Pale tile that sits on the tide in both themes (the web's --qp-foam). */
+      --color-foam: oklch(0.944 0.02 62.9);
       --color-primary: var(--qop-orange);
       --color-primary-foreground: var(--qop-black);
       --color-ring: var(--qop-orange);

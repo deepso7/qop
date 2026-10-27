@@ -22,7 +22,7 @@ import {
   useColorScheme,
   View,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { ScopedVariables, withUniwind } from "uniwind";
 
 import { NativeAlert } from "@/components/ui/native-alert";
 import {
@@ -35,6 +35,20 @@ import { useTheme } from "@/constants/theme";
 import { useDeviceRoster } from "@/hooks/use-device-roster";
 import { selectionHaptic } from "@/lib/haptics";
 import { useIdentityStore } from "@/lib/identity-store";
+
+// @expo/ui views take a plain style object (mapped to SwiftUI/Compose
+// modifiers), so resolve classes into `style` directly rather than an array.
+const StyledHost = withUniwind(Host);
+
+const StyledFieldGroup = withUniwind(FieldGroup, {
+  style: { fromClassName: "className" },
+});
+
+const StyledRow = withUniwind(Row, { style: { fromClassName: "className" } });
+
+const StyledColumn = withUniwind(Column, {
+  style: { fromClassName: "className" },
+});
 
 interface ProfileCardProps {
   readonly handle: string;
@@ -74,22 +88,19 @@ const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
   return (
     // No row-wide spacing: it would also pad around the flexible spacer and
     // squeeze the QR circle when the handle is long.
-    <Row alignment="center" style={{ paddingVertical: 14 }}>
-      <Column
-        alignment="center"
-        style={{
-          backgroundColor: tint,
-          borderRadius: 36,
-          height: 72,
-          width: 72,
-        }}
-      >
-        <Spacer flexible />
-        <UIText textStyle={{ color: ink, fontSize: 28, fontWeight: "600" }}>
-          {handle.slice(0, 2).toUpperCase()}
-        </UIText>
-        <Spacer flexible />
-      </Column>
+    <StyledRow alignment="center" className="py-3.5">
+      <ScopedVariables variables={{ "--avatar-tint": tint }}>
+        <StyledColumn
+          alignment="center"
+          className="size-18 rounded-full bg-(--avatar-tint)"
+        >
+          <Spacer flexible />
+          <UIText textStyle={{ color: ink, fontSize: 28, fontWeight: "600" }}>
+            {handle.slice(0, 2).toUpperCase()}
+          </UIText>
+          <Spacer flexible />
+        </StyledColumn>
+      </ScopedVariables>
       <Spacer size={16} />
       <Column spacing={4}>
         <UIText
@@ -104,16 +115,11 @@ const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
       </Column>
       <Spacer size={12} />
       <Spacer flexible />
-      <Column
+      <StyledColumn
         alignment="center"
+        className="bg-foreground size-13 rounded-full"
         modifiers={accessibleButtonModifiers("Show QR code")}
         onPress={showQrCode}
-        style={{
-          backgroundColor: colors.text,
-          borderRadius: 26,
-          height: 52,
-          width: 52,
-        }}
       >
         <Spacer flexible />
         <Icon
@@ -123,8 +129,8 @@ const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
           size={26}
         />
         <Spacer flexible />
-      </Column>
-    </Row>
+      </StyledColumn>
+    </StyledRow>
   );
 };
 
@@ -205,12 +211,11 @@ const ProfileScreen = () => {
   const { push } = useRouter();
   const roster = useDeviceRoster();
   const [removeKey, setRemoveKey] = React.useState<string>();
-  const insets = useSafeAreaInsets();
   const colors = useTheme();
   const colorScheme = useColorScheme() === "dark" ? "dark" : "light";
   const [peerIdCopied, setPeerIdCopied] = React.useState(false);
   const identity = useIdentityStore((state) => state.identity);
-  const registration = useIdentityStore((state) => state.registration);
+  const qid = useIdentityStore((state) => state.qid);
 
   const revealRecoveryKey = useIdentityStore(
     (state) => state.revealRecoveryKey
@@ -348,25 +353,22 @@ const ProfileScreen = () => {
   }, [peerIdCopied]);
 
   return (
-    <View className="bg-background flex-1" style={{ paddingTop: insets.top }}>
-      <Text className="px-5 pt-10 pb-2" variant="title">
+    <View className="bg-background pt-safe flex-1">
+      <Text className="mx-5 mt-10 mb-2" variant="title">
         Profile
       </Text>
-      <Host
+      <StyledHost
+        className="bg-background flex-1"
         colorScheme={colorScheme}
         seedColor={colors.primary}
-        style={{ backgroundColor: colors.background, flex: 1 }}
       >
         <SettingsPalette>
-          <FieldGroup
+          <StyledFieldGroup
+            className="bg-background"
             modifiers={settingsFormModifiers}
-            style={{ backgroundColor: colors.background }}
           >
             <FieldGroup.Section>
-              <ProfileCard
-                handle={identity?.handle ?? ""}
-                qid={registration?.qid ?? "—"}
-              />
+              <ProfileCard handle={identity?.handle ?? ""} qid={qid ?? "—"} />
             </FieldGroup.Section>
 
             <FieldGroup.Section title="Recovery key">
@@ -481,9 +483,9 @@ const ProfileScreen = () => {
                 </Secondary>
               </FieldGroup.SectionFooter>
             </FieldGroup.Section>
-          </FieldGroup>
+          </StyledFieldGroup>
         </SettingsPalette>
-      </Host>
+      </StyledHost>
       <NativeAlert
         confirmLabel="Remove"
         description="It will no longer be able to send or receive as you. Conversation history stays."

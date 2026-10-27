@@ -1,4 +1,5 @@
 import { PortalHost } from "@rn-primitives/portal";
+import { useFonts } from "expo-font";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "expo-router";
 import { Stack } from "expo-router/stack";
 import * as SplashScreen from "expo-splash-screen";
@@ -6,17 +7,30 @@ import { StatusBar } from "expo-status-bar";
 import * as React from "react";
 import { View, useColorScheme } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
+import { SafeAreaListener } from "react-native-safe-area-context";
+import { Uniwind } from "uniwind";
 
 import { BlurTargetProvider } from "@/components/ui/blur-target";
 import { useTheme } from "@/constants/theme";
 import { useIdentityStore } from "@/lib/identity-store";
 import { useP2pStore } from "@/lib/p2p-store";
 
+import paperMonoMedium from "../../assets/fonts/PaperMono-Medium.ttf";
+import paperMonoRegular from "../../assets/fonts/PaperMono-Regular.ttf";
+import paperMonoSemiBold from "../../assets/fonts/PaperMono-SemiBold.ttf";
+
 import "../../global.css";
 
 void SplashScreen.preventAutoHideAsync();
 
 SplashScreen.setOptions({ duration: 250, fade: true });
+
+// Paper Mono faces, named to match the --font-paper* tokens in global.css.
+const FONTS = {
+  "PaperMono-Medium": paperMonoMedium,
+  "PaperMono-Regular": paperMonoRegular,
+  "PaperMono-SemiBold": paperMonoSemiBold,
+};
 
 const MAX_P2P_RESTART_ATTEMPTS = 5;
 const P2P_RESTART_DELAY_MS = 2000;
@@ -31,16 +45,19 @@ const AppStack = () => {
   const p2pStatus = useP2pStore((state) => state.status);
   const isReady = status === "ready";
   const p2pRestartAttempts = React.useRef(0);
+  // A font error falls back to system type rather than blocking the app.
+  const [fontsLoaded, fontError] = useFonts(FONTS);
+  const fontsSettled = fontsLoaded || fontError !== null;
 
   React.useEffect(() => {
     void hydrate();
   }, [hydrate]);
 
   React.useEffect(() => {
-    if (status !== "loading") {
+    if (status !== "loading" && fontsSettled) {
       void SplashScreen.hideAsync();
     }
-  }, [status]);
+  }, [fontsSettled, status]);
 
   // Start once identity is ready; stop when it leaves ready.
   React.useEffect(() => {
@@ -86,7 +103,7 @@ const AppStack = () => {
     };
   }, [p2pStatus, startP2p, status]);
 
-  if (status === "loading") {
+  if (status === "loading" || !fontsSettled) {
     return null;
   }
 
@@ -152,12 +169,16 @@ const RootLayout = () => {
   };
 
   return (
-    <KeyboardProvider>
-      <StatusBar style={colorScheme === "dark" ? "light" : "dark"} />
-      <ThemeProvider value={navigationTheme}>
-        <AppStack />
-      </ThemeProvider>
-    </KeyboardProvider>
+    // Feeds insets to uniwind's pt-safe / pb-safe-or-* utilities.
+    <SafeAreaListener onChange={({ insets }) => Uniwind.updateInsets(insets)}>
+      <KeyboardProvider>
+        {/* "auto" (the default): dark content on light, light on dark. */}
+        <StatusBar />
+        <ThemeProvider value={navigationTheme}>
+          <AppStack />
+        </ThemeProvider>
+      </KeyboardProvider>
+    </SafeAreaListener>
   );
 };
 

@@ -79,7 +79,7 @@ const AccordionTrigger = ({
     [isExpanded]
   );
 
-  const chevronStyle = useAnimatedStyle(
+  const animatedStyle = useAnimatedStyle(
     () => ({
       transform: [{ rotate: `${progress.value * 180}deg` }],
     }),
@@ -105,16 +105,11 @@ const AccordionTrigger = ({
             )}
           >
             {children}
-            <Animated.View style={chevronStyle}>
+            <Animated.View style={animatedStyle}>
               <Icon
                 as={ChevronDown}
                 size={16}
-                className={cn(
-                  "text-muted-foreground shrink-0",
-                  Platform.select({
-                    web: "pointer-events-none translate-y-0.5 transition-transform duration-200",
-                  })
-                )}
+                className="text-muted-foreground web:pointer-events-none web:translate-y-0.5 web:transition-transform web:duration-200 shrink-0"
               />
             </Animated.View>
           </Trigger>

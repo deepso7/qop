@@ -6,8 +6,7 @@ import {
   ChevronUp,
 } from "lucide-react-native";
 import * as React from "react";
-import { Platform, StyleSheet, Text, View } from "react-native";
-import type { StyleProp, ViewStyle } from "react-native";
+import { Platform, Text, View } from "react-native";
 import { FadeIn, ReduceMotion } from "react-native-reanimated";
 import { FullWindowOverlay as RNFullWindowOverlay } from "react-native-screens";
 
@@ -99,25 +98,16 @@ const FullWindowOverlay =
 const ContextMenuContent = ({
   className,
   overlayClassName,
-  overlayStyle,
   portalHost,
   ...props
 }: React.ComponentProps<typeof ContextMenuPrimitive.Content> & {
-  overlayStyle?: StyleProp<ViewStyle>;
   overlayClassName?: string;
   portalHost?: string;
 }) => (
   <ContextMenuPrimitive.Portal hostName={portalHost}>
     <FullWindowOverlay>
       <ContextMenuPrimitive.Overlay
-        style={
-          // SAFETY: flattening this array retains the absolute-fill view-style shape.
-          StyleSheet.flatten([
-            StyleSheet.absoluteFill,
-            overlayStyle,
-          ]) as typeof StyleSheet.absoluteFill
-        }
-        className={overlayClassName}
+        className={cn("absolute inset-0", overlayClassName)}
         asChild={Platform.OS !== "web"}
       >
         <NativeOnlyAnimatedView
@@ -209,10 +199,7 @@ const ContextMenuCheckboxItem = ({
         <ContextMenuPrimitive.ItemIndicator>
           <Icon
             as={Check}
-            className={cn(
-              "text-foreground size-4",
-              Platform.select({ web: "pointer-events-none" })
-            )}
+            className="text-foreground web:pointer-events-none size-4"
           />
         </ContextMenuPrimitive.ItemIndicator>
       </View>

@@ -40,7 +40,7 @@ const removeFailureMessage = (
  */
 export const useDeviceRoster = () => {
   const identity = useIdentityStore((state) => state.identity);
-  const registration = useIdentityStore((state) => state.registration);
+  const qid = useIdentityStore((state) => state.qid);
   const [devices, setDevices] = React.useState<readonly RosterDevice[]>([]);
 
   const [status, setStatus] = React.useState<"error" | "loading" | "ready">(
@@ -49,7 +49,6 @@ export const useDeviceRoster = () => {
 
   const [removing, setRemoving] = React.useState(false);
   const [message, setMessage] = React.useState<string>();
-  const qid = registration?.qid;
 
   // Only the newest load may write; focus cleanup also invalidates in-flight
   // loads. Overlapping reads can see different registry heads.

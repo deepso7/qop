@@ -1,48 +1,13 @@
-import { Image } from "expo-image";
-import { StyleSheet, View } from "react-native";
+import { View } from "react-native";
 import Animated, { Keyframe, Easing } from "react-native-reanimated";
 
 import expoLogo from "@/assets/images/expo-logo.png";
 import logoGlow from "@/assets/images/logo-glow.png";
+import { Image } from "@/components/ui/image";
 
 import classes from "./animated-icon.module.css";
 
 const DURATION = 300;
-
-const styles = StyleSheet.create({
-  background: {
-    height: 128,
-    position: "absolute",
-    width: 128,
-  },
-  container: {
-    alignItems: "center",
-    position: "absolute",
-    top: 128 / 2 + 138,
-    width: "100%",
-    zIndex: 1000,
-  },
-  glow: {
-    height: 201,
-    position: "absolute",
-    width: 201,
-  },
-  iconContainer: {
-    alignItems: "center",
-    height: 128,
-    justifyContent: "center",
-    width: 128,
-  },
-  image: {
-    height: 71,
-    position: "absolute",
-    width: 76,
-  },
-  imageContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-});
 
 export const AnimatedSplashOverlay = () => null;
 
@@ -92,26 +57,26 @@ const glowKeyframe = new Keyframe({
 });
 
 export const AnimatedIcon = () => (
-  <View style={styles.iconContainer}>
+  <View className="size-32 items-center justify-center">
     <Animated.View
       entering={glowKeyframe.duration(60 * 1000 * 4)}
-      style={styles.glow}
+      className="absolute size-50.25"
     >
-      <Image style={styles.glow} source={logoGlow} />
+      <Image className="absolute size-50.25" source={logoGlow} />
     </Animated.View>
 
     <Animated.View
-      style={styles.background}
+      className="absolute size-32"
       entering={keyframe.duration(DURATION)}
     >
       <div className={classes.expoLogoBackground} />
     </Animated.View>
 
     <Animated.View
-      style={styles.imageContainer}
+      className="items-center justify-center"
       entering={logoKeyframe.duration(DURATION)}
     >
-      <Image style={styles.image} source={expoLogo} />
+      <Image className="absolute h-17.75 w-19" source={expoLogo} />
     </Animated.View>
   </View>
 );

@@ -4,6 +4,7 @@ import { SymbolView } from "expo-symbols";
 import type { RefAttributes } from "react";
 import { Pressable, View } from "react-native";
 import type { ViewInstance } from "react-native";
+import { withUniwind } from "uniwind";
 
 import { useTheme } from "@/constants/theme";
 
@@ -23,13 +24,11 @@ export const TabButton = ({
 }: TabButtonProps) => (
   <Pressable {...props} className="min-h-11 justify-center active:opacity-70">
     <Surface
-      className="min-h-11 justify-center rounded-md px-4"
+      className="min-h-11 justify-center"
       tone={isFocused ? "selected" : "element"}
+      variant="chip"
     >
-      <Text
-        className={isFocused ? undefined : "text-foreground-secondary"}
-        variant="caption"
-      >
+      <Text tone={isFocused ? "default" : "secondary"} variant="caption">
         {children}
       </Text>
     </Surface>
@@ -45,8 +44,9 @@ export const CustomTabList = (props: TabListProps) => {
       className="absolute w-full flex-row items-center justify-center p-4"
     >
       <Surface
-        className="max-w-3xl grow flex-row items-center gap-2 rounded-2xl px-8 py-2"
+        className="max-w-3xl grow flex-row items-center"
         tone="element"
+        variant="toolbar"
       >
         <Text className="mr-auto" variant="label">
           qop
@@ -69,9 +69,12 @@ export const CustomTabList = (props: TabListProps) => {
   );
 };
 
+// TabSlot only takes `style`; wrap it so layout can come from a class.
+const StyledTabSlot = withUniwind(TabSlot);
+
 const AppTabs = () => (
   <Tabs>
-    <TabSlot style={{ height: "100%" }} />
+    <StyledTabSlot className="h-full" />
     <TabList asChild>
       <CustomTabList>
         <TabTrigger name="chats" href="/chats" asChild>

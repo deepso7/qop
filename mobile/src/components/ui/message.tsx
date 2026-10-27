@@ -10,7 +10,6 @@ import {
   AccessibilityInfo,
   Platform,
   Pressable,
-  StyleSheet,
   View,
   findNodeHandle,
   useColorScheme,
@@ -31,12 +30,12 @@ import Animated, {
   withSequence,
   withTiming,
 } from "react-native-reanimated";
+import { ScopedVariables, withUniwind } from "uniwind";
 
 import { useBlurTarget } from "@/components/ui/blur-target";
 import { Button } from "@/components/ui/button";
 import type { ButtonProps } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { isPressableStyleCallback } from "@/components/ui/pressable-style";
 import { Text, TextClassContext } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
 
@@ -89,7 +88,7 @@ const MessageContent = ({
   return (
     <View
       className={cn(
-        "max-w-[85%] gap-1",
+        "max-w-17/20 gap-1",
         align === "end" ? "items-end" : "items-start",
         className
       )}
@@ -123,17 +122,20 @@ const MessageFooter = ({
   );
 };
 
-const messageBubbleVariants = cva("px-4 py-2.5", {
-  defaultVariants: { tone: "incoming" },
-  variants: {
-    tone: {
-      failed: "border-destructive bg-primary rounded-[22px] border-2",
-      incoming: "bg-background-element rounded-[22px]",
-      outgoing: "bg-primary rounded-[22px]",
-      pending: "bg-primary rounded-[22px]",
+const messageBubbleVariants = cva(
+  "border-continuous rounded-bubble px-4 py-2.5",
+  {
+    defaultVariants: { tone: "incoming" },
+    variants: {
+      tone: {
+        failed: "border-destructive bg-primary border-2",
+        incoming: "bg-background-element",
+        outgoing: "bg-primary",
+        pending: "bg-primary",
+      },
     },
-  },
-});
+  }
+);
 
 type MessageBubbleProps = React.ComponentProps<typeof View> &
   VariantProps<typeof messageBubbleVariants> & {
@@ -144,7 +146,6 @@ const MessageBubble = ({
   children,
   className,
   position,
-  style,
   tone,
   ...props
 }: MessageBubbleProps) => {
@@ -173,7 +174,6 @@ const MessageBubble = ({
             "rounded-r-md",
           className
         )}
-        style={[{ borderCurve: "continuous" }, style]}
         {...props}
       >
         {children}
@@ -288,12 +288,7 @@ const MessageMeta = ({
       )}
       {...props}
     >
-      <Text
-        className="text-xs leading-4"
-        style={{ fontVariant: ["tabular-nums"] }}
-      >
-        {time}
-      </Text>
+      <Text className="text-xs leading-4 tabular-nums">{time}</Text>
       {status ? (
         <Icon as={StatusIcon} className="size-3.5" strokeWidth={2.25} />
       ) : null}
@@ -350,10 +345,26 @@ const MessageReaction = ({
   </Button>
 );
 
-const MessageReactionAdd = ({ className, ...props }: ButtonProps) => (
+type MessageReactionAddProps = Omit<ButtonProps, "size" | "variant"> & {
+  // "filled" sits inside a picker that already draws the border. It repeats
+  // its background under dark:, or Button's outline dark background wins.
+  variant?: "filled" | "outline";
+};
+
+const MessageReactionAdd = ({
+  className,
+  variant = "outline",
+  ...props
+}: MessageReactionAddProps) => (
   <Button
     accessibilityLabel="Add reaction"
-    className={cn("border-border size-8 rounded-full border", className)}
+    className={cn(
+      "size-8 rounded-full",
+      variant === "filled"
+        ? "bg-background-selected dark:bg-background-selected border-0"
+        : "border-border border",
+      className
+    )}
     hitSlop={6}
     size="icon"
     variant="outline"
@@ -430,7 +441,8 @@ interface MessageRect {
   y: number;
 }
 
-const ACTION_MENU_WIDTH = 252;
+const StyledBlurView = withUniwind(BlurView);
+
 const REACTION_RAIL_HEIGHT = 58;
 const MENU_ROW_HEIGHT = 46;
 const DEFAULT_REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"];
@@ -518,7 +530,7 @@ const MessageActionRows = ({
         <Pressable
           accessibilityRole="menuitem"
           accessibilityState={{ disabled: action.disabled }}
-          className="active:bg-background-selected h-[46px] flex-row items-center gap-3.5 px-4"
+          className="active:bg-background-selected h-11.5 flex-row items-center gap-3.5 px-4"
           disabled={action.disabled}
           onPress={() => onRunAction(action)}
           ref={index === 0 ? firstActionRef : undefined}
@@ -526,9 +538,7 @@ const MessageActionRows = ({
           <Icon
             as={action.icon}
             className={
-              action.destructive
-                ? "text-destructive size-[18px]"
-                : "size-[18px]"
+              action.destructive ? "text-destructive size-4.5" : "size-4.5"
             }
           />
           <Text
@@ -590,12 +600,12 @@ const MessageLongPressOverlay = ({
       exiting={FadeOut.duration(reduceMotion ? 80 : 140)}
       onAccessibilityEscape={onClose}
     >
-      <BlurView
+      <StyledBlurView
         blurMethod="dimezisBlurView"
         blurReductionFactor={2}
         blurTarget={blurTarget?.ref}
+        className="absolute inset-0"
         intensity={Platform.OS === "ios" ? 18 : 42}
-        style={StyleSheet.absoluteFill}
         tint={getBlurTint(colorScheme)}
       />
       <Pressable
@@ -608,61 +618,69 @@ const MessageLongPressOverlay = ({
         onPress={onClose}
       />
 
-      <Animated.View
-        entering={reduceMotion ? undefined : FadeIn.duration(160)}
-        pointerEvents="box-none"
-        style={{ left, position: "absolute", top, width: surfaceWidth }}
+      <ScopedVariables
+        variables={{
+          "--bubble-width": rect.width,
+          "--menu-left": left,
+          "--menu-top": top,
+          "--menu-width": surfaceWidth,
+        }}
       >
         <Animated.View
-          entering={
-            reduceMotion
-              ? undefined
-              : FadeInDown.springify().damping(18).stiffness(260)
-          }
+          className="absolute top-(--menu-top) left-(--menu-left) w-(--menu-width)"
+          entering={reduceMotion ? undefined : FadeIn.duration(160)}
+          pointerEvents="box-none"
         >
-          <MessageReactionPicker className="bg-background border-border shadow-lg">
-            {reactions.map((emoji) => (
-              <MessageReactionPickerItem
-                emoji={emoji}
-                key={emoji}
-                onPress={() => onSelectReaction(emoji)}
-              />
-            ))}
-            <MessageReactionAdd
-              className="bg-background-selected border-0"
-              onPress={onAddReaction}
+          <Animated.View
+            entering={
+              reduceMotion
+                ? undefined
+                : FadeInDown.springify().damping(18).stiffness(260)
+            }
+          >
+            <MessageReactionPicker className="bg-background border-border shadow-lg">
+              {reactions.map((emoji) => (
+                <MessageReactionPickerItem
+                  emoji={emoji}
+                  key={emoji}
+                  onPress={() => onSelectReaction(emoji)}
+                />
+              ))}
+              <MessageReactionAdd onPress={onAddReaction} variant="filled" />
+            </MessageReactionPicker>
+          </Animated.View>
+
+          <View
+            className={
+              align === "end"
+                ? "mt-2.5 w-(--bubble-width) self-end"
+                : "mt-2.5 w-(--bubble-width) self-start"
+            }
+            pointerEvents="none"
+          >
+            <MessageContext.Provider value={align}>
+              {children}
+            </MessageContext.Provider>
+          </View>
+
+          <Animated.View
+            className={
+              align === "end"
+                ? "bg-background border-continuous rounded-panel mt-3 w-63 self-end overflow-hidden"
+                : "bg-background border-continuous rounded-panel mt-3 w-63 self-start overflow-hidden"
+            }
+            entering={
+              reduceMotion ? undefined : FadeInDown.delay(35).duration(180)
+            }
+          >
+            <MessageActionRows
+              actions={actions}
+              firstActionRef={firstActionRef}
+              onRunAction={onRunAction}
             />
-          </MessageReactionPicker>
+          </Animated.View>
         </Animated.View>
-
-        <View
-          className={align === "end" ? "self-end" : "self-start"}
-          pointerEvents="none"
-          style={{ marginTop: 10, width: rect.width }}
-        >
-          <MessageContext.Provider value={align}>
-            {children}
-          </MessageContext.Provider>
-        </View>
-
-        <Animated.View
-          className={
-            align === "end"
-              ? "bg-background mt-3 self-end overflow-hidden rounded-[20px]"
-              : "bg-background mt-3 self-start overflow-hidden rounded-[20px]"
-          }
-          entering={
-            reduceMotion ? undefined : FadeInDown.delay(35).duration(180)
-          }
-          style={{ borderCurve: "continuous", width: ACTION_MENU_WIDTH }}
-        >
-          <MessageActionRows
-            actions={actions}
-            firstActionRef={firstActionRef}
-            onRunAction={onRunAction}
-          />
-        </Animated.View>
-      </Animated.View>
+      </ScopedVariables>
     </Animated.View>
   </Portal>
 );
@@ -826,10 +844,9 @@ const MessageReactors = ({
 }: React.ComponentProps<typeof View>) => (
   <View
     className={cn(
-      "bg-background-element border-border overflow-hidden rounded-[18px] border",
+      "bg-background-element border-border border-continuous rounded-tile overflow-hidden border",
       className
     )}
-    style={{ borderCurve: "continuous" }}
     {...props}
   />
 );
@@ -873,9 +890,8 @@ const MessageReactor = ({
       </Pressable>
     ) : (
       <Text
-        className="text-foreground-secondary text-sm"
+        className="text-foreground-secondary text-sm tabular-nums"
         selectable
-        style={{ fontVariant: ["tabular-nums"] }}
       >
         {meta}
       </Text>
@@ -894,20 +910,15 @@ const MessageAttachment = ({
   name,
   preview,
   size,
-  style,
   ...props
 }: MessageAttachmentProps) => (
   <Pressable
     accessibilityLabel={`${name}${size ? `, ${size}` : ""}`}
     accessibilityRole="button"
     className={cn(
-      "bg-background-element w-56 overflow-hidden rounded-[20px]",
+      "bg-background-element border-continuous rounded-panel w-56 overflow-hidden",
       className
     )}
-    style={(state) => [
-      { borderCurve: "continuous" },
-      isPressableStyleCallback(style) ? style(state) : style,
-    ]}
     {...props}
   >
     {preview ? <View className="h-36">{preview}</View> : null}
@@ -961,7 +972,7 @@ const MessageTypingDot = ({ index }: { index: number }) => {
       opacity: 0.55 + value * 0.45,
       transform: [{ translateY: value * -2 }, { scale: 1 + value * 0.12 }],
     };
-  }, [progress]);
+  });
 
   return (
     <Animated.View

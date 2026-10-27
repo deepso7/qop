@@ -23,30 +23,12 @@ export default defineConfig({
       specifier: "./tools/oxlint/anti-slop/effect/index.ts",
     },
   ],
-  // @shadcn/lint as warnings: every rule on the website, a subset on mobile.
   overrides: [
     {
-      files: ["web/**"],
-      rules: {
-        "shadcn/no-arbitrary-values": "warn",
-        "shadcn/no-inline-styles": "warn",
-        "shadcn/no-raw-colors": "warn",
-        "shadcn/no-restyle": "warn",
-        "shadcn/no-unknown-classes": "warn",
-        "shadcn/require-static-classes": "warn",
-      },
-    },
-    {
-      // Only the rules that fit React Native and Uniwind: the linter can't see
-      // Uniwind's per-theme tokens (no-unknown-classes), RN needs inline styles
-      // for animation and measured sizes (no-inline-styles), and our primitives
-      // take layout and colour classes by design (no-restyle).
-      files: ["mobile/**"],
-      rules: {
-        "shadcn/no-arbitrary-values": "warn",
-        "shadcn/no-raw-colors": "warn",
-        "shadcn/require-static-classes": "warn",
-      },
+      // The design system itself: primitives style their own internals
+      // (the rule's documented setup).
+      files: ["mobile/src/components/ui/**"],
+      rules: { "shadcn/no-restyle": "off" },
     },
     {
       // Standalone Three.js experiments: Three classes are not Effect services,
@@ -61,6 +43,18 @@ export default defineConfig({
   ],
   rules: {
     "anti-slop-effect/no-service-constructor-imports": "error",
+    // Tailwind design-system rules, enforced everywhere.
+    "shadcn/no-arbitrary-values": "error",
+    // Reanimated computes these on the UI thread; name them `animatedStyle`.
+    "shadcn/no-inline-styles": [
+      "error",
+      { allowDynamicIdentifiers: ["animatedStyle"] },
+    ],
+    "shadcn/no-raw-colors": "error",
+    // Layout is the caller's; appearance comes from a component's variants.
+    "shadcn/no-restyle": ["error", { allow: ["layout"] }],
+    "shadcn/no-unknown-classes": "error",
+    "shadcn/require-static-classes": "error",
     "func-names": "off",
     "max-classes-per-file": "off",
     "promise/prefer-await-to-callbacks": "off",

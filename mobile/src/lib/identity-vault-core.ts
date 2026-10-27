@@ -24,6 +24,7 @@ import {
   strictParseOptions,
 } from "@qop/identity";
 import type {
+  AddDeviceIntentV1Encoded,
   IdentityEip712DomainV1Encoded,
   RegisterIntentV1Encoded,
   RecoverOwnerIntentV1Encoded,
@@ -316,6 +317,45 @@ export const createIdentityVault = ({
     }
   );
 
+  // Writes a new identity for `recoveryKey` with a fresh device key. The caller
+  // holds the create permit and has checked that no identity exists.
+  const writeNewIdentity = Effect.fn("IdentityVault.writeNewIdentity")(
+    function* (
+      handle: StoredLocalIdentity["handle"],
+      recoveryKey: string,
+      backupState: IdentityBackupState
+    ) {
+      const deviceSecretKey = yield* randomBytes32();
+
+      const ownerAddress = yield* ownerAddressFromRecoveryKeyV1(
+        recoveryKey
+      ).pipe(Effect.mapError(() => vaultError("create")));
+
+      const peerId = yield* peerIdFromEd25519SecretKey(deviceSecretKey).pipe(
+        Effect.flatMap(Schema.encodeEffect(PeerId)),
+        Effect.mapError(() => vaultError("create"))
+      );
+
+      const encodedDeviceSecretKey = yield* Schema.encodeEffect(Base64Url32)(
+        deviceSecretKey
+      ).pipe(Effect.mapError(() => vaultError("create")));
+
+      const identity: StoredLocalIdentity = {
+        backupState,
+        deviceSecretKey: encodedDeviceSecretKey,
+        handle,
+        ownerAddress,
+        peerId,
+        recoveryKey,
+        version: 1,
+      };
+
+      yield* writeLocalIdentity(identity);
+
+      return yield* publicIdentity(identity);
+    }
+  );
+
   const createLocalIdentityUnlocked = Effect.fn(
     "IdentityVault.createLocalIdentityUnlocked"
   )(function* (input: string) {
@@ -327,42 +367,39 @@ export const createIdentityVault = ({
       return yield* vaultError("already-exists");
     }
 
-    const [recoveryKey, deviceSecretKey] = yield* Effect.all(
-      [makeRecoveryKey(), randomBytes32()] as const,
-      { concurrency: "unbounded" }
-    );
-
-    const ownerAddress = yield* ownerAddressFromRecoveryKeyV1(recoveryKey).pipe(
-      Effect.mapError(() => vaultError("create"))
-    );
-
-    const peerId = yield* peerIdFromEd25519SecretKey(deviceSecretKey).pipe(
-      Effect.flatMap(Schema.encodeEffect(PeerId)),
-      Effect.mapError(() => vaultError("create"))
-    );
-
-    const encodedDeviceSecretKey = yield* Schema.encodeEffect(Base64Url32)(
-      deviceSecretKey
-    ).pipe(Effect.mapError(() => vaultError("create")));
-
-    const identity: StoredLocalIdentity = {
-      backupState: "pending",
-      deviceSecretKey: encodedDeviceSecretKey,
-      handle,
-      ownerAddress,
-      peerId,
-      recoveryKey,
-      version: 1,
-    };
-
-    yield* writeLocalIdentity(identity);
-
-    return yield* publicIdentity(identity);
+    // A fresh key has never been shown, so it starts out needing a backup.
+    return yield* writeNewIdentity(handle, yield* makeRecoveryKey(), "pending");
   });
 
   const createLocalIdentity = Effect.fn("IdentityVault.createLocalIdentity")(
     (input: string) =>
       createSemaphore.withPermit(createLocalIdentityUnlocked(input))
+  );
+
+  // Restore: adopts an existing account's recovery key (and so its owner) on
+  // this phone with a new device key. The key came from the user, so it is
+  // already backed up. Enrolling the device on-chain is the caller's job.
+  const importLocalIdentity = Effect.fn("IdentityVault.importLocalIdentity")(
+    (recoveryKeyInput: string, handleInput: string) =>
+      createSemaphore.withPermit(
+        Effect.gen(function* () {
+          const [recoveryKey, handle] = yield* Effect.all([
+            Schema.decodeUnknownEffect(RecoveryKeyV1String)(recoveryKeyInput),
+            Schema.decodeUnknownEffect(Handle)(handleInput),
+          ]).pipe(Effect.mapError(() => vaultError("create")));
+
+          // Checksum and curve validity, not just the shape.
+          yield* decodeRecoveryKeyV1(recoveryKey).pipe(
+            Effect.mapError(() => vaultError("create"))
+          );
+
+          if ((yield* loadStoredLocalIdentity()) !== null) {
+            return yield* vaultError("already-exists");
+          }
+
+          return yield* writeNewIdentity(handle, recoveryKey, "copied");
+        })
+      )
   );
 
   const deleteLocalIdentity = Effect.fn("IdentityVault.deleteLocalIdentity")(
@@ -425,6 +462,41 @@ export const createIdentityVault = ({
       );
     }
   );
+
+  // Owner-signs an addDevice for this phone's own device key only, so a
+  // restored phone can enroll itself. Any other key is refused.
+  const signOwnAddDeviceIntent = Effect.fn(
+    "IdentityVault.signOwnAddDeviceIntent"
+  )(function* (
+    domainInput: IdentityEip712DomainV1Encoded,
+    intentInput: AddDeviceIntentV1Encoded
+  ) {
+    const identity = yield* loadStoredLocalIdentity();
+
+    if (!identity) {
+      return yield* vaultError("missing-identity");
+    }
+
+    const [domain, intent, privateKey] = yield* Effect.all(
+      [
+        decodeIdentityEip712DomainV1(domainInput),
+        decodeAddDeviceIntentV1(intentInput),
+        decodeRecoveryKeyV1(identity.recoveryKey),
+      ] as const,
+      { concurrency: "unbounded" }
+    ).pipe(Effect.mapError(() => vaultError("sign")));
+
+    const { deviceKey } = yield* publicIdentity(identity);
+
+    if (intentInput.deviceKey.toLowerCase() !== deviceKey.toLowerCase()) {
+      return yield* vaultError("sign");
+    }
+
+    return yield* signAddDeviceIntentV1(domain, intent, privateKey).pipe(
+      Effect.flatMap(Schema.encodeEffect(EcdsaSignature)),
+      Effect.mapError(() => vaultError("sign"))
+    );
+  });
 
   // Device-only wipe: owner signs WipeDevices. Not completed owner recovery —
   // a compromised owner can still addDevice until recoverOwner rotates ownership.
@@ -606,10 +678,12 @@ export const createIdentityVault = ({
   return {
     createLocalIdentity,
     deleteLocalIdentity,
+    importLocalIdentity,
     loadDeviceSecretKey,
     loadLocalIdentity,
     revealLocalIdentityRecoveryKey,
     signApprovedDeviceAction,
+    signOwnAddDeviceIntent,
     signRecoverOwnerIntent,
     signRegisterIntent,
     signWipeDevicesIntent,

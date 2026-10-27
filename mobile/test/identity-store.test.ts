@@ -7,6 +7,7 @@ import { IdentityVaultError } from "@/lib/identity-vault-core";
 const vaultMock = {
   createLocalIdentity: vi.fn(),
   deleteLocalIdentity: vi.fn(),
+  importLocalIdentity: vi.fn(),
   loadLocalIdentity: vi.fn(),
   revealLocalIdentityRecoveryKey: vi.fn(),
   updateLocalIdentityBackupState: vi.fn(),
@@ -15,6 +16,11 @@ const vaultMock = {
 const registrationMock = {
   deleteLocalRegistration: vi.fn(),
   loadLocalRegistration: vi.fn(),
+};
+
+const enrollmentMock = {
+  deleteLocalEnrollment: vi.fn(),
+  loadLocalEnrollment: vi.fn(),
 };
 
 const deleteAllData = vi.fn();
@@ -46,6 +52,7 @@ const deferred = <A>() => Promise.withResolvers<A>();
 const loadStore = () =>
   createIdentityStore({
     deleteAllData,
+    enrollment: enrollmentMock,
     identityVault: vaultMock,
     makeIdentityVaultError: (operation) =>
       new IdentityVaultError({ operation }),
@@ -62,7 +69,12 @@ beforeEach(() => {
   registrationMock.loadLocalRegistration
     .mockReset()
     .mockReturnValue(Effect.succeed(confirmedRegistration));
+  enrollmentMock.deleteLocalEnrollment.mockReset().mockReturnValue(Effect.void);
+  enrollmentMock.loadLocalEnrollment
+    .mockReset()
+    .mockReturnValue(Effect.succeed(null));
   vaultMock.createLocalIdentity.mockReset();
+  vaultMock.importLocalIdentity.mockReset();
   vaultMock.deleteLocalIdentity.mockReset().mockReturnValue(Effect.void);
   vaultMock.loadLocalIdentity.mockReset().mockReturnValue(Effect.succeed(null));
   vaultMock.revealLocalIdentityRecoveryKey
@@ -160,9 +172,6 @@ describe("identity store", () => {
     vaultMock.loadLocalIdentity.mockReturnValue(
       Effect.succeed(skippedIdentity)
     );
-    registrationMock.loadLocalRegistration.mockReturnValue(
-      Effect.succeed(null)
-    );
     vaultMock.updateLocalIdentityBackupState.mockReturnValue(
       Effect.succeed(backedUpIdentity)
     );
@@ -174,7 +183,7 @@ describe("identity store", () => {
     expect(Result.isSuccess(result)).toBe(true);
     expect(store.getState()).toMatchObject({
       identity: backedUpIdentity,
-      status: "unregistered",
+      status: "ready",
     });
     expect(store.getState().identity).not.toHaveProperty("recoveryKey");
   });
@@ -208,24 +217,6 @@ describe("identity store", () => {
     expect(store.getState()).toMatchObject({
       identity: null,
       status: "absent",
-    });
-  });
-
-  it("marks a backed-up identity unregistered until registration is confirmed", async () => {
-    const backedUpIdentity = { ...identity, backupState: "copied" };
-    vaultMock.loadLocalIdentity.mockReturnValue(
-      Effect.succeed(backedUpIdentity)
-    );
-    registrationMock.loadLocalRegistration.mockReturnValue(
-      Effect.succeed(null)
-    );
-    const store = await loadStore();
-    await store.getState().hydrate();
-
-    expect(store.getState()).toMatchObject({
-      identity: backedUpIdentity,
-      registration: null,
-      status: "unregistered",
     });
   });
 
@@ -300,5 +291,63 @@ describe("identity store", () => {
     });
     retry.resolve(null);
     await vi.waitFor(() => expect(store.getState().status).toBe("absent"));
+  });
+
+  describe("restored identities", () => {
+    const restored = { ...identity, backupState: "copied" };
+
+    const enrollment = {
+      ...confirmedRegistration,
+      nonce: "0",
+      qid: "7",
+      status: "submitted" as const,
+      version: 1 as const,
+    };
+
+    beforeEach(() => {
+      registrationMock.loadLocalRegistration.mockReturnValue(
+        Effect.succeed(null)
+      );
+      vaultMock.loadLocalIdentity.mockReturnValue(Effect.succeed(restored));
+    });
+
+    it("stays enrolling, never unregistered, before and while enrolling", async () => {
+      const store = loadStore();
+
+      await store.getState().hydrate();
+      expect(store.getState()).toMatchObject({
+        qid: null,
+        status: "enrolling",
+      });
+
+      enrollmentMock.loadLocalEnrollment.mockReturnValue(
+        Effect.succeed(enrollment)
+      );
+      await store.getState().hydrate();
+      expect(store.getState()).toMatchObject({
+        qid: null,
+        status: "enrolling",
+      });
+    });
+
+    it("is ready with the account qid once enrollment confirms", async () => {
+      enrollmentMock.loadLocalEnrollment.mockReturnValue(
+        Effect.succeed({ ...enrollment, status: "confirmed" })
+      );
+      const store = loadStore();
+
+      await store.getState().hydrate();
+
+      expect(store.getState()).toMatchObject({ qid: "7", status: "ready" });
+    });
+
+    it("deletes the enrollment record on reset", async () => {
+      const store = loadStore();
+
+      await store.getState().resetIdentity();
+
+      expect(enrollmentMock.deleteLocalEnrollment).toHaveBeenCalledOnce();
+      expect(store.getState().status).toBe("absent");
+    });
   });
 });

@@ -1,6 +1,9 @@
 import { BlurTargetView } from "expo-blur";
 import * as React from "react";
 import type { ViewInstance } from "react-native";
+import { withUniwind } from "uniwind";
+
+const StyledBlurTargetView = withUniwind(BlurTargetView);
 
 interface BlurTargetContextValue {
   ref: React.RefObject<ViewInstance | null>;
@@ -18,14 +21,14 @@ const BlurTargetProvider = ({ children }: React.PropsWithChildren) => {
 
   return (
     <BlurTargetContext.Provider value={value}>
-      <BlurTargetView
+      <StyledBlurTargetView
         accessibilityElementsHidden={overlayOpen}
         importantForAccessibility={overlayOpen ? "no-hide-descendants" : "auto"}
+        className="flex-1"
         ref={targetRef}
-        style={{ flex: 1 }}
       >
         {children}
-      </BlurTargetView>
+      </StyledBlurTargetView>
     </BlurTargetContext.Provider>
   );
 };

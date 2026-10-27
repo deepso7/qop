@@ -263,11 +263,11 @@ const RnrCatalog = () => {
           <AlertDescription>Try the operation again.</AlertDescription>
         </Alert>
         <View className="gap-2">
-          <Text className="text-sm font-medium">Progress</Text>
+          <Text variant="link">Progress</Text>
           <Progress value={64} />
         </View>
         <View className="flex-row items-center gap-3">
-          <Skeleton className="size-10 rounded-full" />
+          <Skeleton className="size-10" variant="circle" />
           <View className="flex-1 gap-2">
             <Skeleton className="h-3 w-3/4" />
             <Skeleton className="h-3 w-1/2" />
@@ -286,15 +286,15 @@ const RnrCatalog = () => {
             </AvatarFallback>
           </Avatar>
           <View className="gap-0.5">
-            <Text className="font-medium">Avatar</Text>
-            <Text className="text-muted-foreground text-sm">
-              Image with fallback content
-            </Text>
+            <Text variant="strong">Avatar</Text>
+            <Text variant="muted">Image with fallback content</Text>
           </View>
         </View>
-        <AspectRatio className="overflow-hidden rounded-xl" ratio={16 / 9}>
-          <Image className="size-full" contentFit="cover" source={appIcon} />
-        </AspectRatio>
+        <View className="overflow-hidden rounded-xl">
+          <AspectRatio ratio={16 / 9}>
+            <Image className="size-full" contentFit="cover" source={appIcon} />
+          </AspectRatio>
+        </View>
         <Card>
           <CardHeader>
             <CardTitle>Card title</CardTitle>
@@ -338,8 +338,8 @@ const RnrCatalog = () => {
               <Text>{collapsibleOpen ? "Hide details" : "Show details"}</Text>
             </Button>
           </CollapsibleTrigger>
-          <CollapsibleContent className="pt-3">
-            <Text className="text-muted-foreground text-sm">
+          <CollapsibleContent>
+            <Text className="mt-3" variant="muted">
               Collapsible content is now visible.
             </Text>
           </CollapsibleContent>
@@ -354,12 +354,10 @@ const RnrCatalog = () => {
             </TabsTrigger>
           </TabsList>
           <TabsContent value="preview">
-            <Text className="text-muted-foreground text-sm">
-              Interactive component preview.
-            </Text>
+            <Text variant="muted">Interactive component preview.</Text>
           </TabsContent>
           <TabsContent value="code">
-            <Text className="font-mono text-sm">{"<Component />"}</Text>
+            <Text variant="code">{"<Component />"}</Text>
           </TabsContent>
         </Tabs>
       </CatalogGroup>
@@ -457,8 +455,8 @@ const RnrCatalog = () => {
               </Button>
             </PopoverTrigger>
             <PopoverContent>
-              <Text className="font-medium">Popover content</Text>
-              <Text className="text-muted-foreground mt-1 text-sm">
+              <Text variant="strong">Popover content</Text>
+              <Text className="mt-1" variant="muted">
                 Useful for compact controls and details.
               </Text>
             </PopoverContent>
@@ -471,8 +469,8 @@ const RnrCatalog = () => {
               </Button>
             </HoverCardTrigger>
             <HoverCardContent>
-              <Text className="font-medium">React Native Reusables</Text>
-              <Text className="text-muted-foreground mt-1 text-sm">
+              <Text variant="strong">React Native Reusables</Text>
+              <Text className="mt-1" variant="muted">
                 Hover on web or press on native.
               </Text>
             </HoverCardContent>
@@ -523,7 +521,7 @@ const RnrCatalog = () => {
           <ContextMenu>
             <ContextMenuTrigger asChild>
               <Pressable className="border-input active:bg-accent min-h-11 justify-center rounded-md border px-4 py-2">
-                <Text className="text-sm font-medium">Long press</Text>
+                <Text variant="link">Long press</Text>
               </Pressable>
             </ContextMenuTrigger>
             <ContextMenuContent>
@@ -572,7 +570,7 @@ const RnrCatalog = () => {
 
       <View className="bg-muted flex-row items-center gap-2 rounded-lg p-3">
         <CheckCircle2 className="text-foreground size-4 shrink-0" />
-        <Text className="min-w-0 flex-1 text-sm">
+        <Text className="min-w-0 flex-1" variant="caption">
           Branded QOP primitives use RNR and Uniwind.
         </Text>
       </View>

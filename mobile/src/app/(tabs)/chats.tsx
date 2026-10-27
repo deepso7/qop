@@ -154,9 +154,8 @@ const ChatsScreen = () => {
           <Button
             onPress={() => router.push("../new-chat")}
             accessibilityLabel="New chat"
-            size="icon"
+            size="iconRound"
             variant="secondary"
-            className="rounded-full"
           >
             <Icon as={SquarePen} className="size-5" />
           </Button>
