@@ -39,11 +39,12 @@ const links = [
   { label: "github", href: "https://github.com/deepso7/qop" },
 ];
 
-// 9x9 pixel icons, drawn one unit square per "#". Each renders in a size-6
-// box at 2px per pixel (viewBox padded to 12 units).
+// Pixel icons, drawn one unit square per "#". Each renders in a size-6 box at
+// 2px per pixel: the 9x9 menu in a viewBox padded to 12 units, the 11x11 theme
+// icons in one padded by half a unit.
 const ICONS = {
-  moon: ["...####..", "..###....", ".###.....", ".###.....", ".###.....", ".###.....", ".###.....", "..###....", "...####.."],
-  sun: ["....#....", ".#.....#.", "...###...", "..#####..", "#.#####.#", "..#####..", "...###...", ".#.....#.", "....#...."],
+  moon: ["....#......", "..##.......", ".###.......", ".###.......", "####.......", "####.......", "#####......", ".######..#.", ".#########.", "..#######..", "....###...."],
+  sun: [".....#.....", ".#...#...#.", "..#.....#..", "....###....", "...#####...", "##.#####.##", "...#####...", "....###....", "..#.....#..", ".#...#...#.", ".....#....."],
   menu: [".........", "#########", "#########", ".........", "#########", "#########", ".........", "#########", "#########"],
 };
 
@@ -113,10 +114,10 @@ const toPath = (rows: readonly string[]) =>
       )
     }
     <button type="button" class:list={iconChip} data-blume-theme-toggle aria-label="Toggle dark mode">
-      <svg class="size-6 dark:hidden" viewBox="-1.5 -1.5 12 12" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
+      <svg class="size-6 dark:hidden" viewBox="-0.5 -0.5 12 12" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
         <path d={toPath(ICONS.moon)} />
       </svg>
-      <svg class="hidden size-6 dark:block" viewBox="-1.5 -1.5 12 12" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
+      <svg class="hidden size-6 dark:block" viewBox="-0.5 -0.5 12 12" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
         <path d={toPath(ICONS.sun)} />
       </svg>
     </button>
