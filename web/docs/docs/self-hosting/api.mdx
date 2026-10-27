@@ -22,6 +22,8 @@ Copy `api/.env.example` to `api/.env` and set:
 
 Keeping the two keys separate means the funded relayer can't authorize registrations.
 
+For a local Anvil chain, set `REGISTRY_CONFIRMATIONS=0`. Anvil only mines a block per transaction, so the example's `12` leaves registrations and device actions waiting for blocks that never come.
+
 ## Run
 
 ```sh

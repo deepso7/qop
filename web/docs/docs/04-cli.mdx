@@ -51,7 +51,7 @@ Prints the CLI's account, qid, peer ID, device fingerprint, whether it's linked,
 Checks that this device is still on your account, then runs until you stop it, sending and receiving messages.
 
 ```sh
-qop start --to alice --message "hello from the terminal"
+pnpm --filter @qop/cli qop start --to alice --message "hello from the terminal"
 ```
 
 - **Outgoing.** `--to` and `--message` send one message. It's saved first, and if the recipient is offline, the CLI keeps it queued and retries while it runs, including after a restart.
@@ -61,6 +61,6 @@ qop start --to alice --message "hello from the terminal"
 
 ## Where data lives
 
-Everything is in `QOP_DATA_DIR`: the device identity and `messages.db`, a SQLite database with the outbox and inbox. Nothing is stored on qop's servers.
+Everything is in `QOP_DATA_DIR`: the device identity and `messages.db`, a SQLite database with the outbox and inbox. qop's servers never receive your messages or the CLI's private key.
 
 Only one `qop link` or `qop start` can run at a time per data directory.
