@@ -346,7 +346,8 @@ const MessageReaction = ({
 );
 
 type MessageReactionAddProps = Omit<ButtonProps, "size" | "variant"> & {
-  // "filled" sits inside a picker that already draws the border.
+  // "filled" sits inside a picker that already draws the border. It repeats
+  // its background under dark:, or Button's outline dark background wins.
   variant?: "filled" | "outline";
 };
 
@@ -360,7 +361,7 @@ const MessageReactionAdd = ({
     className={cn(
       "size-8 rounded-full",
       variant === "filled"
-        ? "bg-background-selected border-0"
+        ? "bg-background-selected dark:bg-background-selected border-0"
         : "border-border border",
       className
     )}
