@@ -141,6 +141,7 @@ html {
   --color-ink: var(--qp-ink);
   --color-surface: var(--qp-element);
   --color-subtle: var(--qp-muted);
+  --color-line: var(--qp-border);
   /* brand is for fills and art; link is the AA text shade of it. */
   --color-brand: var(--qp-orange);
   --color-link: var(--qp-link);
