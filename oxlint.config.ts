@@ -23,8 +23,7 @@ export default defineConfig({
       specifier: "./tools/oxlint/anti-slop/effect/index.ts",
     },
   ],
-  // Trial of @shadcn/lint on the website: warnings only, to see what it finds.
-  // The mobile app gets its own rollout.
+  // @shadcn/lint as warnings: every rule on the website, a subset on mobile.
   overrides: [
     {
       files: ["web/**"],
@@ -34,6 +33,18 @@ export default defineConfig({
         "shadcn/no-raw-colors": "warn",
         "shadcn/no-restyle": "warn",
         "shadcn/no-unknown-classes": "warn",
+        "shadcn/require-static-classes": "warn",
+      },
+    },
+    {
+      // Only the rules that fit React Native and Uniwind: the linter can't see
+      // Uniwind's per-theme tokens (no-unknown-classes), RN needs inline styles
+      // for animation and measured sizes (no-inline-styles), and our primitives
+      // take layout and colour classes by design (no-restyle).
+      files: ["mobile/**"],
+      rules: {
+        "shadcn/no-arbitrary-values": "warn",
+        "shadcn/no-raw-colors": "warn",
         "shadcn/require-static-classes": "warn",
       },
     },
