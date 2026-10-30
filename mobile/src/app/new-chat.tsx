@@ -2,11 +2,12 @@ import { Handle } from "@qop/identity";
 import { Effect, Result, Schema } from "effect";
 import { router, Stack } from "expo-router";
 import * as React from "react";
-import { ActivityIndicator, Keyboard, ScrollView, View } from "react-native";
+import { Keyboard, ScrollView, View } from "react-native";
 import Animated, { FadeIn, useReducedMotion } from "react-native-reanimated";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import { Surface } from "@/components/ui/surface";
 import { Text } from "@/components/ui/text";
 import { upsertContact } from "@/lib/db";
@@ -171,9 +172,7 @@ const NewChatRoute = () => {
             {isValid ? `Look up @${handle}.` : getHandleHint(handle)}
           </Text>
           <Button disabled={!isValid || lookingUp} onPress={lookUp}>
-            {lookingUp ? (
-              <ActivityIndicator colorClassName="accent-primary-foreground" />
-            ) : null}
+            {lookingUp ? <Spinner tone="onPrimary" /> : null}
             <Text>{lookingUp ? "Looking up…" : "Look up"}</Text>
           </Button>
         </View>
@@ -202,9 +201,7 @@ const NewChatRoute = () => {
                 disabled={opening || !hasReachableDevice}
                 onPress={startChat}
               >
-                {opening ? (
-                  <ActivityIndicator colorClassName="accent-primary-foreground" />
-                ) : null}
+                {opening ? <Spinner tone="onPrimary" /> : null}
                 <Text>{opening ? "Opening…" : "Start chat"}</Text>
               </Button>
             </Surface>

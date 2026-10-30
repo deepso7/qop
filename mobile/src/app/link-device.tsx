@@ -6,11 +6,12 @@ import * as Clipboard from "expo-clipboard";
 import * as Crypto from "expo-crypto";
 import { useRouter } from "expo-router";
 import * as React from "react";
-import { ActivityIndicator, Platform, ScrollView, View } from "react-native";
+import { Platform, ScrollView, View } from "react-native";
 import { withUniwind } from "uniwind";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { useTheme } from "@/constants/theme";
 import { trustedIdentityDomain } from "@/lib/device-action-approval";
@@ -345,9 +346,7 @@ const LinkDeviceSheet = () => {
         disabled={!fingerprint || !p2pReady || Boolean(progress)}
         onPress={link}
       >
-        {progress ? (
-          <ActivityIndicator colorClassName="accent-primary-foreground" />
-        ) : null}
+        {progress ? <Spinner tone="onPrimary" /> : null}
         <Text>{progress ?? "Link device"}</Text>
       </Button>
 

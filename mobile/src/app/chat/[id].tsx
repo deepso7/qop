@@ -5,10 +5,11 @@ import {
   useLocalSearchParams,
 } from "expo-router";
 import * as React from "react";
-import { ActivityIndicator, ScrollView, View } from "react-native";
+import { ScrollView, View } from "react-native";
 
 import { ConversationScreen } from "@/components/chat/conversation-screen";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { getContactByQid } from "@/lib/db";
 import type { Contact } from "@/lib/db";
@@ -70,7 +71,7 @@ const ChatRoute = () => {
   if (contact === undefined) {
     return (
       <View className="bg-background flex-1 items-center justify-center">
-        <ActivityIndicator colorClassName="accent-foreground-secondary" />
+        <Spinner />
       </View>
     );
   }

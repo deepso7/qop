@@ -14,14 +14,7 @@ import { Result } from "effect";
 import * as Clipboard from "expo-clipboard";
 import { useRouter } from "expo-router";
 import * as React from "react";
-import {
-  ActivityIndicator,
-  Alert,
-  Platform,
-  Share,
-  useColorScheme,
-  View,
-} from "react-native";
+import { Alert, Platform, Share, useColorScheme, View } from "react-native";
 import { ScopedVariables, withUniwind } from "uniwind";
 
 import { NativeAlert } from "@/components/ui/native-alert";
@@ -30,6 +23,7 @@ import {
   settingsFormModifiers,
 } from "@/components/ui/native-modifiers";
 import { SettingsPalette } from "@/components/ui/settings-palette";
+import { NativeSpinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
 import { useTheme } from "@/constants/theme";
 import { useDeviceRoster } from "@/hooks/use-device-roster";
@@ -377,11 +371,7 @@ const ProfileScreen = () => {
               </SettingsRow>
               <SettingsRow
                 onPress={submitRecoveryExport}
-                trailing={
-                  exportingRecoveryKey ? (
-                    <ActivityIndicator color={colors.textSecondary} />
-                  ) : undefined
-                }
+                trailing={exportingRecoveryKey ? <NativeSpinner /> : undefined}
               >
                 <UIText textStyle={{ color: colors.primary }}>
                   {recovery.buttonLabel}
