@@ -74,3 +74,97 @@ fn a_resolved_new_chat_lookup_opens_its_conversation() {
     assert_eq!(rt.state.selected, Some(ConversationId("carol".into())));
     assert_eq!(rx.try_recv(), Ok(Command::OpenConversation(ConversationId("carol".into()))));
 }
+
+/// Frame cost with a 5,000-message conversation open: the thread must stay virtualized, so a
+/// frame costs about what a short chat's does. Debug-build numbers; prints them with
+/// `cargo test frame_cost -- --nocapture`.
+#[test]
+fn frame_cost_stays_flat_with_a_long_conversation() {
+    use std::time::Instant;
+
+    use crate::model::{Conversation, Direction, Message, MessageStatus};
+
+    const MESSAGES: usize = 5_000;
+    fn thread(n: usize) -> Vec<Message> {
+        (0..n)
+            .map(|i| Message {
+                id: MessageId(format!("m{i:05}")),
+                direction: if i % 3 == 0 { Direction::Received } else { Direction::Sent(MessageStatus::Sent) },
+                text: format!("message {i}: the quick brown fox jumps over the lazy dog"),
+                at: std::time::SystemTime::now() - std::time::Duration::from_secs((n - i) as u64 * 30),
+            })
+            .collect()
+    }
+    fn long(ui: &mut Ui) {
+        fake::linked_list(ui);
+        ui.update_model(|m| {
+            if let Phase::Linked(l) = &mut m.phase {
+                l.conversations[0] = Conversation { messages: thread(MESSAGES).into(), ..l.conversations[0].clone() };
+            }
+        });
+        ui.selected = Some(ConversationId("bob".into()));
+    }
+    let (mut rt, _rx) = open(long);
+    let time = |rt: &mut Runtime<Ui>, change: &mut dyn FnMut(&mut Runtime<Ui>)| {
+        let start = Instant::now();
+        for _ in 0..20 {
+            change(rt);
+            rt.frame(1.0 / 60.0);
+        }
+        start.elapsed().as_secs_f64() * 1000.0 / 20.0
+    };
+    // Let the arrival springs settle first.
+    for _ in 0..120 {
+        rt.frame(1.0 / 60.0);
+    }
+    let idle = time(&mut rt, &mut |_| {});
+    // Scrolling up through the thread, a wheel step a frame.
+    let (x, y) = rt.find("thread").expect("the thread");
+    let scroll = time(&mut rt, &mut |rt| rt.wheel(x, y, 120.0));
+    // A new model each frame, as when a message arrives: the view runs again. The threads are
+    // built up front, so only the UI's work is timed.
+    let mut next: Vec<std::sync::Arc<[Message]>> = (1..=20).map(|n| thread(MESSAGES + n).into()).collect();
+    let republish = time(&mut rt, &mut |rt| {
+        let messages = next.remove(0);
+        rt.update(|ui, _| {
+            ui.update_model(|m| {
+                if let Phase::Linked(l) = &mut m.phase {
+                    l.conversations[0].messages = messages;
+                }
+            })
+        })
+    });
+    eprintln!(
+        "frame cost with {MESSAGES} messages: idle {idle:.2} ms, scrolling {scroll:.2} ms, new message each frame {republish:.2} ms"
+    );
+    let (mut rt, _rx) = open(fake::chat);
+    for _ in 0..120 {
+        rt.frame(1.0 / 60.0);
+    }
+    let short_idle = time(&mut rt, &mut |_| {});
+    let short_republish = time(&mut rt, &mut |rt| rt.update(|ui, _| ui.update_model(|_| {})));
+    eprintln!("frame cost with 8 messages: idle {short_idle:.2} ms, republish {short_republish:.2} ms");
+    // Generous: debug builds of Rune are slow, and CI machines vary. Unvirtualized, this is
+    // seconds per frame.
+    assert!(republish < 250.0 && scroll < 250.0, "{republish} / {scroll} ms per frame");
+}
+
+#[test]
+fn the_top_of_a_thread_with_earlier_messages_asks_for_them_once() {
+    fn with_earlier(ui: &mut Ui) {
+        fake::chat(ui);
+        ui.update_model(|m| {
+            if let Phase::Linked(l) = &mut m.phase {
+                l.conversations[0].earlier = true;
+            }
+        });
+    }
+    let (mut rt, rx) = open(with_earlier);
+    let (x, y) = rt.find("thread").expect("the thread");
+    for _ in 0..30 {
+        rt.wheel(x, y, -400.0);
+        rt.frame(1.0 / 60.0);
+    }
+    let asked: Vec<Command> = rx.try_iter().filter(|c| matches!(c, Command::LoadEarlier(_))).collect();
+    assert_eq!(asked, [Command::LoadEarlier(ConversationId("bob".into()))]);
+}

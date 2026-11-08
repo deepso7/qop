@@ -38,6 +38,9 @@ pub struct Ui {
     pub pane: Pane,
     /// Settings asked "Unlink?" and waits for the second click.
     pub confirm_unlink: bool,
+    /// The conversation and length an earlier page was last asked for, so scrolling at the top
+    /// asks once per page.
+    asked_earlier: Option<(ConversationId, usize)>,
     /// Wall time for countdowns and relative times, refreshed by `poll`.
     pub now: SystemTime,
     /// Rune's clock (virtual when headless) at the last `poll`.
@@ -61,6 +64,7 @@ impl Ui {
             selected: None,
             pane: Pane::Chat,
             confirm_unlink: false,
+            asked_earlier: None,
             now: SystemTime::now(),
             clock: 0.0,
             copied_at: None,
@@ -106,6 +110,21 @@ impl Ui {
         self.selected = Some(id.clone());
         self.pane = Pane::Chat;
         self.send(Command::OpenConversation(id));
+    }
+
+    /// The open conversation's messages.
+    fn thread(&self) -> Option<&[crate::model::Message]> {
+        let Phase::Linked(linked) = &self.model.phase else { return None };
+        Some(&linked.conversation(self.selected.as_ref()?)?.messages)
+    }
+
+    /// Asks for the page before the `shown` messages of `id`, once.
+    fn load_earlier(&mut self, id: &ConversationId, shown: usize) {
+        let ask = (id.clone(), shown);
+        if self.asked_earlier.as_ref() != Some(&ask) {
+            self.asked_earlier = Some(ask);
+            self.send(Command::LoadEarlier(id.clone()));
+        }
     }
 
     fn submit_handle(&mut self) {

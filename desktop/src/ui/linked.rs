@@ -168,19 +168,40 @@ fn chat(ui: &Ui, t: &Theme, l: &Linked, c: &Conversation) -> El {
                 .transition(Transition::opacity().springs(motion::SWAP)),
         );
     }
-    pane.child(thread(ui, t, c)).child(composer(ui, t))
+    pane.child(thread(t, c)).child(composer(ui, t))
 }
 
-/// The message list: a virtualised growth stack, following the bottom as messages arrive.
-fn thread(ui: &Ui, t: &Theme, c: &Conversation) -> El {
+/// The message list: only the rows on screen (and a little either side) are built, so a long
+/// conversation costs what a short one does. It follows the bottom as messages arrive, and
+/// reaching the top asks the engine for a page of older ones.
+fn thread(t: &Theme, c: &Conversation) -> El {
+    let t = *t;
     let last_delivered = c.messages.iter().rposition(|m| m.direction == Direction::Sent(MessageStatus::Sent));
-    let rows = c.messages.iter().enumerate().fold(
-        col().key("messages").w_full().px(space::XL).growth(GrowthSpec::default()).virtualize(48.0),
-        |stack, (i, m)| {
-            let run_ends = c.messages.get(i + 1).is_none_or(|n| std::mem::discriminant(&n.direction) != std::mem::discriminant(&m.direction));
-            stack.child(message(ui, t, m, run_ends, last_delivered == Some(i)))
-        },
-    );
+    let (id, earlier, count) = (c.id.clone(), c.earlier, c.messages.len());
+    let rows = col()
+        .key("messages")
+        .w_full()
+        .px(space::XL)
+        .growth(GrowthSpec::default())
+        .virtual_rows(
+            count,
+            48.0,
+            |ui: &Ui, i| ui.thread().map_or("".into(), |m| m[i].id.0.as_str().into()),
+            move |ui: &Ui, i| {
+                let messages = ui.thread().unwrap_or_default();
+                let Some(m) = messages.get(i) else { return el() };
+                let run_ends = messages.get(i + 1).is_none_or(|n| std::mem::discriminant(&n.direction) != std::mem::discriminant(&m.direction));
+                message(ui, &t, m, run_ends, last_delivered == Some(i))
+            },
+        )
+        // Rows keep their keys unless the conversation or its first message changes.
+        .virtual_rows_version((&c.id.0, c.messages.first().map(|m| &m.id.0)))
+        .on_visible_rows(move |ui: &mut Ui, rows| {
+            if earlier && rows.start == 0 {
+                ui.load_earlier(&id, count);
+            }
+            false
+        });
     // The virtual stack must be the scroll viewport's first child; the viewport pads it.
     col()
         .key("thread")

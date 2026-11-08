@@ -550,12 +550,15 @@ impl Store {
     /// Sent messages are timed by when they were written, received ones by when they arrived.
     pub fn thread(&self, qid: &str, limit: usize) -> StoreResult<(Vec<ThreadMessage>, bool)> {
         let mut statement = self.conn.prepare(
+            // Each side walks its thread index from the newest end; only the merge sorts.
             "SELECT id, text, at, status FROM (
-                SELECT id, text, sent_at AS at, status, 0 AS kind, rowid AS seq
-                    FROM outbox WHERE to_qid = ?1
+                SELECT * FROM (
+                    SELECT id, text, sent_at AS at, status, 0 AS kind, rowid AS seq
+                    FROM outbox WHERE to_qid = ?1 ORDER BY sent_at DESC, rowid DESC LIMIT ?2)
                 UNION ALL
-                SELECT id, text, received_at AS at, NULL AS status, 1 AS kind, rowid AS seq
-                    FROM inbox WHERE from_qid = ?1
+                SELECT * FROM (
+                    SELECT id, text, received_at AS at, NULL, 1, rowid
+                    FROM inbox WHERE from_qid = ?1 ORDER BY received_at DESC, rowid DESC LIMIT ?2)
              ) ORDER BY at DESC, kind DESC, seq DESC LIMIT ?2",
         )?;
         let rows = statement.query_map(params![qid, limit + 1], |row| {
@@ -873,6 +876,44 @@ mod tests {
         assert_eq!(store.revoked().unwrap().as_deref(), Some("alice"));
         store.clear_revoked().unwrap();
         assert_eq!(store.revoked().unwrap(), None);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// A conversation's newest messages come back interleaved by time with whether older ones
+    /// exist; with thousands stored, reading the window costs about what a short chat does.
+    #[test]
+    fn reads_the_newest_page_of_a_long_conversation() {
+        let dir = temp_dir("thread");
+        let store = Store::open(&dir).expect("open");
+        store.conn.pragma_update(None, "synchronous", "OFF").unwrap();
+        for n in 0..5_000_u64 {
+            let id = format!("0b0b0b0b-0000-4000-8000-{n:012}");
+            if n % 2 == 0 {
+                let record = InboxRecord {
+                    frame: ChatFrame { from_handle: "bob".into(), id, sent_at: n, text: format!("in {n}") },
+                    from_qid: "7".into(),
+                    received_at: n,
+                };
+                store.put_inbox(&record).unwrap();
+            } else {
+                let mut record = queued(&format!("out {n}"));
+                record.frame.id = id;
+                record.frame.sent_at = n;
+                store.enqueue(&record).unwrap();
+            }
+        }
+        let start = std::time::Instant::now();
+        let (page, earlier) = store.thread("7", 200).unwrap();
+        let took = start.elapsed();
+        eprintln!("newest 200 of 5000 messages: {took:?}");
+        assert!(earlier);
+        let texts: Vec<&str> = page.iter().map(|m| m.text.as_str()).collect();
+        assert_eq!((texts.len(), texts[0], texts[199]), (200, "in 4800", "out 4999"));
+        assert_eq!(page[1].sent, Some(OutboxStatus::Queued));
+        assert_eq!(page[0].sent, None);
+        let (all, earlier) = store.thread("7", 5_000).unwrap();
+        assert_eq!((all.len(), earlier), (5_000, false));
+        assert_eq!(store.thread("8", 200).unwrap(), (vec![], false));
         fs::remove_dir_all(dir).unwrap();
     }
 }
