@@ -9,6 +9,10 @@ description = "QOP Desktop: a linked-device qop client built with Rune"
 name = "qop-desktop"
 path = "src/main.rs"
 
+[features]
+# Live editing through Rune's `scripts/rune-hot` (see `scripts/hot.sh`). Off in normal builds.
+hot = ["rune/hot"]
+
 [dependencies]
 alloy-primitives = { version = "1.7.3", features = ["k256"] }
 alloy-sol-types = "1.7.3"
