@@ -1,0 +1,255 @@
+[
+  {
+    "body": {
+      "text": "{\"digest\":\"0xabababababababababababababababababababababababababababababababab\",\"failureCode\":null,\"status\":\"ready\",\"transactionHash\":null}"
+    },
+    "name": "ready",
+    "status": 200,
+    "ok": true,
+    "value": {
+      "digest": "0xabababababababababababababababababababababababababababababababab",
+      "failureCode": null,
+      "status": "ready",
+      "transactionHash": null
+    }
+  },
+  {
+    "body": {
+      "text": "{\"digest\":\"0xabababababababababababababababababababababababababababababababab\",\"failureCode\":null,\"status\":\"submitted\",\"transactionHash\":\"0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\"}"
+    },
+    "name": "submitted",
+    "status": 200,
+    "ok": true,
+    "value": {
+      "digest": "0xabababababababababababababababababababababababababababababababab",
+      "failureCode": null,
+      "status": "submitted",
+      "transactionHash": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+    }
+  },
+  {
+    "body": {
+      "text": "{\"digest\":\"0xabababababababababababababababababababababababababababababababab\",\"failureCode\":null,\"status\":\"confirmed\",\"transactionHash\":\"0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\"}"
+    },
+    "name": "confirmed",
+    "status": 200,
+    "ok": true,
+    "value": {
+      "digest": "0xabababababababababababababababababababababababababababababababab",
+      "failureCode": null,
+      "status": "confirmed",
+      "transactionHash": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+    }
+  },
+  {
+    "body": {
+      "text": "{\"digest\":\"0xabababababababababababababababababababababababababababababababab\",\"failureCode\":null,\"status\":\"reverted\",\"transactionHash\":\"0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\"}"
+    },
+    "name": "reverted",
+    "status": 200,
+    "ok": true,
+    "value": {
+      "digest": "0xabababababababababababababababababababababababababababababababab",
+      "failureCode": null,
+      "status": "reverted",
+      "transactionHash": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+    }
+  },
+  {
+    "body": {
+      "text": "{\"digest\":\"0xabababababababababababababababababababababababababababababababab\",\"failureCode\":null,\"status\":\"expired\",\"transactionHash\":\"0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\"}"
+    },
+    "name": "expired",
+    "status": 200,
+    "ok": true,
+    "value": {
+      "digest": "0xabababababababababababababababababababababababababababababababab",
+      "failureCode": null,
+      "status": "expired",
+      "transactionHash": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+    }
+  },
+  {
+    "body": {
+      "text": "{\"digest\":\"0xabababababababababababababababababababababababababababababababab\",\"failureCode\":\"nonce\",\"status\":\"reverted\",\"transactionHash\":\"0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd\"}"
+    },
+    "name": "failure code",
+    "status": 200,
+    "ok": true,
+    "value": {
+      "digest": "0xabababababababababababababababababababababababababababababababab",
+      "failureCode": "nonce",
+      "status": "reverted",
+      "transactionHash": "0xcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"
+    }
+  },
+  {
+    "body": {
+      "text": "{\"digest\":\"0xabababababababababababababababababababababababababababababababab\",\"failureCode\":null,\"status\":\"ready\",\"transactionHash\":null,\"extra\":{\"nested\":true},\"operation\":\"add\"}"
+    },
+    "name": "extra fields accepted",
+    "status": 200,
+    "ok": true,
+    "value": {
+      "digest": "0xabababababababababababababababababababababababababababababababab",
+      "failureCode": null,
+      "status": "ready",
+      "transactionHash": null
+    }
+  },
+  {
+    "body": {
+      "text": "{\"digest\":\"0xabababababababababababababababababababababababababababababababab\",\"failureCode\":null,\"status\":\"pending\",\"transactionHash\":null}"
+    },
+    "name": "unknown status",
+    "status": 200,
+    "error": "decode",
+    "ok": false
+  },
+  {
+    "body": {
+      "text": "{\"digest\":\"0xABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABABAB\",\"failureCode\":null,\"status\":\"ready\",\"transactionHash\":null}"
+    },
+    "name": "uppercase digest",
+    "status": 200,
+    "error": "decode",
+    "ok": false
+  },
+  {
+    "body": {
+      "text": "{\"digest\":\"0xabababababababababababababababababababababababababababababababab\",\"failureCode\":null,\"status\":\"ready\",\"transactionHash\":\"0x12\"}"
+    },
+    "name": "short transaction hash",
+    "status": 200,
+    "error": "decode",
+    "ok": false
+  },
+  {
+    "body": {
+      "text": "{\"digest\":\"0xabababababababababababababababababababababababababababababababab\",\"status\":\"ready\",\"transactionHash\":null}"
+    },
+    "name": "missing failureCode",
+    "status": 200,
+    "error": "decode",
+    "ok": false
+  },
+  {
+    "body": {
+      "text": "{\"digest\":\"0xabababababababababababababababababababababababababababababababab\",\"failureCode\":3,\"status\":\"ready\",\"transactionHash\":null}"
+    },
+    "name": "numeric failureCode",
+    "status": 200,
+    "error": "decode",
+    "ok": false
+  },
+  {
+    "body": {
+      "text": "not json"
+    },
+    "name": "invalid json",
+    "status": 200,
+    "error": "decode",
+    "ok": false
+  },
+  {
+    "body": {
+      "hex": "0xefbbbf7b22646967657374223a22307861626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162222c226661696c757265436f6465223a6e756c6c2c22737461747573223a227265616479222c227472616e73616374696f6e48617368223a6e756c6c7d"
+    },
+    "name": "utf-8 bom",
+    "status": 200,
+    "ok": true,
+    "value": {
+      "digest": "0xabababababababababababababababababababababababababababababababab",
+      "failureCode": null,
+      "status": "ready",
+      "transactionHash": null
+    }
+  },
+  {
+    "body": {
+      "hex": "0x7b22646967657374223a22307861626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162222c226661696c757265436f6465223a2261fffe62222c22737461747573223a227265616479222c227472616e73616374696f6e48617368223a6e756c6c7d"
+    },
+    "name": "malformed utf-8 in failureCode",
+    "status": 200,
+    "ok": true,
+    "value": {
+      "digest": "0xabababababababababababababababababababababababababababababababab",
+      "failureCode": "a��b",
+      "status": "ready",
+      "transactionHash": null
+    }
+  },
+  {
+    "body": {
+      "hex": "0x7b22646967657374223a22307861626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162222c226661696c757265436f6465223a6e756c6c2c22737461747573223a227265616479222c227472616e73616374696f6e48617368223a6e756c6c2c2278223a22fffe227d"
+    },
+    "name": "malformed utf-8 in extra field",
+    "status": 200,
+    "ok": true,
+    "value": {
+      "digest": "0xabababababababababababababababababababababababababababababababab",
+      "failureCode": null,
+      "status": "ready",
+      "transactionHash": null
+    }
+  },
+  {
+    "body": {
+      "hex": "0x7b22646967657374223a22307861626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162222c226661696c757265436f6465223a6e756c6c2c22737461747573223a22fffe222c227472616e73616374696f6e48617368223a6e756c6c7d"
+    },
+    "name": "malformed utf-8 in status",
+    "status": 200,
+    "error": "decode",
+    "ok": false
+  },
+  {
+    "body": {
+      "text": "{\"digest\":\"0xabababababababababababababababababababababababababababababababab\",\"failureCode\":null,\"status\":\"ready\",\"transactionHash\":null}"
+    },
+    "name": "201 created",
+    "status": 201,
+    "ok": true,
+    "value": {
+      "digest": "0xabababababababababababababababababababababababababababababababab",
+      "failureCode": null,
+      "status": "ready",
+      "transactionHash": null
+    }
+  },
+  {
+    "body": {
+      "text": "{}"
+    },
+    "name": "404",
+    "status": 404,
+    "error": "missing",
+    "ok": false
+  },
+  {
+    "body": {
+      "text": "not json"
+    },
+    "name": "404 with junk",
+    "status": 404,
+    "error": "missing",
+    "ok": false
+  },
+  {
+    "body": {
+      "text": "{\"error\":\"boom\"}"
+    },
+    "name": "500 json",
+    "status": 500,
+    "error": "network",
+    "ok": false
+  },
+  {
+    "body": {
+      "text": "Bad gateway"
+    },
+    "name": "502 text",
+    "status": 502,
+    "error": "decode",
+    "ok": false
+  }
+]

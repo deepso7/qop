@@ -1,0 +1,180 @@
+{
+  "decode": [
+    {
+      "json": "{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"qid\":\"42\"},\"operation\":\"add\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01\",\"v\":1}",
+      "name": "add",
+      "ok": true,
+      "value": {
+        "digest": "0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e",
+        "domain": {
+          "chainId": "31337",
+          "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+        },
+        "expectedOwner": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "intent": {
+          "deadline": "1700000600",
+          "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "nonce": "7",
+          "qid": "42"
+        },
+        "operation": "add",
+        "ownerSignature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+        "v": 1
+      }
+    },
+    {
+      "json": "{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"qid\":\"42\"},\"operation\":\"remove\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01\",\"v\":1}",
+      "name": "remove operation decodes",
+      "ok": true,
+      "value": {
+        "digest": "0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e",
+        "domain": {
+          "chainId": "31337",
+          "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+        },
+        "expectedOwner": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "intent": {
+          "deadline": "1700000600",
+          "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "nonce": "7",
+          "qid": "42"
+        },
+        "operation": "remove",
+        "ownerSignature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+        "v": 1
+      }
+    },
+    {
+      "json": "{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"qid\":\"42\"},\"operation\":\"add\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01\",\"v\":1,\"x\":0}",
+      "name": "unknown field",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "json": "{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"x\":0,\"qid\":\"42\"},\"operation\":\"add\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01\",\"v\":1}",
+      "name": "unknown intent field",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "json": "{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"qid\":\"42\"},\"operation\":\"wipe\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01\",\"v\":1}",
+      "name": "unknown operation",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "json": "{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"07\",\"qid\":\"42\"},\"operation\":\"add\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01\",\"v\":1}",
+      "name": "non-canonical nonce",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "json": "{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"qid\":\"0\"},\"operation\":\"add\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01\",\"v\":1}",
+      "name": "zero qid",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "json": "{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7E5F4552091A69125D5DFCB7B8C2659029395BDF\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"qid\":\"42\"},\"operation\":\"add\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01\",\"v\":1}",
+      "name": "uppercase owner",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "json": "{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x0000000000000000000000000000000000000000000000000000000000000000\",\"nonce\":\"7\",\"qid\":\"42\"},\"operation\":\"add\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01\",\"v\":1}",
+      "name": "zero device key",
+      "error": "invalid",
+      "ok": false
+    }
+  ],
+  "encode": [
+    {
+      "json": "{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"qid\":\"42\"},\"operation\":\"add\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01\",\"v\":1}",
+      "record": {
+        "digest": "0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e",
+        "domain": {
+          "chainId": "31337",
+          "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+        },
+        "expectedOwner": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "intent": {
+          "deadline": "1700000600",
+          "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "nonce": "7",
+          "qid": "42"
+        },
+        "operation": "add",
+        "ownerSignature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+        "v": 1
+      }
+    }
+  ],
+  "verify": [
+    {
+      "name": "matching digest",
+      "record": {
+        "digest": "0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e",
+        "domain": {
+          "chainId": "31337",
+          "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+        },
+        "expectedOwner": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "intent": {
+          "deadline": "1700000600",
+          "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "nonce": "7",
+          "qid": "42"
+        },
+        "operation": "add",
+        "ownerSignature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+        "v": 1
+      },
+      "ok": true,
+      "value": "0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e"
+    },
+    {
+      "name": "wrong digest",
+      "record": {
+        "digest": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "domain": {
+          "chainId": "31337",
+          "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+        },
+        "expectedOwner": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "intent": {
+          "deadline": "1700000600",
+          "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "nonce": "7",
+          "qid": "42"
+        },
+        "operation": "add",
+        "ownerSignature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+        "v": 1
+      },
+      "error": "digest",
+      "ok": false
+    },
+    {
+      "name": "digest of another nonce",
+      "record": {
+        "digest": "0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e",
+        "domain": {
+          "chainId": "31337",
+          "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+        },
+        "expectedOwner": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "intent": {
+          "deadline": "1700000600",
+          "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "nonce": "8",
+          "qid": "42"
+        },
+        "operation": "add",
+        "ownerSignature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+        "v": 1
+      },
+      "error": "digest",
+      "ok": false
+    }
+  ]
+}

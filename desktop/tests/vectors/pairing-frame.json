@@ -1,0 +1,379 @@
+{
+  "decode": [
+    {
+      "input": {
+        "text": "{\"challenge\":\"0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\",\"secret\":\"0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"hello\",\"v\":1}"
+      },
+      "name": "hello",
+      "ok": true,
+      "value": {
+        "challenge": "0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "secret": "0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "sessionId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "type": "hello",
+        "v": 1
+      }
+    },
+    {
+      "input": {
+        "text": "{\"chainId\":\"31337\",\"challenge\":\"0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"qid\":\"42\",\"registry\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"helloAck\",\"v\":1}"
+      },
+      "name": "helloAck",
+      "ok": true,
+      "value": {
+        "chainId": "31337",
+        "challenge": "0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "qid": "42",
+        "registry": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+        "sessionId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "type": "helloAck",
+        "v": 1
+      }
+    },
+    {
+      "input": {
+        "text": "{\"record\":{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"qid\":\"42\"},\"operation\":\"add\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01\",\"v\":1},\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"approval\",\"v\":1}"
+      },
+      "name": "approval",
+      "ok": true,
+      "value": {
+        "record": {
+          "digest": "0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e",
+          "domain": {
+            "chainId": "31337",
+            "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+          },
+          "expectedOwner": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intent": {
+            "deadline": "1700000600",
+            "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+            "nonce": "7",
+            "qid": "42"
+          },
+          "operation": "add",
+          "ownerSignature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+          "v": 1
+        },
+        "sessionId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "type": "approval",
+        "v": 1
+      }
+    },
+    {
+      "input": {
+        "text": "{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"approvalSaved\",\"v\":1}"
+      },
+      "name": "approvalSaved",
+      "ok": true,
+      "value": {
+        "digest": "0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e",
+        "sessionId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "type": "approvalSaved",
+        "v": 1
+      }
+    },
+    {
+      "input": {
+        "text": "{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"approvalConflict\",\"v\":1}"
+      },
+      "name": "approvalConflict",
+      "ok": true,
+      "value": {
+        "digest": "0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e",
+        "sessionId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "type": "approvalConflict",
+        "v": 1
+      }
+    },
+    {
+      "input": {
+        "text": "{\"challenge\":\"0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\",\"secret\":\"0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"hello\",\"v\":1,\"x\":0}"
+      },
+      "name": "hello unknown field",
+      "error": "frame",
+      "ok": false
+    },
+    {
+      "input": {
+        "text": "{\"challenge\":\"0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\",\"secret\":\"0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"hello\",\"v\":2}"
+      },
+      "name": "hello v 2",
+      "error": "frame",
+      "ok": false
+    },
+    {
+      "input": {
+        "text": "{\"challenge\":\"0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\",\"secret\":\"0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"Hello\",\"v\":1}"
+      },
+      "name": "unknown type",
+      "error": "frame",
+      "ok": false
+    },
+    {
+      "input": {
+        "text": "{\"challenge\":\"0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\",\"secret\":\"0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"v\":1}"
+      },
+      "name": "missing type",
+      "error": "frame",
+      "ok": false
+    },
+    {
+      "input": {
+        "text": "{\"challenge\":\"0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\",\"secret\":\"0xB2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2B2\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"hello\",\"v\":1}"
+      },
+      "name": "uppercase secret",
+      "error": "frame",
+      "ok": false
+    },
+    {
+      "input": {
+        "text": "{\"chainId\":\"31337\",\"challenge\":\"0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"qid\":\"042\",\"registry\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"helloAck\",\"v\":1}"
+      },
+      "name": "helloAck leading zero qid",
+      "error": "frame",
+      "ok": false
+    },
+    {
+      "input": {
+        "text": "{\"chainId\":\"0\",\"challenge\":\"0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"qid\":\"42\",\"registry\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"helloAck\",\"v\":1}"
+      },
+      "name": "helloAck zero chain id",
+      "error": "frame",
+      "ok": false
+    },
+    {
+      "input": {
+        "text": "{\"record\":{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"qid\":\"42\"},\"operation\":\"remove\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01\",\"v\":1},\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"approval\",\"v\":1}"
+      },
+      "name": "approval with remove record",
+      "ok": true,
+      "value": {
+        "record": {
+          "digest": "0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e",
+          "domain": {
+            "chainId": "31337",
+            "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+          },
+          "expectedOwner": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intent": {
+            "deadline": "1700000600",
+            "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+            "nonce": "7",
+            "qid": "42"
+          },
+          "operation": "remove",
+          "ownerSignature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+          "v": 1
+        },
+        "sessionId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "type": "approval",
+        "v": 1
+      }
+    },
+    {
+      "input": {
+        "text": "{\"record\":{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"x\":1,\"qid\":\"42\"},\"operation\":\"add\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01\",\"v\":1},\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"approval\",\"v\":1}"
+      },
+      "name": "approval nested unknown field",
+      "error": "frame",
+      "ok": false
+    },
+    {
+      "input": {
+        "text": "{\"record\":{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"qid\":\"42\"},\"operation\":\"add\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a9fcfb1fc0d8d1d0809d6775a1624d653628d23611426584db29090d2e13f4b82600\",\"v\":1},\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"approval\",\"v\":1}"
+      },
+      "name": "approval high-s signature",
+      "error": "frame",
+      "ok": false
+    },
+    {
+      "input": {
+        "text": "{\"record\":{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"qid\":\"42\"},\"operation\":\"add\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b1b\",\"v\":1},\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"approval\",\"v\":1}"
+      },
+      "name": "approval parity 27 signature",
+      "error": "frame",
+      "ok": false
+    },
+    {
+      "input": {
+        "text": "{\"record\":{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"qid\":\"42\"},\"operation\":\"add\",\"ownerSignature\":\"0xA98BE2DBD196B9348F62EE7FF10A3CA7CDEAFB5E100C1CDAD0A9A5D42322A4A90304E03F272E2F7F62988A5E9DB29AC891DCA6D56CE31B6096C9515EBC41891B01\",\"v\":1},\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"approval\",\"v\":1}"
+      },
+      "name": "approval uppercase signature",
+      "error": "frame",
+      "ok": false
+    },
+    {
+      "input": {
+        "text": "{\"record\":{\"digest\":\"0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"qid\":\"42\"},\"operation\":\"add\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01\",\"v\":1},\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"approval\",\"v\":1}"
+      },
+      "name": "approval with wrong digest still decodes",
+      "ok": true,
+      "value": {
+        "record": {
+          "digest": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+          "domain": {
+            "chainId": "31337",
+            "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+          },
+          "expectedOwner": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intent": {
+            "deadline": "1700000600",
+            "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+            "nonce": "7",
+            "qid": "42"
+          },
+          "operation": "add",
+          "ownerSignature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+          "v": 1
+        },
+        "sessionId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "type": "approval",
+        "v": 1
+      }
+    },
+    {
+      "input": {
+        "text": "{\"record\":{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"18446744073709551616\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"qid\":\"42\"},\"operation\":\"add\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01\",\"v\":1},\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"approval\",\"v\":1}"
+      },
+      "name": "approval deadline 2^64",
+      "error": "frame",
+      "ok": false
+    },
+    {
+      "input": {
+        "padTo": 16384,
+        "text": "{\"challenge\":\"0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\",\"secret\":\"0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"hello\",\"v\":1}"
+      },
+      "name": "exactly 16 KiB",
+      "ok": true,
+      "value": {
+        "challenge": "0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "secret": "0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "sessionId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "type": "hello",
+        "v": 1
+      }
+    },
+    {
+      "input": {
+        "padTo": 16385,
+        "text": "{\"challenge\":\"0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\",\"secret\":\"0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"hello\",\"v\":1}"
+      },
+      "name": "16 KiB plus one",
+      "error": "oversized",
+      "ok": false
+    },
+    {
+      "input": {
+        "hex": "0xefbbbf7b226368616c6c656e6765223a22307863336333633363336333633363336333633363336333633363336333633363336333633363336333633363336333633363336333633363336333633363336333222c22736563726574223a22307862326232623262326232623262326232623262326232623262326232623262326232623262326232623262326232623262326232623262326232623262326232222c2273657373696f6e4964223a22307861316131613161316131613161316131613161316131613161316131613161316131613161316131613161316131613161316131613161316131613161316131222c2274797065223a2268656c6c6f222c2276223a317d"
+      },
+      "name": "utf-8 bom",
+      "ok": true,
+      "value": {
+        "challenge": "0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "secret": "0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "sessionId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "type": "hello",
+        "v": 1
+      }
+    },
+    {
+      "input": {
+        "hex": "0x7b226368616c6c656e6765223a22307863336333633363336333633363336333633363336333633363336333633363336333633363336333633363336333633363336333633363336333633363336333222c22736563726574223a22307862326232623262326232623262326232623262326232623262326232623262326232623262326232623262326232623262326232623262326232623262326232222c2273657373696f6e4964223a22307861316131613161316131613161316131613161316131613161316131613161316131613161316131613161316131613161316131613161316131613161316131222c227479fffe7065223a2268656c6c6f222c2276223a317d"
+      },
+      "name": "malformed utf-8",
+      "error": "frame",
+      "ok": false
+    },
+    {
+      "input": {
+        "text": ""
+      },
+      "name": "empty",
+      "error": "frame",
+      "ok": false
+    },
+    {
+      "input": {
+        "text": "[{\"challenge\":\"0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\",\"secret\":\"0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"hello\",\"v\":1}]"
+      },
+      "name": "array",
+      "error": "frame",
+      "ok": false
+    }
+  ],
+  "encode": [
+    {
+      "frame": {
+        "challenge": "0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "secret": "0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2",
+        "sessionId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "type": "hello",
+        "v": 1
+      },
+      "ok": true,
+      "value": "{\"challenge\":\"0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\",\"secret\":\"0xb2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"hello\",\"v\":1}"
+    },
+    {
+      "frame": {
+        "chainId": "31337",
+        "challenge": "0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3",
+        "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "qid": "42",
+        "registry": "0x5fbdb2315678afecb367f032d93f642f64180aa3",
+        "sessionId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "type": "helloAck",
+        "v": 1
+      },
+      "ok": true,
+      "value": "{\"chainId\":\"31337\",\"challenge\":\"0xc3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"qid\":\"42\",\"registry\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"helloAck\",\"v\":1}"
+    },
+    {
+      "frame": {
+        "record": {
+          "digest": "0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e",
+          "domain": {
+            "chainId": "31337",
+            "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+          },
+          "expectedOwner": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+          "intent": {
+            "deadline": "1700000600",
+            "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+            "nonce": "7",
+            "qid": "42"
+          },
+          "operation": "add",
+          "ownerSignature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+          "v": 1
+        },
+        "sessionId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "type": "approval",
+        "v": 1
+      },
+      "ok": true,
+      "value": "{\"record\":{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"domain\":{\"chainId\":\"31337\",\"verifyingContract\":\"0x5fbdb2315678afecb367f032d93f642f64180aa3\"},\"expectedOwner\":\"0x7e5f4552091a69125d5dfcb7b8c2659029395bdf\",\"intent\":{\"deadline\":\"1700000600\",\"deviceKey\":\"0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c\",\"nonce\":\"7\",\"qid\":\"42\"},\"operation\":\"add\",\"ownerSignature\":\"0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01\",\"v\":1},\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"approval\",\"v\":1}"
+    },
+    {
+      "frame": {
+        "digest": "0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e",
+        "sessionId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "type": "approvalSaved",
+        "v": 1
+      },
+      "ok": true,
+      "value": "{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"approvalSaved\",\"v\":1}"
+    },
+    {
+      "frame": {
+        "digest": "0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e",
+        "sessionId": "0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1",
+        "type": "approvalConflict",
+        "v": 1
+      },
+      "ok": true,
+      "value": "{\"digest\":\"0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e\",\"sessionId\":\"0xa1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1\",\"type\":\"approvalConflict\",\"v\":1}"
+    }
+  ]
+}
