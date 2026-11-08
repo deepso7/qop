@@ -94,6 +94,16 @@ export default {
   platforms: ["ios", "android"],
   plugins: [
     "expo-router",
+    // Camera only scans pairing QR codes, so no microphone access.
+    [
+      "expo-camera",
+      {
+        cameraPermission:
+          "Scan the QR code shown on a device you want to link to your account.",
+        microphonePermission: false,
+        recordAudioAndroid: false,
+      },
+    ],
     "expo-font",
     "expo-image",
     "expo-secure-store",

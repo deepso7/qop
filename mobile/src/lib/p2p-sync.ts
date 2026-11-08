@@ -45,7 +45,7 @@ export interface PerformSyncInput {
   readonly holderPeerId: string;
   readonly own: Pick<OwnDevice, "handle" | "qid">;
   readonly sessions: ReturnType<typeof createPeerSessions>;
-  readonly signal?: AbortSignal;
+  readonly signal?: AbortSignal | undefined;
   readonly timeoutMs: number;
 }
 

@@ -1,0 +1,84 @@
+{
+  "devices": [
+    {
+      "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+      "fingerprint": "8A88E3DD",
+      "peerId": "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5",
+      "secretKey": "0x0101010101010101010101010101010101010101010101010101010101010101"
+    },
+    {
+      "deviceKey": "0x2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12",
+      "fingerprint": "2152F8D1",
+      "peerId": "12D3KooWC4T1AXU2s2YBgGJ2FeaYVtsKoHZWJeubnWe9SnuSE7Zb",
+      "secretKey": "0x4242424242424242424242424242424242424242424242424242424242424242"
+    },
+    {
+      "deviceKey": "0x03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8",
+      "fingerprint": "03A107BF",
+      "peerId": "12D3KooWA4Xop1JaT3MHxwYMkCepYsv4iPVopMXwCz5iHYdBfeSB",
+      "secretKey": "0x000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f"
+    }
+  ],
+  "peerIdToDeviceKey": [
+    {
+      "name": "derived",
+      "peerId": "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5",
+      "ok": true,
+      "value": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c"
+    },
+    {
+      "name": "derived",
+      "peerId": "12D3KooWC4T1AXU2s2YBgGJ2FeaYVtsKoHZWJeubnWe9SnuSE7Zb",
+      "ok": true,
+      "value": "0x2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12"
+    },
+    {
+      "name": "derived",
+      "peerId": "12D3KooWA4Xop1JaT3MHxwYMkCepYsv4iPVopMXwCz5iHYdBfeSB",
+      "ok": true,
+      "value": "0x03a107bff3ce10be1d70dd18e74bc09967e4d6309ba50d5f1ddc8664125531b8"
+    },
+    {
+      "name": "one char short",
+      "peerId": "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "name": "one char long",
+      "peerId": "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH51",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "name": "non-base58 zero",
+      "peerId": "02D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "name": "other prefix",
+      "peerId": "1222222222222222222222222222222222222222222222222222",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "name": "too many bytes",
+      "peerId": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "name": "sha256 multihash",
+      "peerId": "QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "name": "empty",
+      "peerId": "",
+      "error": "invalid",
+      "ok": false
+    }
+  ]
+}

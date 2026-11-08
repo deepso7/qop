@@ -1,0 +1,156 @@
+{
+  "addDevice": [
+    {
+      "digest": "0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e",
+      "intent": {
+        "deadline": "1700000600",
+        "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "nonce": "7",
+        "qid": "42"
+      },
+      "signature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+      "signer": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+    },
+    {
+      "digest": "0x95fe0fc76b4be059a433e63c87b3eab26d3241d40db36169f7a696f42b3fee90",
+      "intent": {
+        "deadline": "18446744073709551615",
+        "deviceKey": "0x2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12",
+        "nonce": "0",
+        "qid": "115792089237316195423570985008687907853269984665640564039457584007913129639935"
+      },
+      "signature": "0x7edbf98a836a4054674ea40ea99c6716349a0c33404bc73caccad88be4a4c76a492c383d1a51318d7035fb4c3dd7adfbd5c2822c8259a14ed46684c83e8c3a7401",
+      "signer": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+    }
+  ],
+  "domain": {
+    "chainId": "31337",
+    "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+  },
+  "domainName": "QOP Identity",
+  "domainSeparator": "0xe03e7ed3f53e2bf32feb5eb2960045ed5522c84820081bbe721d1dba64c7e77b",
+  "domainVersion": "1",
+  "hashRejections": [
+    {
+      "domain": {
+        "chainId": "31337",
+        "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+      },
+      "intent": {
+        "deadline": "1700000600",
+        "deviceKey": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "nonce": "7",
+        "qid": "42"
+      },
+      "name": "zero device key",
+      "error": "hash-add-device-intent",
+      "ok": false
+    },
+    {
+      "domain": {
+        "chainId": "31337",
+        "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+      },
+      "intent": {
+        "deadline": "1700000600",
+        "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "nonce": "7",
+        "qid": "0"
+      },
+      "name": "zero qid",
+      "error": "hash-add-device-intent",
+      "ok": false
+    },
+    {
+      "domain": {
+        "chainId": "0",
+        "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+      },
+      "intent": {
+        "deadline": "1700000600",
+        "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+        "nonce": "7",
+        "qid": "42"
+      },
+      "name": "zero chain id",
+      "error": "hash-add-device-intent",
+      "ok": false
+    }
+  ],
+  "owner": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+  "ownerPrivateKey": "0x0000000000000000000000000000000000000000000000000000000000000001",
+  "recover": [
+    {
+      "name": "valid",
+      "signature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+      "ok": true,
+      "value": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf"
+    },
+    {
+      "name": "other parity recovers another signer",
+      "signature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b00",
+      "ok": true,
+      "value": "0x3b1537af001a15206d3adae9519f5e0720318dbd"
+    },
+    {
+      "name": "high s",
+      "signature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a9fcfb1fc0d8d1d0809d6775a1624d653628d23611426584db29090d2e13f4b82600",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "name": "parity 27",
+      "signature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b1b",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "name": "parity 2",
+      "signature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b02",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "name": "zero r",
+      "signature": "0x00000000000000000000000000000000000000000000000000000000000000000304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "name": "zero s",
+      "signature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a9000000000000000000000000000000000000000000000000000000000000000001",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "name": "r equals n",
+      "signature": "0xfffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd03641410304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "name": "r off curve",
+      "signature": "0x00000000000000000000000000000000000000000000000000000000000000050304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+      "error": "recover-add-device-intent-signer",
+      "ok": false
+    },
+    {
+      "name": "uppercase hex",
+      "signature": "0xA98BE2DBD196B9348F62EE7FF10A3CA7CDEAFB5E100C1CDAD0A9A5D42322A4A90304E03F272E2F7F62988A5E9DB29AC891DCA6D56CE31B6096C9515EBC41891B01",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "name": "64 bytes",
+      "signature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b",
+      "error": "invalid",
+      "ok": false
+    },
+    {
+      "name": "missing 0x",
+      "signature": "a98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+      "error": "invalid",
+      "ok": false
+    }
+  ]
+}
