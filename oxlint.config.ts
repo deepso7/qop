@@ -25,8 +25,8 @@ export default defineConfig({
   ],
   overrides: [
     {
-      // React Native has no `htmlFor`; labels link to controls through
-      // `nativeID` and `aria-labelledby` instead.
+      // React Native has no `htmlFor`, so this web rule can't be met. Name
+      // inputs with `accessibilityLabel` (`aria-labelledby` is Android-only).
       files: ["mobile/**"],
       rules: { "jsx-a11y/label-has-associated-control": "off" },
     },
