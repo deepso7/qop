@@ -310,6 +310,17 @@ async fn pairs_survives_restarts_and_links_on_its_own_chain_read() {
         )
         .await;
     assert!(!dir.join("device.key").exists());
+    // A key whose deletion failed is deleted again when the revoked device starts.
+    desktop.stop().await;
+    let keys = KeyStore::File {
+        path: dir.join("device.key"),
+    };
+    keys.save(&[0x11; 32]).unwrap();
+    let mut desktop = Desktop::start(&dir, &chain, &api);
+    desktop
+        .wait_for("revoked", |phase| matches!(phase, Phase::Revoked(_)))
+        .await;
+    assert!(!dir.join("device.key").exists());
     desktop.send(Command::AcknowledgeRevoked);
     desktop
         .wait_for("a fresh start", |phase| {

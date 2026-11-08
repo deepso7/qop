@@ -451,6 +451,10 @@ impl<C: Chain, A: Api> Engine<C, A> {
     fn load(&self) -> Result<State, String> {
         let store = self.store();
         if let Some(handle) = store.revoked().map_err(|e| e.to_string())? {
+            // The screen says the key is erased: retry a deletion that failed (or never ran).
+            if let Err(error) = self.keys.delete() {
+                eprintln!("qop: {error}");
+            }
             return Ok(State::Revoked(handle));
         }
         let Some(mut identity) = store.identity().map_err(|e| e.to_string())? else {
