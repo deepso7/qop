@@ -735,8 +735,23 @@ async fn receives_saves_then_acks_and_marks_read() {
         .await;
     // The same id with other text conflicts: refused, not acknowledged.
     assert!(bob.send(BOB_MESSAGE, "edited").await.is_none());
-    // Off screen (Settings or New chat), what arrives stays unread.
+    // Off screen (Settings or New chat), what arrives stays unread. Commands run in order, so
+    // once the invalid New chat lookup shows, the close has been handled too.
     desktop.send(Command::CloseConversation);
+    desktop.send(Command::StartChat("!".into()));
+    desktop
+        .wait_for("closed", |p| {
+            linked(p).is_some_and(|l| {
+                matches!(
+                    &l.new_chat,
+                    NewChat::Lookup(HandleLookup::Failed {
+                        error: LookupError::Invalid,
+                        ..
+                    })
+                )
+            })
+        })
+        .await;
     let away = "0b0b0b0b-0000-4000-8000-000000000002";
     assert!(bob.send(away, "while you were away").await.is_some());
     desktop
