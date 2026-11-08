@@ -1,5 +1,6 @@
-//! Local state in SQLite: who this device is and where linking stands. Non-secret only; the
-//! device secret key lives in [`crate::keys`].
+//! Local state in SQLite: who this device is, where linking stands, and its messages (contacts,
+//! `outbox`, `inbox`, as the CLI's `messages.db`). Non-secret only; the device secret key lives
+//! in [`crate::keys`].
 //!
 //! One store per data directory, held exclusively: [`Store::open`] takes an advisory lock that
 //! the kernel releases when the process exits, however it exits (the CLI's `lock.db`).
@@ -12,7 +13,10 @@ use std::path::{Path, PathBuf};
 use alloy_primitives::{Address, B256, U256};
 use rusqlite::{Connection, OptionalExtension, params};
 
-use crate::wire::{DeviceActionApproval, identity};
+use crate::wire::{
+    ChatFrame, DeviceActionApproval, InboxRecord, OutboxRecord, OutboxStatus, identity,
+    inbox_records_conflict, outbox_records_conflict,
+};
 
 /// Applied in order; never edit a shipped entry, append a new one.
 const MIGRATIONS: &[&str] = &[
@@ -34,7 +38,46 @@ const MIGRATIONS: &[&str] = &[
         id INTEGER PRIMARY KEY CHECK (id = 1),
         handle TEXT NOT NULL
     );",
+    // v2: messaging. `outbox` and `inbox` match the CLI's `messages.db` columns
+    // (`OutboxRecordV1`, `InboxRecordV1`); `contacts` is one row per conversation, with the
+    // inbox rowid read up to. The inbox rowid stays the catch-up cursor for `/qop/sync/1`.
+    "CREATE TABLE contacts (
+        qid TEXT PRIMARY KEY,
+        handle TEXT NOT NULL,
+        read_seq INTEGER NOT NULL DEFAULT 0
+    ) STRICT;
+    CREATE TABLE outbox (
+        id TEXT PRIMARY KEY,
+        from_handle TEXT NOT NULL,
+        sent_at INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        to_handle TEXT NOT NULL,
+        to_qid TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('queued','sent','failed')),
+        attempts INTEGER NOT NULL,
+        last_error TEXT,
+        next_attempt_at INTEGER NOT NULL,
+        queued_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+    ) STRICT;
+    CREATE INDEX outbox_queued_idx ON outbox (next_attempt_at) WHERE status = 'queued';
+    CREATE TABLE inbox (
+        from_qid TEXT NOT NULL,
+        id TEXT NOT NULL,
+        from_handle TEXT NOT NULL,
+        sent_at INTEGER NOT NULL,
+        text TEXT NOT NULL,
+        received_at INTEGER NOT NULL,
+        PRIMARY KEY (from_qid, id)
+    ) STRICT;",
 ];
+
+/// Everything messaging stores; Unlink and revocation delete it with the identity.
+const WIPE: &str = "DELETE FROM pending_approval; DELETE FROM identity;
+    DELETE FROM contacts; DELETE FROM outbox; DELETE FROM inbox;";
+
+const OUTBOX_COLUMNS: &str = "id, from_handle, sent_at, text, to_handle, to_qid, status, attempts,
+    last_error, next_attempt_at, queued_at, updated_at";
 
 /// `~/Library/Application Support/qop` on macOS (`$XDG_DATA_HOME/qop` elsewhere), or
 /// `QOP_DATA_DIR` when set (tests and e2e runs use their own directories).
@@ -60,6 +103,9 @@ pub enum StoreError {
     Sql(rusqlite::Error),
     /// A row that this version cannot read.
     Corrupt(&'static str),
+    /// A message id already stored with different content (`outboxRecordsConflict`,
+    /// `inboxRecordsConflict`).
+    Conflict,
 }
 
 impl std::fmt::Display for StoreError {
@@ -69,6 +115,7 @@ impl std::fmt::Display for StoreError {
             Self::Io(error) => write!(f, "store: {error}"),
             Self::Sql(error) => write!(f, "store: {error}"),
             Self::Corrupt(what) => write!(f, "store: unreadable {what}"),
+            Self::Conflict => f.write_str("store: a different message already has this id"),
         }
     }
 }
@@ -135,6 +182,8 @@ impl Store {
         let conn = Connection::open(&path)?;
         fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
         conn.pragma_update(None, "journal_mode", "WAL")?;
+        // Inbound messages are acknowledged once saved: make "saved" survive power loss.
+        conn.pragma_update(None, "synchronous", "FULL")?;
         let store = Store {
             conn,
             dir: dir.to_owned(),
@@ -217,10 +266,11 @@ impl Store {
         Ok(())
     }
 
-    /// Forgets the identity and any pending approval (Unlink, revocation).
+    /// Forgets the identity, any pending approval and all messages (Unlink).
     pub fn delete_identity(&self) -> StoreResult<()> {
-        self.conn
-            .execute_batch("DELETE FROM pending_approval; DELETE FROM identity;")?;
+        let tx = self.conn.unchecked_transaction()?;
+        tx.execute_batch(WIPE)?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -259,10 +309,10 @@ impl Store {
             .optional()?)
     }
 
-    /// Wipes the identity and records the revocation, atomically.
+    /// Wipes the identity and messages and records the revocation, atomically.
     pub fn revoke(&self, handle: &str) -> StoreResult<()> {
         let tx = self.conn.unchecked_transaction()?;
-        tx.execute_batch("DELETE FROM pending_approval; DELETE FROM identity;")?;
+        tx.execute_batch(WIPE)?;
         tx.execute(
             "INSERT OR REPLACE INTO revoked (id, handle) VALUES (1, ?1)",
             params![handle],
@@ -275,6 +325,260 @@ impl Store {
         self.conn.execute("DELETE FROM revoked", [])?;
         Ok(())
     }
+
+    /// Adds a conversation with `qid`, or updates its handle.
+    pub fn upsert_contact(&self, qid: &str, handle: &str) -> StoreResult<()> {
+        self.conn.execute(
+            "INSERT INTO contacts (qid, handle) VALUES (?1, ?2)
+             ON CONFLICT (qid) DO UPDATE SET handle = excluded.handle",
+            params![qid, handle],
+        )?;
+        Ok(())
+    }
+
+    /// Every conversation, oldest first.
+    pub fn contacts(&self) -> StoreResult<Vec<Contact>> {
+        let mut statement = self.conn.prepare(
+            "SELECT c.qid, c.handle,
+                (SELECT COUNT(*) FROM inbox i WHERE i.from_qid = c.qid AND i.rowid > c.read_seq)
+             FROM contacts c ORDER BY c.rowid",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(Contact {
+                qid: row.get(0)?,
+                handle: row.get(1)?,
+                unread: row.get(2)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn contact(&self, qid: &str) -> StoreResult<Option<String>> {
+        Ok(self
+            .conn
+            .query_row("SELECT handle FROM contacts WHERE qid = ?1", [qid], |row| {
+                row.get(0)
+            })
+            .optional()?)
+    }
+
+    /// Marks everything received from `qid` so far as read.
+    pub fn mark_read(&self, qid: &str) -> StoreResult<()> {
+        self.conn.execute(
+            "UPDATE contacts SET read_seq =
+                (SELECT COALESCE(MAX(rowid), 0) FROM inbox WHERE from_qid = ?1)
+             WHERE qid = ?1",
+            [qid],
+        )?;
+        Ok(())
+    }
+
+    /// Saves a new outbox record; an identical one already stored is returned instead, a
+    /// conflicting one is [`StoreError::Conflict`] (`CliOutboxStore.enqueue`).
+    pub fn enqueue(&self, record: &OutboxRecord) -> StoreResult<OutboxRecord> {
+        let tx = self.conn.unchecked_transaction()?;
+        if let Some(existing) = outbox_by_id(&tx, &record.frame.id)? {
+            if outbox_records_conflict(&existing, record) {
+                return Err(StoreError::Conflict);
+            }
+            return Ok(existing);
+        }
+        insert_outbox(&tx, record)?;
+        tx.commit()?;
+        Ok(record.clone())
+    }
+
+    /// Updates an outbox record's status and retry bookkeeping; conflicting content is
+    /// [`StoreError::Conflict`] (`CliOutboxStore.put`). Unlike the CLI's, a record that is not
+    /// stored is left out rather than inserted: a delivery that finishes after Unlink or
+    /// revocation wiped the outbox must not bring its record back. New records use `enqueue`.
+    pub fn put(&self, record: &OutboxRecord) -> StoreResult<()> {
+        let tx = self.conn.unchecked_transaction()?;
+        match outbox_by_id(&tx, &record.frame.id)? {
+            Some(existing) if outbox_records_conflict(&existing, record) => {
+                return Err(StoreError::Conflict);
+            }
+            Some(_) => {
+                tx.execute(
+                    "UPDATE outbox SET status = ?2, attempts = ?3, last_error = ?4,
+                        next_attempt_at = ?5, queued_at = ?6, updated_at = ?7
+                     WHERE id = ?1",
+                    params![
+                        record.frame.id,
+                        record.status.as_str(),
+                        record.attempts,
+                        record.last_error,
+                        record.next_attempt_at,
+                        record.queued_at,
+                        record.updated_at,
+                    ],
+                )?;
+            }
+            None => {}
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn outbox(&self, id: &str) -> StoreResult<Option<OutboxRecord>> {
+        outbox_by_id(&self.conn, id)
+    }
+
+    /// Every outbox record, in the order they were queued.
+    pub fn outbox_all(&self) -> StoreResult<Vec<OutboxRecord>> {
+        self.outbox_where("1")
+    }
+
+    /// The records still waiting for an ACK, oldest first.
+    pub fn queued(&self) -> StoreResult<Vec<OutboxRecord>> {
+        self.outbox_where("status = 'queued'")
+    }
+
+    fn outbox_where(&self, filter: &str) -> StoreResult<Vec<OutboxRecord>> {
+        let mut statement = self.conn.prepare(&format!(
+            "SELECT {OUTBOX_COLUMNS} FROM outbox WHERE {filter} ORDER BY rowid"
+        ))?;
+        let rows = statement.query_map([], outbox_row)?;
+        rows.map(|row| row?.ok_or(StoreError::Corrupt("outbox")))
+            .collect()
+    }
+
+    /// Saves an inbound message and its sender as a contact, atomically; `true` if it was new.
+    /// The same message again is not an error (the sender retries until it sees our ACK); the
+    /// same id with different content is [`StoreError::Conflict`] (`CliOutboxStore.putInbox`).
+    pub fn put_inbox(&self, record: &InboxRecord) -> StoreResult<bool> {
+        let tx = self.conn.unchecked_transaction()?;
+        let existing = tx
+            .query_row(
+                "SELECT from_handle, sent_at, text, received_at FROM inbox
+                 WHERE from_qid = ?1 AND id = ?2",
+                params![record.from_qid, record.frame.id],
+                |row| {
+                    Ok(InboxRecord {
+                        frame: ChatFrame {
+                            from_handle: row.get(0)?,
+                            id: record.frame.id.clone(),
+                            sent_at: row.get(1)?,
+                            text: row.get(2)?,
+                        },
+                        from_qid: record.from_qid.clone(),
+                        received_at: row.get(3)?,
+                    })
+                },
+            )
+            .optional()?;
+        if let Some(existing) = existing {
+            if inbox_records_conflict(&existing, record) {
+                return Err(StoreError::Conflict);
+            }
+            return Ok(false);
+        }
+        tx.execute(
+            "INSERT INTO inbox (from_qid, id, from_handle, sent_at, text, received_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![
+                record.from_qid,
+                record.frame.id,
+                record.frame.from_handle,
+                record.frame.sent_at,
+                record.frame.text,
+                record.received_at,
+            ],
+        )?;
+        tx.execute(
+            "INSERT INTO contacts (qid, handle) VALUES (?1, ?2)
+             ON CONFLICT (qid) DO UPDATE SET handle = excluded.handle",
+            params![record.from_qid, record.frame.from_handle],
+        )?;
+        tx.commit()?;
+        Ok(true)
+    }
+
+    /// Every inbound message, in arrival order.
+    pub fn inbox_all(&self) -> StoreResult<Vec<InboxRecord>> {
+        let mut statement = self.conn.prepare(
+            "SELECT from_qid, id, from_handle, sent_at, text, received_at FROM inbox ORDER BY rowid",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(InboxRecord {
+                from_qid: row.get(0)?,
+                frame: ChatFrame {
+                    id: row.get(1)?,
+                    from_handle: row.get(2)?,
+                    sent_at: row.get(3)?,
+                    text: row.get(4)?,
+                },
+                received_at: row.get(5)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+}
+
+/// A conversation as stored: the contact and how many of its messages are unread.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Contact {
+    pub qid: String,
+    pub handle: String,
+    pub unread: u32,
+}
+
+fn outbox_by_id(conn: &Connection, id: &str) -> StoreResult<Option<OutboxRecord>> {
+    conn.query_row(
+        &format!("SELECT {OUTBOX_COLUMNS} FROM outbox WHERE id = ?1"),
+        [id],
+        outbox_row,
+    )
+    .optional()?
+    .map(|row| row.ok_or(StoreError::Corrupt("outbox")))
+    .transpose()
+}
+
+/// One outbox row; `None` for a status this version does not know.
+fn outbox_row(row: &rusqlite::Row) -> rusqlite::Result<Option<OutboxRecord>> {
+    let status: String = row.get(6)?;
+    let Some(status) = OutboxStatus::parse(&status) else {
+        return Ok(None);
+    };
+    Ok(Some(OutboxRecord {
+        frame: ChatFrame {
+            id: row.get(0)?,
+            from_handle: row.get(1)?,
+            sent_at: row.get(2)?,
+            text: row.get(3)?,
+        },
+        to_handle: row.get(4)?,
+        to_qid: row.get(5)?,
+        status,
+        attempts: row.get(7)?,
+        last_error: row.get(8)?,
+        next_attempt_at: row.get(9)?,
+        queued_at: row.get(10)?,
+        updated_at: row.get(11)?,
+    }))
+}
+
+fn insert_outbox(conn: &Connection, record: &OutboxRecord) -> StoreResult<()> {
+    conn.execute(
+        &format!(
+            "INSERT INTO outbox ({OUTBOX_COLUMNS}) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)"
+        ),
+        params![
+            record.frame.id,
+            record.frame.from_handle,
+            record.frame.sent_at,
+            record.frame.text,
+            record.to_handle,
+            record.to_qid,
+            record.status.as_str(),
+            record.attempts,
+            record.last_error,
+            record.next_attempt_at,
+            record.queued_at,
+            record.updated_at,
+        ],
+    )?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -317,6 +621,139 @@ mod tests {
         fs::remove_dir_all(dir).unwrap();
     }
 
+    fn frame(id: &str, text: &str) -> ChatFrame {
+        ChatFrame {
+            from_handle: "alice".into(),
+            id: id.into(),
+            sent_at: 1_700_000_000_000,
+            text: text.into(),
+        }
+    }
+
+    const ID: &str = "6f1c3c4e-8a2b-4c1d-9e0f-1a2b3c4d5e6f";
+
+    fn queued(text: &str) -> OutboxRecord {
+        OutboxRecord {
+            attempts: 0,
+            frame: frame(ID, text),
+            last_error: None,
+            next_attempt_at: 5,
+            queued_at: 5,
+            status: OutboxStatus::Queued,
+            to_handle: "bob".into(),
+            to_qid: "7".into(),
+            updated_at: 5,
+        }
+    }
+
+    /// `outboxRecordsConflict`: same id, different content conflicts; bookkeeping may change.
+    #[test]
+    fn outbox_ids_keep_their_content() {
+        let dir = temp_dir("outbox");
+        let store = Store::open(&dir).expect("open");
+        let record = queued("hi");
+        assert_eq!(store.enqueue(&record).unwrap(), record);
+        // Enqueueing the same record again returns what is stored (the attempt count included).
+        let sent = OutboxRecord {
+            status: OutboxStatus::Sent,
+            attempts: 2,
+            ..record.clone()
+        };
+        store.put(&sent).unwrap();
+        assert_eq!(store.enqueue(&record).unwrap(), sent);
+        assert_eq!(store.queued().unwrap(), vec![]);
+        for conflicting in [
+            queued("edited"),
+            OutboxRecord {
+                to_handle: "carol".into(),
+                ..record.clone()
+            },
+            OutboxRecord {
+                to_qid: "8".into(),
+                ..record.clone()
+            },
+            OutboxRecord {
+                frame: ChatFrame {
+                    sent_at: 6,
+                    ..record.frame.clone()
+                },
+                ..record.clone()
+            },
+            OutboxRecord {
+                frame: ChatFrame {
+                    from_handle: "mallory".into(),
+                    ..record.frame.clone()
+                },
+                ..record.clone()
+            },
+        ] {
+            assert!(outbox_records_conflict(&record, &conflicting));
+            assert!(matches!(
+                store.enqueue(&conflicting),
+                Err(StoreError::Conflict)
+            ));
+            assert!(matches!(store.put(&conflicting), Err(StoreError::Conflict)));
+        }
+        assert_eq!(store.outbox(ID).unwrap(), Some(sent));
+        // `put` never inserts: a delivery finishing after a wipe leaves nothing behind.
+        store.delete_identity().unwrap();
+        store.put(&record).unwrap();
+        assert_eq!(store.outbox_all().unwrap(), vec![]);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// `inboxRecordsConflict`: keyed by sender and id; a repeat is not new, edited content
+    /// conflicts, and the same id from someone else is a different message.
+    #[test]
+    fn inbox_records_are_keyed_by_sender_and_id() {
+        let dir = temp_dir("inbox");
+        let store = Store::open(&dir).expect("open");
+        let record = InboxRecord {
+            frame: frame(ID, "hello"),
+            from_qid: "7".into(),
+            received_at: 10,
+        };
+        assert!(store.put_inbox(&record).unwrap());
+        // The sender retries until it sees the ACK: the repeat is accepted, not stored twice.
+        let repeat = InboxRecord {
+            received_at: 99,
+            ..record.clone()
+        };
+        assert!(!inbox_records_conflict(&record, &repeat));
+        assert!(!store.put_inbox(&repeat).unwrap());
+        let edited = InboxRecord {
+            frame: frame(ID, "edited"),
+            ..record.clone()
+        };
+        assert!(inbox_records_conflict(&record, &edited));
+        assert!(matches!(
+            store.put_inbox(&edited),
+            Err(StoreError::Conflict)
+        ));
+        let other_sender = InboxRecord {
+            from_qid: "8".into(),
+            ..edited.clone()
+        };
+        assert!(!inbox_records_conflict(&record, &other_sender));
+        assert!(store.put_inbox(&other_sender).unwrap());
+        assert_eq!(
+            store.inbox_all().unwrap(),
+            vec![record.clone(), other_sender]
+        );
+
+        // Each sender became a conversation with one unread message, until read.
+        let unread: Vec<_> = store
+            .contacts()
+            .unwrap()
+            .iter()
+            .map(|c| (c.qid.clone(), c.unread))
+            .collect();
+        assert_eq!(unread, vec![("7".into(), 1), ("8".into(), 1)]);
+        store.mark_read("7").unwrap();
+        assert_eq!(store.contacts().unwrap()[0].unread, 0);
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     #[test]
     fn revoking_wipes_the_identity_and_remembers_the_handle() {
         let dir = temp_dir("revoke");
@@ -327,8 +764,10 @@ mod tests {
                 ..identity()
             })
             .unwrap();
+        store.upsert_contact("7", "bob").unwrap();
         store.revoke("alice").unwrap();
         assert_eq!(store.identity().unwrap(), None);
+        assert_eq!(store.contacts().unwrap(), vec![]);
         assert_eq!(store.revoked().unwrap().as_deref(), Some("alice"));
         store.clear_revoked().unwrap();
         assert_eq!(store.revoked().unwrap(), None);

@@ -34,4 +34,5 @@ pub use status::{
 pub use sync::{
     InboxRecord, MAX_SYNC_PAYLOAD_BYTES, OutboxRecord, OutboxStatus, SYNC_PROTOCOL, SyncCodecError,
     SyncErrorReason, SyncInboxItem, SyncReceipt, SyncRequest, SyncResponse,
+    inbox_records_conflict, outbox_records_conflict,
 };

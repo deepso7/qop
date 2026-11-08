@@ -32,11 +32,20 @@ pub enum OutboxStatus {
 }
 
 impl OutboxStatus {
-    fn as_str(self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Queued => "queued",
             Self::Sent => "sent",
             Self::Failed => "failed",
+        }
+    }
+
+    pub fn parse(status: &str) -> Option<Self> {
+        match status {
+            "queued" => Some(Self::Queued),
+            "sent" => Some(Self::Sent),
+            "failed" => Some(Self::Failed),
+            _ => None,
         }
     }
 }
@@ -67,12 +76,7 @@ impl OutboxRecord {
             })?,
             next_attempt_at: timestamp(obj.field("nextAttemptAt")?)?,
             queued_at: timestamp(obj.field("queuedAt")?)?,
-            status: match json::str(obj.field("status")?)? {
-                "queued" => OutboxStatus::Queued,
-                "sent" => OutboxStatus::Sent,
-                "failed" => OutboxStatus::Failed,
-                _ => return Err(json::Invalid),
-            },
+            status: OutboxStatus::parse(json::str(obj.field("status")?)?).ok_or(json::Invalid)?,
             to_handle: json::handle(obj.field("toHandle")?)?.to_owned(),
             to_qid: qid(obj.field("toQid")?)?,
             updated_at: timestamp(obj.field("updatedAt")?)?,
@@ -132,6 +136,27 @@ impl InboxRecord {
             ("v", Value::from(1)),
         ])
     }
+}
+
+/// `outboxRecordsConflict`: the same message id must keep the same content (recipient, sender,
+/// time, text); status and retry bookkeeping may change.
+pub fn outbox_records_conflict(existing: &OutboxRecord, candidate: &OutboxRecord) -> bool {
+    existing.frame.id == candidate.frame.id
+        && (existing.to_handle != candidate.to_handle
+            || existing.to_qid != candidate.to_qid
+            || existing.frame.from_handle != candidate.frame.from_handle
+            || existing.frame.sent_at != candidate.frame.sent_at
+            || existing.frame.text != candidate.frame.text)
+}
+
+/// `inboxRecordsConflict`: the same sender and id must keep the same content; the same id from
+/// a different sender is a different message.
+pub fn inbox_records_conflict(existing: &InboxRecord, candidate: &InboxRecord) -> bool {
+    existing.frame.id == candidate.frame.id
+        && existing.from_qid == candidate.from_qid
+        && (existing.frame.from_handle != candidate.frame.from_handle
+            || existing.frame.sent_at != candidate.frame.sent_at
+            || existing.frame.text != candidate.frame.text)
 }
 
 /// Phone → device.
