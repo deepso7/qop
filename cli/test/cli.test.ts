@@ -17,6 +17,7 @@ const CliTestLayer = Layer.mergeAll(
       readInput: Effect.die("unused"),
       readLine: Effect.die("unused"),
       rows: Effect.succeed(24),
+      size: Effect.die("unused"),
     })
   ),
   Layer.succeed(

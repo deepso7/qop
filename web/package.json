@@ -8,9 +8,9 @@
     "doctor": "blume doctor"
   },
   "dependencies": {
-    "blume": "2.2.4"
+    "blume": "2.2.6"
   },
   "devDependencies": {
-    "@astrojs/cloudflare": "14.4.2"
+    "@astrojs/cloudflare": "14.4.6"
   }
 }
