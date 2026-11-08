@@ -50,6 +50,7 @@
     "effect": "catalog:",
     "expo": "58.0.23",
     "expo-blur": "58.0.5",
+    "expo-camera": "58.0.14",
     "expo-clipboard": "58.0.4",
     "expo-constants": "58.0.15",
     "expo-crypto": "58.0.7",
