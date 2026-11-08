@@ -158,6 +158,12 @@ impl Auth {
         }
     }
 
+    /// Whether the engine still holds a connection to `peer` (has not heard it close).
+    #[cfg(test)]
+    pub fn connected(&self, peer: &PeerId) -> bool {
+        self.lock().sessions.values().any(|s| &s.peer == peer)
+    }
+
     /// Forgets every connection (the node stopped).
     pub fn clear(&self) {
         let mut inner = self.lock();

@@ -3,6 +3,7 @@
 //! restarts over the same data directory.
 
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::Duration;
 
 use alloy_primitives::U256;
@@ -10,6 +11,7 @@ use minip2p::PeerId;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use tokio::task::JoinHandle;
 
+use super::auth::Auth;
 use super::testing::{CHAIN_ID, FakeApi, FakeChain, QID, REGISTRY, approval_for};
 use super::{Engine, Publish};
 use crate::config::Config;
@@ -34,6 +36,7 @@ struct Desktop {
     models: UnboundedReceiver<Model>,
     commands: UnboundedSender<Command>,
     task: JoinHandle<()>,
+    auth: Arc<Auth>,
 }
 
 impl Desktop {
@@ -63,6 +66,7 @@ impl Desktop {
         Desktop {
             models,
             commands,
+            auth: engine.auth.clone(),
             task: tokio::spawn(engine.run(inbox)),
         }
     }
@@ -84,6 +88,20 @@ impl Desktop {
 
     fn send(&self, command: Command) {
         self.commands.send(command).expect("engine running");
+    }
+
+    /// Waits until the engine has heard every connection to `peer` close. A peer that redials
+    /// before then can lose minip2p's connection race to its old, still-draining connection
+    /// (same direction, within the 5 s simultaneous-dial window) and see the new one closed.
+    async fn wait_disconnected(&self, peer: &PeerId) {
+        let wait = async {
+            while self.auth.connected(peer) {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        };
+        tokio::time::timeout(Duration::from_secs(20), wait)
+            .await
+            .expect("timed out waiting for the peer's connection to close");
     }
 
     /// Nothing published over a few polls says messaging is ready.
@@ -802,7 +820,9 @@ async fn pauses_on_rejection_rpc_failure_and_a_stuck_head_but_keeps_everything()
 
     // The RPC fails outright: Bob reconnects (a new connection has nothing cached), his
     // message cannot be verified, and messaging pauses. Nothing is wiped.
+    let old = bob.node.peer_id().clone();
     drop(bob);
+    desktop.wait_disconnected(&old).await;
     let bob = Bob::connect(&listen).await;
     chain.fail_lookups(true);
     assert!(
