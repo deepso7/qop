@@ -86,6 +86,7 @@ QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start > /tmp/qop-e2e/bob2.log 2>&1 & echo 
 ```sh
 kill "$(cat /tmp/qop-e2e/bob.pid)"
 echo "send bob queued before a desktop restart" >> /tmp/qop-e2e/a.cmds
+until grep -q 'sent:Queued "queued before a desktop restart"' /tmp/qop-e2e/desktop.log; do sleep 1; done
 # desktop: 7aec78ed sent:Queued …
 kill "$(cat /tmp/qop-e2e/desktop.pid)"; kill "$(cat /tmp/qop-e2e/tail-a.pid)"
 # outbox: 7aec78ed|queued|2|transport

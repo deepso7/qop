@@ -112,6 +112,7 @@ until grep -q 'offer=qop-pair1' /tmp/qop-e2e/b.log; do sleep 1; done
 phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' /tmp/qop-e2e/b.log | tail -1)" --no-submit
 # approvalSaved 0x4c5b4046…   (the phone keeps it pending; pretend the reply was lost)
 echo stop-waiting >> /tmp/qop-e2e/b.cmds
+until grep -q 'recovery=qop-pair1' /tmp/qop-e2e/b.log; do sleep 1; done
 # phase=AwaitingEnrollment handle=bob progress=Approved relay=LocalOnly recovery=qop-pair1.…
 phone approve "$(grep -o 'recovery=qop-pair1\.[A-Za-z0-9_-]*' /tmp/qop-e2e/b.log | tail -1 | sed 's/recovery=//')"
 # hello acknowledged by 60ACC541 (…)          same device key as the first offer
