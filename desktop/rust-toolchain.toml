@@ -1,0 +1,4 @@
+# Matches the toolchain of the pinned Rune rev.
+[toolchain]
+channel = "1.99.1"
+components = ["clippy", "rustfmt"]
