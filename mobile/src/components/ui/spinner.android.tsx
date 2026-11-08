@@ -4,8 +4,8 @@ import { size } from "@expo/ui/jetpack-compose/modifiers";
 import type { ColorValue } from "react-native";
 import { withUniwind } from "uniwind";
 
-import { SPINNER_TONES } from "./spinner";
-import type { SpinnerProps } from "./spinner";
+import { SPINNER_TONES } from "./spinner-tones";
+import type { SpinnerProps } from "./spinner-tones";
 
 // The morphing shape is inset in its box, so this reads like ActivityIndicator "small".
 const SIZE = 24;
