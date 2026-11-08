@@ -142,6 +142,7 @@ impl Phone {
             protocols: vec![PAIR_PROTOCOL.into()],
             relays: vec![],
             listen: vec!["/ip4/127.0.0.1/udp/0/quic-v1".into()],
+            max_unread: MAX_SYNC_PAYLOAD_BYTES,
         })
         .expect("phone node");
         let desktop = node
@@ -546,6 +547,7 @@ async fn dial_desktop(
         protocols: vec![protocol.into()],
         relays: vec![],
         listen: vec!["/ip4/127.0.0.1/udp/0/quic-v1".into()],
+        max_unread: MAX_SYNC_PAYLOAD_BYTES,
     })
     .expect("a peer node");
     let desktop = peer_id_from_device_key(&device_key_from_secret(DESKTOP_SECRET));

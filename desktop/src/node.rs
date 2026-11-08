@@ -11,6 +11,8 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc as std_mpsc;
 use std::thread::JoinHandle;
 
@@ -38,6 +40,9 @@ pub struct NodeConfig {
     pub relays: Vec<String>,
     /// Listen multiaddrs; empty means dual-stack QUIC on ephemeral ports.
     pub listen: Vec<String>,
+    /// Most bytes a stream may hold unread (the largest frame a reader accepts); a peer that
+    /// sends more while its reader waits, say on a registry read, has the stream reset.
+    pub max_unread: usize,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -140,6 +145,32 @@ enum Chunk {
     Eof,
     /// The stream or its connection ended.
     Gone(String),
+    /// The peer sent past `max_unread`; the stream was reset.
+    Oversized,
+}
+
+/// The node thread's end of a stream's reader: chunks, and the bytes sent but not yet read.
+struct Reader {
+    chunks: mpsc::UnboundedSender<Chunk>,
+    unread: Arc<AtomicUsize>,
+}
+
+/// The [`Stream`]'s end.
+struct Incoming {
+    chunks: mpsc::UnboundedReceiver<Chunk>,
+    unread: Arc<AtomicUsize>,
+}
+
+fn reader() -> (Reader, Incoming) {
+    let (tx, rx) = mpsc::unbounded_channel();
+    let unread = Arc::new(AtomicUsize::new(0));
+    (
+        Reader {
+            chunks: tx,
+            unread: unread.clone(),
+        },
+        Incoming { chunks: rx, unread },
+    )
 }
 
 impl Node {
@@ -189,7 +220,7 @@ impl Node {
             wake: endpoint.wait_handle(),
         };
         let (events, receiver) = mpsc::unbounded_channel();
-        let driver = Driver::new(handle.clone(), events, relays);
+        let driver = Driver::new(handle.clone(), events, relays, config.max_unread);
         let thread = std::thread::Builder::new()
             .name("qop-node".into())
             .spawn(move || driver.run(endpoint, inbox))
@@ -285,7 +316,7 @@ pub struct Stream {
     pub protocol: String,
     key: StreamKey,
     node: NodeHandle,
-    incoming: mpsc::UnboundedReceiver<Chunk>,
+    incoming: Incoming,
     read_done: bool,
     write_done: bool,
 }
@@ -333,8 +364,9 @@ impl Stream {
     pub async fn read_to_end(&mut self, max_bytes: usize) -> Result<Vec<u8>, NodeError> {
         let mut reader = FrameReader::new(max_bytes);
         loop {
-            match self.incoming.recv().await {
+            match self.incoming.chunks.recv().await {
                 Some(Chunk::Data(data)) => {
+                    self.incoming.unread.fetch_sub(data.len(), Ordering::SeqCst);
                     if let Err(Oversized) = reader.push(&data) {
                         self.reset();
                         return Err(NodeError::Oversized);
@@ -345,6 +377,11 @@ impl Stream {
                     return Ok(reader.finish());
                 }
                 Some(Chunk::Gone(reason)) => return Err(NodeError::Stream(reason)),
+                Some(Chunk::Oversized) => {
+                    self.read_done = true;
+                    self.write_done = true;
+                    return Err(NodeError::Oversized);
+                }
                 None => return Err(NodeError::Stopped),
             }
         }
@@ -372,18 +409,11 @@ struct Driver {
     events: mpsc::UnboundedSender<NodeEvent>,
     relays: Vec<PeerAddr>,
     writer: StreamWriter,
+    max_unread: usize,
     /// Readers of live streams.
-    streams: HashMap<StreamKey, mpsc::UnboundedSender<Chunk>>,
+    streams: HashMap<StreamKey, Reader>,
     /// Locally opened streams awaiting negotiation, with their reader halves.
-    opens: HashMap<
-        StreamKey,
-        (
-            Reply<Stream>,
-            String,
-            PeerId,
-            mpsc::UnboundedReceiver<Chunk>,
-        ),
-    >,
+    opens: HashMap<StreamKey, (Reply<Stream>, String, PeerId, Incoming)>,
     writes: HashMap<StreamKey, Reply<()>>,
     connects: HashMap<ConnectId, Reply<PeerId>>,
 }
@@ -393,12 +423,14 @@ impl Driver {
         handle: NodeHandle,
         events: mpsc::UnboundedSender<NodeEvent>,
         relays: Vec<PeerAddr>,
+        max_unread: usize,
     ) -> Driver {
         Driver {
             handle,
             events,
             relays,
             writer: StreamWriter::new(WRITE_BUDGET),
+            max_unread,
             streams: HashMap::new(),
             opens: HashMap::new(),
             writes: HashMap::new(),
@@ -472,9 +504,9 @@ impl Driver {
                 reply,
             } => match endpoint.open_stream(&peer, &protocol) {
                 Ok(key) => {
-                    let (tx, rx) = mpsc::unbounded_channel();
-                    self.streams.insert(key, tx);
-                    self.opens.insert(key, (reply, protocol, peer, rx));
+                    let (reader, incoming) = reader();
+                    self.streams.insert(key, reader);
+                    self.opens.insert(key, (reply, protocol, peer, incoming));
                 }
                 Err(error) => {
                     let _ = reply.send(Err(NodeError::Stream(error.to_string())));
@@ -497,17 +529,19 @@ impl Driver {
                 let result = self.writer.close_write(endpoint, key.0, key.1);
                 let _ = reply.send(result.map_err(|e| NodeError::Stream(e.to_string())));
             }
-            Command::Reset { key } => {
-                self.streams.remove(&key);
-                self.writer.forget(key.0, key.1);
-                if let Some(reply) = self.writes.remove(&key) {
-                    let _ = reply.send(Err(NodeError::Stream("reset".into())));
-                }
-                // Already gone is fine: there is nothing left to reset.
-                let _ = endpoint.abandon_stream(key.0, key.1);
-            }
+            Command::Reset { key } => self.reset(endpoint, key),
             Command::Shutdown => {}
         }
+    }
+
+    fn reset(&mut self, endpoint: &mut Endpoint, key: StreamKey) {
+        self.streams.remove(&key);
+        self.writer.forget(key.0, key.1);
+        if let Some(reply) = self.writes.remove(&key) {
+            let _ = reply.send(Err(NodeError::Stream("reset".into())));
+        }
+        // Already gone is fine: there is nothing left to reset.
+        let _ = endpoint.abandon_stream(key.0, key.1);
     }
 
     fn event(&mut self, endpoint: &mut Endpoint, event: EndpointEvent) {
@@ -547,9 +581,9 @@ impl Driver {
                         let _ = reply.send(Ok(stream));
                     }
                 } else {
-                    let (tx, rx) = mpsc::unbounded_channel();
-                    self.streams.insert(key, tx);
-                    let stream = self.stream(key, peer_id, protocol_id, rx);
+                    let (reader, incoming) = reader();
+                    self.streams.insert(key, reader);
+                    let stream = self.stream(key, peer_id, protocol_id, incoming);
                     let _ = self.events.send(NodeEvent::InboundStream(stream));
                 }
             }
@@ -559,7 +593,7 @@ impl Driver {
                 data,
                 ..
             } => {
-                self.chunk((conn_id, stream_id), Chunk::Data(data.to_vec()));
+                self.data(endpoint, (conn_id, stream_id), &data);
             }
             EndpointEvent::StreamRemoteWriteClosed {
                 conn_id, stream_id, ..
@@ -615,7 +649,7 @@ impl Driver {
         key: StreamKey,
         peer: PeerId,
         protocol: String,
-        incoming: mpsc::UnboundedReceiver<Chunk>,
+        incoming: Incoming,
     ) -> Stream {
         Stream {
             peer,
@@ -631,14 +665,26 @@ impl Driver {
     fn chunk(&mut self, key: StreamKey, chunk: Chunk) {
         if let Some(reader) = self.streams.get(&key) {
             // A dropped reader already reset the stream; late data has nowhere to go.
-            let _ = reader.send(chunk);
+            let _ = reader.chunks.send(chunk);
+        }
+    }
+
+    /// Queues data for the reader, or resets the stream once it would hold over `max_unread`.
+    fn data(&mut self, endpoint: &mut Endpoint, key: StreamKey, data: &[u8]) {
+        let Some(reader) = self.streams.get(&key) else { return };
+        let unread = reader.unread.fetch_add(data.len(), Ordering::SeqCst) + data.len();
+        if unread > self.max_unread {
+            let _ = reader.chunks.send(Chunk::Oversized);
+            self.reset(endpoint, key);
+        } else {
+            let _ = reader.chunks.send(Chunk::Data(data.to_vec()));
         }
     }
 
     /// The stream ended: its reader learns why, and an open still negotiating fails.
     fn end(&mut self, key: StreamKey, reason: &str) {
         if let Some(reader) = self.streams.remove(&key) {
-            let _ = reader.send(Chunk::Gone(reason.to_owned()));
+            let _ = reader.chunks.send(Chunk::Gone(reason.to_owned()));
         }
         if let Some((reply, ..)) = self.opens.remove(&key) {
             let _ = reply.send(Err(NodeError::Stream(reason.to_owned())));
@@ -678,12 +724,17 @@ mod tests {
     const ECHO: &str = "/qop-test/echo/1";
 
     fn node(seed: u8) -> (Node, mpsc::UnboundedReceiver<NodeEvent>) {
+        node_holding(seed, 2_000_000)
+    }
+
+    fn node_holding(seed: u8, max_unread: usize) -> (Node, mpsc::UnboundedReceiver<NodeEvent>) {
         Node::start(NodeConfig {
             secret: [seed; 32],
             agent_version: "qop-desktop-test".into(),
             protocols: vec![ECHO.into()],
             relays: vec![],
             listen: vec!["/ip4/127.0.0.1/udp/0/quic-v1".into()],
+            max_unread,
         })
         .expect("node binds on loopback")
     }
@@ -768,6 +819,30 @@ mod tests {
 
         assert_eq!(serve.await.expect("server task"), Err(NodeError::Oversized));
         // The reset reaches the client as the end of the stream, not as a reply.
+        assert!(stream.read_to_end(1024).await.is_err());
+    }
+
+    /// A peer that keeps sending while the reader is busy elsewhere is cut off at `max_unread`,
+    /// before the reader's own cap could run.
+    #[tokio::test]
+    async fn resets_a_stream_holding_too_much_unread() {
+        let (server, mut server_events) = node_holding(6, 1024);
+        let (client, _client_events) = node(7);
+        let peer = client
+            .handle()
+            .connect(server.listen_addrs().to_vec())
+            .await
+            .expect("connect");
+        let mut stream = client
+            .handle()
+            .open_stream(&peer, ECHO)
+            .await
+            .expect("open");
+        // The reset can beat the write or FIN, so either may fail.
+        let _ = stream.send_message(vec![7; 64 * 1024]).await;
+        let mut inbound = next_stream(&mut server_events).await;
+        // Read only now, with a cap of its own the data never reaches: the node cut it off.
+        assert_eq!(inbound.read_to_end(1 << 20).await, Err(NodeError::Oversized));
         assert!(stream.read_to_end(1024).await.is_err());
     }
 

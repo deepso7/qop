@@ -58,7 +58,8 @@ use crate::rpc::{Account, ReadError, RegistryReader};
 use crate::store::{Identity, Store};
 use crate::wire::{
     CHAT_PROTOCOL, ChatFrame, DeviceActionApproval, DeviceActionStatus, DeviceActionStatusError,
-    OutboxStatus, PAIR_PROTOCOL, SYNC_PROTOCOL, device_key_from_peer_id, device_key_from_secret,
+    MAX_SYNC_PAYLOAD_BYTES, OutboxStatus, PAIR_PROTOCOL, SYNC_PROTOCOL, device_key_from_peer_id,
+    device_key_from_secret,
 };
 use auth::{Auth, SelfVerdict};
 use chat::ChatContext;
@@ -525,6 +526,8 @@ impl<C: Chain, A: Api> Engine<C, A> {
             ],
             relays: self.config.relays.clone(),
             listen: self.config.listen.clone(),
+            // Sync's frame cap is the largest of the three protocols'.
+            max_unread: MAX_SYNC_PAYLOAD_BYTES,
         };
         match Node::start(config) {
             Ok((node, events)) => {
