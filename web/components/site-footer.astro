@@ -1,22 +1,66 @@
 ---
-// qop's site footer: tiny uppercase columns with a pixel dot, set off from the
-// page by a hairline rule. The landing page renders it after its sections;
-// every docs page gets it through the `Footer` layout slot (components.ts), so
-// both ends of the site share one footer.
-const links = [
-  { label: "Docs", href: "/docs" },
-  { label: "Privacy", href: "/privacy" },
-  { label: "GitHub", href: "https://github.com/deepso7/qop" },
+// qop's site footer: a rounded panel with the tagline, link columns, and the
+// pixel wordmark set huge along the bottom edge in a faint accent tint. The
+// landing page renders it after its sections; every docs page gets it through
+// the `Footer` layout slot (components.ts), so both ends of the site share it.
+const columns = [
+  {
+    title: "Product",
+    links: [
+      { label: "Download", href: "/#download" },
+      { label: "Docs", href: "/docs" },
+      { label: "CLI", href: "/docs/cli" },
+    ],
+  },
+  {
+    title: "Project",
+    links: [
+      { label: "GitHub", href: "https://github.com/deepso7/qop" },
+      { label: "minip2p", href: "https://minip2p.com" },
+      { label: "Privacy", href: "/privacy" },
+    ],
+  },
 ];
 ---
 
-<footer
-  class="not-prose mt-16 grid grid-cols-2 items-start gap-6 border-t border-line px-6 pt-8 pb-8 text-xs tracking-wide text-ink uppercase md:grid-cols-5"
-  data-blume-footer
->
-  <span>QOP</span>
-  <span class="hidden size-2 bg-ink md:block" aria-hidden="true"></span>
-  <span class="grid">{links.map((l) => <a href={l.href} class="hover:text-link">{l.label}</a>)}</span>
-  <span>Built on minip2p</span>
-  <span>qop.sh<br />©2026</span>
+<footer class="not-prose px-2 pb-2 md:px-3 md:pb-3" data-blume-footer>
+  <div class="overflow-hidden rounded-panel bg-surface text-ink ring-1 ring-line ring-inset">
+    <div class="grid gap-10 px-6 pt-10 md:grid-cols-[2fr_1fr_1fr] md:px-10 md:pt-12">
+      <p class="max-w-sm text-xl leading-snug tracking-[-0.03em] md:text-2xl">
+        Your messages. <span class="text-subtle">Nobody else's.</span>
+      </p>
+      {
+        columns.map((c) => (
+          <div class="text-sm">
+            <p class="mb-3 text-xs text-link">{c.title}</p>
+            <ul class="grid gap-2">
+              {c.links.map((l) => (
+                <li>
+                  <a href={l.href} class="text-subtle transition-colors hover:text-ink">
+                    {l.label}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))
+      }
+    </div>
+    <div class="flex justify-between gap-4 px-6 pt-10 text-xs text-subtle md:px-10">
+      <span>©2026 qop.sh</span>
+      <span>Built on minip2p</span>
+    </div>
+    <!-- The pixel wordmark (public/logo.svg), bleeding off the bottom edge. -->
+    <svg
+      class="-mb-[4%] block w-full px-4 pt-4 text-brand/15 md:px-8"
+      viewBox="0 16 352 128"
+      shape-rendering="crispEdges"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path
+        d="M32 16h64v32H32zM16 32h32v64H16zM80 32h32v112H80zM32 80h64v32H32zM144 16h64v32h-64zM128 32h32v64h-32zM192 32h32v64h-32zM144 80h64v32h-64zM240 16h80v32h-80zM240 16h32v128h-32zM304 32h32v64h-32zM272 80h48v32h-48z"
+      ></path>
+    </svg>
+  </div>
 </footer>

@@ -1,0 +1,85 @@
+---
+// The landing page hero: a rounded "window" onto the dithered harbour scene
+// (scene.ts), with the floating site header over its top edge, a live-looking
+// status chip, and the copy on a frosted card in the bottom-left corner.
+// The scene follows the site theme and redraws when it changes.
+---
+
+<section class="not-prose p-2 md:p-3">
+  <div
+    class="relative h-[calc(100svh-1rem)] max-h-224 min-h-160 overflow-hidden rounded-panel bg-paper md:h-[calc(100svh-1.5rem)]"
+  >
+    <canvas class="absolute inset-0 size-full" data-scene aria-hidden="true"></canvas>
+
+    <p class="glass absolute top-20 right-4 hidden items-center gap-2 rounded-full px-3 py-1.5 text-xs text-ink md:top-5 md:right-5 md:flex">
+      <span class="relative flex size-2">
+        <span class="absolute inset-0 animate-ping rounded-full bg-brand opacity-60 motion-reduce:hidden"></span>
+        <span class="relative size-2 rounded-full bg-brand"></span>
+      </span>
+      peer → peer <span class="text-subtle">· 0 servers</span>
+    </p>
+
+    <div class="glass absolute inset-x-2 bottom-2 rounded-card p-6 text-ink md:inset-x-auto md:bottom-5 md:left-5 md:max-w-xl md:p-8">
+      <p class="mb-4 text-xs text-subtle">Private messaging, peer to peer</p>
+      <h1 class="mb-4 text-4xl leading-[1.05] font-normal tracking-[-0.04em] md:text-6xl">Nothing in the middle.</h1>
+      <p class="mb-8 max-w-md leading-relaxed text-subtle md:text-lg">
+        qop sends each message straight from your phone to theirs. No server holds it, reads it, or keeps it.
+      </p>
+      <div class="flex flex-wrap items-center gap-3">
+        <a
+          class="group inline-flex h-11 items-center gap-3 rounded-full bg-ink pr-2 pl-5 text-paper transition-colors hover:bg-link"
+          href="#download"
+        >
+          Download
+          <span
+            class="grid size-7 place-items-center rounded-full bg-paper/15 transition-transform group-hover:translate-y-0.5"
+            aria-hidden="true">↓</span
+          >
+        </a>
+        <a
+          class="inline-flex h-11 items-center rounded-full px-5 text-sm ring-1 ring-line transition-colors ring-inset hover:bg-paper/60"
+          href="/docs">$ qop --help</a
+        >
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+  import { scene } from "./scene";
+
+  // Blume's client router swaps pages without a reload and runs this module
+  // once, so (re)mount on every page load and stop before each swap.
+  let stop: (() => void) | undefined;
+
+  const mount = () => {
+    const canvas = document.querySelector<HTMLCanvasElement>("[data-scene]");
+
+    if (!canvas) {
+      return;
+    }
+
+    // Draw in the current theme, and redraw when the reader toggles it.
+    const root = document.documentElement;
+    const draw = () => scene(canvas, root.dataset.theme === "dark" ? "dark" : "light");
+    let stopScene = draw();
+
+    const observer = new MutationObserver(() => {
+      stopScene();
+      stopScene = draw();
+    });
+
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    stop = () => {
+      stopScene();
+      observer.disconnect();
+    };
+  };
+
+  document.addEventListener("astro:page-load", mount);
+
+  document.addEventListener("astro:before-swap", () => {
+    stop?.();
+    stop = undefined;
+  });
+</script>
