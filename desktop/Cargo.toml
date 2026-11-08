@@ -10,6 +10,11 @@ name = "qop-desktop"
 path = "src/main.rs"
 
 [dependencies]
+alloy-primitives = { version = "1.7.3", features = ["k256"] }
+alloy-sol-types = "1.7.3"
+base64 = "0.23.1"
+minip2p-rs = { version = "0.11.6", default-features = false, features = ["std"] }
 # Rune is pre-release: pin a `dev` rev (never rewritten) and bump deliberately.
 rune = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b" }
 rune-kit = { git = "https://github.com/anomalyco/rune", rev = "a7f276c3630f85a06a0230295da4d2bd172d8d3b" }
+serde_json = "1.0.154"
