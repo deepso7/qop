@@ -7,7 +7,7 @@
 
 <section class="not-prose p-2 md:p-3">
   <div
-    class="relative h-[calc(100svh-1rem)] max-h-224 min-h-160 overflow-hidden rounded-panel bg-paper md:h-[calc(100svh-1.5rem)]"
+    class="relative flex min-h-[max(40rem,calc(100svh-1rem))] flex-col justify-end overflow-hidden rounded-panel bg-paper md:h-[calc(100svh-1.5rem)] md:max-h-224 md:min-h-160"
   >
     <canvas class="absolute inset-0 size-full" data-scene aria-hidden="true"></canvas>
 
@@ -19,7 +19,8 @@
       peer → peer <span class="text-subtle">· 0 servers</span>
     </p>
 
-    <div class="glass absolute inset-x-2 bottom-2 rounded-card p-6 text-ink md:inset-x-auto md:bottom-5 md:left-5 md:max-w-xl md:p-8">
+    <!-- In the flow on phones, so the hero grows with the card (enlarged text). -->
+    <div class="glass relative m-2 rounded-card p-6 text-ink md:absolute md:bottom-5 md:left-5 md:m-0 md:max-w-xl md:p-8">
       <p class="mb-4 text-xs text-subtle">Private messaging, peer to peer</p>
       <h1 class="mb-4 text-4xl leading-[1.05] font-normal tracking-[-0.04em] md:text-6xl">Nothing in the middle.</h1>
       <p class="mb-8 max-w-md leading-relaxed text-subtle md:text-lg">

@@ -114,18 +114,16 @@ html {
 /* Scroll reveal: sections rise in as they enter (observer in components/landing/sections.astro). */
 @utility reveal {
   @media (prefers-reduced-motion: no-preference) {
-    opacity: 0;
-    translate: 0 1.5rem;
-    scale: 0.985;
     transition:
       opacity 0.7s cubic-bezier(0.2, 0.7, 0.2, 1),
       translate 0.7s cubic-bezier(0.2, 0.7, 0.2, 1),
       scale 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
 
-    &[data-shown] {
-      opacity: 1;
-      translate: 0 0;
-      scale: 1;
+    /* Hidden only once the observer runs, so the page reads without JS. */
+    :root[data-reveal] &:not([data-shown]) {
+      opacity: 0;
+      translate: 0 1.5rem;
+      scale: 0.985;
     }
   }
 }
