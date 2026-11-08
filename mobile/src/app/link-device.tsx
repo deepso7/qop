@@ -199,6 +199,11 @@ const LinkDeviceSheet = ({ account }: { account: Account }) => {
       ? cameraPermission
       : await requestCameraPermission();
 
+    // Linking may have started while the permission prompt was up.
+    if (linking.current) {
+      return;
+    }
+
     setScanner(permission.granted ? "open" : "denied");
   }, [cameraPermission, requestCameraPermission]);
 
@@ -303,6 +308,8 @@ const LinkDeviceSheet = ({ account }: { account: Account }) => {
 
     // A ref, not state: a second tap can land before the re-render.
     linking.current = true;
+    // Closed for good: reopened after a failure, it could scan over the code being linked.
+    setScanner("closed");
     const failure = await approve(offer);
     linking.current = false;
     setState(
