@@ -90,6 +90,47 @@ pub fn button<S: 'static>(t: &Theme, key: &str, label: &str, kind: Kind, on: imp
         .on_press_tx(on)
 }
 
+/// A square notched button showing `icon`, named `label` for screen readers and the tooltip.
+pub fn icon_button<S: 'static>(t: &Theme, key: &str, label: &str, icon: El, kind: Kind, on: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+    let (fill, border) = match kind {
+        Kind::Secondary => (t.sheet, Some(t.border)),
+        _ => (Color::TRANSPARENT, None),
+    };
+    let e = row().key(key).role("button").label(label).help(label).size(36.0, 36.0).center();
+    notched(e, Notch::Small, fill, border)
+        .child(hover_wash(Notch::Small, t.hover))
+        .child(icon.a11y_hidden())
+        .hover_group()
+        .focusable(true)
+        .focus_ring(2.0, 2.0, t.brand)
+        .cursor(Cursor::Pointer)
+        .press_scale(0.94)
+        .on_press_tx(on)
+}
+
+/// A pixel gear, `size` points square, drawn on the same grid feel as the wordmark.
+pub fn gear(color: Color, size: f32) -> El {
+    const ROWS: [&str; 10] = [
+        "....##....",
+        ".##.##.##.",
+        ".########.",
+        "..######..",
+        "####..####",
+        "####..####",
+        "..######..",
+        ".########.",
+        ".##.##.##.",
+        "....##....",
+    ];
+    let shape = ROWS.iter().enumerate().fold(Shape::new(), |s, (y, row)| {
+        row.bytes().enumerate().filter(|&(_, b)| b == b'#').fold(s, |s, (x, _)| {
+            let (x, y) = (x as f32, y as f32);
+            s.fill(vec![[x, y], [x + 1.0, y], [x + 1.0, y + 1.0], [x, y + 1.0]], color)
+        })
+    });
+    canvas(shape.view_box(10.0, 10.0)).size(size, size)
+}
+
 /// A text link styled action (Unlink, Use another handle).
 pub fn link<S: 'static>(t: &Theme, key: &str, label: &str, on: impl Fn(&mut S, &mut Tx) + 'static) -> El {
     text(label)

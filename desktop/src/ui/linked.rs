@@ -54,7 +54,7 @@ fn sidebar(ui: &Ui, t: &Theme, l: &Linked) -> El {
         .child(relay_dot(t, l))
         .child(text(format!("@{}", l.account.handle)).font(type_::LABEL).color(t.ink).truncate().shrink())
         .child(spacer())
-        .child(kit::button(t, "open-settings", "Settings", if ui.pane == Pane::Settings { Kind::Secondary } else { Kind::Quiet }, |ui: &mut Ui, _| ui.show(Pane::Settings)));
+        .child(kit::icon_button(t, "open-settings", "Settings", kit::gear(t.ink, 15.0), if ui.pane == Pane::Settings { Kind::Secondary } else { Kind::Quiet }, |ui: &mut Ui, _| ui.show(Pane::Settings)));
     col()
         .key("sidebar")
         .w(SIDEBAR)
