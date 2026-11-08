@@ -46,6 +46,7 @@ fn linked(conversations: Vec<Conversation>) -> Linked {
         conversations,
         messaging: Messaging::Ready,
         relay: RelayStatus::Connected,
+        trouble: None,
         new_chat: NewChat::Lookup(HandleLookup::Idle),
     }
 }
@@ -69,7 +70,8 @@ fn conversations() -> Vec<Conversation> {
                 msg("b6", DELIVERED, "yep, it's its own device. messages queue until you're back online", 600),
                 msg("b7", FAILED, "I tried sending you the photo earlier but it didn't go through", 300),
                 msg("b8", QUEUED, "trying again now", 20),
-            ],
+            ].into(),
+            earlier: false,
         },
         Conversation {
             id: ConversationId("carol".into()),
@@ -79,19 +81,22 @@ fn conversations() -> Vec<Conversation> {
                 msg("c1", DELIVERED, "lunch tomorrow?", 7_200),
                 msg("c2", IN, "yes!", 5_400),
                 msg("c3", IN, "the place by the canal?", 5_300),
-            ],
+            ].into(),
+            earlier: false,
         },
         Conversation {
             id: ConversationId("dmitri_k".into()),
             peer: "dmitri_k".into(),
             unread: 0,
-            messages: vec![msg("d1", IN, "sent the slides, let me know what you think", 86_400 * 2)],
+            messages: vec![msg("d1", IN, "sent the slides, let me know what you think", 86_400 * 2)].into(),
+            earlier: false,
         },
         Conversation {
             id: ConversationId("ines".into()),
             peer: "ines".into(),
             unread: 0,
-            messages: vec![msg("i1", DELIVERED, "thanks for today", 86_400 * 4)],
+            messages: vec![msg("i1", DELIVERED, "thanks for today", 86_400 * 4)].into(),
+            earlier: false,
         },
     ]
 }
@@ -134,6 +139,7 @@ pub fn linking(ui: &mut Ui) {
             progress: EnrollmentProgress::Submitted,
             recovery: None,
             relay: RelayStatus::Connected,
+            trouble: None,
         }),
     });
 }
@@ -145,6 +151,7 @@ pub fn linking_recovery(ui: &mut Ui) {
             progress: EnrollmentProgress::Approved,
             recovery: Some(offer(Duration::from_secs(181))),
             relay: RelayStatus::Connected,
+            trouble: None,
         }),
     });
 }

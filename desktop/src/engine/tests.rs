@@ -22,8 +22,9 @@ use crate::node::{Node, NodeConfig, NodeEvent, NodeHandle};
 use crate::store::Store;
 use crate::wire::{
     CHAT_PROTOCOL, ChatAck, ChatFrame, DeviceActionApproval, DeviceActionStatus,
-    MAX_CHAT_PAYLOAD_BYTES, PAIR_PROTOCOL, PAIRING_FRAME_MAX_BYTES, PairingFrame, PairingOffer,
-    device_key_from_secret, peer_id_from_device_key,
+    MAX_CHAT_PAYLOAD_BYTES, MAX_SYNC_PAYLOAD_BYTES, OutboxRecord, PAIR_PROTOCOL,
+    PAIRING_FRAME_MAX_BYTES, PairingFrame, PairingOffer, SYNC_PROTOCOL, SyncErrorReason,
+    SyncReceipt, SyncRequest, SyncResponse, device_key_from_secret, peer_id_from_device_key,
 };
 
 const PHONE_SECRET: [u8; 32] = [0x55; 32];
@@ -435,22 +436,32 @@ struct Bob {
     desktop: PeerId,
 }
 
+/// A node with `secret` speaking `protocol`, connected to the desktop listening on `listen`.
+async fn dial_desktop(
+    secret: [u8; 32],
+    protocol: &str,
+    listen: &str,
+) -> (Node, UnboundedReceiver<NodeEvent>, PeerId) {
+    let (node, events) = Node::start(NodeConfig {
+        secret,
+        agent_version: "peer".into(),
+        protocols: vec![protocol.into()],
+        relays: vec![],
+        listen: vec!["/ip4/127.0.0.1/udp/0/quic-v1".into()],
+    })
+    .expect("a peer node");
+    let desktop = peer_id_from_device_key(&device_key_from_secret(DESKTOP_SECRET));
+    let addr = format!("{listen}/p2p/{}", desktop.to_base58());
+    node.handle()
+        .connect(vec![addr])
+        .await
+        .expect("dials the desktop");
+    (node, events, desktop)
+}
+
 impl Bob {
     async fn connect(listen: &str) -> Bob {
-        let (node, events) = Node::start(NodeConfig {
-            secret: BOB_SECRET,
-            agent_version: "bob".into(),
-            protocols: vec![CHAT_PROTOCOL.into()],
-            relays: vec![],
-            listen: vec!["/ip4/127.0.0.1/udp/0/quic-v1".into()],
-        })
-        .expect("bob's node");
-        let desktop = peer_id_from_device_key(&device_key_from_secret(DESKTOP_SECRET));
-        let addr = format!("{listen}/p2p/{}", desktop.to_base58());
-        node.handle()
-            .connect(vec![addr])
-            .await
-            .expect("dials the desktop");
+        let (node, events, desktop) = dial_desktop(BOB_SECRET, CHAT_PROTOCOL, listen).await;
         Bob {
             node,
             events,
@@ -711,6 +722,236 @@ async fn pauses_on_rejection_rpc_failure_and_a_stuck_head_but_keeps_everything()
     let conversation = &linked(&phase).unwrap().conversations[0];
     assert!(conversation.messages.iter().any(|m| m.text == "hi"));
     assert!(conversation.messages.iter().any(|m| m.text == "refused"));
+    desktop.stop().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+// Sync: Alice's phone (an active device of @alice) speaks `/qop/sync/1` to the linked desktop.
+
+/// A device that speaks `/qop/sync/1` to the desktop: Alice's phone, or anyone else.
+struct SyncPeer {
+    node: Node,
+    desktop: PeerId,
+    device_key: alloy_primitives::B256,
+}
+
+impl SyncPeer {
+    async fn connect(secret: [u8; 32], listen: &str) -> SyncPeer {
+        let (node, _events, desktop) = dial_desktop(secret, SYNC_PROTOCOL, listen).await;
+        SyncPeer {
+            node,
+            desktop,
+            device_key: device_key_from_secret(secret),
+        }
+    }
+
+    /// One request, one response; `None` when the desktop reset the stream.
+    async fn request(&self, request: &SyncRequest) -> Option<SyncResponse> {
+        let mut stream = self
+            .node
+            .handle()
+            .open_stream(&self.desktop, SYNC_PROTOCOL)
+            .await
+            .ok()?;
+        stream.send_message(request.encode().unwrap()).await.ok()?;
+        let reply = stream.read_to_end(MAX_SYNC_PAYLOAD_BYTES).await.ok()?;
+        Some(SyncResponse::decode(&reply).expect("a sync response"))
+    }
+
+    async fn hand_off(&self, record: &OutboxRecord) -> Option<SyncResponse> {
+        let request = SyncRequest::Handoff {
+            composed_by: self.device_key,
+            record: record.clone(),
+        };
+        self.request(&request).await
+    }
+
+    async fn receipts(&self, id: &str) -> Vec<SyncReceipt> {
+        let request = SyncRequest::Poll {
+            ids: vec![id.into()],
+        };
+        match self.request(&request).await {
+            Some(SyncResponse::Receipts { receipts }) => receipts,
+            other => panic!("not receipts: {other:?}"),
+        }
+    }
+
+    async fn catch_up(&self, after: u64) -> (u64, Vec<u64>) {
+        match self.request(&SyncRequest::Catchup { after }).await {
+            Some(SyncResponse::Inbox { last_seq, records }) => {
+                (last_seq, records.iter().map(|item| item.seq).collect())
+            }
+            other => panic!("not an inbox page: {other:?}"),
+        }
+    }
+}
+
+const HANDOFF_ID: &str = "a1a1a1a1-0000-4000-8000-000000000001";
+
+/// The phone's queued message for @bob, as `outgoingHandoffRecord` builds it.
+fn handoff_record(id: &str, text: &str) -> OutboxRecord {
+    let frame = ChatFrame {
+        from_handle: "alice".into(),
+        id: id.into(),
+        sent_at: 1_700_000_000_000,
+        text: text.into(),
+    };
+    super::outbox::new_record(frame, "bob", &BOB_QID.to_string(), 1_700_000_000_000)
+}
+
+/// Alice's account has the phone as an active device, next to the desktop.
+fn sync_chain() -> FakeChain {
+    let chain = chat_chain();
+    chain.set_devices(vec![device_key_from_secret(PHONE_SECRET)]);
+    chain
+}
+
+/// An outbox record's status, read beside the running desktop (which holds the store's lock).
+fn stored_status(dir: &Path, id: &str) -> Option<String> {
+    use rusqlite::OptionalExtension;
+    rusqlite::Connection::open(dir.join("qop.db"))
+        .unwrap()
+        .query_row("SELECT status FROM outbox WHERE id = ?1", [id], |row| row.get(0))
+        .optional()
+        .unwrap()
+}
+
+fn held(id: &str) -> Option<SyncResponse> {
+    Some(SyncResponse::Held { id: id.into() })
+}
+
+fn sync_error(reason: SyncErrorReason) -> Option<SyncResponse> {
+    Some(SyncResponse::Error { reason })
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn holds_a_handoff_delivers_it_and_reports_the_receipt() {
+    let (dir, listen) = linked_dir("handoff");
+    let (chain, api) = (sync_chain(), FakeApi::down());
+    let mut desktop = Desktop::start_on(&dir, &chain, &api, &listen);
+    desktop.wait_for("ready", ready).await;
+
+    // Bob is offline: the handoff is held (saved first), and stays queued.
+    let phone = SyncPeer::connect(PHONE_SECRET, &listen).await;
+    let record = handoff_record(HANDOFF_ID, "from my phone");
+    assert_eq!(phone.hand_off(&record).await, held(HANDOFF_ID));
+    assert_eq!(stored_status(&dir, HANDOFF_ID).as_deref(), Some("queued"));
+    desktop
+        .wait_for("the handoff in bob's chat", |p| {
+            bob_message(p, |m| {
+                m.text == "from my phone" && m.direction == Direction::Sent(MessageStatus::Queued)
+            })
+        })
+        .await;
+    assert_eq!(phone.receipts(HANDOFF_ID).await, vec![]);
+
+    // Handing it off again is idempotent; other content under the same id conflicts; only our
+    // own queued message to someone else, composed by the peer itself, is accepted.
+    assert_eq!(phone.hand_off(&record).await, held(HANDOFF_ID));
+    let edited = handoff_record(HANDOFF_ID, "edited");
+    assert_eq!(phone.hand_off(&edited).await, sync_error(SyncErrorReason::Conflict));
+    let other_id = "a1a1a1a1-0000-4000-8000-000000000002";
+    let mut forged = handoff_record(other_id, "forged");
+    forged.frame.from_handle = "bob".into();
+    assert_eq!(phone.hand_off(&forged).await, sync_error(SyncErrorReason::Invalid));
+    let mut to_self = handoff_record(other_id, "to myself");
+    to_self.to_qid = QID.to_string();
+    assert_eq!(phone.hand_off(&to_self).await, sync_error(SyncErrorReason::Invalid));
+    let not_composed = SyncRequest::Handoff {
+        composed_by: alloy_primitives::B256::repeat_byte(1),
+        record: handoff_record(other_id, "someone else's"),
+    };
+    assert_eq!(phone.request(&not_composed).await, sync_error(SyncErrorReason::Invalid));
+    assert_eq!(stored_status(&dir, other_id), None);
+
+    // Bob comes online: delivered on his ACK, and the phone's poll gets the receipt.
+    let mut bob = Bob::connect(&listen).await;
+    let frame = bob.receive(true).await;
+    assert_eq!((frame.id.as_str(), frame.text.as_str()), (HANDOFF_ID, "from my phone"));
+    desktop
+        .wait_for("delivered", |p| {
+            bob_message(p, |m| m.direction == Direction::Sent(MessageStatus::Sent))
+        })
+        .await;
+    let receipts = phone.receipts(HANDOFF_ID).await;
+    assert_eq!(receipts.len(), 1);
+    assert_eq!(
+        (receipts[0].id.as_str(), receipts[0].to_qid.as_str()),
+        (HANDOFF_ID, "7")
+    );
+    desktop.stop().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn serves_catch_up_pages_from_the_inbox_cursor() {
+    let (dir, listen) = linked_dir("catchup");
+    {
+        let store = Store::open(&dir).unwrap();
+        for n in 1..=70_u64 {
+            let record = crate::wire::InboxRecord {
+                frame: ChatFrame {
+                    from_handle: "bob".into(),
+                    id: format!("0c0c0c0c-0000-4000-8000-{n:012}"),
+                    sent_at: 1_700_000_000_000 + n,
+                    text: format!("message {n}"),
+                },
+                from_qid: BOB_QID.to_string(),
+                received_at: 1_700_000_000_000 + n,
+            };
+            assert!(store.put_inbox(&record).unwrap());
+        }
+    }
+    let (chain, api) = (sync_chain(), FakeApi::down());
+    let mut desktop = Desktop::start_on(&dir, &chain, &api, &listen);
+    desktop.wait_for("ready", ready).await;
+
+    let phone = SyncPeer::connect(PHONE_SECRET, &listen).await;
+    let (last, first) = phone.catch_up(0).await;
+    assert_eq!((last, first.len()), (70, super::sync::CATCHUP_ROW_LIMIT));
+    assert_eq!(first, (1..=64).collect::<Vec<_>>());
+    let (_, second) = phone.catch_up(64).await;
+    assert_eq!(second, (65..=70).collect::<Vec<_>>());
+    assert_eq!(phone.catch_up(70).await, (70, vec![]));
+    // A cursor past the end (the phone's holder was wiped) gets the true last seq back.
+    assert_eq!(phone.catch_up(500).await, (70, vec![]));
+
+    // Bob writes; the next page carries exactly that.
+    let bob = Bob::connect(&listen).await;
+    assert!(bob.send(BOB_MESSAGE, "while the phone was away").await.is_some());
+    assert_eq!(phone.catch_up(70).await, (71, vec![71]));
+    desktop.stop().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn refuses_sync_from_other_accounts_and_while_paused() {
+    let (dir, listen) = linked_dir("sync-refuse");
+    let (chain, api) = (sync_chain(), FakeApi::down());
+    // Our own membership cannot be confirmed yet: messaging stays paused.
+    chain.set_membership(None);
+    let mut desktop = Desktop::start_on(&dir, &chain, &api, &listen);
+    desktop.wait_for("verifying", verifying).await;
+    let phone = SyncPeer::connect(PHONE_SECRET, &listen).await;
+    let record = handoff_record(HANDOFF_ID, "while paused");
+    assert_eq!(phone.hand_off(&record).await, None);
+    assert_eq!(phone.request(&SyncRequest::Catchup { after: 0 }).await, None);
+
+    chain.set_membership(Some(QID));
+    desktop.wait_for("ready", ready).await;
+    // Bob is an active device, but of @bob; a stranger is no device at all. Both are reset
+    // before anything is stored.
+    let bob = SyncPeer::connect(BOB_SECRET, &listen).await;
+    let mut bobs = handoff_record(HANDOFF_ID, "bob pretending");
+    bobs.to_qid = "9".into();
+    assert_eq!(bob.hand_off(&bobs).await, None);
+    assert_eq!(bob.request(&SyncRequest::Catchup { after: 0 }).await, None);
+    chain.add_stranger(device_key_from_secret([0x99; 32]));
+    let stranger = SyncPeer::connect([0x99; 32], &listen).await;
+    assert_eq!(stranger.hand_off(&record).await, None);
+    assert_eq!(stored_status(&dir, HANDOFF_ID), None);
+    // The phone itself is served once messaging is ready.
+    assert_eq!(phone.hand_off(&record).await, held(HANDOFF_ID));
     desktop.stop().await;
     std::fs::remove_dir_all(dir).unwrap();
 }

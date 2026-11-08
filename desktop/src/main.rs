@@ -138,7 +138,7 @@ fn headless(args: &[String]) -> ExitCode {
 }
 
 /// Headless stand-ins for the UI, one per stdin line: `link HANDLE`, `regenerate`,
-/// `stop-waiting`, `unlink`, `start-over`; once linked, `chat HANDLE` (New chat), `open HANDLE`,
+/// `stop-waiting`, `unlink`, `start-over`; once linked, `chat HANDLE` (New chat), `open HANDLE`, `earlier HANDLE`,
 /// `send HANDLE TEXT…` and `retry ID-PREFIX`.
 fn read_commands(commands: UnboundedSender<Command>, latest: Arc<Mutex<Model>>) {
     std::thread::Builder::new()
@@ -159,6 +159,7 @@ fn read_commands(commands: UnboundedSender<Command>, latest: Arc<Mutex<Model>>) 
                     ["start-over"] => Some(Command::AcknowledgeRevoked),
                     ["chat", handle] => Some(Command::StartChat((*handle).to_owned())),
                     ["open", handle] => conversation(handle).map(Command::OpenConversation),
+                    ["earlier", handle] => conversation(handle).map(Command::LoadEarlier),
                     ["send", handle, ..] => conversation(handle).map(|conversation| Command::Send {
                         conversation,
                         text: words[2..].join(" "),
@@ -167,7 +168,7 @@ fn read_commands(commands: UnboundedSender<Command>, latest: Arc<Mutex<Model>>) 
                         Phase::Linked(l) => l
                             .conversations
                             .iter()
-                            .flat_map(|c| &c.messages)
+                            .flat_map(|c| c.messages.iter())
                             .find(|m| m.id.0.starts_with(prefix))
                             .map(|m| Command::Retry(m.id.clone())),
                         _ => None,
@@ -218,7 +219,7 @@ fn describe(model: &Model) -> String {
             );
             for c in &l.conversations {
                 out += &format!("\n  chat @{} unread={}", c.peer, c.unread);
-                for m in &c.messages {
+                for m in c.messages.iter() {
                     let direction = match m.direction {
                         model::Direction::Received => "received".into(),
                         model::Direction::Sent(status) => format!("sent:{status:?}"),

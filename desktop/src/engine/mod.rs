@@ -14,15 +14,15 @@
 //! tasks and report back as [`Internal`] messages; results that went stale meanwhile (another key,
 //! another approval) are dropped. The node thread ([`crate::node`]) feeds [`NodeEvent`]s.
 //!
-//! Linked, the engine also runs messaging ([`chat`], [`outbox`]), gated by [`auth::Auth`]: no
-//! chat in or out until this device's own membership read succeeds (`Messaging::Ready`). A
-//! failed or stale read, a sleep/wake ([`lifecycle`]), or a peer refusing us pauses messaging
-//! (`Messaging::Verifying`) and reads it again; only a read showing the key removed revokes.
-//! Messages live in the store; the engine reloads its conversation list after each change.
+//! Linked, the engine also runs messaging ([`chat`], [`outbox`]) and serves the phone's
+//! `/qop/sync/1` ([`sync`]), gated by [`auth::Auth`]: nothing in or out until this device's own
+//! membership read succeeds (`Messaging::Ready`). A failed or stale read, a sleep/wake
+//! ([`lifecycle`]), or a peer refusing us pauses messaging (`Messaging::Verifying`) and reads it
+//! again; only a read showing the key removed revokes.
 //!
-//! Sync (milestone 5) hooks in the same way: register `/qop/sync/1` in `start_node`, serve its
-//! [`NodeEvent::InboundStream`]s from `node_event` behind the same gate, and report changes back
-//! as [`Internal`] messages.
+//! Messages live in the store. The engine keeps the newest [`PAGE`] messages of each
+//! conversation in memory and, after a change, reloads only the conversation it touched; a
+//! published model shares each conversation's messages, so publishing copies none.
 
 pub mod auth;
 pub mod chat;
@@ -30,12 +30,13 @@ pub mod enrollment;
 pub mod lifecycle;
 pub mod outbox;
 pub mod pairing;
+pub mod sync;
 #[cfg(test)]
 pub(crate) mod testing;
 #[cfg(test)]
 mod tests;
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -50,14 +51,14 @@ use crate::keys::{KeyStore, random_32};
 use crate::model::{
     self, Command, ConversationId, Direction, EnrollmentProgress, EnterHandle, HandleLookup,
     LookupError, Message, MessageId, MessageStatus, Messaging, Model, NewChat, Offer, Phase,
-    RelayStatus,
+    RelayStatus, Unreachable,
 };
 use crate::node::{Node, NodeConfig, NodeEvent};
 use crate::rpc::{Account, ReadError, RegistryReader};
 use crate::store::{Identity, Store};
 use crate::wire::{
     CHAT_PROTOCOL, ChatFrame, DeviceActionApproval, DeviceActionStatus, DeviceActionStatusError,
-    OutboxStatus, PAIR_PROTOCOL, device_key_from_peer_id, device_key_from_secret,
+    OutboxStatus, PAIR_PROTOCOL, SYNC_PROTOCOL, device_key_from_peer_id, device_key_from_secret,
 };
 use auth::{Auth, SelfVerdict};
 use chat::ChatContext;
@@ -72,6 +73,8 @@ const LINKED_POLL_EVERY: u32 = 30;
 /// How long pairing waits for a relay reservation before offering LAN addresses only.
 const RELAY_WAIT: Duration = Duration::from_secs(15);
 const AGENT_VERSION: &str = concat!("qop-desktop/", env!("CARGO_PKG_VERSION"));
+/// Messages per conversation held in memory at first; each Load earlier adds as many again.
+pub const PAGE: usize = 200;
 
 /// Registry reads, async. The live implementation is [`RegistryReader`].
 pub trait Chain: Clone + Send + Sync + 'static {
@@ -250,8 +253,10 @@ enum Internal {
     },
     /// An inbound message was saved (and acknowledged).
     Received(chat::Received),
-    /// An outbox record changed.
-    OutboxChanged,
+    /// An outbox record to `qid` changed.
+    OutboxChanged { qid: String },
+    /// The phone handed off a message to `qid`; it is in the outbox now.
+    HandedOff { qid: String },
     /// A recipient's deliveries finished; `pause` if one of them should pause messaging.
     Delivered { qid: String, pause: bool },
     /// Something chat saw calls our own membership into question.
@@ -311,6 +316,10 @@ pub struct Engine<C: Chain, A: Api> {
     /// Invalidations [`Auth::observe`] has reported so far.
     invalidations: u64,
     conversations: Vec<model::Conversation>,
+    /// How many messages each conversation (by QID) holds when more than [`PAGE`].
+    windows: HashMap<String, usize>,
+    /// What the last poll could not reach.
+    trouble: Option<Unreachable>,
     /// The conversation last opened; what arrives there is read at once.
     active: Option<ConversationId>,
     new_chat: NewChat,
@@ -360,6 +369,8 @@ impl<C: Chain, A: Api> Engine<C, A> {
             verify_round: 0,
             invalidations: 0,
             conversations: Vec::new(),
+            windows: HashMap::new(),
+            trouble: None,
             active: None,
             new_chat: NewChat::Lookup(HandleLookup::Idle),
             delivering: HashSet::new(),
@@ -462,7 +473,9 @@ impl<C: Chain, A: Api> Engine<C, A> {
         // Linked starts paused: messaging waits for this device's own membership read.
         self.set_messaging(Messaging::Verifying);
         self.self_block = None;
+        self.trouble = None;
         self.active = None;
+        self.windows.clear();
         self.new_chat = NewChat::Lookup(HandleLookup::Idle);
         self.reload();
         if key.is_some() {
@@ -484,7 +497,11 @@ impl<C: Chain, A: Api> Engine<C, A> {
             secret,
             agent_version: AGENT_VERSION.into(),
             // Registered up front: the endpoint negotiates only these, outbound included.
-            protocols: vec![PAIR_PROTOCOL.into(), CHAT_PROTOCOL.into()],
+            protocols: vec![
+                PAIR_PROTOCOL.into(),
+                CHAT_PROTOCOL.into(),
+                SYNC_PROTOCOL.into(),
+            ],
             relays: self.config.relays.clone(),
             listen: self.config.listen.clone(),
         };
@@ -599,8 +616,15 @@ impl<C: Chain, A: Api> Engine<C, A> {
                 if let Err(error) = self.store().mark_read(&id.0) {
                     eprintln!("qop: {error}");
                 }
+                self.refresh(&id.0);
                 self.active = Some(id);
-                self.reload();
+            }
+            (Command::LoadEarlier(id), State::Linked(_)) => {
+                let shown = self.conversation(&id.0).map_or(0, |c| c.messages.len());
+                if self.conversation(&id.0).is_some_and(|c| c.earlier) {
+                    self.windows.insert(id.0.clone(), shown + PAGE);
+                    self.refresh(&id.0);
+                }
             }
             (Command::StartChat(handle), State::Linked(_)) => self.start_chat(handle),
             (Command::Send { conversation, text }, State::Linked(identity)) => {
@@ -758,15 +782,18 @@ impl<C: Chain, A: Api> Engine<C, A> {
                     if self.active.as_ref().is_some_and(|id| id.0 == received.from_qid) {
                         let _ = self.store().mark_read(&received.from_qid);
                     }
-                    self.reload();
+                    self.refresh(&received.from_qid);
                 }
                 // They are online: whatever we have queued for them can go now.
                 self.flush(Some(&received.from_qid));
             }
-            Internal::OutboxChanged => self.reload(),
+            Internal::OutboxChanged { qid } => self.refresh(&qid),
+            Internal::HandedOff { qid } => {
+                self.refresh(&qid);
+                self.flush(None);
+            }
             Internal::Delivered { qid, pause } => {
                 self.delivering.remove(&qid);
-                self.reload();
                 if pause {
                     self.pause();
                 }
@@ -792,6 +819,15 @@ impl<C: Chain, A: Api> Engine<C, A> {
             state @ (State::Pairing(_) | State::AwaitingEnrollment { .. }) => {
                 let identity = state.identity().cloned().expect("pairing has an identity");
                 let deadline = state.approval().map(|approval| approval.intent.deadline);
+                self.trouble = if observation.membership.is_err() {
+                    Some(Unreachable::Chain)
+                } else if state.approval().is_some()
+                    && observation.api == enrollment::ApiLookup::Unknown
+                {
+                    Some(Unreachable::Api)
+                } else {
+                    None
+                };
                 match enrollment::decide(identity.qid, deadline, observation) {
                     Next::Wait(progress) => return self.progress = progress,
                     Next::Link => {
@@ -913,6 +949,9 @@ impl<C: Chain, A: Api> Engine<C, A> {
             NodeEvent::ConnectionClosed { conn, peer } => self.auth.closed(conn, &peer),
             NodeEvent::InboundStream(stream) if stream.protocol == CHAT_PROTOCOL => {
                 self.inbound_chat(stream);
+            }
+            NodeEvent::InboundStream(stream) if stream.protocol == SYNC_PROTOCOL => {
+                self.inbound_sync(stream);
             }
             NodeEvent::InboundStream(stream) => {
                 let Some(session) = net
@@ -1062,6 +1101,7 @@ impl<C: Chain, A: Api> Engine<C, A> {
         if round != self.verify_round {
             return self.poll();
         }
+        self.trouble = matches!(account, Err(ReadError::Rpc)).then_some(Unreachable::Chain);
         match auth::judge_self(identity.qid, account, removed, self.self_block) {
             SelfVerdict::Member(block) => {
                 self.self_block = Some(block);
@@ -1084,21 +1124,27 @@ impl<C: Chain, A: Api> Engine<C, A> {
         })
     }
 
-    /// Serves an inbound chat stream while messaging is ready; otherwise (or over the limit)
-    /// drops it, which resets it, and the sender keeps the message queued.
-    fn inbound_chat(&mut self, stream: crate::node::Stream) {
-        let Some(ctx) = self
+    /// A context for one more inbound stream, while messaging is ready and under the limit
+    /// chat and sync share; `None` drops the stream, which resets it, and the sender retries.
+    fn inbound_slot(&self) -> Option<(ChatContext<C>, InboundSlot)> {
+        let ctx = self
             .chat_context()
-            .filter(|_| self.messaging == Messaging::Ready)
-        else {
-            return;
-        };
+            .filter(|_| self.messaging == Messaging::Ready)?;
         if self.inbound.fetch_add(1, Ordering::SeqCst) >= chat::MAX_INBOUND_STREAMS {
             self.inbound.fetch_sub(1, Ordering::SeqCst);
-            return;
+            return None;
         }
-        let (inbound, internal) = (self.inbound.clone(), self.internal.clone());
+        Some((ctx, InboundSlot(self.inbound.clone())))
+    }
+
+    /// Serves an inbound chat stream.
+    fn inbound_chat(&mut self, stream: crate::node::Stream) {
+        let Some((ctx, slot)) = self.inbound_slot() else {
+            return;
+        };
+        let internal = self.internal.clone();
         tokio::spawn(async move {
+            let _slot = slot;
             match chat::serve_inbound(stream, &ctx, now_ms).await {
                 Ok(received) => {
                     let _ = internal.send(Internal::Received(received));
@@ -1109,7 +1155,35 @@ impl<C: Chain, A: Api> Engine<C, A> {
                 }
                 Err(error) => eprintln!("qop: inbound chat dropped: {error:?}"),
             }
-            inbound.fetch_sub(1, Ordering::SeqCst);
+        });
+    }
+
+    /// Serves an inbound `/qop/sync/1` stream from (we verify) one of our own devices.
+    fn inbound_sync(&mut self, stream: crate::node::Stream) {
+        let State::Linked(identity) = &self.state else {
+            return;
+        };
+        let own = sync::Own {
+            handle: identity.handle.clone(),
+            qid: identity.qid,
+        };
+        let Some((ctx, slot)) = self.inbound_slot() else {
+            return;
+        };
+        let internal = self.internal.clone();
+        tokio::spawn(async move {
+            let _slot = slot;
+            match sync::serve(stream, &ctx, &own).await {
+                Ok(sync::Served::Held { to_qid }) => {
+                    let _ = internal.send(Internal::HandedOff { qid: to_qid });
+                }
+                Ok(sync::Served::Answered) => {}
+                Err(sync::SyncError::Unverified(error)) if error.pauses() => {
+                    eprintln!("qop: sync peer not verified: {error:?}");
+                    let _ = internal.send(Internal::Pause);
+                }
+                Err(error) => eprintln!("qop: sync stream dropped: {error:?}"),
+            }
         });
     }
 
@@ -1169,7 +1243,8 @@ impl<C: Chain, A: Api> Engine<C, A> {
                         Ok(_) => {}
                         Err(error) => eprintln!("qop: outbox: {error}"),
                     }
-                    let _ = internal.send(Internal::OutboxChanged);
+                    let qid = qid.clone();
+                    let _ = internal.send(Internal::OutboxChanged { qid });
                 }
                 let _ = internal.send(Internal::Delivered { qid, pause });
             });
@@ -1213,7 +1288,7 @@ impl<C: Chain, A: Api> Engine<C, A> {
                     self.new_chat = failed(LookupError::Unreachable);
                     return;
                 }
-                self.reload();
+                self.refresh(&qid);
                 NewChat::Resolved {
                     handle,
                     conversation: ConversationId(qid),
@@ -1245,7 +1320,7 @@ impl<C: Chain, A: Api> Engine<C, A> {
         if let Err(error) = self.store().enqueue(&record) {
             return eprintln!("qop: {error}");
         }
-        self.reload();
+        self.refresh(&conversation.0);
         self.flush(None);
     }
 
@@ -1260,7 +1335,7 @@ impl<C: Chain, A: Api> Engine<C, A> {
             if let Err(error) = self.store().put(&retried) {
                 return eprintln!("qop: {error}");
             }
-            self.reload();
+            self.refresh(&record.to_qid);
         }
         self.flush(Some(&record.to_qid));
     }
@@ -1268,13 +1343,42 @@ impl<C: Chain, A: Api> Engine<C, A> {
     /// Rebuilds the conversation list from the store (empty unless linked).
     fn reload(&mut self) {
         self.conversations = if matches!(self.state, State::Linked(_)) {
-            match conversations(&self.store()) {
+            match conversations(&self.store(), &self.windows) {
                 Ok(conversations) => conversations,
                 Err(error) => return eprintln!("qop: {error}"),
             }
         } else {
             Vec::new()
         };
+    }
+
+    /// Reloads the one conversation with `qid` (adding it if new) and re-sorts the list.
+    fn refresh(&mut self, qid: &str) {
+        if !matches!(self.state, State::Linked(_)) {
+            return;
+        }
+        let loaded = {
+            let store = self.store();
+            store.contact_summary(qid).and_then(|contact| {
+                contact
+                    .map(|contact| conversation(&store, contact, &self.windows))
+                    .transpose()
+            })
+        };
+        let fresh = match loaded {
+            Ok(Some(fresh)) => fresh,
+            Ok(None) => return,
+            Err(error) => return eprintln!("qop: {error}"),
+        };
+        match self.conversations.iter_mut().find(|c| c.id.0 == qid) {
+            Some(slot) => *slot = fresh,
+            None => self.conversations.push(fresh),
+        }
+        sort_conversations(&mut self.conversations);
+    }
+
+    fn conversation(&self, qid: &str) -> Option<&model::Conversation> {
+        self.conversations.iter().find(|c| c.id.0 == qid)
     }
 
     fn model(&self) -> Model {
@@ -1300,6 +1404,7 @@ impl<C: Chain, A: Api> Engine<C, A> {
                 progress: self.progress,
                 recovery: if *recovery { offer() } else { None },
                 relay,
+                trouble: self.trouble,
             }),
             State::Linked(identity) => Phase::Linked(model::Linked {
                 account: model::Account {
@@ -1311,6 +1416,7 @@ impl<C: Chain, A: Api> Engine<C, A> {
                 conversations: self.conversations.clone(),
                 messaging: self.messaging,
                 relay,
+                trouble: self.trouble,
                 new_chat: self.new_chat.clone(),
             }),
             State::Revoked(handle) => Phase::Revoked(model::Revoked {
@@ -1342,65 +1448,73 @@ pub fn stored_model(dir: &std::path::Path) -> Option<Model> {
                 fingerprint: identity.fingerprint(),
                 data_dir: dir.to_owned(),
             },
-            conversations: conversations(&store).ok()?,
+            conversations: conversations(&store, &HashMap::new()).ok()?,
             messaging: Messaging::Ready,
             relay: RelayStatus::Connected,
+            trouble: None,
             new_chat: NewChat::Lookup(HandleLookup::Idle),
         }),
     })
 }
 
-/// Every conversation with its messages (oldest first), most recently active first; a chat
-/// with no messages yet (just started) leads.
-fn conversations(store: &Store) -> Result<Vec<model::Conversation>, crate::store::StoreError> {
-    let at = |ms: u64| UNIX_EPOCH + Duration::from_millis(ms);
-    let mut conversations: Vec<model::Conversation> = store
+/// Every conversation with its newest messages (`windows`, else [`PAGE`]), most recently active
+/// first.
+fn conversations(
+    store: &Store,
+    windows: &HashMap<String, usize>,
+) -> Result<Vec<model::Conversation>, crate::store::StoreError> {
+    let mut conversations = store
         .contacts()?
         .into_iter()
-        .map(|contact| model::Conversation {
-            id: ConversationId(contact.qid),
-            peer: contact.handle,
-            unread: contact.unread,
-            messages: Vec::new(),
+        .map(|contact| conversation(store, contact, windows))
+        .collect::<Result<Vec<_>, _>>()?;
+    sort_conversations(&mut conversations);
+    Ok(conversations)
+}
+
+/// One conversation as the model shows it.
+fn conversation(
+    store: &Store,
+    contact: crate::store::Contact,
+    windows: &HashMap<String, usize>,
+) -> Result<model::Conversation, crate::store::StoreError> {
+    let window = windows.get(&contact.qid).copied().unwrap_or(PAGE);
+    let (rows, earlier) = store.thread(&contact.qid, window)?;
+    let messages = rows
+        .into_iter()
+        .map(|row| Message {
+            id: MessageId(row.id),
+            direction: match row.sent {
+                None => Direction::Received,
+                Some(OutboxStatus::Queued) => Direction::Sent(MessageStatus::Queued),
+                Some(OutboxStatus::Sent) => Direction::Sent(MessageStatus::Sent),
+                Some(OutboxStatus::Failed) => Direction::Sent(MessageStatus::Failed),
+            },
+            text: row.text,
+            at: UNIX_EPOCH + Duration::from_millis(row.at_ms),
         })
         .collect();
-    let mut push = |qid: &str, message: Message| {
-        if let Some(conversation) = conversations.iter_mut().find(|c| c.id.0 == qid) {
-            conversation.messages.push(message);
-        }
-    };
-    for record in store.outbox_all()? {
-        let status = match record.status {
-            OutboxStatus::Queued => MessageStatus::Queued,
-            OutboxStatus::Sent => MessageStatus::Sent,
-            OutboxStatus::Failed => MessageStatus::Failed,
-        };
-        push(
-            &record.to_qid,
-            Message {
-                id: MessageId(record.frame.id),
-                direction: Direction::Sent(status),
-                text: record.frame.text,
-                at: at(record.frame.sent_at),
-            },
-        );
-    }
-    for record in store.inbox_all()? {
-        push(
-            &record.from_qid,
-            Message {
-                id: MessageId(record.frame.id),
-                direction: Direction::Received,
-                text: record.frame.text,
-                at: at(record.received_at),
-            },
-        );
-    }
-    for conversation in &mut conversations {
-        conversation.messages.sort_by_key(|message| message.at);
-    }
+    Ok(model::Conversation {
+        id: ConversationId(contact.qid),
+        peer: contact.handle,
+        unread: contact.unread,
+        messages,
+        earlier,
+    })
+}
+
+/// Most recently active first; a chat with no messages yet (just started) leads.
+fn sort_conversations(conversations: &mut [model::Conversation]) {
     conversations.sort_by_key(|c| std::cmp::Reverse(c.last().map_or(SystemTime::now(), |m| m.at)));
-    Ok(conversations)
+}
+
+/// Holds one of the inbound stream slots chat and sync share; dropping it frees the slot.
+struct InboundSlot(Arc<AtomicUsize>);
+
+impl Drop for InboundSlot {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 async fn next_node_event(net: &mut Option<Net>) -> Option<NodeEvent> {

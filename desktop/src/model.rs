@@ -2,6 +2,7 @@
 //! sends back. Nothing here does IO; the engine owns every transition between phases.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
 /// How long a pairing offer lives (`PAIRING_TTL_SECONDS` in `@qop/protocol`).
@@ -99,6 +100,17 @@ pub struct AwaitingEnrollment {
     /// is shown instead, in case the phone never received `approvalSaved`.
     pub recovery: Option<Offer>,
     pub relay: RelayStatus,
+    /// What the last poll could not reach; progress may be stale meanwhile.
+    pub trouble: Option<Unreachable>,
+}
+
+/// A service the engine could not reach on its last try. Never blocking: it retries on its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unreachable {
+    /// The chain RPC (membership and contact verification).
+    Chain,
+    /// The device-action API (enrollment progress).
+    Api,
 }
 
 /// How far the add-device intent has got, as the API reports it.
@@ -120,6 +132,8 @@ pub struct Linked {
     pub conversations: Vec<Conversation>,
     pub messaging: Messaging,
     pub relay: RelayStatus,
+    /// Set while this device's own membership read fails to reach the chain.
+    pub trouble: Option<Unreachable>,
     /// The last New chat lookup; `Resolved` names the conversation it opened.
     pub new_chat: NewChat,
 }
@@ -158,17 +172,20 @@ pub struct ConversationId(pub String);
 pub struct MessageId(pub String);
 
 /// A chat with one contact.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Conversation {
     pub id: ConversationId,
     pub peer: String,
     pub unread: u32,
-    /// Oldest first.
-    pub messages: Vec<Message>,
+    /// The newest messages, oldest first: shared, so publishing a model copies no messages, and
+    /// an unchanged conversation compares equal by pointer.
+    pub messages: Arc<[Message]>,
+    /// Older messages are stored than `messages` holds; [`Command::LoadEarlier`] adds a page.
+    pub earlier: bool,
 }
 
 /// One chat message.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Message {
     pub id: MessageId,
     pub direction: Direction,
@@ -219,6 +236,8 @@ pub enum Command {
     Send { conversation: ConversationId, text: String },
     /// Queue a failed message again.
     Retry(MessageId),
+    /// Show a page of older messages in this conversation.
+    LoadEarlier(ConversationId),
     /// Leave the Revoked screen for a fresh start.
     AcknowledgeRevoked,
 }

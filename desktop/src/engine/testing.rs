@@ -86,6 +86,9 @@ pub struct ChainState {
     pub head: u64,
     pub stuck: bool,
     pub fail_lookups: bool,
+    /// Keys that are nobody's device. Any other unknown key answers as `membership` says, since
+    /// that is how tests stand in for the desktop's own (often fresh) key.
+    pub strangers: Vec<B256>,
     hold: Option<Hold>,
 }
 
@@ -137,6 +140,7 @@ impl Default for FakeChain {
             head: 0,
             stuck: false,
             fail_lookups: false,
+            strangers: Vec::new(),
             hold: None,
         })))
     }
@@ -168,6 +172,10 @@ impl FakeChain {
     /// A stuck head answers every lookup at the same block.
     pub fn stick_head(&self, stuck: bool) {
         self.0.lock().unwrap().stuck = stuck;
+    }
+
+    pub fn add_stranger(&self, device_key: B256) {
+        self.0.lock().unwrap().strangers.push(device_key);
     }
 
     pub fn fail_lookups(&self, fail: bool) {
@@ -219,6 +227,9 @@ impl Chain for FakeChain {
             .find(|a| a.devices.contains(&device_key))
         {
             return Ok(Some(at_head(account)));
+        }
+        if state.strangers.contains(&device_key) {
+            return Ok(None);
         }
         match (state.membership, &state.account) {
             (Ok(Some(qid)), Some(account)) if account.qid == qid => {

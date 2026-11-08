@@ -70,6 +70,9 @@ const MIGRATIONS: &[&str] = &[
         received_at INTEGER NOT NULL,
         PRIMARY KEY (from_qid, id)
     ) STRICT;",
+    // v3: one conversation's newest messages without scanning the others (`Store::thread`).
+    "CREATE INDEX outbox_thread_idx ON outbox (to_qid, sent_at);
+    CREATE INDEX inbox_thread_idx ON inbox (from_qid, received_at);",
 ];
 
 /// Everything messaging stores; Unlink and revocation delete it with the identity.
@@ -338,12 +341,21 @@ impl Store {
 
     /// Every conversation, oldest first.
     pub fn contacts(&self) -> StoreResult<Vec<Contact>> {
-        let mut statement = self.conn.prepare(
+        self.contacts_where("1", [])
+    }
+
+    /// The conversation with `qid`, if there is one.
+    pub fn contact_summary(&self, qid: &str) -> StoreResult<Option<Contact>> {
+        Ok(self.contacts_where("c.qid = ?1", [qid])?.pop())
+    }
+
+    fn contacts_where(&self, filter: &str, params: impl rusqlite::Params) -> StoreResult<Vec<Contact>> {
+        let mut statement = self.conn.prepare(&format!(
             "SELECT c.qid, c.handle,
                 (SELECT COUNT(*) FROM inbox i WHERE i.from_qid = c.qid AND i.rowid > c.read_seq)
-             FROM contacts c ORDER BY c.rowid",
-        )?;
-        let rows = statement.query_map([], |row| {
+             FROM contacts c WHERE {filter} ORDER BY c.rowid"
+        ))?;
+        let rows = statement.query_map(params, |row| {
             Ok(Contact {
                 qid: row.get(0)?,
                 handle: row.get(1)?,
@@ -374,7 +386,9 @@ impl Store {
     }
 
     /// Saves a new outbox record; an identical one already stored is returned instead, a
-    /// conflicting one is [`StoreError::Conflict`] (`CliOutboxStore.enqueue`).
+    /// conflicting one is [`StoreError::Conflict`] (`CliOutboxStore.enqueue`). Its recipient
+    /// becomes a conversation if it was not one (a phone handoff can name anyone); an existing
+    /// contact keeps its handle.
     pub fn enqueue(&self, record: &OutboxRecord) -> StoreResult<OutboxRecord> {
         let tx = self.conn.unchecked_transaction()?;
         if let Some(existing) = outbox_by_id(&tx, &record.frame.id)? {
@@ -384,6 +398,10 @@ impl Store {
             return Ok(existing);
         }
         insert_outbox(&tx, record)?;
+        tx.execute(
+            "INSERT INTO contacts (qid, handle) VALUES (?1, ?2) ON CONFLICT (qid) DO NOTHING",
+            params![record.to_qid, record.to_handle],
+        )?;
         tx.commit()?;
         Ok(record.clone())
     }
@@ -427,6 +445,20 @@ impl Store {
     /// Every outbox record, in the order they were queued.
     pub fn outbox_all(&self) -> StoreResult<Vec<OutboxRecord>> {
         self.outbox_where("1")
+    }
+
+    /// The stored records among `ids`, in the order they were queued (`CliOutboxStore.getByIds`).
+    pub fn outbox_by_ids(&self, ids: &[String]) -> StoreResult<Vec<OutboxRecord>> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut statement = self.conn.prepare(&format!(
+            "SELECT {OUTBOX_COLUMNS} FROM outbox WHERE id IN ({}) ORDER BY rowid",
+            vec!["?"; ids.len()].join(", ")
+        ))?;
+        let rows = statement.query_map(rusqlite::params_from_iter(ids), outbox_row)?;
+        rows.map(|row| row?.ok_or(StoreError::Corrupt("outbox")))
+            .collect()
     }
 
     /// The records still waiting for an ACK, oldest first.
@@ -494,25 +526,95 @@ impl Store {
         Ok(true)
     }
 
+    /// Up to `limit` inbox records with a seq (rowid) past `seq`, oldest first, and the highest
+    /// seq stored (`CliOutboxStore.inboxAfter`): the phone's catch-up page. The inbox is
+    /// append-only while linked, so a seq never moves to another record.
+    pub fn inbox_after(&self, seq: u64, limit: usize) -> StoreResult<InboxPage> {
+        let last_seq = self
+            .conn
+            .query_row("SELECT COALESCE(MAX(rowid), 0) FROM inbox", [], |row| row.get(0))?;
+        let mut statement = self.conn.prepare(
+            "SELECT rowid, from_qid, id, from_handle, sent_at, text, received_at FROM inbox
+             WHERE rowid > ?1 ORDER BY rowid LIMIT ?2",
+        )?;
+        let rows = statement.query_map(params![seq, limit], |row| {
+            Ok((row.get(0)?, inbox_record(row, 1)?))
+        })?;
+        Ok(InboxPage {
+            last_seq,
+            records: rows.collect::<Result<_, _>>()?,
+        })
+    }
+
+    /// The newest `limit` messages with `qid`, oldest first, and whether older ones exist.
+    /// Sent messages are timed by when they were written, received ones by when they arrived.
+    pub fn thread(&self, qid: &str, limit: usize) -> StoreResult<(Vec<ThreadMessage>, bool)> {
+        let mut statement = self.conn.prepare(
+            "SELECT id, text, at, status FROM (
+                SELECT id, text, sent_at AS at, status, 0 AS kind, rowid AS seq
+                    FROM outbox WHERE to_qid = ?1
+                UNION ALL
+                SELECT id, text, received_at AS at, NULL AS status, 1 AS kind, rowid AS seq
+                    FROM inbox WHERE from_qid = ?1
+             ) ORDER BY at DESC, kind DESC, seq DESC LIMIT ?2",
+        )?;
+        let rows = statement.query_map(params![qid, limit + 1], |row| {
+            let status: Option<String> = row.get(3)?;
+            // The schema's CHECK admits only the statuses this version knows.
+            let unknown = || rusqlite::Error::InvalidColumnType(3, "status".into(), rusqlite::types::Type::Text);
+            Ok(ThreadMessage {
+                id: row.get(0)?,
+                text: row.get(1)?,
+                at_ms: row.get(2)?,
+                sent: status.map(|status| OutboxStatus::parse(&status).ok_or_else(unknown)).transpose()?,
+            })
+        })?;
+        let mut messages = rows.collect::<Result<Vec<_>, _>>()?;
+        let more = messages.len() > limit;
+        messages.truncate(limit);
+        messages.reverse();
+        Ok((messages, more))
+    }
+
     /// Every inbound message, in arrival order.
     pub fn inbox_all(&self) -> StoreResult<Vec<InboxRecord>> {
         let mut statement = self.conn.prepare(
             "SELECT from_qid, id, from_handle, sent_at, text, received_at FROM inbox ORDER BY rowid",
         )?;
-        let rows = statement.query_map([], |row| {
-            Ok(InboxRecord {
-                from_qid: row.get(0)?,
-                frame: ChatFrame {
-                    id: row.get(1)?,
-                    from_handle: row.get(2)?,
-                    sent_at: row.get(3)?,
-                    text: row.get(4)?,
-                },
-                received_at: row.get(5)?,
-            })
-        })?;
+        let rows = statement.query_map([], |row| inbox_record(row, 0))?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
+}
+
+/// An inbox row's columns from `at`: from_qid, id, from_handle, sent_at, text, received_at.
+fn inbox_record(row: &rusqlite::Row, at: usize) -> rusqlite::Result<InboxRecord> {
+    Ok(InboxRecord {
+        from_qid: row.get(at)?,
+        frame: ChatFrame {
+            id: row.get(at + 1)?,
+            from_handle: row.get(at + 2)?,
+            sent_at: row.get(at + 3)?,
+            text: row.get(at + 4)?,
+        },
+        received_at: row.get(at + 5)?,
+    })
+}
+
+/// A catch-up page: inbox records with their seq, and the highest seq stored.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct InboxPage {
+    pub last_seq: u64,
+    pub records: Vec<(u64, InboxRecord)>,
+}
+
+/// One message of a conversation, as the thread view needs it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThreadMessage {
+    pub id: String,
+    pub text: String,
+    pub at_ms: u64,
+    /// The outbox status of a message this account sent; `None` for one received.
+    pub sent: Option<OutboxStatus>,
 }
 
 /// A conversation as stored: the contact and how many of its messages are unread.
