@@ -876,17 +876,16 @@ impl<C: Chain, A: Api> Engine<C, A> {
     /// Removed from the account (affirmative chain evidence): wipe the key and messages.
     fn revoke(&mut self, identity: Identity) {
         // Record the revocation first: a crash before the key is gone still lands on Revoked,
-        // and the leftover key is deleted when the user starts over.
+        // and the leftover key is deleted when the user starts over. Likewise if deleting it
+        // fails now: the store already says Revoked, so the UI must too.
         self.stop_node();
-        let result = self
-            .store()
-            .revoke(&identity.handle)
-            .map_err(|e| e.to_string())
-            .and_then(|()| self.keys.delete().map_err(|e| e.to_string()));
-        match result {
-            Ok(()) => self.enter(State::Revoked(identity.handle)),
-            Err(error) => eprintln!("qop: {error}"),
+        if let Err(error) = self.store().revoke(&identity.handle) {
+            return eprintln!("qop: {error}");
         }
+        if let Err(error) = self.keys.delete() {
+            eprintln!("qop: {error}");
+        }
+        self.enter(State::Revoked(identity.handle));
     }
 
     /// The key was added and later removed, so it can never return: pair again with a new one.

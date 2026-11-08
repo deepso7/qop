@@ -129,9 +129,10 @@ fn headless(args: &[String]) -> ExitCode {
     let latest = Arc::new(Mutex::new(Model::STARTING));
     // The clone keeps the engine running after stdin closes; it ends with the process.
     read_commands(commands.clone(), latest.clone());
+    // Store before printing: a script reacting to the line must see this model.
     let publish: Publish = Box::new(move |model: &Model| {
-        println!("{}", describe(model));
         *latest.lock().unwrap() = model.clone();
+        println!("{}", describe(model));
     });
     run_engine(parts, publish, inbox);
     ExitCode::SUCCESS
