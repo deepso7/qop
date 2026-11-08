@@ -141,7 +141,8 @@ fn error(reason: SyncErrorReason) -> SyncResponse {
     SyncResponse::Error { reason }
 }
 
-/// `acceptHandoff`: only our own queued message to someone else, composed by the peer itself.
+/// `acceptHandoff`: only our own queued message to someone else, composed by the peer itself,
+/// that fits a chat frame (a sync request has room for a frame `chat::deliver` would refuse).
 /// A store failure is answered, not reset: a reset after the request looks like a lost `held`,
 /// and the phone would think this device holds it.
 fn accept_handoff<C>(
@@ -155,6 +156,7 @@ fn accept_handoff<C>(
         || record.frame.from_handle != own.handle
         || record.to_qid == own.qid.to_string()
         || record.status != OutboxStatus::Queued
+        || record.frame.encode().is_err()
     {
         return error(SyncErrorReason::Invalid);
     }

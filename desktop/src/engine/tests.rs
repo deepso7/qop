@@ -1006,6 +1006,9 @@ async fn holds_a_handoff_delivers_it_and_reports_the_receipt() {
         record: handoff_record(other_id, "someone else's"),
     };
     assert_eq!(phone.request(&not_composed).await, sync_error(SyncErrorReason::Invalid));
+    // Within the character limit, but about 24 KiB encoded: no chat frame could carry it.
+    let unsendable = handoff_record(other_id, &"\u{1}".repeat(4000));
+    assert_eq!(phone.hand_off(&unsendable).await, sync_error(SyncErrorReason::Invalid));
     assert_eq!(stored_status(&dir, other_id), None);
 
     // Bob comes online: delivered on his ACK, and the phone's poll gets the receipt.

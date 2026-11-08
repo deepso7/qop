@@ -9,7 +9,6 @@ use super::{Pane, Ui, ago, normalize_handle};
 use crate::model::{
     Command, Conversation, Direction, HandleLookup, Linked, LookupError, Message, MessageStatus, Messaging, NewChat,
 };
-use qop_desktop::wire::chat::MAX_TEXT_UNITS;
 
 const SIDEBAR: f32 = 280.0;
 
@@ -297,8 +296,7 @@ fn composer(ui: &Ui, t: &Theme) -> El {
         .child(field)
         .child(kit::button(t, "send", "Send", Kind::Primary, |ui: &mut Ui, _| ui.send_message()).h(40.0));
     // Over the limit: say so above the bar; the draft stays until it is short enough to send.
-    let Some(units) = ui.composer_over() else { return bar };
-    let error = format!("Too long to send: {units} of {MAX_TEXT_UNITS} characters");
+    let Some(error) = ui.composer_error() else { return bar };
     col()
         .w_full()
         .child(text(error).key("composer-error").font(type_::SMALL).color(t.link).px(space::XL).pb(space::XS))

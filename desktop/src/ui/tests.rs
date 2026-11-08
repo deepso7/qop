@@ -71,6 +71,21 @@ fn a_message_over_the_limit_is_kept_and_not_sent() {
 }
 
 #[test]
+fn a_message_that_encodes_over_the_byte_cap_is_kept_and_not_sent() {
+    let (mut rt, rx) = open(fake::chat);
+    click(&mut rt, "composer");
+    // Pasted (typing drops control characters): 4,000 characters fit the limit, but each
+    // encodes as `\u0001`, about 24 KiB.
+    let draft = "\u{1}".repeat(4000);
+    rt.paste(draft.clone());
+    rt.frame(1.0 / 60.0);
+    press(&mut rt, Key::Enter);
+    assert!(rx.try_recv().is_err());
+    assert_eq!(rt.state.composer.text, draft);
+    assert!(rt.find("composer-error").is_some());
+}
+
+#[test]
 fn retry_on_a_failed_message_emits_retry() {
     let (mut rt, rx) = open(fake::chat);
     click(&mut rt, "retry-b7");

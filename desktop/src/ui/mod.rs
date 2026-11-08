@@ -15,7 +15,7 @@ use std::time::{Duration, SystemTime};
 use rune::{Cx, El, Key, KeyEvent, TextEdit, Transition, Tx, col};
 
 use crate::model::{Command, ConversationId, Model, NewChat, Phase};
-use qop_desktop::wire::chat::MAX_TEXT_UNITS;
+use qop_desktop::wire::chat::{ChatError, ChatFrame, MAX_TEXT_UNITS};
 use theme::{Theme, motion};
 
 /// Which pane fills the main area while linked.
@@ -146,16 +146,30 @@ impl Ui {
         }
     }
 
-    /// The draft's length in UTF-16 units when it is over the message limit; Send then keeps it.
-    pub fn composer_over(&self) -> Option<usize> {
-        let units = self.composer.text.trim().encode_utf16().count();
-        (units > MAX_TEXT_UNITS).then_some(units)
+    /// Why the engine would refuse the draft, if it would; Send then keeps it. Text within the
+    /// character limit can still overflow the encoded frame (JSON escapes control characters
+    /// sixfold), so this encodes the frame the engine will send.
+    pub fn composer_error(&self) -> Option<String> {
+        let text = self.composer.text.trim();
+        let units = text.encode_utf16().count();
+        if units > MAX_TEXT_UNITS {
+            return Some(format!("Too long to send: {units} of {MAX_TEXT_UNITS} characters"));
+        }
+        let Phase::Linked(linked) = &self.model.phase else { return None };
+        let frame = ChatFrame {
+            from_handle: linked.account.handle.clone(),
+            // Same length as the engine's id and timestamp, so the same size.
+            id: "00000000-0000-4000-8000-000000000000".into(),
+            sent_at: self.now.duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64),
+            text: text.to_owned(),
+        };
+        (frame.encode() == Err(ChatError::Oversized)).then(|| "Too long to send".to_owned())
     }
 
     fn send_message(&mut self) {
         let text = self.composer.text.trim().to_owned();
         let Some(conversation) = self.selected.clone() else { return };
-        if text.is_empty() || self.composer_over().is_some() {
+        if text.is_empty() || self.composer_error().is_some() {
             return;
         }
         self.send(Command::Send { conversation, text });
