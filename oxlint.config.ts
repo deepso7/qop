@@ -25,6 +25,12 @@ export default defineConfig({
   ],
   overrides: [
     {
+      // React Native has no `htmlFor`; labels link to controls through
+      // `nativeID` and `aria-labelledby` instead.
+      files: ["mobile/**"],
+      rules: { "jsx-a11y/label-has-associated-control": "off" },
+    },
+    {
       // The design system itself: primitives style their own internals
       // (the rule's documented setup).
       files: ["mobile/src/components/ui/**"],
