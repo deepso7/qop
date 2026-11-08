@@ -84,8 +84,9 @@ export const createCliPairingSession = <E>({
     record: DeviceActionApprovalV1
   ) => Effect.Effect<void, E>;
 }) => {
-  let claimedPeerId: string | undefined;
-  let claimedPhoneKey: string | undefined;
+  // The first phone to pass hello owns this session. phoneKey is derived from
+  // peerId by the caller, so a repeat hello from the same peer is idempotent.
+  let claim: { readonly peerId: string; readonly phoneKey: string } | undefined;
 
   const assertOfferFresh = () => {
     if (BigInt(offer.expiresAt) <= nowSeconds()) {
@@ -164,12 +165,11 @@ export const createCliPairingSession = <E>({
       return yield* new PairingSessionError({ operation: "membership" });
     }
 
-    if (claimedPeerId && claimedPeerId !== peerId) {
+    if (claim && claim.peerId !== peerId) {
       return yield* new PairingSessionError({ operation: "claimed" });
     }
 
-    claimedPeerId = peerId;
-    claimedPhoneKey = phoneDeviceKey.toLowerCase();
+    claim = { peerId, phoneKey: phoneDeviceKey.toLowerCase() };
 
     return {
       chainId: offer.chainId,
@@ -190,11 +190,11 @@ export const createCliPairingSession = <E>({
       snapshot: PairingAccountSnapshot,
       sessionId: string | Uint8Array
     ) {
-      if (!claimedPeerId) {
+      if (!claim) {
         return yield* new PairingSessionError({ operation: "unclaimed" });
       }
 
-      if (peerId !== claimedPeerId) {
+      if (peerId !== claim.peerId) {
         return yield* new PairingSessionError({ operation: "claimed" });
       }
 
@@ -208,7 +208,7 @@ export const createCliPairingSession = <E>({
         return yield* mismatch();
       }
 
-      if (!claimedPhoneKey || !snapshot.devices.includes(claimedPhoneKey)) {
+      if (!snapshot.devices.includes(claim.phoneKey)) {
         return yield* new PairingSessionError({ operation: "membership" });
       }
 

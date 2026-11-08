@@ -250,7 +250,6 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
   // Never write a chat frame before this claim succeeds.
   // Claim is in the same uninterruptible region as the open's tail so an
   // interrupt cannot land after verify's onExit has popped and before reset.
-  let claimed = false;
   let claimedStream: ChatStream | undefined;
 
   const dial = (peerId: string) =>
@@ -260,7 +259,7 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
       ).pipe(
         Effect.flatMap((stream) =>
           Effect.suspend(() => {
-            if (claimed) {
+            if (claimedStream !== undefined) {
               stream.reset();
 
               return Effect.fail(
@@ -268,7 +267,6 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
               );
             }
 
-            claimed = true;
             claimedStream = stream;
 
             return Effect.succeed(stream);

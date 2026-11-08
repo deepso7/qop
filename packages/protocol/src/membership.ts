@@ -13,8 +13,14 @@ export type DeviceActionApiStatus =
 
 export type DeviceActionOperation = "add" | "remove";
 
-/** Whether GET /device-actions/:digest observed a row. */
-export type DeviceActionApiRecord = "present" | "missing" | "unknown";
+/**
+ * What GET /device-actions/:digest observed: a row with its status, a
+ * confirmed absence (404), or nothing usable (network/server error).
+ */
+export type DeviceActionApiLookup =
+  | { readonly kind: "present"; readonly status: DeviceActionApiStatus }
+  | { readonly kind: "missing" }
+  | { readonly kind: "unknown" };
 
 /**
  * Contract `ExpiredIntent` is `block.timestamp > deadline`. Equality is still
@@ -50,46 +56,31 @@ export const enrollmentMembership = ({
   return "pending";
 };
 
-export const isTerminalDeviceActionStatus = (
-  status: DeviceActionApiStatus | null
-) => status === "confirmed" || status === "reverted" || status === "expired";
-
-/**
- * GET never stored this digest. Combined with a passed deadline, the intent
- * cannot execute — unlike ready/submitted, which keep occupying until a receipt.
- */
-export const neverSubmittedDigestMissing = ({
-  apiRecord,
-  apiStatus,
-}: {
-  readonly apiRecord: DeviceActionApiRecord;
-  readonly apiStatus: DeviceActionApiStatus | null;
-}) => apiRecord === "missing" && apiStatus === null;
+export const isTerminalDeviceActionStatus = (status: DeviceActionApiStatus) =>
+  status === "confirmed" || status === "reverted" || status === "expired";
 
 /** One in-flight digest per device; keep the slot until that digest cannot execute. */
 export const occupiesApprovalSlot = ({
-  apiRecord = "unknown",
-  apiStatus,
+  api,
   chainTime,
   deadline,
   membership,
   operation,
 }: {
-  readonly apiRecord?: DeviceActionApiRecord;
-  readonly apiStatus: DeviceActionApiStatus | null;
+  readonly api: DeviceActionApiLookup;
   readonly chainTime?: bigint | undefined;
   readonly deadline?: bigint | undefined;
   readonly membership: EnrollmentMembership;
   readonly operation: DeviceActionOperation;
 }) => {
-  if (isTerminalDeviceActionStatus(apiStatus)) {
+  if (api.kind === "present" && isTerminalDeviceActionStatus(api.status)) {
     return false;
   }
 
-  // Never-submitted + GET 404/missing + chain time strictly after deadline:
+  // GET never stored this digest + chain time strictly after deadline: it
   // cannot execute. ready/submitted keep occupying even if local clock is past.
   if (
-    neverSubmittedDigestMissing({ apiRecord, apiStatus }) &&
+    api.kind === "missing" &&
     deadline !== undefined &&
     chainTime !== undefined &&
     deviceActionDeadlineExpired(deadline, chainTime)

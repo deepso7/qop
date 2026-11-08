@@ -176,8 +176,7 @@ layer(RegistrationStoreAndAdmissionTestLive, { timeout: "30 seconds" })(
 
           assert.deepStrictEqual(allocated, [5n, 6n]);
           assert.strictEqual(submitted.status, "submitted");
-          assert.strictEqual(confirmed.status, "confirmed");
-          assert.strictEqual(confirmed.qid, 42n);
+          assert.deepInclude(confirmed, { qid: 42n, status: "confirmed" });
 
           const denied = yield* admissions
             .validate(registration.admissionCodeHash)

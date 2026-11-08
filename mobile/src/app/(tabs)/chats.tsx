@@ -18,9 +18,13 @@ import {
 } from "@/components/ui/empty";
 import { Icon } from "@/components/ui/icon";
 import { Text } from "@/components/ui/text";
+import { useFocusLoad } from "@/hooks/use-focus-load";
 import { listConversations } from "@/lib/db";
 import type { Conversation } from "@/lib/db";
 import { useP2pStore } from "@/lib/p2p-store";
+
+const noPeers: readonly string[] = [];
+const noRows: readonly Conversation[] = [];
 
 const conversationKey = ({ qid }: Conversation) => qid;
 
@@ -48,18 +52,13 @@ const formatConversationTime = (timestamp: number | null) => {
 const ChatsScreen = () => {
   const isOpeningConversation = React.useRef(false);
   const [query, setQuery] = React.useState("");
-  const [conversations, setConversations] = React.useState<Conversation[]>([]);
-  const [loaded, setLoaded] = React.useState(false);
-  const [loadError, setLoadError] = React.useState(false);
+  const [conversations, retryLoad] = useFocusLoad(listConversations);
 
-  const [retryCount, retryLoad] = React.useReducer(
-    (count: number) => count + 1,
-    0
-  );
-
-  const connectedPeerIds = useP2pStore((state) => state.connectedPeerIds);
-  const revision = useP2pStore((state) => state.revision);
+  const connection = useP2pStore((state) => state.connection);
   const contentContainerStyle = useResolveClassNames("pb-24");
+
+  const connectedPeerIds =
+    connection.status === "running" ? connection.connectedPeerIds : noPeers;
 
   // Keep a single tap guarded until the screen is focused again.
   useFocusEffect(
@@ -68,47 +67,22 @@ const ChatsScreen = () => {
     }, [])
   );
 
-  useFocusEffect(
-    React.useCallback(() => {
-      let active = true;
-
-      const load = async (_revision: number, _retryCount: number) => {
-        try {
-          const rows = await listConversations();
-
-          if (active) {
-            setConversations(rows);
-            setLoadError(false);
-          }
-        } catch {
-          if (active) {
-            setLoadError(true);
-          }
-        }
-
-        if (active) {
-          setLoaded(true);
-        }
-      };
-
-      void load(revision, retryCount);
-
-      return () => {
-        active = false;
-      };
-    }, [revision, retryCount])
-  );
-
   const normalizedQuery = query.trim().toLocaleLowerCase();
+
+  const rows = conversations.kind === "ready" ? conversations.value : noRows;
+
+  const loadFailed =
+    conversations.kind === "failed" ||
+    (conversations.kind === "ready" && conversations.refreshFailed);
 
   const filteredConversations = React.useMemo(
     () =>
-      conversations.filter(({ handle, latestMessageText }) =>
+      rows.filter(({ handle, latestMessageText }) =>
         [handle, latestMessageText]
           .filter((value): value is string => Boolean(value))
           .some((value) => value.toLocaleLowerCase().includes(normalizedQuery))
       ),
-    [conversations, normalizedQuery]
+    [normalizedQuery, rows]
   );
 
   const openConversation = React.useCallback(async (item: Conversation) => {
@@ -167,11 +141,11 @@ const ChatsScreen = () => {
   );
 
   const empty = React.useMemo(() => {
-    if (!loaded) {
+    if (conversations.kind !== "ready") {
       return null;
     }
 
-    if (conversations.length > 0) {
+    if (rows.length > 0) {
       return (
         <Empty>
           <EmptyHeader>
@@ -192,11 +166,11 @@ const ChatsScreen = () => {
         </EmptyHeader>
       </Empty>
     );
-  }, [conversations.length, loaded]);
+  }, [conversations.kind, rows.length]);
 
   return (
     <View className="bg-background flex-1">
-      {loadError ? (
+      {loadFailed ? (
         <View className="gap-3 p-5">
           <Text>Could not load your chats.</Text>
           <Button onPress={retryLoad} variant="outline">
@@ -213,7 +187,7 @@ const ChatsScreen = () => {
         }
         keyboardShouldPersistTaps="handled"
         keyExtractor={conversationKey}
-        ListEmptyComponent={loadError ? null : empty}
+        ListEmptyComponent={loadFailed ? null : empty}
         ListHeaderComponent={listHeader}
         renderItem={renderConversation}
       />

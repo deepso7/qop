@@ -11,7 +11,7 @@ import {
   occupiesApprovalSlot,
 } from "@qop/protocol";
 import type {
-  DeviceActionApiRecord,
+  DeviceActionApiLookup,
   DeviceActionApiStatus,
   DeviceActionApprovalV1Encoded,
 } from "@qop/protocol";
@@ -82,26 +82,42 @@ const DeviceActionGetFailure = Schema.Struct({
   status: Schema.optionalKey(Schema.NullOr(Schema.Number)),
 });
 
-const apiRecordFromGetFailure = (
-  failure: typeof DeviceActionGetFailure.Type
-): DeviceActionApiRecord => {
-  if (failure.status === 404 || failure.operation === "missing") {
-    return "missing";
+/**
+ * A failed GET falls back to the last stored status: a digest the API once
+ * returned keeps it (a submitted digest stays occupying past its deadline, a
+ * terminal one stays released). Only a never-seen digest can be "missing".
+ */
+const apiLookupFor = (
+  api: Result.Result<{ readonly status: DeviceActionApiStatus }, unknown>,
+  storedStatus: DeviceActionApiStatus | null
+): DeviceActionApiLookup => {
+  if (Result.isSuccess(api)) {
+    return { kind: "present", status: api.success.status };
   }
 
-  return "unknown";
+  if (storedStatus !== null) {
+    return { kind: "present", status: storedStatus };
+  }
+
+  const parsed = Schema.decodeUnknownOption(DeviceActionGetFailure)(
+    api.failure
+  );
+
+  return parsed._tag === "Some" &&
+    (parsed.value.status === 404 || parsed.value.operation === "missing")
+    ? { kind: "missing" }
+    : { kind: "unknown" };
 };
 
 const occupiesStored = (
   existing: LocalDeviceAction,
   extras: {
-    readonly apiRecord: DeviceActionApiRecord;
+    readonly api: DeviceActionApiLookup;
     readonly chainTime: bigint | undefined;
   }
 ) =>
   occupiesApprovalSlot({
-    apiRecord: extras.apiRecord,
-    apiStatus: existing.apiStatus,
+    api: extras.api,
     chainTime: extras.chainTime,
     deadline: BigInt(existing.record.intent.deadline),
     membership: existing.membership,
@@ -175,7 +191,7 @@ export const createLocalDeviceAction = ({
 
       if (!existing) {
         return {
-          apiRecord: "missing" as const,
+          api: { kind: "missing" } satisfies DeviceActionApiLookup,
           chainTime: undefined,
           stored: null,
         };
@@ -189,22 +205,7 @@ export const createLocalDeviceAction = ({
         .get(encoded.digest)
         .pipe(Effect.result);
 
-      let apiRecord: DeviceActionApiRecord = "unknown";
-      let apiStatus: DeviceActionApiStatus | null = existing.apiStatus;
-
-      if (Result.isSuccess(api)) {
-        apiRecord = "present";
-        apiStatus = api.success.status;
-      } else {
-        const parsed = Schema.decodeUnknownOption(DeviceActionGetFailure)(
-          api.failure
-        );
-
-        apiRecord =
-          parsed._tag === "Some"
-            ? apiRecordFromGetFailure(parsed.value)
-            : "unknown";
-      }
+      const apiLookup = apiLookupFor(api, existing.apiStatus);
 
       const chainTimeResult = yield* registry
         .latestTimestamp()
@@ -226,7 +227,7 @@ export const createLocalDeviceAction = ({
 
       const stored: LocalDeviceAction = {
         ...existing,
-        apiStatus,
+        apiStatus: apiLookup.kind === "present" ? apiLookup.status : null,
         historicallyAdded:
           existing.historicallyAdded || membership === "linked",
         membership,
@@ -237,7 +238,7 @@ export const createLocalDeviceAction = ({
 
       yield* writeStored(stored);
 
-      return { apiRecord, chainTime, stored };
+      return { api: apiLookup, chainTime, stored };
     }
   );
 
@@ -257,7 +258,7 @@ export const createLocalDeviceAction = ({
           const pending =
             refreshed.stored &&
             occupiesStored(refreshed.stored, {
-              apiRecord: refreshed.apiRecord,
+              api: refreshed.api,
               chainTime: refreshed.chainTime,
             })
               ? refreshed.stored.record
@@ -401,7 +402,7 @@ export const createLocalDeviceAction = ({
           if (
             !refreshed.stored ||
             !occupiesStored(refreshed.stored, {
-              apiRecord: refreshed.apiRecord,
+              api: refreshed.api,
               chainTime: refreshed.chainTime,
             })
           ) {

@@ -30,14 +30,17 @@ const MESSAGES = {
 
 // Shown when the identity vault fails; offers a retry, and a reset when the
 // stored keys are unreadable or orphaned.
-export const VaultError = ({ error }: { error: IdentityVaultError | null }) => {
-  const isHydrating = useIdentityStore((state) => state.isHydrating);
+export const VaultError = ({
+  error: { operation },
+  retrying,
+}: {
+  error: IdentityVaultError;
+  retrying: boolean;
+}) => {
   const resetIdentity = useIdentityStore((state) => state.resetIdentity);
   const retryLoad = useIdentityStore((state) => state.retryLoad);
   const [resetting, setResetting] = React.useState(false);
   const [resetAlertOpen, setResetAlertOpen] = React.useState(false);
-
-  const operation = error?.operation;
 
   const canReset =
     operation === "decode" ||
@@ -57,11 +60,7 @@ export const VaultError = ({ error }: { error: IdentityVaultError | null }) => {
     <StepFrame
       footer={
         <>
-          <PixelButton
-            busy={isHydrating}
-            label="Try again"
-            onPress={retryLoad}
-          />
+          <PixelButton busy={retrying} label="Try again" onPress={retryLoad} />
           {canReset ? (
             <PixelButton
               disabled={resetting}
@@ -76,11 +75,7 @@ export const VaultError = ({ error }: { error: IdentityVaultError | null }) => {
       <View className="grow justify-end gap-4">
         <Eyebrow tone="destructive">Vault error</Eyebrow>
         <Title>Can’t open your keys.</Title>
-        <Lede>
-          {operation
-            ? MESSAGES[operation]
-            : "qop couldn’t open secure key storage."}
-        </Lede>
+        <Lede>{MESSAGES[operation]}</Lede>
       </View>
       <NativeAlert
         confirmLabel="Delete keys"

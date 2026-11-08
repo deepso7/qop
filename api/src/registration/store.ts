@@ -28,9 +28,109 @@ import type {
   RegistrationIntentStatus,
 } from "./types.ts";
 
-export type StoredRegistrationIntent = InferSelectModel<
-  typeof registrationIntents
+type RegistrationIntentRow = InferSelectModel<typeof registrationIntents>;
+
+type RegistrationIntentBase = Omit<
+  RegistrationIntentRow,
+  | "confirmedAt"
+  | "failureCode"
+  | "qid"
+  | "serializedTransaction"
+  | "status"
+  | "submittedAt"
+  | "transactionHash"
 >;
+
+// A registration intent decoded into its lifecycle state. Every store method
+// returns this, so consumers switch on `status` instead of re-checking nulls.
+export type StoredRegistrationIntent = RegistrationIntentBase &
+  (
+    | { readonly status: "ready" }
+    | {
+        readonly serializedTransaction: Hex;
+        readonly status: "submitted";
+        readonly submittedAt: Date;
+        readonly transactionHash: Hash;
+      }
+    | {
+        readonly confirmedAt: Date;
+        readonly qid: bigint;
+        readonly status: "confirmed";
+        // Null when a ready intent's nonce was used on-chain by a transaction
+        // this relayer never sent.
+        readonly transactionHash: Hash | null;
+      }
+    | {
+        readonly failureCode: string;
+        readonly status: "failed";
+        readonly transactionHash: Hash | null;
+      }
+  );
+
+// A stored row violates its lifecycle invariants (a defect; DB CHECKs should
+// prevent it).
+export class RegistrationIntentCorrupt extends Data.TaggedError(
+  "RegistrationIntentCorrupt"
+)<{ readonly digest: Hash; readonly status: RegistrationIntentStatus }> {}
+
+const decodeIntent = (
+  row: RegistrationIntentRow
+): Effect.Effect<StoredRegistrationIntent, RegistrationIntentCorrupt> => {
+  const {
+    confirmedAt,
+    failureCode,
+    qid,
+    serializedTransaction,
+    status,
+    submittedAt,
+    transactionHash,
+    ...base
+  } = row;
+
+  if (status === "ready") {
+    return Effect.succeed({ ...base, status });
+  }
+
+  if (
+    status === "submitted" &&
+    serializedTransaction !== null &&
+    submittedAt !== null &&
+    transactionHash !== null
+  ) {
+    return Effect.succeed({
+      ...base,
+      serializedTransaction,
+      status,
+      submittedAt,
+      transactionHash,
+    });
+  }
+
+  if (status === "confirmed" && confirmedAt !== null && qid !== null) {
+    return Effect.succeed({
+      ...base,
+      confirmedAt,
+      qid,
+      status,
+      transactionHash,
+    });
+  }
+
+  if (status === "failed" && failureCode !== null) {
+    return Effect.succeed({ ...base, failureCode, status, transactionHash });
+  }
+
+  return Effect.fail(
+    new RegistrationIntentCorrupt({ digest: row.digest, status })
+  );
+};
+
+// Decodes the first row of a query result, if any.
+const decodeFirst = (rows: readonly RegistrationIntentRow[]) => {
+  const row = rows.at(0);
+
+  return row === undefined ? Effect.succeed(undefined) : decodeIntent(row);
+};
 
 type TransactionCallback = Parameters<DatabaseClient["transaction"]>[0];
 
@@ -42,7 +142,7 @@ const find = (client: DatabaseClient | Transaction, digest: Hash) =>
     .from(registrationIntents)
     .where(eq(registrationIntents.digest, digest))
     .limit(1)
-    .pipe(Effect.map((rows) => rows.at(0)));
+    .pipe(Effect.flatMap(decodeFirst));
 
 const findForUpdate = (client: Transaction, digest: Hash) =>
   client
@@ -51,7 +151,7 @@ const findForUpdate = (client: Transaction, digest: Hash) =>
     .where(eq(registrationIntents.digest, digest))
     .limit(1)
     .for("update")
-    .pipe(Effect.map((rows) => rows.at(0)));
+    .pipe(Effect.flatMap(decodeFirst));
 
 const isExactCreateReplay = (
   stored: StoredRegistrationIntent,
@@ -109,6 +209,7 @@ export type RegistrationStoreError =
   | RegistrationAdmissionUnauthorized
   | RegistrationInputError
   | RegistrationIntentConflict
+  | RegistrationIntentCorrupt
   | RegistrationIntentNotFound
   | RegistrationNonceConflict
   | RegistrationStorePersistenceError
@@ -127,7 +228,9 @@ export interface RegistrationStoreContract {
     digest: Hash
   ) => Effect.Effect<
     Option.Option<StoredRegistrationIntent>,
-    RegistrationInputError | RegistrationStorePersistenceError
+    | RegistrationInputError
+    | RegistrationIntentCorrupt
+    | RegistrationStorePersistenceError
   >;
   readonly markConfirmed: (
     digest: Hash,
@@ -271,7 +374,7 @@ export class RegistrationStore extends Context.Service<
               .onConflictDoNothing()
               .returning();
 
-            const created = inserted.at(0);
+            const created = yield* decodeFirst(inserted);
 
             if (created) {
               return created;
@@ -413,7 +516,7 @@ export class RegistrationStore extends Context.Service<
                   .returning();
 
                 return (
-                  updated[0] ??
+                  (yield* decodeFirst(updated)) ??
                   (yield* transitionFailure(
                     tx,
                     canonicalDigest,
@@ -449,7 +552,7 @@ export class RegistrationStore extends Context.Service<
                 )
                 .returning();
 
-              const confirmed = updated.at(0);
+              const confirmed = yield* decodeFirst(updated);
 
               if (!confirmed) {
                 const current = yield* find(tx, canonicalDigest);
@@ -512,7 +615,7 @@ export class RegistrationStore extends Context.Service<
               )
               .returning();
 
-            const failed = updated.at(0);
+            const failed = yield* decodeFirst(updated);
 
             if (failed) {
               yield* tx

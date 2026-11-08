@@ -23,7 +23,7 @@ import { Notch } from "@/components/pixel/notch";
 import { PixelButton } from "@/components/pixel/pixel-button";
 import { Text } from "@/components/ui/text";
 import { primaryHaptic, successHaptic } from "@/lib/haptics";
-import { useIdentityStore } from "@/lib/identity-store";
+import { selectIdentity, useIdentityStore } from "@/lib/identity-store";
 import {
   checkLocalRegistration,
   startLocalRegistration,
@@ -44,14 +44,12 @@ const normalizeCode = (value: string) =>
     .replaceAll(/[^A-Z0-9]/gu, "")
     .slice(-CODE_LENGTH);
 
-const canStartRegistration = (
-  registration: LocalRegistration | null | undefined
-) =>
+const canStartRegistration = (registration: LocalRegistration | null) =>
   registration === null ||
-  registration?.status === "failed" ||
-  registration?.status === "pending";
+  registration.status === "failed" ||
+  registration.status === "pending";
 
-const getFailureMessage = (failureCode: string | null, handle: string) => {
+const getFailureMessage = (failureCode: string, handle: string) => {
   switch (failureCode) {
     case "HANDLE_TAKEN": {
       return `@${handle} was just taken. Go back to pick another.`;
@@ -62,7 +60,7 @@ const getFailureMessage = (failureCode: string | null, handle: string) => {
     }
 
     default: {
-      return `Registration failed (${failureCode ?? "unknown"}). Try again.`;
+      return `Registration failed (${failureCode}). Try again.`;
     }
   }
 };
@@ -74,9 +72,14 @@ const getFailureMessage = (failureCode: string | null, handle: string) => {
 const useRegistration = (handle: string) => {
   const createIdentity = useIdentityStore((state) => state.createIdentity);
   const hydrate = useIdentityStore((state) => state.hydrate);
-  const identity = useIdentityStore((state) => state.identity);
-  const storedRegistration = useIdentityStore((state) => state.registration);
-  const ownerAddress = identity?.ownerAddress;
+
+  const ownerAddress = useIdentityStore(
+    (state) => selectIdentity(state)?.ownerAddress
+  );
+
+  const storedRegistration = useIdentityStore((state) =>
+    state.status === "unregistered" ? state.registration : null
+  );
 
   // The latest result for this identity, ahead of the store's next hydrate.
   const [override, setOverride] = React.useState<{

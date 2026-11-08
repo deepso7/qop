@@ -38,10 +38,12 @@ import {
 } from "@/components/ui/message";
 import { MessageScroller } from "@/components/ui/message-scroller";
 import { Text } from "@/components/ui/text";
+import { useFocusLoad } from "@/hooks/use-focus-load";
 import { listMessages, markConversationRead } from "@/lib/db";
 import type { Contact, StoredMessage } from "@/lib/db";
 import { selectionHaptic } from "@/lib/haptics";
 import { useP2pStore } from "@/lib/p2p-store";
+import type { P2pConnection } from "@/lib/p2p-store-core";
 
 const REDIAL_INTERVAL_MS = 15_000;
 
@@ -49,6 +51,8 @@ const timeFormatter = new Intl.DateTimeFormat(undefined, {
   hour: "numeric",
   minute: "2-digit",
 });
+
+const noMessages: readonly StoredMessage[] = [];
 
 const getMessageId = ({ id }: StoredMessage) => id;
 const ConversationSeparator = () => <View className="h-2.5" />;
@@ -168,6 +172,27 @@ const pathLabel = (path: Path | undefined) => {
   }
 };
 
+/** Header menu status for one peer. */
+const connectionLabel = (
+  status: P2pConnection["status"],
+  reachable: boolean
+) => {
+  switch (status) {
+    case "failed":
+    case "stopped": {
+      return "P2P unavailable";
+    }
+
+    case "starting": {
+      return "Starting P2P";
+    }
+
+    default: {
+      return reachable ? "Connected" : "Not connected";
+    }
+  }
+};
+
 // Menu row text. Android ignores MenuAction subtitles, so fold the value into
 // the title there.
 const menuRow = (label: string, value: string) =>
@@ -180,13 +205,13 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
   const insets = useSafeAreaInsets();
   const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
   const [draft, setDraft] = React.useState("");
-  const [messages, setMessages] = React.useState<StoredMessage[]>([]);
-  const [loadError, setLoadError] = React.useState(false);
 
-  const [retryCount, retryLoad] = React.useReducer(
-    (count: number) => count + 1,
-    0
+  const load = React.useCallback(
+    () => listMessages(contact.qid),
+    [contact.qid]
   );
+
+  const [messages, retryLoad] = useFocusLoad(load);
 
   // A dial may resolve a newer peerId than the persisted contact after device-key rotation.
   const [dialTarget, setDialTarget] = React.useState(() => ({
@@ -194,61 +219,44 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
     peerId: contact.peerId,
   }));
 
-  const connectedPeerIds = useP2pStore((state) => state.connectedPeerIds);
+  const connection = useP2pStore((state) => state.connection);
   const connectTo = useP2pStore((state) => state.connectTo);
   const retryMessage = useP2pStore((state) => state.retryMessage);
-  const revision = useP2pStore((state) => state.revision);
   const sendMessage = useP2pStore((state) => state.sendMessage);
-  const status = useP2pStore((state) => state.status);
-  const relayReserved = useP2pStore((state) => state.relayReserved);
-  const peerPaths = useP2pStore((state) => state.peerPaths);
-  const p2pError = useP2pStore((state) => state.error);
+  const { status } = connection;
 
   const dialPeerId =
     dialTarget.contactPeerId === contact.peerId
       ? dialTarget.peerId
       : contact.peerId;
 
-  // revision is process-global (any chat send/receive). Reloading here keeps the
-  // focused thread live. Advance the read cursor only through messages that the
-  // refresh loaded, so a concurrent arrival remains unread until the next refresh.
-  useFocusEffect(
-    React.useCallback(() => {
-      let active = true;
+  const loadedMessages = messages.kind === "ready" ? messages.value : undefined;
 
-      const refresh = async (_revision: number, _retryCount: number) => {
-        try {
-          const rows = await listMessages(contact.qid);
+  // Messages reload on every chat change while focused. After each successful
+  // load, advance the read cursor only through messages that load returned, so
+  // a concurrent arrival stays unread until the next load. A failed cursor
+  // write is retried on the next load.
+  React.useEffect(() => {
+    const latestReceivedAt = loadedMessages?.at(-1)?.receivedAt;
 
-          if (active) {
-            setMessages(rows);
-            setLoadError(false);
-            const latestReceivedAt = rows.at(-1)?.receivedAt;
+    if (latestReceivedAt === undefined) {
+      return;
+    }
 
-            if (latestReceivedAt !== undefined) {
-              try {
-                await markConversationRead(contact.qid, latestReceivedAt);
-              } catch {
-                // Message loading still succeeds if the read cursor write fails.
-              }
-            }
-          }
-        } catch {
-          if (active) {
-            setLoadError(true);
-          }
-        }
-      };
+    const markRead = async () => {
+      try {
+        await markConversationRead(contact.qid, latestReceivedAt);
+      } catch {
+        // Messages still show if the read cursor write fails.
+      }
+    };
 
-      void refresh(revision, retryCount);
+    void markRead();
+  }, [contact.qid, loadedMessages]);
 
-      return () => {
-        active = false;
-      };
-    }, [contact.qid, revision, retryCount])
-  );
+  const running = connection.status === "running" ? connection : undefined;
+  const reachable = running?.connectedPeerIds.includes(dialPeerId) === true;
 
-  const reachable = connectedPeerIds.includes(dialPeerId);
   // While focused, P2P is up, and this peer is not connected, dial now and
   // again REDIAL_INTERVAL_MS after each attempt settles, so the header flips
   // to online soon after the contact opens qop. Blur or reconnect interrupts.
@@ -311,19 +319,17 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
     void sendMessage(contact, text);
   }, [contact, draft, sendMessage, status]);
 
-  let connectionLabel = "Not connected";
-
-  if (status === "failed" || status === "stopped") {
-    connectionLabel = "P2P unavailable";
-  } else if (status === "starting") {
-    connectionLabel = "Starting P2P";
-  } else if (reachable) {
-    connectionLabel = "Connected";
-  }
-
   const copyPeerId = React.useCallback(async () => {
     await Clipboard.setStringAsync(dialPeerId);
   }, [dialPeerId]);
+
+  const loadFailed =
+    messages.kind === "failed" ||
+    (messages.kind === "ready" && messages.refreshFailed);
+
+  // Render nothing until the first load lands, so an existing chat never
+  // flashes "No messages yet".
+  const showEmpty = messages.kind === "ready" && !messages.refreshFailed;
 
   const canSend = status === "running" && draft.trim().length > 0;
 
@@ -357,20 +363,23 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
               enabled (tapping just closes the menu) so iOS doesn't grey them. */}
           <Stack.Toolbar.MenuAction
             icon="antenna.radiowaves.left.and.right"
-            {...menuRow("Status", connectionLabel)}
+            {...menuRow("Status", connectionLabel(status, reachable))}
           />
           <Stack.Toolbar.MenuAction
             icon="arrow.triangle.branch"
-            {...menuRow("Path", pathLabel(peerPaths[dialPeerId]))}
+            {...menuRow("Path", pathLabel(running?.peerPaths[dialPeerId]))}
           />
           <Stack.Toolbar.MenuAction
             icon="server.rack"
-            {...menuRow("Relay", relayReserved ? "Reserved" : "Not reserved")}
+            {...menuRow(
+              "Relay",
+              running?.relayReserved === true ? "Reserved" : "Not reserved"
+            )}
           />
-          {status === "failed" && p2pError ? (
+          {connection.status === "failed" ? (
             <Stack.Toolbar.MenuAction
               icon="exclamationmark.triangle"
-              {...menuRow("Error", p2pError)}
+              {...menuRow("Error", connection.reason)}
             />
           ) : null}
           <Stack.Toolbar.Menu inline>
@@ -382,7 +391,7 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
           </Stack.Toolbar.Menu>
         </Stack.Toolbar.Menu>
       </Stack.Toolbar>
-      {loadError ? (
+      {loadFailed ? (
         <View className="gap-3 p-4">
           <Text>Could not load messages.</Text>
           <Button onPress={retryLoad} variant="outline">
@@ -391,11 +400,11 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
         </View>
       ) : null}
       <MessageScroller
-        data={messages}
+        data={messages.kind === "ready" ? messages.value : noMessages}
         followOutput
         getMessageId={getMessageId}
         ItemSeparatorComponent={ConversationSeparator}
-        ListEmptyComponent={loadError ? null : EmptyConversation}
+        ListEmptyComponent={showEmpty ? EmptyConversation : null}
         renderItem={renderItem}
         variant="grouped"
       />

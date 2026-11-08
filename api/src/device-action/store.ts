@@ -22,9 +22,111 @@ import type {
   DeviceActionIntentStatus,
 } from "./types.ts";
 
-export type StoredDeviceActionIntent = InferSelectModel<
-  typeof deviceActionIntents
+type DeviceActionIntentRow = InferSelectModel<typeof deviceActionIntents>;
+
+type DeviceActionIntentBase = Omit<
+  DeviceActionIntentRow,
+  | "confirmedAt"
+  | "failureCode"
+  | "serializedTransaction"
+  | "status"
+  | "submittedAt"
+  | "transactionHash"
 >;
+
+// A device action intent decoded into its lifecycle state. Every store method
+// returns this, so consumers switch on `status` instead of re-checking nulls.
+export type StoredDeviceActionIntent = DeviceActionIntentBase &
+  (
+    | { readonly status: "ready" }
+    | {
+        readonly serializedTransaction: Hex;
+        readonly status: "submitted";
+        readonly submittedAt: Date;
+        readonly transactionHash: Hash;
+      }
+    | {
+        readonly confirmedAt: Date;
+        readonly status: "confirmed";
+        readonly transactionHash: Hash;
+      }
+    | {
+        readonly failureCode: string;
+        readonly status: "reverted";
+        readonly transactionHash: Hash;
+      }
+    | { readonly failureCode: string; readonly status: "expired" }
+  );
+
+// A stored row violates its lifecycle invariants (a defect; DB CHECKs should
+// prevent most of it).
+export class DeviceActionIntentCorrupt extends Data.TaggedError(
+  "DeviceActionIntentCorrupt"
+)<{ readonly digest: Hash; readonly status: DeviceActionIntentStatus }> {}
+
+const decodeIntent = (
+  row: DeviceActionIntentRow
+): Effect.Effect<StoredDeviceActionIntent, DeviceActionIntentCorrupt> => {
+  const {
+    confirmedAt,
+    failureCode,
+    serializedTransaction,
+    status,
+    submittedAt,
+    transactionHash,
+    ...base
+  } = row;
+
+  if (status === "ready") {
+    return Effect.succeed({ ...base, status });
+  }
+
+  if (
+    status === "submitted" &&
+    serializedTransaction !== null &&
+    submittedAt !== null &&
+    transactionHash !== null
+  ) {
+    return Effect.succeed({
+      ...base,
+      serializedTransaction,
+      status,
+      submittedAt,
+      transactionHash,
+    });
+  }
+
+  if (
+    status === "confirmed" &&
+    confirmedAt !== null &&
+    transactionHash !== null
+  ) {
+    return Effect.succeed({ ...base, confirmedAt, status, transactionHash });
+  }
+
+  if (
+    status === "reverted" &&
+    failureCode !== null &&
+    transactionHash !== null
+  ) {
+    return Effect.succeed({ ...base, failureCode, status, transactionHash });
+  }
+
+  if (status === "expired" && failureCode !== null) {
+    return Effect.succeed({ ...base, failureCode, status });
+  }
+
+  return Effect.fail(
+    new DeviceActionIntentCorrupt({ digest: row.digest, status })
+  );
+};
+
+// Decodes the first row of a query result, if any.
+const decodeFirst = (rows: readonly DeviceActionIntentRow[]) => {
+  const row = rows.at(0);
+
+  return row === undefined ? Effect.succeed(undefined) : decodeIntent(row);
+};
 
 type TransactionCallback = Parameters<DatabaseClient["transaction"]>[0];
 
@@ -36,7 +138,7 @@ const find = (client: DatabaseClient | Transaction, digest: Hash) =>
     .from(deviceActionIntents)
     .where(eq(deviceActionIntents.digest, digest))
     .limit(1)
-    .pipe(Effect.map((rows) => rows.at(0)));
+    .pipe(Effect.flatMap(decodeFirst));
 
 const findForUpdate = (client: Transaction, digest: Hash) =>
   client
@@ -45,7 +147,7 @@ const findForUpdate = (client: Transaction, digest: Hash) =>
     .where(eq(deviceActionIntents.digest, digest))
     .limit(1)
     .for("update")
-    .pipe(Effect.map((rows) => rows.at(0)));
+    .pipe(Effect.flatMap(decodeFirst));
 
 const isExactCreateReplay = (
   stored: StoredDeviceActionIntent,
@@ -91,6 +193,7 @@ export type DeviceActionStoreError =
   | DeviceActionDeadlineInvalid
   | DeviceActionInFlightConflict
   | DeviceActionIntentConflict
+  | DeviceActionIntentCorrupt
   | DeviceActionIntentNotFound
   | DeviceActionTransitionConflict
   | RegistrationInputError
@@ -109,7 +212,9 @@ export interface DeviceActionStoreContract {
     digest: Hash
   ) => Effect.Effect<
     Option.Option<StoredDeviceActionIntent>,
-    RegistrationInputError | DeviceActionStorePersistenceError
+    | DeviceActionIntentCorrupt
+    | RegistrationInputError
+    | DeviceActionStorePersistenceError
   >;
   readonly markConfirmed: (
     digest: Hash
@@ -209,7 +314,7 @@ export class DeviceActionStore extends Context.Service<
               .onConflictDoNothing()
               .returning();
 
-            const created = inserted.at(0);
+            const created = yield* decodeFirst(inserted);
 
             if (created) {
               return created;
@@ -333,7 +438,7 @@ export class DeviceActionStore extends Context.Service<
                   .returning();
 
                 return (
-                  updated[0] ??
+                  (yield* decodeFirst(updated)) ??
                   (yield* transitionFailure(
                     tx,
                     canonicalDigest,
@@ -362,12 +467,15 @@ export class DeviceActionStore extends Context.Service<
                 .where(
                   and(
                     eq(deviceActionIntents.digest, canonicalDigest),
-                    inArray(deviceActionIntents.status, ["ready", "submitted"])
+                    inArray(
+                      deviceActionIntents.status,
+                      deviceActionTransitionSources.confirm
+                    )
                   )
                 )
                 .returning();
 
-              const confirmed = updated.at(0);
+              const confirmed = yield* decodeFirst(updated);
 
               if (confirmed) {
                 return confirmed;
@@ -415,7 +523,7 @@ export class DeviceActionStore extends Context.Service<
                 )
                 .returning();
 
-              const terminal = updated.at(0);
+              const terminal = yield* decodeFirst(updated);
 
               if (terminal) {
                 return terminal;

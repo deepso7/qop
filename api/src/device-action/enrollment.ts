@@ -114,6 +114,21 @@ const protocolError =
   (cause: unknown): DeviceActionProtocolError =>
     new DeviceActionProtocolError({ cause, operation });
 
+const reconciledDeviceAction = (
+  stored: StoredDeviceActionIntent
+): ReconciledDeviceAction => ({
+  digest: stored.digest,
+  failureCode:
+    stored.status === "expired" || stored.status === "reverted"
+      ? stored.failureCode
+      : null,
+  status: stored.status,
+  transactionHash:
+    stored.status === "ready" || stored.status === "expired"
+      ? null
+      : stored.transactionHash,
+});
+
 export class DeviceActionEnrollment extends Context.Service<
   DeviceActionEnrollment,
   DeviceActionEnrollmentContract
@@ -171,10 +186,7 @@ export class DeviceActionEnrollment extends Context.Service<
 
       const toSubmitted = Effect.fn("DeviceActionEnrollment.toSubmitted")(
         function* (stored: StoredDeviceActionIntent) {
-          if (
-            (stored.status !== "submitted" && stored.status !== "confirmed") ||
-            stored.transactionHash === null
-          ) {
+          if (stored.status !== "submitted" && stored.status !== "confirmed") {
             return yield* new DeviceActionTransitionConflict({
               actual: stored.status,
               digest: stored.digest,
@@ -216,11 +228,7 @@ export class DeviceActionEnrollment extends Context.Service<
           return submitted;
         }
 
-        if (
-          submitted.status !== "submitted" ||
-          submitted.transactionHash === null ||
-          submitted.serializedTransaction === null
-        ) {
+        if (submitted.status !== "submitted") {
           return yield* new DeviceActionProtocolError({
             cause: `Cannot submit device action in ${submitted.status} state`,
             operation: "verify-state",
@@ -244,11 +252,9 @@ export class DeviceActionEnrollment extends Context.Service<
 
       const confirmFromReceipt = Effect.fn(
         "DeviceActionEnrollment.confirmFromReceipt"
-      )(function* (stored: StoredDeviceActionIntent) {
-        if (stored.transactionHash === null) {
-          return stored;
-        }
-
+      )(function* (
+        stored: Extract<StoredDeviceActionIntent, { status: "submitted" }>
+      ) {
         const receipt = yield* chain.receipt(stored.transactionHash);
 
         if (!receipt) {
@@ -476,22 +482,10 @@ export class DeviceActionEnrollment extends Context.Service<
           const stored = storedOption.value;
 
           if (stored.status !== "ready" && stored.status !== "submitted") {
-            return {
-              digest: stored.digest,
-              failureCode: stored.failureCode,
-              status: stored.status,
-              transactionHash: stored.transactionHash,
-            } satisfies ReconciledDeviceAction;
+            return reconciledDeviceAction(stored);
           }
 
-          const reconciled = yield* reconcileActive(stored);
-
-          return {
-            digest: reconciled.digest,
-            failureCode: reconciled.failureCode,
-            status: reconciled.status,
-            transactionHash: reconciled.transactionHash,
-          } satisfies ReconciledDeviceAction;
+          return reconciledDeviceAction(yield* reconcileActive(stored));
         }
       );
 

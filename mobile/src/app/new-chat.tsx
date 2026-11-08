@@ -11,8 +11,9 @@ import { Spinner } from "@/components/ui/spinner";
 import { Surface } from "@/components/ui/surface";
 import { Text } from "@/components/ui/text";
 import { upsertContact } from "@/lib/db";
+import type { ContactInput } from "@/lib/db";
 import { selectionHaptic } from "@/lib/haptics";
-import { useIdentityStore } from "@/lib/identity-store";
+import { selectIdentity, useIdentityStore } from "@/lib/identity-store";
 import { lookupHandle } from "@/lib/registry";
 import type { RegistryAccount, RegistryReaderError } from "@/lib/registry";
 
@@ -46,88 +47,116 @@ const registryErrorMessage = (error: RegistryReaderError) => {
   return "The registry returned an invalid account.";
 };
 
+// The account's last-seen device as a contact, or null if it has none to dial.
+const toContact = (account: RegistryAccount): ContactInput | null =>
+  account.deviceKey && account.peerId
+    ? {
+        createdAt: Number(account.registeredAt) * 1000,
+        deviceKey: account.deviceKey,
+        handle: account.handle,
+        owner: account.owner,
+        peerId: account.peerId,
+        qid: account.qid.toString(),
+      }
+    : null;
+
+// Where the screen is between typing a handle and opening its chat. A found
+// account carries its contact (null when unreachable) and any save error.
+type Lookup =
+  | { kind: "idle" }
+  | { kind: "looking" }
+  | { kind: "failed"; message: string }
+  | {
+      kind: "found";
+      account: RegistryAccount;
+      contact: ContactInput | null;
+      error?: string;
+    }
+  | { kind: "opening"; account: RegistryAccount };
+
+const getLookupMessage = (lookup: Lookup) => {
+  if (lookup.kind === "found") {
+    return lookup.contact
+      ? lookup.error
+      : "This account has no active device yet.";
+  }
+
+  return lookup.kind === "failed" ? lookup.message : undefined;
+};
+
 const NewChatRoute = () => {
   const reduceMotion = useReducedMotion();
-  const [opening, setOpening] = React.useState(false);
-  const ownHandle = useIdentityStore((state) => state.identity?.handle);
+  const ownHandle = useIdentityStore((state) => selectIdentity(state)?.handle);
   const [handle, setHandle] = React.useState("");
-  const [lookingUp, setLookingUp] = React.useState(false);
-  const [result, setResult] = React.useState<RegistryAccount | null>();
-  const [message, setMessage] = React.useState<string>();
+  const [lookup, setLookup] = React.useState<Lookup>({ kind: "idle" });
   const isValid = Result.isSuccess(decodeHandle(handle));
+  const looking = lookup.kind === "looking";
+  const opening = lookup.kind === "opening";
+  const message = getLookupMessage(lookup);
+
+  const account =
+    lookup.kind === "found" || lookup.kind === "opening"
+      ? lookup.account
+      : undefined;
 
   const lookUp = React.useCallback(async () => {
-    if (!isValid || lookingUp) {
+    if (!isValid || looking || opening) {
       return;
     }
 
     Keyboard.dismiss();
-    setLookingUp(true);
-    setMessage(undefined);
-    setResult(undefined);
 
     if (handle === ownHandle) {
-      setMessage("That's you.");
-      setLookingUp(false);
+      setLookup({ kind: "failed", message: "That's you." });
 
       return;
     }
 
-    const lookup = await Effect.runPromise(
+    setLookup({ kind: "looking" });
+
+    const result = await Effect.runPromise(
       lookupHandle(handle).pipe(Effect.result)
     );
 
-    if (Result.isFailure(lookup)) {
-      setMessage(registryErrorMessage(lookup.failure));
-    } else if (lookup.success === null) {
-      setMessage("No one has this handle.");
-      setResult(null);
+    if (Result.isFailure(result)) {
+      setLookup({
+        kind: "failed",
+        message: registryErrorMessage(result.failure),
+      });
+    } else if (result.success === null) {
+      setLookup({ kind: "failed", message: "No one has this handle." });
     } else {
-      setResult(lookup.success);
-
-      if (!(lookup.success.deviceKey && lookup.success.peerId)) {
-        setMessage("This account has no active device yet.");
-      }
+      setLookup({
+        account: result.success,
+        contact: toContact(result.success),
+        kind: "found",
+      });
     }
-
-    setLookingUp(false);
-  }, [handle, isValid, lookingUp, ownHandle]);
-
-  const hasReachableDevice = Boolean(result?.deviceKey && result?.peerId);
+  }, [handle, isValid, looking, opening, ownHandle]);
 
   const startChat = React.useCallback(async () => {
-    if (!result || opening) {
+    if (lookup.kind !== "found" || !lookup.contact) {
       return;
     }
 
-    if (!(result.deviceKey && result.peerId)) {
-      setMessage("This account has no active device yet.");
+    const { contact } = lookup;
 
-      return;
-    }
-
-    setMessage(undefined);
-    setOpening(true);
+    setLookup({ account: lookup.account, kind: "opening" });
 
     try {
-      await upsertContact({
-        createdAt: Number(result.registeredAt) * 1000,
-        deviceKey: result.deviceKey,
-        handle: result.handle,
-        owner: result.owner,
-        peerId: result.peerId,
-        qid: result.qid.toString(),
-      });
+      await upsertContact(contact);
       void selectionHaptic();
       router.replace({
-        params: { id: result.qid.toString() },
+        params: { id: contact.qid },
         pathname: "/chat/[id]",
       });
     } catch {
-      setOpening(false);
-      setMessage("Could not save this contact. Tap Start chat to retry.");
+      setLookup({
+        ...lookup,
+        error: "Could not save this contact. Tap Start chat to retry.",
+      });
     }
-  }, [opening, result]);
+  }, [lookup]);
 
   return (
     <>
@@ -150,13 +179,13 @@ const NewChatRoute = () => {
             className="h-14"
             size="lg"
             variant="filled"
-            editable={!lookingUp}
+            // Locked while opening too: editing would drop the card mid-save.
+            editable={!(looking || opening)}
             enterKeyHint="search"
             maxLength={33}
             onChangeText={(value) => {
               setHandle(value.trim().replace(/^@/u, "").toLowerCase());
-              setMessage(undefined);
-              setResult(undefined);
+              setLookup({ kind: "idle" });
             }}
             onSubmitEditing={lookUp}
             placeholder="their_handle"
@@ -171,9 +200,9 @@ const NewChatRoute = () => {
           >
             {isValid ? `Look up @${handle}.` : getHandleHint(handle)}
           </Text>
-          <Button disabled={!isValid || lookingUp} onPress={lookUp}>
-            {lookingUp ? <Spinner tone="onPrimary" /> : null}
-            <Text>{lookingUp ? "Looking up…" : "Look up"}</Text>
+          <Button disabled={!isValid || looking || opening} onPress={lookUp}>
+            {looking ? <Spinner tone="onPrimary" /> : null}
+            <Text>{looking ? "Looking up…" : "Look up"}</Text>
           </Button>
         </View>
 
@@ -183,22 +212,22 @@ const NewChatRoute = () => {
           </Text>
         ) : null}
 
-        {result ? (
+        {account ? (
           <Animated.View entering={FadeIn.duration(reduceMotion ? 0 : 160)}>
             <Surface tone="element" variant="outline">
               <View className="gap-1">
                 <Text selectable variant="large">
-                  @{result.handle}
+                  @{account.handle}
                 </Text>
                 <Text selectable tone="secondary" variant="caption">
-                  QID {result.qid.toString()}
+                  QID {account.qid.toString()}
                 </Text>
                 <Text selectable tone="secondary" variant="mono">
-                  Peer {(result.peerId ?? "none").slice(0, 12)}…
+                  Peer {(account.peerId ?? "none").slice(0, 12)}…
                 </Text>
               </View>
               <Button
-                disabled={opening || !hasReachableDevice}
+                disabled={lookup.kind !== "found" || !lookup.contact}
                 onPress={startChat}
               >
                 {opening ? <Spinner tone="onPrimary" /> : null}

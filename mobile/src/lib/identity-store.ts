@@ -15,9 +15,15 @@ import {
   loadLocalRegistration,
 } from "./local-registration";
 
-export { createIdentityStore } from "./identity-store-core";
+export {
+  createIdentityStore,
+  selectAccount,
+  selectIdentity,
+} from "./identity-store-core";
 
 export type {
+  Account,
+  IdentityState,
   IdentityStatus,
   IdentityStoreDependencies,
 } from "./identity-store-core";

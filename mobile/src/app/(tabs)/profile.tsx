@@ -28,7 +28,8 @@ import { Text } from "@/components/ui/text";
 import { useTheme } from "@/constants/theme";
 import { useDeviceRoster } from "@/hooks/use-device-roster";
 import { selectionHaptic } from "@/lib/haptics";
-import { useIdentityStore } from "@/lib/identity-store";
+import { selectAccount, useIdentityStore } from "@/lib/identity-store";
+import type { Account } from "@/lib/identity-store";
 
 // @expo/ui views take a plain style object (mapped to SwiftUI/Compose
 // modifiers), so resolve classes into `style` directly rather than an array.
@@ -201,15 +202,14 @@ const logoutPresentation = (needsBackup: boolean) => {
   };
 };
 
-const ProfileScreen = () => {
+const ProfileScreen = ({ account }: { account: Account }) => {
+  const { identity, qid } = account;
   const { push } = useRouter();
-  const roster = useDeviceRoster();
+  const roster = useDeviceRoster(account);
   const [removeKey, setRemoveKey] = React.useState<string>();
   const colors = useTheme();
   const colorScheme = useColorScheme() === "dark" ? "dark" : "light";
   const [peerIdCopied, setPeerIdCopied] = React.useState(false);
-  const identity = useIdentityStore((state) => state.identity);
-  const qid = useIdentityStore((state) => state.qid);
 
   const revealRecoveryKey = useIdentityStore(
     (state) => state.revealRecoveryKey
@@ -224,7 +224,7 @@ const ProfileScreen = () => {
 
   const [logoutAlertOpen, setLogoutAlertOpen] = React.useState(false);
   const [recoveryMessage, setRecoveryMessage] = React.useState<string>();
-  const needsBackup = identity?.backupState !== "copied";
+  const needsBackup = identity.backupState !== "copied";
 
   const logout = React.useMemo(
     () => logoutPresentation(needsBackup),
@@ -326,10 +326,6 @@ const ProfileScreen = () => {
   }, []);
 
   const copyPeerId = React.useCallback(async () => {
-    if (!identity) {
-      return;
-    }
-
     await Clipboard.setStringAsync(identity.peerId);
     void selectionHaptic();
     setPeerIdCopied(true);
@@ -362,7 +358,7 @@ const ProfileScreen = () => {
             modifiers={settingsFormModifiers}
           >
             <FieldGroup.Section>
-              <ProfileCard handle={identity?.handle ?? ""} qid={qid ?? "—"} />
+              <ProfileCard handle={identity.handle} qid={qid} />
             </FieldGroup.Section>
 
             <FieldGroup.Section title="Recovery key">
@@ -401,7 +397,7 @@ const ProfileScreen = () => {
                   <Secondary>
                     {peerIdCopied
                       ? "Peer ID copied"
-                      : `…${identity?.peerId.slice(-8) ?? ""}`}
+                      : `…${identity.peerId.slice(-8)}`}
                   </Secondary>
                 }
               >
@@ -502,4 +498,12 @@ const ProfileScreen = () => {
   );
 };
 
-export default React.memo(ProfileScreen);
+// Stack.Protected can render this once more after the account is gone (e.g.
+// on log out), before it unmounts.
+const ProfileRoute = () => {
+  const account = useIdentityStore(selectAccount);
+
+  return account ? <ProfileScreen account={account} /> : null;
+};
+
+export default React.memo(ProfileRoute);

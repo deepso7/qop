@@ -174,16 +174,18 @@ const readQid = (value: RegistryContractResult) =>
 
 type ReadContractParams = Parameters<RegistryReadClient["readContract"]>[0];
 
-const withOptionalBlockNumber = (
-  base: Omit<ReadContractParams, "blockNumber">,
-  blockNumber: bigint | undefined
-): ReadContractParams => {
-  if (blockNumber === undefined) {
-    return base;
-  }
+/** The head a lookup's reads are pinned to; stale reads have no block. */
+type RegistryHead =
+  | { readonly blockNumber: bigint; readonly freshness: "fresh" }
+  | { readonly freshness: "stale" };
 
-  return { ...base, blockNumber };
-};
+const pinnedTo = (
+  base: Omit<ReadContractParams, "blockNumber">,
+  head: RegistryHead
+): ReadContractParams =>
+  head.freshness === "fresh"
+    ? { ...base, blockNumber: head.blockNumber }
+    : base;
 
 export const createRegistryReader = ({
   client,
@@ -204,10 +206,7 @@ export const createRegistryReader = ({
     const { getBlockNumber } = client;
 
     if (!getBlockNumber) {
-      return {
-        blockNumber: undefined,
-        freshness: "stale" as const,
-      };
+      return { freshness: "stale" } satisfies RegistryHead;
     }
 
     const blockNumber = yield* Effect.tryPromise({
@@ -215,10 +214,7 @@ export const createRegistryReader = ({
       try: (signal) => getBlockNumber({ signal }),
     });
 
-    return {
-      blockNumber,
-      freshness: "fresh" as const,
-    };
+    return { blockNumber, freshness: "fresh" } satisfies RegistryHead;
   });
 
   const decodeDevice = Effect.fn("RegistryReader.decodeDevice")(function* (
@@ -251,15 +247,15 @@ export const createRegistryReader = ({
   });
 
   const listActiveDevicesAt = Effect.fn("RegistryReader.listActiveDevicesAt")(
-    function* (qid: bigint, blockNumber: bigint | undefined) {
+    function* (qid: bigint, head: RegistryHead) {
       const result = yield* readContract(
-        withOptionalBlockNumber(
+        pinnedTo(
           {
             abi: registryAbi,
             args: [qid],
             functionName: "listActiveDevices",
           },
-          blockNumber
+          head
         )
       );
 
@@ -287,36 +283,33 @@ export const createRegistryReader = ({
     function* (qid: bigint) {
       const head = yield* captureHead();
 
-      return yield* listActiveDevicesAt(qid, head.blockNumber);
+      return yield* listActiveDevicesAt(qid, head);
     }
   );
 
   const accountAt = Effect.fn("RegistryReader.accountAt")(function* (
     qid: bigint,
-    head: {
-      readonly blockNumber: bigint | undefined;
-      readonly freshness: RegistryFreshness;
-    },
+    head: RegistryHead,
     preferredDeviceKey?: string
   ) {
     // Both reads share one abort signal and the captured head. A `batch: true`
     // transport can then send them as one HTTP request. Freshness is unchanged.
     const [result, devicesResult] = yield* readContractPair(
-      withOptionalBlockNumber(
+      pinnedTo(
         {
           abi: registryAbi,
           args: [qid],
           functionName: "account",
         },
-        head.blockNumber
+        head
       ),
-      withOptionalBlockNumber(
+      pinnedTo(
         {
           abi: registryAbi,
           args: [qid],
           functionName: "listActiveDevices",
         },
-        head.blockNumber
+        head
       )
     );
 
@@ -350,7 +343,7 @@ export const createRegistryReader = ({
 
     const accountResult: RegistryAccount = {
       // Untagged reads report 0n; sessions must not treat that as a new head.
-      blockNumber: head.blockNumber ?? 0n,
+      blockNumber: head.freshness === "fresh" ? head.blockNumber : 0n,
       // Dial/last-seen helpers use the preferred or first active device when present.
       deviceKey: selected?.deviceKey ?? null,
       devices,
@@ -377,13 +370,13 @@ export const createRegistryReader = ({
     const head = yield* captureHead();
 
     const qid = yield* readContract(
-      withOptionalBlockNumber(
+      pinnedTo(
         {
           abi: registryAbi,
           args: [keccak256(toBytes(handle))],
           functionName: "qidByHandleHash",
         },
-        head.blockNumber
+        head
       )
     ).pipe(Effect.flatMap(readQid));
 
@@ -400,13 +393,13 @@ export const createRegistryReader = ({
     const head = yield* captureHead();
 
     const qid = yield* readContract(
-      withOptionalBlockNumber(
+      pinnedTo(
         {
           abi: registryAbi,
           args: [owner],
           functionName: "qidByOwner",
         },
-        head.blockNumber
+        head
       )
     ).pipe(Effect.flatMap(readQid));
 
@@ -423,13 +416,13 @@ export const createRegistryReader = ({
       const head = yield* captureHead();
 
       const qid = yield* readContract(
-        withOptionalBlockNumber(
+        pinnedTo(
           {
             abi: registryAbi,
             args: [deviceKey],
             functionName: "qidByDeviceKey",
           },
-          head.blockNumber
+          head
         )
       ).pipe(Effect.flatMap(readQid));
 
@@ -454,7 +447,7 @@ export const createRegistryReader = ({
       const { getBlock } = client;
       const head = yield* captureHead();
 
-      if (!getBlock || head.blockNumber === undefined) {
+      if (!getBlock || head.freshness === "stale") {
         return yield* readerError("rpc");
       }
 
@@ -478,13 +471,13 @@ export const createRegistryReader = ({
       const head = yield* captureHead();
 
       const result = yield* readContract(
-        withOptionalBlockNumber(
+        pinnedTo(
           {
             abi: registryAbi,
             args: [deviceKey],
             functionName: "deviceKeyRemoved",
           },
-          head.blockNumber
+          head
         )
       );
 
