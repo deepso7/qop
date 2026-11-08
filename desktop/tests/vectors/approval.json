@@ -175,6 +175,50 @@
       },
       "error": "digest",
       "ok": false
+    },
+    {
+      "name": "remove record",
+      "record": {
+        "digest": "0x15418ac2c1a9ca2976927d5a5e300bc6bb40b905609206c0e7e2ef0dc826f72e",
+        "domain": {
+          "chainId": "31337",
+          "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+        },
+        "expectedOwner": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "intent": {
+          "deadline": "1700000600",
+          "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "nonce": "7",
+          "qid": "42"
+        },
+        "operation": "remove",
+        "ownerSignature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+        "v": 1
+      },
+      "ok": true,
+      "value": "0x15418ac2c1a9ca2976927d5a5e300bc6bb40b905609206c0e7e2ef0dc826f72e"
+    },
+    {
+      "name": "add digest on a remove record",
+      "record": {
+        "digest": "0x165c925b7e9da6ba4d28eee24c7893378548463228d56b0b56c17e573b32609e",
+        "domain": {
+          "chainId": "31337",
+          "verifyingContract": "0x5fbdb2315678afecb367f032d93f642f64180aa3"
+        },
+        "expectedOwner": "0x7e5f4552091a69125d5dfcb7b8c2659029395bdf",
+        "intent": {
+          "deadline": "1700000600",
+          "deviceKey": "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c",
+          "nonce": "7",
+          "qid": "42"
+        },
+        "operation": "remove",
+        "ownerSignature": "0xa98be2dbd196b9348f62ee7ff10a3ca7cdeafb5e100c1cdad0a9a5d42322a4a90304e03f272e2f7f62988a5e9db29ac891dca6d56ce31b6096c9515ebc41891b01",
+        "v": 1
+      },
+      "error": "digest",
+      "ok": false
     }
   ]
 }

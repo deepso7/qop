@@ -14,6 +14,7 @@ import {
   EcdsaSignature,
   Handle,
   hashAddDeviceIntentV1,
+  hashRemoveDeviceIntentV1,
   identityEip712DomainName,
   identityEip712DomainVersion,
   PeerId,
@@ -474,6 +475,18 @@ const approvalVectors = async () => {
     {
       name: "digest of another nonce",
       record: { ...record, intent: { ...record.intent, nonce: "8" } },
+    },
+    {
+      name: "remove record",
+      record: {
+        ...record,
+        digest: Effect.runSync(hashRemoveDeviceIntentV1(DOMAIN, addIntent())),
+        operation: "remove" as const,
+      },
+    },
+    {
+      name: "add digest on a remove record",
+      record: { ...record, operation: "remove" as const },
     },
   ];
 
@@ -1033,6 +1046,7 @@ const registryVectors = async () => {
       { data: uintFixture(1n), name: "true" },
       { data: uintFixture(2n), name: "two" },
       { data: `0x01${"0".repeat(62)}`, name: "high byte set" },
+      { data: `0x01${"0".repeat(60)}01`, name: "high and low byte set" },
       { data: `${uintFixture(1n)}00`, name: "trailing bytes ignored" },
       { data: "0x", name: "empty" },
     ],
