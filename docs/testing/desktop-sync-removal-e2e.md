@@ -18,10 +18,6 @@ Passed on macOS 27 (Apple silicon):
 - The phone reached the desktop by peer ID through the relay (`QOP_RELAY_ADDRS`), which `handoff`/`poll`/`catchup` require.
 - Not covered: the phone app itself, and rejection of a non-own peer end to end (`cargo test` covers it in-process, below).
 
-![The desktop after the sync cases (live scene)](desktop-sync-removal-e2e.png)
-
-![Settings over the same data directory](desktop-sync-removal-e2e-settings.png)
-
 ## Stack
 
 As in `desktop-chat-e2e.md` (Anvil with `--block-time 1`, `QOP_RELAY_ADDRS` in `/tmp/qop-e2e/env.sh`). `desktop` is `desktop/target/debug/qop-desktop`, `phone` is `node --no-warnings cli/scripts/desktop-phone.ts` and `qop` is `node --no-warnings cli/src/main.ts`, all from the repo root with `/tmp/qop-e2e/env.sh` sourced. The desktop reads stdin commands through a FIFO (`a.in`, fed by `tail -f a.cmds`).

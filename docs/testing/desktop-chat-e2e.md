@@ -16,9 +16,7 @@ Passed on macOS 27 (Apple silicon), desktop @alice ↔ CLI @bob:
 
 - Transport: both sides used the public relay (`relay.minip2p.com`). The desktop dials contacts by peer ID only (no LAN discovery), so without a relay it reaches only peers that dialed it.
 - Anvil runs with `--block-time 1`. Live authorization needs a registry head strictly newer than the last confirmation, and an Anvil that mines only on transactions keeps one head for minutes; with it, re-authorization after `MAX_AUTH_AGE_MS` would fail (correctly) until something is mined.
-- Not exercised here: real sleep/wake (the clock-gap detector is unit-tested), revocation (milestone 6), and the GUI window itself: this session had no screen-recording permission (`screencapture`: "could not create image from display"). The GUI ran on the same data directory and showed the last message arrive (`QOP_PRINT_OFFER=1` output); the image below is the `live` scene, a headless Rune render of that data directory through the real UI code.
-
-![Linked desktop chat after the run](desktop-chat-e2e.png)
+- Not exercised here: real sleep/wake (the clock-gap detector is unit-tested), revocation (milestone 6), and the GUI window itself: this session had no screen-recording permission (`screencapture`: "could not create image from display"). The GUI ran on the same data directory and showed the last message arrive (`QOP_PRINT_OFFER=1` output). To see it, render the `live` scene over that data directory (last command under "GUI and the render").
 
 ## Stack
 
