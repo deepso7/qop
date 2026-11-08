@@ -1,6 +1,6 @@
 //! The linked app: conversation sidebar, chat, New chat and Settings.
 
-use rune::{Cursor, El, GrowthSpec, ScrollSpec, Transition, col, el, row, spacer, text, text_input};
+use rune::{Cursor, El, GrowthSpec, ScrollSpec, Transition, auto_grow, col, el, row, spacer, text, text_input};
 
 use super::kit::{self, Field, Kind, Notch, notched};
 use super::onboard::relay_line;
@@ -284,7 +284,9 @@ fn composer(ui: &Ui, t: &Theme) -> El {
         .placeholder("Message", t.muted)
         .on_edit(|ui: &mut Ui| &mut ui.composer)
         .on_submit(|ui: &mut Ui, _| ui.send_message());
-    let field = notched(row().key("composer-box").grow(1.0).min_h(40.0).px(space::M).py(10.0).items_center(), Notch::Small, t.paper, Some(border)).child(input);
+    // Grow with the draft up to eight lines, then scroll inside, so Send stays on screen.
+    let input = auto_grow(input, 1, 8).key("composer-scroll");
+    let field = notched(col().key("composer-box").grow(1.0).min_h(40.0).px(space::M).py(10.0), Notch::Small, t.paper, Some(border)).child(input);
     let bar = row()
         .key("composer-bar")
         .px(space::XL)
