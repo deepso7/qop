@@ -25,9 +25,11 @@ fn page(t: &Theme, content: El) -> El {
 }
 
 pub fn starting(t: &Theme) -> El {
+    // No header here, so the whole screen drags the window.
     col()
         .w_full()
         .h_full()
+        .window_drag()
         .center()
         .gap(space::L)
         .child(kit::mark(t, 48.0, true))
