@@ -54,7 +54,6 @@ pub enum InboundError {
     Paused,
     Unverified(VerifyError),
     Store(StoreError),
-    Ack(NodeError),
 }
 
 /// A message saved from `from_qid`; `inserted` is false for a repeat the sender resent.
@@ -117,7 +116,11 @@ async fn receive<C: Chain>(
         .store()
         .put_inbox(&record)
         .map_err(InboundError::Store)?;
-    stream.send_message(ack).await.map_err(InboundError::Ack)?;
+    // Saved: the engine must hear of it even if the ACK is lost (the sender resends, and a
+    // repeat is not inserted twice).
+    if let Err(error) = stream.send_message(ack).await {
+        eprintln!("qop: chat ack not written: {error:?}");
+    }
     Ok(Received {
         from_qid: record.from_qid,
         inserted,

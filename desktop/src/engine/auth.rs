@@ -83,7 +83,10 @@ struct Inner {
 }
 
 impl Inner {
+    /// Also unreadies messaging: only a fresh read of our own membership ([`Auth::set_ready`])
+    /// lets chat through again.
     fn invalidate(&mut self) {
+        self.ready = false;
         self.epoch += 1;
         self.invalidations += 1;
         for session in self.sessions.values_mut() {
@@ -162,8 +165,8 @@ impl Auth {
         inner.epoch += 1;
     }
 
-    /// Drops every authorization (keeping connections and their last heads) and cancels
-    /// verifications in flight.
+    /// Drops every authorization (keeping connections and their last heads), cancels
+    /// verifications in flight, and pauses messaging until [`Auth::set_ready`].
     pub fn invalidate(&self) {
         self.lock().invalidate();
     }
@@ -530,6 +533,10 @@ mod tests {
         assert!(!auth.is_verified(conn(1), &bob_peer(), U256::from(BOB_QID)));
         assert_eq!(auth.observe(), 1);
         clock.advance(1000);
+        // Still refused until our own membership is read again, so no task can reauthorize a
+        // peer in the meantime.
+        assert!(!auth.allowed());
+        auth.set_ready(true);
         assert!(auth.allowed());
 
         auth.set_ready(false);

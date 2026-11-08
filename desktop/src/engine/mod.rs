@@ -251,7 +251,7 @@ enum Internal {
         handle: String,
         result: Result<Option<Account>, ReadError>,
     },
-    /// An inbound message was saved (and acknowledged).
+    /// An inbound message was saved (acknowledged, unless the ACK could not be written).
     Received(chat::Received),
     /// An outbox record to `qid` changed.
     OutboxChanged { qid: String },
@@ -774,6 +774,9 @@ impl<C: Chain, A: Api> Engine<C, A> {
                 removed,
             } => {
                 self.polling = false;
+                // An invalidation a chat task consumed meanwhile starts a new round first, so
+                // a read begun before it cannot resume messaging.
+                self.observe_lifecycle();
                 self.self_checked(device_key, round, &account, removed);
             }
             Internal::ChatResolved { handle, result } => self.chat_resolved(handle, result),
@@ -842,11 +845,23 @@ impl<C: Chain, A: Api> Engine<C, A> {
                             .map_err(|e| e.to_string())
                             .map(|()| State::Linked(identity))
                     }
-                    Next::Release => self
-                        .store()
-                        .clear_approval()
-                        .map_err(|e| e.to_string())
-                        .map(|()| State::Pairing(identity)),
+                    Next::Release => {
+                        let store = self.store();
+                        match store.approval() {
+                            // Pairing saved a replacement since this poll began: keep it
+                            // (its `PairingDone` adopts it).
+                            Ok(Some(saved))
+                                if state.approval().is_some_and(|a| a.digest != saved.digest) =>
+                            {
+                                return;
+                            }
+                            Ok(_) => store
+                                .clear_approval()
+                                .map_err(|e| e.to_string())
+                                .map(|()| State::Pairing(identity)),
+                            Err(error) => Err(error.to_string()),
+                        }
+                    }
                     Next::Rotate => self.rotate(identity),
                 }
             }
@@ -896,14 +911,19 @@ impl<C: Chain, A: Api> Engine<C, A> {
         Ok(State::Pairing(identity))
     }
 
-    /// A pairing stream finished: follow whatever it did to the stored approval.
+    /// A pairing stream finished: follow whatever it did to the stored approval, including a
+    /// replacement saved on the recovery offer after the old one stopped occupying the slot.
     fn pairing_done(&mut self) {
         let approval = match self.store().approval() {
             Ok(approval) => approval,
             Err(error) => return eprintln!("qop: {error}"),
         };
+        let held = self.state.approval().map(|approval| approval.digest);
         match (self.state.clone(), approval) {
-            (State::Pairing(identity), Some(approval)) => {
+            (
+                State::Pairing(identity) | State::AwaitingEnrollment { identity, .. },
+                Some(approval),
+            ) if held != Some(approval.digest) => {
                 self.progress = EnrollmentProgress::Approved;
                 // Keep the session that saved it: the phone may replay if it lost the reply.
                 if let Some(net) = &mut self.net {

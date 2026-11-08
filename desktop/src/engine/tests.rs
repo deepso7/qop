@@ -348,6 +348,58 @@ async fn releases_expired_approvals_and_rotates_removed_keys() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_replacement_saved_during_recovery_is_followed() {
+    let dir = fresh_dir("replace");
+    let (chain, api) = (phone_chain(), FakeApi::status(DeviceActionStatus::Ready));
+    let mut desktop = Desktop::start(&dir, &chain, &api);
+    desktop.send(Command::SubmitHandle("alice".into()));
+    let phone = Phone::dial(&pairing_offer(&mut desktop).await).await;
+    let device_key = phone.offer.device_key;
+    phone.hello().await.expect("hello");
+    let first = approval_for(device_key, 9, DEADLINE, 1);
+    assert!(saved(first.digest)(&phone.approve(&first).await));
+    desktop
+        .wait_for("enrollment", |phase| {
+            matches!(phase, Phase::AwaitingEnrollment(_))
+        })
+        .await;
+
+    // The first approval's deadline passes while our own polls cannot read membership (so they
+    // wait); the phone signs a replacement on the recovery offer, which releases the first.
+    chain.fail_membership();
+    api.set(Err(crate::wire::DeviceActionStatusError::Missing));
+    chain.set_time(DEADLINE + 1);
+    desktop.send(Command::StopWaiting);
+    let phase = desktop
+        .wait_for("a recovery offer", |phase| offer_of(phase).is_some())
+        .await;
+    // The same phone, still connected, scans it.
+    let offer = PairingOffer::decode(&offer_of(&phase).unwrap().code, super::now_seconds());
+    let phone = Phone {
+        offer: offer.expect("a valid offer"),
+        ..phone
+    };
+    phone.hello().await.expect("hello");
+    let second = approval_for(device_key, 9, DEADLINE + 300, 1);
+    assert!(saved(second.digest)(&phone.approve(&second).await));
+
+    // The desktop waits on the replacement, and polls no longer release it.
+    desktop
+        .wait_for(
+            "enrollment on the replacement",
+            |phase| matches!(phase, Phase::AwaitingEnrollment(a) if a.recovery.is_none()),
+        )
+        .await;
+    chain.set_membership(None);
+    tokio::time::sleep(Duration::from_secs(3)).await;
+    while let Ok(model) = desktop.models.try_recv() {
+        assert!(matches!(model.phase, Phase::AwaitingEnrollment(_)));
+    }
+    desktop.stop().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 fn failed(phase: &Phase, error: LookupError) -> bool {
     matches!(phase, Phase::EnterHandle(e) if matches!(e.lookup, HandleLookup::Failed { error: e, .. } if e == error))
 }
@@ -520,6 +572,43 @@ impl Bob {
 }
 
 const BOB_MESSAGE: &str = "0b0b0b0b-0000-4000-8000-000000000001";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_saved_message_shows_even_when_its_ack_cannot_be_written() {
+    let (dir, listen) = linked_dir("lost-ack");
+    let (chain, api) = (chat_chain(), FakeApi::down());
+    let mut desktop = Desktop::start_on(&dir, &chain, &api, &listen);
+    desktop.wait_for("ready", ready).await;
+
+    // Bob sends, then abandons the stream while the desktop is still verifying him.
+    let bob = Bob::connect(&listen).await;
+    let hold = chain.hold_lookups();
+    let frame = ChatFrame {
+        from_handle: "bob".into(),
+        id: BOB_MESSAGE.into(),
+        sent_at: 1_700_000_000_000,
+        text: "hi alice".into(),
+    };
+    let mut stream = bob
+        .node
+        .handle()
+        .open_stream(&bob.desktop, CHAT_PROTOCOL)
+        .await
+        .expect("opens");
+    stream.send_message(frame.encode().unwrap()).await.unwrap();
+    hold.entered().await;
+    stream.reset();
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    hold.release();
+
+    desktop
+        .wait_for("bob's message", |p| {
+            bob_message(p, |m| m.text == "hi alice")
+        })
+        .await;
+    desktop.stop().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn receives_saves_then_acks_and_marks_read() {

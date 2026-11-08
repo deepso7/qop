@@ -151,6 +151,10 @@ impl FakeChain {
         self.0.lock().unwrap().membership = Ok(qid.map(U256::from));
     }
 
+    pub fn fail_membership(&self) {
+        self.0.lock().unwrap().membership = Err(ReadError::Rpc);
+    }
+
     pub fn set_removed(&self, removed: Result<bool, ReadError>) {
         self.0.lock().unwrap().removed = removed;
     }
