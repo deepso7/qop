@@ -21,7 +21,7 @@ use super::enrollment;
 use super::{Api, Chain};
 use crate::keys::random_32;
 use crate::node::Stream;
-use crate::store::{Identity, Store};
+use crate::store::{Identity, Store, StoreError};
 use crate::wire::pairing::{
     DEVICE_ACTION_DEADLINE_SECONDS, PAIRING_MAX_ADDRESSES, PAIRING_TTL_SECONDS,
 };
@@ -450,11 +450,7 @@ async fn exchange<C: Chain, A: Api>(
                 .approval(&peer, &record, &snapshot, session_id, pending.as_ref(), now)
                 .map_err(ServeError::Rejected)?;
             if settled.save {
-                store
-                    .lock()
-                    .unwrap()
-                    .save_approval(&record)
-                    .map_err(|error| ServeError::Store(error.to_string()))?;
+                save_for_current_key(&store.lock().unwrap(), &record)?;
             }
             let session_id = session.offer().session_id;
             let reply = match settled.ack {
@@ -471,6 +467,18 @@ async fn exchange<C: Chain, A: Api>(
         .await
         .map_err(ServeError::Stream)?;
     Ok(ack)
+}
+
+/// Saves `record` only while it adds the stored identity's key, checked under the same store
+/// lock: a rotation since this offer was made (which clears the approval) wins over a handler
+/// still finishing on the old key.
+fn save_for_current_key(store: &Store, record: &DeviceActionApproval) -> Result<(), ServeError> {
+    let error = |error: StoreError| ServeError::Store(error.to_string());
+    let current = store.identity().map_err(error)?.map(|identity| identity.device_key);
+    if current != Some(record.intent.device_key) {
+        return Err(ServeError::Rejected(Rejected::Expired));
+    }
+    store.save_approval(record).map_err(error)
 }
 
 async fn snapshot<C: Chain, A>(ctx: &PairContext<C, A>) -> Option<AccountSnapshot> {
@@ -829,5 +837,37 @@ mod tests {
         let (offer, code) = new_offer(&identity, &offer().addrs, NOW).unwrap();
         assert_eq!(offer.expires_at, NOW + PAIRING_TTL_SECONDS);
         assert_eq!(PairingOffer::decode(&code, NOW).unwrap(), offer);
+    }
+
+    #[test]
+    fn approvals_are_saved_only_for_the_stored_key() {
+        let dir = std::env::temp_dir().join(format!("qop-pairing-rotated-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let store = Store::open(&dir).unwrap();
+        let mut identity = Identity {
+            handle: "alice".into(),
+            qid: U256::from(QID),
+            chain_id: U256::from(CHAIN_ID),
+            registry: REGISTRY,
+            device_key: DEVICE_KEY,
+            linked: false,
+        };
+        let record = approval(9, DEADLINE);
+
+        // Rotated while the old offer's handler was still working: its approval is dropped.
+        identity.device_key = B256::repeat_byte(0x44);
+        store.save_identity(&identity).unwrap();
+        assert!(matches!(
+            save_for_current_key(&store, &record),
+            Err(ServeError::Rejected(Rejected::Expired))
+        ));
+        assert!(store.approval().unwrap().is_none());
+
+        identity.device_key = DEVICE_KEY;
+        store.save_identity(&identity).unwrap();
+        save_for_current_key(&store, &record).unwrap();
+        assert!(store.approval().unwrap().is_some());
+        drop(store);
+        std::fs::remove_dir_all(dir).unwrap();
     }
 }
