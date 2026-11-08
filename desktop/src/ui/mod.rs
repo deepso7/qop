@@ -106,8 +106,12 @@ impl Ui {
         let _ = self.commands.send(command);
     }
 
-    /// Opens a conversation and tells the engine it was read.
+    /// Opens a conversation and tells the engine it was read. A draft belongs to the chat it was
+    /// typed in, so opening another clears it.
     pub fn open(&mut self, id: ConversationId) {
+        if self.selected.as_ref() != Some(&id) {
+            self.composer.clear();
+        }
         self.selected = Some(id.clone());
         self.pane = Pane::Chat;
         self.send(Command::OpenConversation(id));

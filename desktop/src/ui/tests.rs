@@ -49,6 +49,16 @@ fn sending_from_the_composer_emits_send_and_clears_it() {
 }
 
 #[test]
+fn switching_chats_does_not_carry_the_draft() {
+    let (mut rt, _rx) = open(fake::chat);
+    click(&mut rt, "composer");
+    press(&mut rt, Key::Text("for bob only".into()));
+    click(&mut rt, "c-carol");
+    assert_eq!(rt.state.selected, Some(ConversationId("carol".into())));
+    assert_eq!(rt.state.composer.text, "");
+}
+
+#[test]
 fn a_message_over_the_limit_is_kept_and_not_sent() {
     let (mut rt, rx) = open(fake::chat);
     click(&mut rt, "composer");
