@@ -824,6 +824,13 @@ layer(enrollmentLayer(readyReplayRelayerLayer(() => {})), {
           RegistrationServiceUnavailable
         );
 
+        // Replaying the now-stored confirmed row (no tx hash) maps the same way.
+        const replayError = yield* enrollment.register(input).pipe(Effect.flip);
+        assert.instanceOf(
+          mapRegistrationHttpError(replayError),
+          RegistrationServiceUnavailable
+        );
+
         assert.deepStrictEqual(yield* enrollment.reconcile(digest), {
           digest,
           failureCode: null,
