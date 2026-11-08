@@ -6,7 +6,7 @@ use rune::{Edge, El, Transition, col, el, row, spacer, text};
 
 use super::kit::{self, Field, Kind, Notch, notched};
 use super::theme::{Theme, motion, space, type_};
-use super::{Ui, countdown};
+use super::{Ui, countdown, normalize_handle};
 use crate::model::{
     AwaitingEnrollment, Command, EnrollmentProgress, EnterHandle, HandleLookup, LookupError, Offer, RelayStatus, Revoked,
     Unreachable,
@@ -34,8 +34,11 @@ pub fn starting(t: &Theme) -> El {
 
 pub fn enter_handle(ui: &Ui, t: &Theme, e: &EnterHandle) -> El {
     let resolving = matches!(e.lookup, HandleLookup::Resolving { .. });
+    // Only for the handle still in the field, as New chat does: an edit hides a stale failure.
     let error = match &e.lookup {
-        HandleLookup::Failed { handle, error } => Some(lookup_error(handle, *error)),
+        HandleLookup::Failed { handle, error } if *handle == normalize_handle(&ui.handle_field.text) => {
+            Some(lookup_error(handle, *error))
+        }
         _ => None,
     };
     let field = Field { key: "handle", edit: &ui.handle_field, placeholder: "yourname", prefix: Some("@") }

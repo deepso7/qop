@@ -39,6 +39,24 @@ fn typing_a_handle_and_pressing_return_submits_it() {
 }
 
 #[test]
+fn editing_the_handle_hides_the_lookup_error_for_the_old_one() {
+    let (mut rt, _rx) = open(fake::welcome_error);
+    assert!(rt.find("handle-error").is_some());
+    click(&mut rt, "handle");
+    press(&mut rt, Key::Text("x".into()));
+    assert!(rt.find("handle-error").is_none());
+}
+
+#[test]
+fn tab_reaches_a_conversation_row_and_space_opens_it() {
+    let (mut rt, rx) = open(fake::linked_list);
+    press(&mut rt, Key::Tab); // New chat
+    press(&mut rt, Key::Tab);
+    press(&mut rt, Key::Text(" ".into()));
+    assert_eq!(rx.try_recv(), Ok(Command::OpenConversation(ConversationId("bob".into()))));
+}
+
+#[test]
 fn sending_from_the_composer_emits_send_and_clears_it() {
     let (mut rt, rx) = open(fake::chat);
     click(&mut rt, "composer");

@@ -112,6 +112,8 @@ fn conversation_row(ui: &Ui, t: &Theme, c: &Conversation) -> El {
     .role("button")
     .label(format!("@{}", c.peer))
     .hover_group()
+    .focusable(true)
+    .focus_ring(2.0, 0.0, t.brand)
     .cursor(Cursor::Pointer)
     .on_press(move |ui: &mut Ui| ui.open(id.clone()))
     .transition(Transition::offset(-8.0, 0.0).combined(Transition::opacity()).springs(motion::ARRIVE))
