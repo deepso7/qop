@@ -5,7 +5,7 @@ use std::time::Duration;
 use rune::{Edge, El, Transition, col, el, row, spacer, text};
 
 use super::kit::{self, Field, Kind, Notch, notched};
-use super::theme::{Theme, motion, space, type_};
+use super::theme::{TITLEBAR, Theme, motion, space, type_};
 use super::{Ui, countdown, normalize_handle};
 use crate::model::{
     AwaitingEnrollment, Command, EnrollmentProgress, EnterHandle, HandleLookup, LookupError, Offer, RelayStatus, Revoked,
@@ -17,8 +17,10 @@ fn page(t: &Theme, content: El) -> El {
     col()
         .w_full()
         .h_full()
-        .padding(space::XL)
-        .child(row().child(kit::wordmark(t.ink, 14.0)))
+        .px(space::XL)
+        .pb(space::XL)
+        // The titlebar band: the wordmark sits past the traffic lights, and the band drags the window.
+        .child(row().h(TITLEBAR).ml(t.band_lead(space::XL) - space::XL).items_center().window_drag().child(kit::wordmark(t.ink, 14.0)))
         .child(col().grow(1.0).min_h(0.0).center().child(content))
 }
 

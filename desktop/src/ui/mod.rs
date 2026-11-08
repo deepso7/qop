@@ -218,7 +218,7 @@ pub fn normalize_handle(s: &str) -> String {
 
 /// Root view: the current phase's screen, crossfading and lifting in when the phase changes.
 pub fn view(ui: &Ui, cx: &mut Cx<Ui>) -> El {
-    let t = Theme::new(cx.system_dark());
+    let t = Theme { controls_lead: cx.chrome_insets().leading, ..Theme::new(cx.system_dark()) };
     let (key, screen) = match &ui.model.phase {
         Phase::Starting => ("starting", onboard::starting(&t)),
         Phase::EnterHandle(e) => ("enter-handle", onboard::enter_handle(ui, &t, e)),

@@ -11,6 +11,9 @@ pub const FAMILIES: (&str, &str) = ("Paper Mono", "Paper Mono");
 /// The palette for one appearance. Built per view from the system appearance.
 #[derive(Clone, Copy, Debug)]
 pub struct Theme {
+    /// Room the window's own controls take at the leading edge of the titlebar band (the macOS
+    /// traffic lights); 0 where the native frame stays. Set per frame from `Cx::chrome_insets`.
+    pub controls_lead: f32,
     /// Window background (the sidebar and onboarding screens).
     pub paper: Color,
     /// The reading surface beside the sidebar, a shade off paper.
@@ -39,6 +42,12 @@ pub struct Theme {
 }
 
 impl Theme {
+    /// Leading padding for a row in the titlebar band: clear of the window's controls with a small
+    /// gap, or `rest` where there are none.
+    pub fn band_lead(&self, rest: f32) -> f32 {
+        if self.controls_lead > 0.0 { self.controls_lead + space::M } else { rest }
+    }
+
     pub fn new(dark: bool) -> Theme {
         let foam = oklch(0.944, 0.02, 62.9);
         let on_foam = oklch(0.17, 0.008, 250.0);
@@ -47,6 +56,7 @@ impl Theme {
             let brand = oklch(0.7, 0.12, 48.0);
             let paper = oklch(0.17, 0.012, 45.0);
             Theme {
+                controls_lead: 0.0,
                 paper,
                 sheet: oklch(0.2, 0.013, 45.0),
                 ink,
@@ -68,6 +78,7 @@ impl Theme {
             let ink = oklch(0.17, 0.008, 250.0);
             let link = oklch(0.5, 0.11, 45.0);
             Theme {
+                controls_lead: 0.0,
                 paper: oklch(0.95, 0.006, 60.0),
                 sheet: oklch(0.975, 0.004, 60.0),
                 ink,
@@ -126,3 +137,7 @@ pub mod motion {
     /// The countdown blocks emptying.
     pub const TICK: Spring = Spring::new(0.5, 0.0);
 }
+
+/// Height of the titlebar band the window draws: the sidebar, chat and onboarding headers, with
+/// the macOS traffic lights centred in it.
+pub const TITLEBAR: f32 = 56.0;

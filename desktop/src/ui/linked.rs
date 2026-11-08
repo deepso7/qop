@@ -4,7 +4,7 @@ use rune::{Cursor, El, GrowthSpec, ScrollSpec, Transition, auto_grow, col, el, r
 
 use super::kit::{self, Field, Kind, Notch, notched};
 use super::onboard::relay_line;
-use super::theme::{Theme, motion, space, type_};
+use super::theme::{TITLEBAR, Theme, motion, space, type_};
 use super::{Pane, Ui, ago, normalize_handle};
 use crate::model::{
     Command, Conversation, Direction, HandleLookup, Linked, LookupError, Message, MessageStatus, Messaging, NewChat,
@@ -36,9 +36,11 @@ fn sidebar(ui: &Ui, t: &Theme, l: &Linked) -> El {
     };
     let header = row()
         .key("sidebar-head")
-        .h(56.0)
-        .px(space::L)
+        .h(TITLEBAR)
+        .pl(t.band_lead(space::L))
+        .pr(space::L)
         .items_center()
+        .window_drag()
         .child(kit::wordmark(t.ink, 13.0))
         .child(spacer())
         .child(kit::button(t, "new-chat", "New chat", if ui.pane == Pane::NewChat { Kind::Primary } else { Kind::Secondary }, |ui: &mut Ui, _| ui.show(Pane::NewChat)));
@@ -146,7 +148,8 @@ fn no_chat(t: &Theme, l: &Linked) -> El {
 fn chat(ui: &Ui, t: &Theme, l: &Linked, c: &Conversation) -> El {
     let header = row()
         .key("chat-head")
-        .h(56.0)
+        .h(TITLEBAR)
+        .window_drag()
         .px(space::XL)
         .gap(space::M)
         .items_center()

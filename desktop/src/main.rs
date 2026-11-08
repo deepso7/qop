@@ -19,7 +19,7 @@ use qop_desktop::engine::{Engine, Publish, check_device_key};
 use qop_desktop::keys::KeyStore;
 use qop_desktop::model::{self, Command, Model, Phase};
 use qop_desktop::store::{Store, default_data_dir};
-use rune::{App, AppSpec};
+use rune::{App, AppSpec, Titlebar};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 use ui::Ui;
 
@@ -79,7 +79,8 @@ fn run_ui(parts: Option<Parts>) {
         // Replaced by `init` below; scenes and tests build their own `Ui`.
         ..AppSpec::new("qop", (980.0, 660.0), || Ui::new(mpsc::channel().0), ui::view)
     };
-    let app = App::new(spec).init(move || Ui::new(commands));
+    // Content runs under a 56 pt titlebar band with the traffic lights centred in it.
+    let app = App::new(spec).titlebar(Titlebar::new(ui::theme::TITLEBAR)).init(move || Ui::new(commands));
     if let Some(parts) = parts {
         let handle = app.handle();
         let print = std::env::var_os("QOP_PRINT_OFFER").is_some();
