@@ -1,5 +1,5 @@
 import type {
-  DeviceActionApiRecord,
+  DeviceActionApiLookup,
   DeviceActionApiStatus,
 } from "@qop/protocol";
 import { occupiesApprovalSlot } from "@qop/protocol";
@@ -8,35 +8,19 @@ import { Effect, Result } from "effect";
 import type { DeviceActionStatusError } from "./device-action-status.ts";
 import { getDeviceActionStatus } from "./device-action-status.ts";
 
-interface ApiLookup {
-  readonly apiRecord: DeviceActionApiRecord;
-  readonly apiStatus: DeviceActionApiStatus | null;
-}
-
-const apiRecordFromStatus = (
+const apiLookupFromStatus = (
   result: Result.Result<
     { readonly status: DeviceActionApiStatus },
     DeviceActionStatusError
   >
-): ApiLookup => {
+): DeviceActionApiLookup => {
   if (Result.isSuccess(result)) {
-    return {
-      apiRecord: "present",
-      apiStatus: result.success.status,
-    };
+    return { kind: "present", status: result.success.status };
   }
 
-  if (result.failure.operation === "missing") {
-    return {
-      apiRecord: "missing",
-      apiStatus: null,
-    };
-  }
-
-  return {
-    apiRecord: "unknown",
-    apiStatus: null,
-  };
+  return result.failure.operation === "missing"
+    ? { kind: "missing" }
+    : { kind: "unknown" };
 };
 
 interface OccupyingApproval {
@@ -86,11 +70,9 @@ export const loadOccupyingApproval = <T extends OccupyingApproval>({
 
     const status = yield* lookup(pending.digest).pipe(Effect.result);
     const chainTime = yield* latestTimestamp().pipe(Effect.result);
-    const { apiRecord, apiStatus } = apiRecordFromStatus(status);
 
     const occupies = occupiesApprovalSlot({
-      apiRecord,
-      apiStatus,
+      api: apiLookupFromStatus(status),
       chainTime: Result.isSuccess(chainTime) ? chainTime.success : undefined,
       deadline: BigInt(pending.intent.deadline),
       membership: "pending",

@@ -115,12 +115,11 @@ export {
   enrollmentMembership,
   enrollmentPollComplete,
   isTerminalDeviceActionStatus,
-  neverSubmittedDigestMissing,
   occupiesApprovalSlot,
 } from "./membership.ts";
 
 export type {
-  DeviceActionApiRecord,
+  DeviceActionApiLookup,
   DeviceActionApiStatus,
   DeviceActionOperation,
   EnrollmentMembership,

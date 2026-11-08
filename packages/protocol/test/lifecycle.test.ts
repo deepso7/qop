@@ -96,49 +96,49 @@ describe("enrollment membership", () => {
   it("releases the local slot after a terminal digest or settled roster", () => {
     expect(
       occupiesApprovalSlot({
-        apiStatus: "submitted",
+        api: { kind: "present", status: "submitted" },
         membership: "pending",
         operation: "add",
       })
     ).toBe(true);
     expect(
       occupiesApprovalSlot({
-        apiStatus: null,
+        api: { kind: "unknown" },
         membership: "pending",
         operation: "add",
       })
     ).toBe(true);
     expect(
       occupiesApprovalSlot({
-        apiStatus: "confirmed",
+        api: { kind: "present", status: "confirmed" },
         membership: "pending",
         operation: "add",
       })
     ).toBe(false);
     expect(
       occupiesApprovalSlot({
-        apiStatus: "reverted",
+        api: { kind: "present", status: "reverted" },
         membership: "pending",
         operation: "add",
       })
     ).toBe(false);
     expect(
       occupiesApprovalSlot({
-        apiStatus: "submitted",
+        api: { kind: "present", status: "submitted" },
         membership: "linked",
         operation: "add",
       })
     ).toBe(false);
     expect(
       occupiesApprovalSlot({
-        apiStatus: "submitted",
+        api: { kind: "present", status: "submitted" },
         membership: "linked",
         operation: "remove",
       })
     ).toBe(true);
     expect(
       occupiesApprovalSlot({
-        apiStatus: null,
+        api: { kind: "unknown" },
         membership: "removed",
         operation: "remove",
       })
@@ -154,8 +154,7 @@ describe("enrollment membership", () => {
     );
     expect(
       occupiesApprovalSlot({
-        apiRecord: "missing",
-        apiStatus: null,
+        api: { kind: "missing" },
         chainTime: 1_700_003_600n,
         deadline: 1_700_003_600n,
         membership: "pending",
@@ -164,8 +163,7 @@ describe("enrollment membership", () => {
     ).toBe(true);
     expect(
       occupiesApprovalSlot({
-        apiRecord: "missing",
-        apiStatus: null,
+        api: { kind: "missing" },
         chainTime: 1_700_003_700n,
         deadline: 1_700_003_600n,
         membership: "pending",
@@ -174,8 +172,7 @@ describe("enrollment membership", () => {
     ).toBe(false);
     expect(
       occupiesApprovalSlot({
-        apiRecord: "missing",
-        apiStatus: null,
+        api: { kind: "missing" },
         chainTime: 1_700_003_000n,
         deadline: 1_700_003_600n,
         membership: "pending",
@@ -184,8 +181,7 @@ describe("enrollment membership", () => {
     ).toBe(true);
     expect(
       occupiesApprovalSlot({
-        apiRecord: "missing",
-        apiStatus: "submitted",
+        api: { kind: "present", status: "submitted" },
         chainTime: 1_700_003_700n,
         deadline: 1_700_003_600n,
         membership: "pending",
@@ -194,8 +190,7 @@ describe("enrollment membership", () => {
     ).toBe(true);
     expect(
       occupiesApprovalSlot({
-        apiRecord: "unknown",
-        apiStatus: null,
+        api: { kind: "unknown" },
         chainTime: 1_700_003_700n,
         deadline: 1_700_003_600n,
         membership: "pending",
