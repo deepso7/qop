@@ -70,7 +70,8 @@ html {
 
 * {
   scrollbar-width: thin;
-  scrollbar-color: var(--qp-border) transparent;
+  scrollbar-color: color-mix(in oklab, var(--qp-ink) 25%, transparent)
+    transparent;
 }
 
 /* qop tokens as Tailwind colours (bg-paper, text-ink, bg-night, …). `inline`
@@ -110,7 +111,7 @@ html {
   image-rendering: pixelated;
 }
 
-/* Scroll reveal: sections rise in as they enter (see components/landing/reveal). */
+/* Scroll reveal: sections rise in as they enter (observer in components/landing/sections.astro). */
 @utility reveal {
   @media (prefers-reduced-motion: no-preference) {
     opacity: 0;

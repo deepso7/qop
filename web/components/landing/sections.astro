@@ -50,9 +50,9 @@ const small = "text-xs text-subtle";
     <dl class="grid divide-y divide-line border-y border-line sm:grid-cols-3 sm:divide-x sm:divide-y-0">
       {
         stats.map((s) => (
-          <div class="flex items-baseline gap-4 py-6 sm:block sm:px-6 sm:first:pl-0">
+          <div class="flex flex-row-reverse items-baseline justify-end gap-4 py-6 sm:flex-col-reverse sm:items-start sm:gap-2 sm:px-6 sm:first:pl-0">
+            <dt class={small}>{s.label}</dt>
             <dd class="text-4xl tracking-[-0.04em] text-link md:text-5xl">{s.value}</dd>
-            <dt class:list={[small, "sm:mt-2"]}>{s.label}</dt>
           </div>
         ))
       }
