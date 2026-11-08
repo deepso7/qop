@@ -6,7 +6,7 @@ Milestone 2 of `docs/research/desktop-app-plan.md` on `feat/desktop-rune`. Adapt
 
 Passed on macOS 27 (Apple silicon): link, restart mid-enrollment, restart once linked (same peer ID), lost-reply recovery through Stop waiting (same device key, same record replayed), single-instance lock, and a relay reservation on the public relay.
 
-- Transport: real QUIC between the desktop's Rust `minip2p-rs` 0.11.6 node and `@minip2p/node` 0.11.6 in the phone script, over the LAN addresses the desktop advertised (wildcard listeners expanded per interface). Relay *traversal* was not exercised; only the reservation and the circuit address in the offer.
+- Transport: real QUIC between the desktop's Rust `minip2p-rs` 0.11.6 node and `@minip2p/node` 0.11.6 in the phone script, over the LAN addresses the desktop advertised (wildcard listeners expanded per interface). Relay _traversal_ was not exercised; only the reservation and the circuit address in the offer.
 - The phone is a script, not the app: it reuses the app's `handshakePairing` / `sendPairingApproval` (`mobile/src/lib/pairing-client-core.ts`) and API client (`device-action-client-core.ts`), and signs with the owner key the app would hold. A real phone run (QR scan from the app) is still to do; the app already has the scanner.
 - Device keys used the default file store (`device.key`, 0600). See `desktop/src/keys.rs` for why the Keychain is opt-in.
 

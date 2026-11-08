@@ -77,7 +77,7 @@ Unlinked
 
 Rules, ported from `pairing-session.ts`, `pending-approval.ts`, `enrollment-poll.ts` and `docs/research/cli-device-linking-plan.md`:
 
-- **Recovery while awaiting enrollment.** If the phone never received `approvalSaved`, it never submits (`mobile/src/lib/device-link-flow-core.ts:87`). So `AwaitingEnrollment` can show a fresh offer with the *same* device key; a hello plus the identical approval record replays `approvalSaved` without re-checking nonce/deadline (`pairing-session.ts:222`). A different approval gets `approvalConflict`.
+- **Recovery while awaiting enrollment.** If the phone never received `approvalSaved`, it never submits (`mobile/src/lib/device-link-flow-core.ts:87`). So `AwaitingEnrollment` can show a fresh offer with the _same_ device key; a hello plus the identical approval record replays `approvalSaved` without re-checking nonce/deadline (`pairing-session.ts:222`). A different approval gets `approvalConflict`.
 - **Pending approval transitions.** Evaluated in this order on every poll and on startup, matching `enrollment-poll.ts`, `pending-approval.ts:71`, `pairing-link.ts:240` and `occupiesApprovalSlot` (`membership.ts:63`):
 
   | Observation | Transition |
@@ -89,8 +89,9 @@ Rules, ported from `pairing-session.ts`, `pending-approval.ts`, `enrollment-poll
   | Anything else (`ready`, `submitted`, `confirmed` not yet observed on chain, API or RPC unreachable, deadline passed but API still has the digest) | Keep the approval, stay in `AwaitingEnrollment` |
 
   Clearing promptly matters: once the phone's slot is released it may sign a replacement intent, which a stale saved approval would answer with `approvalConflict` (`mobile/src/lib/local-device-action-core.ts:402`).
+
 - **Pending enrollment UI** offers only "Stop waiting", which hides progress but keeps the state and the recovery pairing path. Unlink is available only in `Pairing` (no approval yet) and `Linked`.
-- **Revocation requires affirmative chain evidence.** Periodic membership checks, resume, and authorization failures *trigger* a fresh self-membership read; they never wipe on their own. A remote peer failing verification, an RPC error, or a stale/stuck registry head (`p2p-sessions.ts:177`, `:204`, `:220`) only pauses messaging until verification succeeds. Only a successful read showing the desktop's key removed from the account stops messaging, wipes the key and local messaging data, and returns to `Unlinked` with an explanation.
+- **Revocation requires affirmative chain evidence.** Periodic membership checks, resume, and authorization failures _trigger_ a fresh self-membership read; they never wipe on their own. A remote peer failing verification, an RPC error, or a stale/stuck registry head (`p2p-sessions.ts:177`, `:204`, `:220`) only pauses messaging until verification succeeds. Only a successful read showing the desktop's key removed from the account stops messaging, wipes the key and local messaging data, and returns to `Unlinked` with an explanation.
 - **Membership gating ships with receiving.** Milestones 3 and 4 enforce linked membership before any messaging; milestone 6 only adds the removal UI and polish.
 
 ## Wire compatibility: golden vectors
@@ -111,7 +112,7 @@ TS tests assert the committed vectors still match the encoders. Rust tests check
 
 ## User flow
 
-1. **First launch.** Ask for the account handle; resolve it on chain. Generate and durably store a fresh device key *before* showing any QR.
+1. **First launch.** Ask for the account handle; resolve it on chain. Generate and durably store a fresh device key _before_ showing any QR.
 2. **Pairing screen.** Wait for a relay reservation (fall back to LAN addresses), then render the QR and a Copy button for the `qop-pair1.` payload, with an expiry countdown (`PAIRING_TTL_SECONDS`) and Regenerate.
 3. **Phone approves.** First valid hello from an active device of the expected account claims the session. The desktop verifies the owner signature against a fresh account read, checks key/qid/chain/registry/nonce/deadline, persists the approval, then sends `approvalSaved`.
 4. **Linking progress.** "Waiting for confirmation" while polling API status and chain membership. Linked only after the desktop's own chain read confirms membership. Restarting resumes the same state.
