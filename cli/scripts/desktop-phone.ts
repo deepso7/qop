@@ -8,11 +8,19 @@
  *   node scripts/desktop-phone.ts approve <qop-pair1.…> [--no-submit]
  *                                                       hello + owner-signed approval, then submit it
  *   node scripts/desktop-phone.ts submit                submit the saved approval and wait for the API
+ *   node scripts/desktop-phone.ts handoff <handle> <text…>
+ *                                                       hand a queued message to the linked device
+ *   node scripts/desktop-phone.ts poll                  ask it for receipts of handed-off messages
+ *   node scripts/desktop-phone.ts catchup               fetch what it received past the cursor
+ *   node scripts/desktop-phone.ts remove                remove the linked device from the account
  *
- * The phone's state (owner key, device secret, pending approval) lives in `QOP_E2E_PHONE`
- * (default `/tmp/qop-e2e/phone.json`). Pairing reuses the app's own handshake
- * (`mobile/src/lib/pairing-client-core.ts`) and API client; like the app, `approve` resends a
- * pending approval for the same desktop key instead of signing a new one.
+ * The phone's state (owner key, device secret, pending approval, handed-off ids, catch-up
+ * cursors) lives in `QOP_E2E_PHONE` (default `/tmp/qop-e2e/phone.json`). Pairing reuses the
+ * app's own handshake (`mobile/src/lib/pairing-client-core.ts`) and API client; like the app,
+ * `approve` resends a pending approval for the same desktop key instead of signing a new one.
+ * Sync reuses the app's `/qop/sync/1` client (`mobile/src/lib/p2p-sync.ts`) and peer sessions,
+ * against the account's one other device (the desktop); it needs `QOP_RELAY_ADDRS` to reach
+ * it by peer ID.
  *
  * Environment: the CLI's `QOP_RPC_URL`, `QOP_REGISTRY_ADDRESS`, `QOP_REGISTRY_CHAIN_ID`,
  * `QOP_API_URL`, optional `QOP_RELAY_ADDRS`, plus `QOP_E2E_REGISTRATION_KEY` (the registry's
@@ -26,18 +34,23 @@ import {
   decodeAddDeviceIntentV1,
   decodeIdentityEip712DomainV1,
   decodeRegisterIntentV1,
+  decodeRemoveDeviceIntentV1,
   deviceKeyFromEd25519SecretKey,
   EcdsaSignature,
   encodeRegisterIntentV1,
   hashAddDeviceIntentV1,
+  hashRemoveDeviceIntentV1,
   Hex32,
   signAddDeviceIntentV1,
   signRegisterIntentV1,
+  signRemoveDeviceIntentV1,
 } from "@qop/identity";
 import {
   asHex,
+  createPeerSessions,
   DEVICE_ACTION_DEADLINE_SECONDS,
   PAIR_PROTOCOL,
+  SYNC_PROTOCOL,
 } from "@qop/protocol";
 import type { DeviceActionApprovalV1Encoded } from "@qop/protocol";
 import { Data, Effect, Schema } from "effect";
@@ -55,6 +68,12 @@ import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 import { createDeviceActionClient } from "../../mobile/src/lib/device-action-client-core.ts";
 import {
+  outgoingHandoffRecord,
+  performCatchup,
+  performHandoff,
+  performPoll,
+} from "../../mobile/src/lib/p2p-sync.ts";
+import {
   decodePairingPayload,
   handshakePairing,
   sendPairingApproval,
@@ -68,7 +87,11 @@ class PhoneError extends Data.TaggedError("PhoneError")<{
 const fail = (reason: string) => new PhoneError({ reason });
 
 interface PhoneState {
+  /** Catch-up cursor per holder peer ID, as the app keeps it. */
+  readonly cursors?: Readonly<Record<string, number>>;
   readonly handle: string;
+  /** Message ids handed off and not yet reported delivered. */
+  readonly held?: readonly string[];
   readonly ownerKey: Hex;
   readonly pending?: DeviceActionApprovalV1Encoded;
   readonly phoneSecret: Hex;
@@ -204,10 +227,11 @@ const register = Effect.fn("phone.register")(function* (handle: string) {
   console.log(`registered @${handle} qid=${account.qid} phone=${deviceKey}`);
 });
 
-/** Signs an add-device approval for `deviceKey`, as the app's owner key would. */
+/** Signs an add- or remove-device record for `deviceKey`, as the app's owner key would. */
 const signApproval = Effect.fn("phone.signApproval")(function* (
   state: PhoneState,
-  deviceKey: string
+  deviceKey: string,
+  operation: "add" | "remove" = "add"
 ) {
   const { chainId, reader, registryAddress } = yield* configuredRegistry();
   const account = yield* reader.lookupQid(BigInt(state.qid));
@@ -227,21 +251,37 @@ const signApproval = Effect.fn("phone.signApproval")(function* (
   };
 
   const domain = yield* decodeIdentityEip712DomainV1(domainInput);
-  const intent = yield* decodeAddDeviceIntentV1(intentInput);
+  const ownerKey = hexToBytes(state.ownerKey);
 
-  const ownerSignature = yield* signAddDeviceIntentV1(
-    domain,
-    intent,
-    hexToBytes(state.ownerKey)
-  ).pipe(Effect.flatMap(encodeSignature));
+  if (operation === "remove") {
+    const intent = yield* decodeRemoveDeviceIntentV1(intentInput);
+
+    return {
+      digest: yield* hashRemoveDeviceIntentV1(domain, intent),
+      domain: domainInput,
+      expectedOwner: account.owner,
+      intent: intentInput,
+      operation,
+      ownerSignature: yield* signRemoveDeviceIntentV1(
+        domain,
+        intent,
+        ownerKey
+      ).pipe(Effect.flatMap(encodeSignature)),
+      v: 1,
+    } satisfies DeviceActionApprovalV1Encoded;
+  }
+
+  const intent = yield* decodeAddDeviceIntentV1(intentInput);
 
   return {
     digest: yield* hashAddDeviceIntentV1(domain, intent),
     domain: domainInput,
     expectedOwner: account.owner,
     intent: intentInput,
-    operation: "add",
-    ownerSignature,
+    operation,
+    ownerSignature: yield* signAddDeviceIntentV1(domain, intent, ownerKey).pipe(
+      Effect.flatMap(encodeSignature)
+    ),
     v: 1,
   } satisfies DeviceActionApprovalV1Encoded;
 });
@@ -259,20 +299,15 @@ const deviceActions = Effect.fn("phone.deviceActions")(function* () {
   return createDeviceActionClient({ fetch });
 });
 
-/** Submits the pending approval, then waits until the API settles it. */
-const submit = Effect.fn("phone.submit")(function* () {
-  const state = yield* loadState();
-  const record = state.pending;
-
-  if (!record) {
-    return yield* fail("no pending approval; run approve first");
-  }
-
+/** Submits a signed device action, then waits until the API settles it. */
+const submitRecord = Effect.fn("phone.submitRecord")(function* (
+  record: DeviceActionApprovalV1Encoded
+) {
   const client = yield* deviceActions();
 
   const submitted = yield* client.submit({
     intent: record.intent,
-    operation: "add",
+    operation: record.operation,
     ownerSignature: record.ownerSignature,
   });
 
@@ -291,6 +326,17 @@ const submit = Effect.fn("phone.submit")(function* () {
   }
 
   return yield* fail("the API did not settle the approval in 60 s");
+});
+
+/** Submits the pending approval, then waits until the API settles it. */
+const submit = Effect.fn("phone.submit")(function* () {
+  const state = yield* loadState();
+
+  if (!state.pending) {
+    return yield* fail("no pending approval; run approve first");
+  }
+
+  yield* submitRecord(state.pending);
 });
 
 /** Dials the desktop's offer, says hello, hands over the approval; then submits it. */
@@ -354,6 +400,213 @@ const approve = Effect.fn("phone.approve")(function* (
   }
 });
 
+/** The account's devices other than this phone: the linked desktop (or CLI). */
+const otherDevices = Effect.fn("phone.otherDevices")(function* (
+  state: PhoneState
+) {
+  const { reader } = yield* configuredRegistry();
+  const account = yield* reader.lookupQid(BigInt(state.qid));
+
+  if (!account) {
+    return yield* fail(`qid ${state.qid} is not on chain`);
+  }
+
+  const phoneKey = yield* deviceKeyFromEd25519SecretKey(
+    hexToBytes(state.phoneSecret)
+  ).pipe(Effect.flatMap(Schema.encodeEffect(Hex32)));
+
+  const others = account.devices.filter(
+    (device) => asHex(device.deviceKey) !== asHex(phoneKey)
+  );
+
+  const [holder] = others;
+
+  if (!holder || others.length !== 1) {
+    return yield* fail(`expected one other device, found ${others.length}`);
+  }
+
+  return { holder, phoneKey };
+});
+
+/**
+ * Runs `run` against the linked device over `/qop/sync/1`, with the app's sync client: a
+ * phone endpoint on the relay and peer sessions that verify the holder as our own device.
+ */
+const withHolder = <A>(
+  run: (sync: {
+    readonly composedBy: string;
+    readonly holderPeerId: string;
+    readonly input: Omit<
+      Parameters<typeof performCatchup>[0],
+      "after" | "holderPeerId"
+    >;
+    readonly state: PhoneState;
+  }) => Promise<A>
+) =>
+  Effect.gen(function* () {
+    const state = yield* loadState();
+    const { reader } = yield* configuredRegistry();
+    const { holder, phoneKey } = yield* otherDevices(state);
+    const relays = cliRelays();
+
+    if (relays.length === 0) {
+      return yield* fail("QOP_RELAY_ADDRS is required to reach the holder");
+    }
+
+    const endpoint = Minip2p.create({
+      agentVersion: "qop-e2e-phone/0.1.0",
+      protocols: [SYNC_PROTOCOL],
+      relays,
+      secretKey: hexToBytes(state.phoneSecret),
+    });
+
+    const sessions = createPeerSessions({
+      getContactByQid: () => Promise.resolve(null),
+      lookupDeviceKey: reader.lookupDeviceKey,
+      lookupHandle: reader.lookupHandle,
+      ownQid: () => state.qid,
+      upsertContact: () => Promise.resolve(),
+    });
+
+    const input = {
+      endpoint,
+      own: { handle: state.handle, qid: state.qid },
+      sessions,
+      timeoutMs: 20_000,
+    };
+
+    return yield* Effect.tryPromise({
+      catch: (cause) => fail(`sync failed: ${String(cause)}`),
+      try: () =>
+        run({
+          composedBy: asHex(phoneKey),
+          holderPeerId: holder.peerId,
+          input,
+          state,
+        }),
+    }).pipe(
+      Effect.ensuring(
+        Effect.promise(() => endpoint.close()).pipe(Effect.ignore)
+      )
+    );
+  });
+
+/** Hands a queued message for `toHandle` to the linked device; it answers `held` once saved. */
+const handoff = Effect.fn("phone.handoff")(function* (
+  toHandle: string,
+  text: string
+) {
+  const { reader } = yield* configuredRegistry();
+  const contact = yield* reader.lookupHandle(toHandle);
+
+  if (!contact) {
+    return yield* fail(`@${toHandle} is not on chain`);
+  }
+
+  const id = crypto.randomUUID();
+
+  const state = yield* withHolder(async (sync) => {
+    const now = Date.now();
+
+    await performHandoff({
+      ...sync.input,
+      composedBy: sync.composedBy,
+      holderPeerId: sync.holderPeerId,
+      record: outgoingHandoffRecord({
+        contact: { handle: contact.handle, qid: contact.qid.toString() },
+        fromHandle: sync.state.handle,
+        id,
+        now,
+        sentAt: now,
+        text,
+      }),
+    });
+
+    console.log(`held ${id} by ${sync.holderPeerId}`);
+
+    return sync.state;
+  });
+
+  yield* saveState({ ...state, held: [...(state.held ?? []), id] });
+});
+
+/** Asks the linked device which handed-off messages it has delivered. */
+const poll = Effect.fn("phone.poll")(function* () {
+  const state = yield* loadState();
+  const held = state.held ?? [];
+
+  if (held.length === 0) {
+    return yield* fail("nothing handed off; run handoff first");
+  }
+
+  const receipts = yield* withHolder((sync) =>
+    performPoll({ ...sync.input, holderPeerId: sync.holderPeerId, ids: held })
+  );
+
+  for (const receipt of receipts) {
+    console.log(
+      `receipt ${receipt.id} to=${receipt.toQid} deliveredAt=${new Date(receipt.deliveredAt).toISOString()}`
+    );
+  }
+
+  const delivered = new Set(receipts.map((receipt) => receipt.id));
+  const waiting = held.filter((id) => !delivered.has(id));
+  console.log(`${receipts.length} delivered, ${waiting.length} still held`);
+  yield* saveState({ ...state, held: waiting });
+});
+
+/** Pages the linked device's inbox past this phone's cursor, as the app's catch-up does. */
+const catchup = Effect.fn("phone.catchup")(function* () {
+  const { cursor, holderPeerId, state } = yield* withHolder(async (sync) => {
+    // One page at a time, until an empty one; a cursor past the holder's last seq means its
+    // inbox was wiped, so start over from 0 (the app's `pull`).
+    const pull = async (after: number): Promise<number> => {
+      const page = await performCatchup({
+        ...sync.input,
+        after,
+        holderPeerId: sync.holderPeerId,
+      });
+
+      if (after > page.lastSeq) {
+        console.log(`holder inbox reset (lastSeq=${page.lastSeq}); from 0`);
+
+        return pull(0);
+      }
+
+      for (const { record, seq } of page.records) {
+        console.log(
+          `#${seq} @${record.frame.fromHandle}: ${record.frame.text}`
+        );
+      }
+
+      const last = page.records.at(-1);
+
+      return last ? pull(last.seq) : after;
+    };
+
+    return {
+      cursor: await pull(sync.state.cursors?.[sync.holderPeerId] ?? 0),
+      holderPeerId: sync.holderPeerId,
+      state: sync.state,
+    };
+  });
+
+  console.log(`caught up to seq ${cursor}`);
+  yield* saveState({
+    ...state,
+    cursors: { ...state.cursors, [holderPeerId]: cursor },
+  });
+});
+
+/** Signs and submits removal of the account's other device, as Profile → Devices would. */
+const remove = Effect.fn("phone.remove")(function* () {
+  const state = yield* loadState();
+  const { holder } = yield* otherDevices(state);
+  const record = yield* signApproval(state, holder.deviceKey, "remove");
+  console.log(`removing ${holder.peerId}`);
+  yield* submitRecord(record);
+});
+
 const [command, ...args] = process.argv.slice(2);
 
 if (command === "register") {
@@ -362,7 +615,17 @@ if (command === "register") {
   NodeRuntime.runMain(approve(args[0] ?? "", !args.includes("--no-submit")));
 } else if (command === "submit") {
   NodeRuntime.runMain(submit());
+} else if (command === "handoff") {
+  NodeRuntime.runMain(handoff(args[0] ?? "", args.slice(1).join(" ")));
+} else if (command === "poll") {
+  NodeRuntime.runMain(poll());
+} else if (command === "catchup") {
+  NodeRuntime.runMain(catchup());
+} else if (command === "remove") {
+  NodeRuntime.runMain(remove());
 } else {
-  console.error("usage: desktop-phone.ts register|approve|submit");
+  console.error(
+    "usage: desktop-phone.ts register|approve|submit|handoff|poll|catchup|remove"
+  );
   process.exitCode = 1;
 }
