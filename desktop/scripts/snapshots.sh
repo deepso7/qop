@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Renders headless snapshots of every scene (or the ones named) in light and dark.
-#   scripts/snapshots.sh [out-dir] [scene...]    default: snapshots/, every scene
+#   scripts/snapshots.sh [out-dir] [scene...]    default: snapshots/ (gitignored), every scene
 set -euo pipefail
 cd "$(dirname "$0")/.."
 out=${1:-snapshots}
