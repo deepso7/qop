@@ -230,13 +230,15 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
       ? dialTarget.peerId
       : contact.peerId;
 
-  const latestReceivedAt =
-    messages.kind === "ready" ? messages.value.at(-1)?.receivedAt : undefined;
+  const loadedMessages = messages.kind === "ready" ? messages.value : undefined;
 
-  // Messages reload on every chat change while focused. Advance the read cursor
-  // only through messages that a load returned, so a concurrent arrival stays
-  // unread until the next load. A failed cursor write only delays read marks.
+  // Messages reload on every chat change while focused. After each successful
+  // load, advance the read cursor only through messages that load returned, so
+  // a concurrent arrival stays unread until the next load. A failed cursor
+  // write is retried on the next load.
   React.useEffect(() => {
+    const latestReceivedAt = loadedMessages?.at(-1)?.receivedAt;
+
     if (latestReceivedAt === undefined) {
       return;
     }
@@ -250,7 +252,7 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
     };
 
     void markRead();
-  }, [contact.qid, latestReceivedAt]);
+  }, [contact.qid, loadedMessages]);
 
   const running = connection.status === "running" ? connection : undefined;
   const reachable = running?.connectedPeerIds.includes(dialPeerId) === true;
