@@ -494,6 +494,43 @@ async fn a_missing_device_key_stops_startup_and_keeps_the_messages() {
     assert_eq!(store.contact("7").unwrap().as_deref(), Some("bob"));
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn unlink_finishes_when_the_key_cannot_be_deleted() {
+    let (dir, listen) = linked_dir("unlink-key-stays");
+    let (chain, api) = (chat_chain(), FakeApi::down());
+    let mut desktop = Desktop::start_on(&dir, &chain, &api, &listen);
+    desktop.wait_for("ready", ready).await;
+    // A directory where the key file was: deleting it fails (unlink(2) refuses directories).
+    let key = dir.join("device.key");
+    std::fs::remove_file(&key).unwrap();
+    std::fs::create_dir(&key).unwrap();
+    desktop.send(Command::Unlink);
+    desktop
+        .wait_for("unlinked", |p| matches!(p, Phase::EnterHandle(_)))
+        .await;
+    desktop.stop().await;
+    assert!(Store::open(&dir).unwrap().identity().unwrap().is_none());
+
+    // A leftover key without an identity starts unlinked, and the next link adopts it.
+    std::fs::remove_dir(&key).unwrap();
+    let keys = KeyStore::File { path: key };
+    keys.save(&DESKTOP_SECRET).unwrap();
+    assert_eq!(
+        super::check_device_key(&Store::open(&dir).unwrap(), &keys),
+        Ok(())
+    );
+    let mut desktop = Desktop::start_on(&dir, &chain, &api, &listen);
+    desktop
+        .wait_for("unlinked", |p| matches!(p, Phase::EnterHandle(_)))
+        .await;
+    desktop.send(Command::SubmitHandle("alice".into()));
+    let code = pairing_offer(&mut desktop).await;
+    let offered = PairingOffer::decode(&code, super::now_seconds()).unwrap();
+    assert_eq!(offered.device_key, device_key_from_secret(DESKTOP_SECRET));
+    desktop.stop().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 /// Alice's own key is a member; Bob's device belongs to @bob.
 fn chat_chain() -> FakeChain {
     let chain = FakeChain::default();

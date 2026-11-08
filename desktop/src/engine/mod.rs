@@ -763,18 +763,18 @@ impl<C: Chain, A: Api> Engine<C, A> {
     }
 
     /// The identity goes before the key: a crash between them leaves a key, which the next link
-    /// adopts, never an identity without its key (which startup refuses).
+    /// adopts, never an identity without its key (which startup refuses). Once the identity is
+    /// gone the device is unlinked, so a key that fails to delete is only logged: it is likewise
+    /// left for the next link to adopt.
     fn unlink(&mut self) {
         self.stop_node();
-        let result = self
-            .store()
-            .delete_identity()
-            .map_err(|e| e.to_string())
-            .and_then(|()| self.keys.delete().map_err(|e| e.to_string()));
-        match result {
-            Ok(()) => self.enter(State::Unlinked),
-            Err(error) => eprintln!("qop: unlink failed: {error}"),
+        if let Err(error) = self.store().delete_identity() {
+            return eprintln!("qop: unlink failed: {error}");
         }
+        if let Err(error) = self.keys.delete() {
+            eprintln!("qop: unlinked, but the device key was not deleted: {error}");
+        }
+        self.enter(State::Unlinked);
     }
 
     fn internal(&mut self, message: Internal) {
