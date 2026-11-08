@@ -34,6 +34,7 @@ As in `desktop-chat-e2e.md` (Anvil with `--block-time 1`, `QOP_RELAY_ADDRS` in `
 phone register alice
 # registered @alice qid=1 phone=0xa49d2660…
 QOP_DATA_DIR=/tmp/qop-e2e/desktop desktop --headless --link alice < /tmp/qop-e2e/a.in > /tmp/qop-e2e/desktop.log 2>&1 & echo $! > /tmp/qop-e2e/desktop.pid
+until grep -q 'qop-pair1\.' /tmp/qop-e2e/desktop.log; do sleep 1; done
 phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' /tmp/qop-e2e/desktop.log | tail -1)"
 # hello acknowledged by 6EC92CD9 (12D3KooWHGpwEiGmUhXABUKeidcGvjZKkc7wJMYiWsN275YZYh5b)
 # api status=confirmed …
@@ -42,6 +43,7 @@ phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' /tmp/qop-e2e/desktop.log | 
 export QOP_E2E_PHONE=/tmp/qop-e2e/phone-bob.json   # only for bob's two commands
 phone register bob
 QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop link --account bob > /tmp/qop-e2e/bob-link.log 2>&1 &
+until grep -q 'qop-pair1\.' /tmp/qop-e2e/bob-link.log; do sleep 1; done
 phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' /tmp/qop-e2e/bob-link.log | tail -1)"
 # Linked as @bob. Run qop start.
 unset QOP_E2E_PHONE
@@ -110,6 +112,7 @@ echo start-over >> /tmp/qop-e2e/a.cmds
 # phase=EnterHandle lookup=Idle
 echo "link alice" >> /tmp/qop-e2e/a.cmds
 # phase=Pairing handle=alice relay=Connected offer=qop-pair1.…
+until grep -q 'qop-pair1\.' /tmp/qop-e2e/desktop2.log; do sleep 1; done
 phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' /tmp/qop-e2e/desktop2.log | tail -1)"
 # hello acknowledged by 87E56365 (12D3KooWJxr5btz1R6jV4ZDSgmoiPuJ4vL9sSG9bgtzB52XmJAgw)   new key
 # api status=confirmed …

@@ -102,7 +102,8 @@ QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start > /tmp/qop-e2e/bob3.log 2>&1 & echo 
 ```sh
 kill "$(cat /tmp/qop-e2e/desktop.pid)"
 QOP_DATA_DIR=/tmp/qop-e2e/desktop QOP_PRINT_OFFER=1 desktop > /tmp/qop-e2e/gui.log 2>&1 & echo $! > /tmp/qop-e2e/gui.pid
-QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start --to alice --message "got all three, nice work on the desktop app" > /tmp/qop-e2e/bob4.log 2>&1 &
+kill "$(cat /tmp/qop-e2e/bob.pid)" # bob3 holds the cli-bob lock
+QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start --to alice --message "got all three, nice work on the desktop app" > /tmp/qop-e2e/bob4.log 2>&1 & echo $! > /tmp/qop-e2e/bob.pid
 # gui.log: 0b7d6be2 received "got all three, nice work on the desktop app"
 kill "$(cat /tmp/qop-e2e/gui.pid)"
 QOP_DATA_DIR=/tmp/qop-e2e/desktop desktop --snap live-chat-light.png --scene live --theme light --at 1.5 --scale 1
