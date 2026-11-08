@@ -102,13 +102,13 @@ phone remove
 # submitted 0xde5b9812… status=submitted
 # api status=confirmed tx=0x83b64d81…                      (22:51:22)
 # desktop, 22:52:10 at the latest: phase=Revoked handle=alice
+until grep -q '^phase=Revoked handle=alice' /tmp/qop-e2e/desktop2.log; do sleep 1; done
 ls /tmp/qop-e2e/desktop
 # lock  qop.db  qop.db-shm  qop.db-wal                     (device.key is gone)
 sqlite3 /tmp/qop-e2e/desktop/qop.db "select (select count(*) from outbox), (select count(*) from inbox),
   (select count(*) from contacts), (select count(*) from identity), (select handle from revoked)"
 # 0|0|0|0|alice
 
-until grep -q '^phase=Revoked handle=alice' /tmp/qop-e2e/desktop2.log; do sleep 1; done
 echo start-over >> /tmp/qop-e2e/a.cmds
 # phase=EnterHandle lookup=Idle
 echo "link alice" >> /tmp/qop-e2e/a.cmds
