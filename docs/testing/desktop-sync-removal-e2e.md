@@ -81,7 +81,7 @@ phone catchup
 # caught up to seq 1
 ```
 
-The renders above were taken here (`desktop --snap … --scene live` and `--scene live-settings` with `QOP_DATA_DIR=/tmp/qop-e2e/desktop`, desktop stopped for the store lock), then the desktop was restarted on the same directory (`messaging=Verifying`, then `Ready`).
+To see the state at this point, render it here (`desktop --snap … --scene live` and `--scene live-settings` with `QOP_DATA_DIR=/tmp/qop-e2e/desktop`, desktop stopped for the store lock), then the desktop was restarted on the same directory (`messaging=Verifying`, then `Ready`).
 
 ```sh
 kill "$(cat /tmp/qop-e2e/desktop.pid)" "$(cat /tmp/qop-e2e/tail-a.pid)"
