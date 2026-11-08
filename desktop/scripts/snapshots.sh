@@ -9,7 +9,8 @@ cargo build --quiet
 bin=target/debug/qop-desktop
 scenes=("$@")
 if [ ${#scenes[@]} -eq 0 ]; then
-  read -r -a scenes <<< "$("$bin" --list-scenes 2>/dev/null | tr '\n' ' ')"
+  # `live` renders a real data directory, not a fixture.
+  read -r -a scenes <<< "$("$bin" --list-scenes 2>/dev/null | grep -vx live | tr '\n' ' ')"
 fi
 mkdir -p "$out"
 for scene in "${scenes[@]}"; do

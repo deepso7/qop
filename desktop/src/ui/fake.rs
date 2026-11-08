@@ -192,6 +192,20 @@ pub fn revoked(ui: &mut Ui) {
     ui.publish(Model { phase: Phase::Revoked(Revoked { handle: HANDLE.into() }) });
 }
 
+/// The stored state of `QOP_DATA_DIR` (never the default directory), first chat open: a real
+/// run rendered headless, e.g. after an e2e run. Not part of `scripts/snapshots.sh`.
+pub fn live(ui: &mut Ui) {
+    let model = std::env::var_os("QOP_DATA_DIR")
+        .and_then(|dir| qop_desktop::engine::stored_model(std::path::Path::new(&dir)));
+    let Some(model) = model else { return starting(ui) };
+    let first = match &model.phase {
+        Phase::Linked(l) => l.conversations.first().map(|c| c.id.clone()),
+        _ => None,
+    };
+    ui.publish(model);
+    ui.selected = first;
+}
+
 /// Sets up a scene on a fresh `Ui`.
 type Scene = fn(&mut Ui);
 
@@ -212,4 +226,5 @@ pub const SCENES: &[(&str, Scene)] = &[
     ("new-chat", new_chat),
     ("settings", settings),
     ("revoked", revoked),
+    ("live", live),
 ];

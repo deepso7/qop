@@ -1329,6 +1329,27 @@ impl<C: Chain, A: Api> Engine<C, A> {
     }
 }
 
+/// What a linked data directory holds, as the model the UI renders: for headless renders of a
+/// real run (the `live` scene). Connectivity is not stored; it shows as ready.
+pub fn stored_model(dir: &std::path::Path) -> Option<Model> {
+    let store = Store::open(dir).ok()?;
+    let identity = store.identity().ok()?.filter(|identity| identity.linked)?;
+    Some(Model {
+        phase: Phase::Linked(model::Linked {
+            account: model::Account {
+                handle: identity.handle.clone(),
+                peer_id: identity.peer_id(),
+                fingerprint: identity.fingerprint(),
+                data_dir: dir.to_owned(),
+            },
+            conversations: conversations(&store).ok()?,
+            messaging: Messaging::Ready,
+            relay: RelayStatus::Connected,
+            new_chat: NewChat::Lookup(HandleLookup::Idle),
+        }),
+    })
+}
+
 /// Every conversation with its messages (oldest first), most recently active first; a chat
 /// with no messages yet (just started) leads.
 fn conversations(store: &Store) -> Result<Vec<model::Conversation>, crate::store::StoreError> {
