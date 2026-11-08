@@ -687,6 +687,17 @@ async fn receives_saves_then_acks_and_marks_read() {
         .await;
     // The same id with other text conflicts: refused, not acknowledged.
     assert!(bob.send(BOB_MESSAGE, "edited").await.is_none());
+    // Off screen (Settings or New chat), what arrives stays unread.
+    desktop.send(Command::CloseConversation);
+    let away = "0b0b0b0b-0000-4000-8000-000000000002";
+    assert!(bob.send(away, "while you were away").await.is_some());
+    desktop
+        .wait_for("unread while away", |p| {
+            linked(p).is_some_and(|l| {
+                l.conversations[0].unread == 1 && l.conversations[0].messages.len() == 2
+            })
+        })
+        .await;
     drop(bob);
     desktop.stop().await;
 

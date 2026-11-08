@@ -41,10 +41,7 @@ fn sidebar(ui: &Ui, t: &Theme, l: &Linked) -> El {
         .items_center()
         .child(kit::wordmark(t.ink, 13.0))
         .child(spacer())
-        .child(kit::button(t, "new-chat", "New chat", if ui.pane == Pane::NewChat { Kind::Primary } else { Kind::Secondary }, |ui: &mut Ui, _| {
-            ui.pane = Pane::NewChat;
-            ui.confirm_unlink = false;
-        }));
+        .child(kit::button(t, "new-chat", "New chat", if ui.pane == Pane::NewChat { Kind::Primary } else { Kind::Secondary }, |ui: &mut Ui, _| ui.show(Pane::NewChat)));
     let footer = row()
         .key("sidebar-foot")
         .h(52.0)
@@ -55,7 +52,7 @@ fn sidebar(ui: &Ui, t: &Theme, l: &Linked) -> El {
         .child(relay_dot(t, l))
         .child(text(format!("@{}", l.account.handle)).font(type_::LABEL).color(t.ink).truncate().shrink())
         .child(spacer())
-        .child(kit::button(t, "open-settings", "Settings", if ui.pane == Pane::Settings { Kind::Secondary } else { Kind::Quiet }, |ui: &mut Ui, _| ui.pane = Pane::Settings));
+        .child(kit::button(t, "open-settings", "Settings", if ui.pane == Pane::Settings { Kind::Secondary } else { Kind::Quiet }, |ui: &mut Ui, _| ui.show(Pane::Settings)));
     col()
         .key("sidebar")
         .w(SIDEBAR)
@@ -140,7 +137,7 @@ fn no_chat(t: &Theme, l: &Linked) -> El {
                 .child(text(title).font(type_::TITLE).color(t.ink))
                 .child(text(sub).font(type_::BODY).color(t.muted).wrap().align(rune::Align::Center))
                 .child(el().h(space::S))
-                .child(kit::button(t, "empty-new-chat", "New chat", Kind::Primary, |ui: &mut Ui, _| ui.pane = Pane::NewChat)),
+                .child(kit::button(t, "empty-new-chat", "New chat", Kind::Primary, |ui: &mut Ui, _| ui.show(Pane::NewChat))),
         )
 }
 
@@ -335,7 +332,7 @@ fn new_chat(ui: &Ui, t: &Theme, l: &Linked) -> El {
             row()
                 .gap(space::S)
                 .child(kit::button(t, "start-chat", "Start chat", Kind::Primary, |ui: &mut Ui, _| ui.start_chat()).default_button())
-                .child(kit::button(t, "cancel-new-chat", "Cancel", Kind::Quiet, |ui: &mut Ui, _| ui.pane = Pane::Chat)),
+                .child(kit::button(t, "cancel-new-chat", "Cancel", Kind::Quiet, |ui: &mut Ui, _| ui.show(Pane::Chat))),
         ),
     )
 }

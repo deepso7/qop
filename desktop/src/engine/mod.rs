@@ -343,7 +343,7 @@ pub struct Engine<C: Chain, A: Api> {
     windows: HashMap<String, usize>,
     /// What the last poll could not reach.
     trouble: Option<Unreachable>,
-    /// The conversation last opened; what arrives there is read at once.
+    /// The conversation on screen; what arrives there is read at once.
     active: Option<ConversationId>,
     new_chat: NewChat,
     /// Recipients (QIDs) with a delivery task running.
@@ -643,6 +643,7 @@ impl<C: Chain, A: Api> Engine<C, A> {
                 self.refresh(&id.0);
                 self.active = Some(id);
             }
+            (Command::CloseConversation, State::Linked(_)) => self.active = None,
             (Command::LoadEarlier(id), State::Linked(_)) => {
                 let shown = self.conversation(&id.0).map_or(0, |c| c.messages.len());
                 if self.conversation(&id.0).is_some_and(|c| c.earlier) {

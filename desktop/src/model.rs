@@ -228,8 +228,11 @@ pub enum Command {
     StopWaiting,
     /// Forget the account and start over (allowed in Pairing and Linked only).
     Unlink,
-    /// The user opened a conversation; mark it read.
+    /// The user opened a conversation, or came back to it; mark it read, and what arrives in it
+    /// while it is on screen.
     OpenConversation(ConversationId),
+    /// The open conversation left the screen (Settings or New chat): stop marking it read.
+    CloseConversation,
     /// Look up a handle and open (or create) its conversation.
     StartChat(String),
     /// Queue a message.

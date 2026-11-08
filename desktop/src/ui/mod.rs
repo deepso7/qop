@@ -106,6 +106,21 @@ impl Ui {
         let _ = self.commands.send(command);
     }
 
+    /// Switches the main pane. The engine marks what arrives in the open chat read only while it
+    /// is on screen, so leaving the chat says so and coming back opens it again.
+    pub fn show(&mut self, pane: Pane) {
+        self.confirm_unlink = false;
+        if pane == self.pane {
+            return;
+        }
+        self.pane = pane;
+        match (pane, self.selected.clone()) {
+            (Pane::Chat, Some(id)) => self.send(Command::OpenConversation(id)),
+            (Pane::Chat, None) => {}
+            _ => self.send(Command::CloseConversation),
+        }
+    }
+
     /// Opens a conversation and tells the engine it was read. A draft belongs to the chat it was
     /// typed in, so opening another clears it.
     pub fn open(&mut self, id: ConversationId) {
@@ -245,13 +260,13 @@ pub fn on_key(ui: &mut Ui, ev: &KeyEvent, _: &mut Tx) -> bool {
     if !matches!(ui.model.phase, Phase::Linked(_)) {
         return false;
     }
-    ui.pane = match ev.key {
+    let pane = match ev.key {
         Key::Command('n') => Pane::NewChat,
         Key::Command(',') => Pane::Settings,
         Key::Escape if ui.pane != Pane::Chat => Pane::Chat,
         _ => return false,
     };
-    ui.confirm_unlink = false;
+    ui.show(pane);
     true
 }
 

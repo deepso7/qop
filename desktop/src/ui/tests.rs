@@ -86,6 +86,17 @@ fn a_message_that_encodes_over_the_byte_cap_is_kept_and_not_sent() {
 }
 
 #[test]
+fn leaving_the_chat_pane_closes_the_conversation_and_returning_reopens_it() {
+    let (mut rt, rx) = open(fake::chat);
+    click(&mut rt, "new-chat");
+    assert_eq!(rt.state.pane, Pane::NewChat);
+    assert_eq!(rx.try_recv(), Ok(Command::CloseConversation));
+    click(&mut rt, "cancel-new-chat");
+    assert_eq!(rt.state.pane, Pane::Chat);
+    assert_eq!(rx.try_recv(), Ok(Command::OpenConversation(ConversationId("bob".into()))));
+}
+
+#[test]
 fn retry_on_a_failed_message_emits_retry() {
     let (mut rt, rx) = open(fake::chat);
     click(&mut rt, "retry-b7");
