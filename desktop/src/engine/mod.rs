@@ -167,6 +167,28 @@ impl Api for ApiClient {
 }
 
 /// Wall-clock seconds, as offers and deadlines count them.
+/// Refuses to start on a saved identity whose key is not in `keys`, typically because
+/// `QOP_KEY_STORE` changed since linking. Starting over would wipe the messages; pointing
+/// `QOP_KEY_STORE` back at the key recovers. `main` checks before opening the window.
+pub fn check_device_key(store: &Store, keys: &KeyStore) -> Result<(), String> {
+    if store.revoked().map_err(|e| e.to_string())?.is_some() {
+        return Ok(());
+    }
+    match store.identity().map_err(|e| e.to_string())? {
+        Some(identity) if keys.load().map_err(|e| e.to_string())?.is_none() => {
+            Err(missing_key(&identity, keys))
+        }
+        _ => Ok(()),
+    }
+}
+
+fn missing_key(identity: &Identity, keys: &KeyStore) -> String {
+    format!(
+        "the device key for @{} is not in {keys}; if QOP_KEY_STORE changed since linking, set it back",
+        identity.handle
+    )
+}
+
 pub fn now_seconds() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -430,12 +452,7 @@ impl<C: Chain, A: Api> Engine<C, A> {
             return Ok(State::Unlinked);
         };
         let Some(secret) = self.keys.load().map_err(|e| e.to_string())? else {
-            eprintln!(
-                "qop: the device key for @{} is gone; starting over",
-                identity.handle
-            );
-            store.delete_identity().map_err(|e| e.to_string())?;
-            return Ok(State::Unlinked);
+            return Err(missing_key(&identity, &self.keys));
         };
         let device_key = device_key_from_secret(secret);
         if device_key != identity.device_key {
@@ -737,13 +754,15 @@ impl<C: Chain, A: Api> Engine<C, A> {
         Ok(secret)
     }
 
+    /// The identity goes before the key: a crash between them leaves a key, which the next link
+    /// adopts, never an identity without its key (which startup refuses).
     fn unlink(&mut self) {
         self.stop_node();
         let result = self
-            .keys
-            .delete()
+            .store()
+            .delete_identity()
             .map_err(|e| e.to_string())
-            .and_then(|()| self.store().delete_identity().map_err(|e| e.to_string()));
+            .and_then(|()| self.keys.delete().map_err(|e| e.to_string()));
         match result {
             Ok(()) => self.enter(State::Unlinked),
             Err(error) => eprintln!("qop: unlink failed: {error}"),

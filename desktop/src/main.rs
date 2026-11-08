@@ -15,7 +15,7 @@ use std::process::ExitCode;
 use std::sync::{Arc, Mutex, mpsc};
 
 use qop_desktop::config::Config;
-use qop_desktop::engine::{Engine, Publish};
+use qop_desktop::engine::{Engine, Publish, check_device_key};
 use qop_desktop::keys::KeyStore;
 use qop_desktop::model::{self, Command, Model, Phase};
 use qop_desktop::store::{Store, default_data_dir};
@@ -55,7 +55,9 @@ fn open() -> Result<Parts, String> {
     let config = Config::from_env().map_err(|error| error.to_string())?;
     let dir = default_data_dir();
     let store = Store::open(&dir).map_err(|error| error.to_string())?;
-    Ok(Parts { config, store, keys: KeyStore::for_data_dir(&dir) })
+    let keys = KeyStore::for_data_dir(&dir);
+    check_device_key(&store, &keys)?;
+    Ok(Parts { config, store, keys })
 }
 
 /// Runs the engine to completion on a multi-threaded tokio runtime (on the calling thread).

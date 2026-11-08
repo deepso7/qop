@@ -472,6 +472,27 @@ fn linked_dir(name: &str) -> (PathBuf, String) {
     (dir, format!("/ip4/127.0.0.1/udp/{port}/quic-v1"))
 }
 
+#[tokio::test(flavor = "multi_thread")]
+async fn a_missing_device_key_stops_startup_and_keeps_the_messages() {
+    // As if QOP_KEY_STORE changed since linking: the identity is saved, its key is not here.
+    let (dir, listen) = linked_dir("missing-key");
+    Store::open(&dir).unwrap().upsert_contact("7", "bob").unwrap();
+    std::fs::remove_file(dir.join("device.key")).unwrap();
+    let keys = KeyStore::File {
+        path: dir.join("device.key"),
+    };
+    let error = super::check_device_key(&Store::open(&dir).unwrap(), &keys).unwrap_err();
+    assert!(error.contains("the device key file"), "{error}");
+
+    let (chain, api) = (chat_chain(), FakeApi::down());
+    let mut desktop = Desktop::start_on(&dir, &chain, &api, &listen);
+    desktop.wait_for("starting", |p| matches!(p, Phase::Starting)).await;
+    desktop.stop().await;
+    let store = Store::open(&dir).unwrap();
+    assert!(store.identity().unwrap().is_some());
+    assert_eq!(store.contact("7").unwrap().as_deref(), Some("bob"));
+}
+
 /// Alice's own key is a member; Bob's device belongs to @bob.
 fn chat_chain() -> FakeChain {
     let chain = FakeChain::default();

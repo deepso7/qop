@@ -38,6 +38,16 @@ impl std::fmt::Display for KeyError {
     }
 }
 
+/// Where the key is looked for, for errors: "the device key file …" or "the macOS Keychain …".
+impl std::fmt::Display for KeyStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Keychain { account } => write!(f, "the macOS Keychain (account {account})"),
+            Self::File { path } => write!(f, "the device key file {}", path.display()),
+        }
+    }
+}
+
 impl KeyStore {
     /// The store for `data_dir`: the file, unless `QOP_KEY_STORE=keychain`.
     pub fn for_data_dir(data_dir: &Path) -> KeyStore {
