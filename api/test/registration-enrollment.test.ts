@@ -792,7 +792,7 @@ layer(enrollmentLayer(readyReplayRelayerLayer(() => {})), {
   timeout: "30 seconds",
 })((it) => {
   it.effect(
-    "does not reject a replay whose ready intent was confirmed on-chain",
+    "maps a replay of a confirmed-on-chain ready intent to service unavailable",
     () =>
       Effect.gen(function* () {
         const admissionCode = "RDY-015";

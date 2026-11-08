@@ -16,10 +16,16 @@ export type Load<A> =
 /**
  * Runs `load` while the screen is focused, again after every chat change (P2P
  * `revision`), and on `retry`. Pass a stable (memoized) `load`; changing it
- * reloads. Results that arrive after blur or a newer load are dropped.
+ * starts over from `loading`, so one resource's value never stands in for
+ * another's. Results that arrive after blur or a newer load are dropped.
  */
 export const useFocusLoad = <A>(load: () => Promise<A>) => {
-  const [state, setState] = React.useState<Load<A>>({ kind: "loading" });
+  // Keyed by `load` so a value is only kept as stale data for the same load.
+  const [entry, setEntry] = React.useState<{
+    readonly load: () => Promise<A>;
+    readonly state: Load<A>;
+  }>({ load, state: { kind: "loading" } });
+
   const [attempt, retry] = React.useReducer((count: number) => count + 1, 0);
   const revision = useP2pStore((store) => store.revision);
 
@@ -33,15 +39,20 @@ export const useFocusLoad = <A>(load: () => Promise<A>) => {
           const value = await load();
 
           if (active) {
-            setState({ kind: "ready", refreshFailed: false, value });
+            setEntry({
+              load,
+              state: { kind: "ready", refreshFailed: false, value },
+            });
           }
         } catch {
           if (active) {
-            setState((previous) =>
-              previous.kind === "ready"
-                ? { ...previous, refreshFailed: true }
-                : { kind: "failed" }
-            );
+            setEntry((previous) => ({
+              load,
+              state:
+                previous.load === load && previous.state.kind === "ready"
+                  ? { ...previous.state, refreshFailed: true }
+                  : { kind: "failed" },
+            }));
           }
         }
       };
@@ -53,6 +64,9 @@ export const useFocusLoad = <A>(load: () => Promise<A>) => {
       };
     }, [attempt, load, revision])
   );
+
+  const state: Load<A> =
+    entry.load === load ? entry.state : { kind: "loading" };
 
   return [state, retry] as const;
 };
