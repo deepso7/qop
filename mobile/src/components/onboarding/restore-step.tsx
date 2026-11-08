@@ -9,6 +9,8 @@ import {
   View,
 } from "react-native";
 
+import { getAddingPhase } from "@/components/onboarding/adding-phase";
+import type { AddingPhase } from "@/components/onboarding/adding-phase";
 import {
   Eyebrow,
   Lede,
@@ -55,35 +57,6 @@ const getLookupMessage = (error: LocalEnrollmentError) => {
 
     default: {
       return "Couldn’t look up this key. Try again.";
-    }
-  }
-};
-
-const getFailureMessage = (failureCode: string | null, handle: string) => {
-  switch (failureCode) {
-    case "MAX_DEVICES": {
-      return `@${handle} has no room for another device. Remove one from another device, then try again.`;
-    }
-
-    case "OWNER_CHANGED": {
-      return `@${handle}’s recovery key changed. Use the new one.`;
-    }
-
-    case "REMOVED": {
-      return `This phone was removed from @${handle}. Start over to add it again.`;
-    }
-
-    case "EXPIRED": {
-      return "The request expired before it went through. Try again.";
-    }
-
-    case "REVERTED":
-    case "REJECTED": {
-      return "The registry turned this phone down. Try again.";
-    }
-
-    default: {
-      return `Adding this phone failed (${failureCode ?? "unknown"}). Try again.`;
     }
   }
 };
@@ -331,28 +304,21 @@ const useEnrollment = () => {
     };
   }, [accept, status]);
 
-  // A restored identity can be left without a record to poll, e.g. offline or
-  // after a restart between restoring and submitting.
-  const stalled = identity !== null && !busy && enrollment === null;
-  let shownMessage = message;
-
-  // A failed record explains itself, including one stored before a restart.
-  if (enrollment?.status === "failed") {
-    shownMessage = getFailureMessage(enrollment.failureCode, enrollment.handle);
-  } else if (stalled && !shownMessage) {
-    shownMessage = "This phone isn’t added yet. Try again.";
-  }
-
   return {
     addPhone,
     busy,
     clearMessage: () => setMessage(undefined),
-    enrollment,
+    // The add's progress once an identity is restored on this phone; the
+    // handle falls back to the identity's before a record exists.
+    adding: identity
+      ? {
+          handle: enrollment?.handle ?? identity.handle,
+          phase: getAddingPhase({ busy, enrollment, message }),
+        }
+      : undefined,
     findAccount,
-    identity,
-    message: shownMessage,
+    message,
     retryEnrollment,
-    stalled,
   };
 };
 
@@ -383,40 +349,38 @@ const AccountFacts = ({ account }: { account: RecoveryAccount }) => (
 // never landed, so the same device can simply be submitted again. Only a
 // changed owner needs a different key.
 const AddingPhone = ({
-  busy,
-  failureCode,
   handle,
-  message,
   onRetry,
   onStartOver,
-  stopped,
+  phase,
 }: {
-  busy: boolean;
-  failureCode: string | null;
   handle: string;
-  message: string | undefined;
   onRetry: () => void;
   onStartOver: () => void;
-  stopped: boolean;
+  phase: AddingPhase;
 }) => {
-  // A changed owner or a removed device key can't be retried: starting over
-  // makes a fresh device key (and takes the current recovery key).
-  const final = failureCode === "OWNER_CHANGED" || failureCode === "REMOVED";
+  const final = phase.kind === "failed" && phase.final;
+  const stopped = phase.kind === "failed" || phase.kind === "stalled";
 
-  const footer = stopped ? (
-    <>
-      {final ? null : (
-        <PixelButton busy={busy} label="Try again" onPress={onRetry} />
-      )}
-      {busy ? null : (
-        <PixelButton
-          label={final ? "Start over" : "Use a different key"}
-          onPress={onStartOver}
-          variant={final ? "primary" : "quiet"}
-        />
-      )}
-    </>
-  ) : null;
+  const footer =
+    phase.kind === "waiting" ? null : (
+      <>
+        {final ? null : (
+          <PixelButton
+            busy={phase.kind === "retrying"}
+            label="Try again"
+            onPress={onRetry}
+          />
+        )}
+        {phase.kind === "retrying" ? null : (
+          <PixelButton
+            label={final ? "Start over" : "Use a different key"}
+            onPress={onStartOver}
+            variant={final ? "primary" : "quiet"}
+          />
+        )}
+      </>
+    );
 
   return (
     <StepFrame footer={footer} step={3}>
@@ -439,12 +403,14 @@ const AddingPhone = ({
             <LogRow label="this phone’s device key made" state="done" />
             <LogRow
               label={`adding this phone to @${handle}`}
-              state={stopped && !busy ? "failed" : "active"}
+              state={stopped ? "failed" : "active"}
             />
           </Notch>
-          {stopped && !busy ? null : <WaitCaption />}
+          {stopped ? null : <WaitCaption />}
         </View>
-        {message ? <StatusLine tone="error">{message}</StatusLine> : null}
+        {phase.message ? (
+          <StatusLine tone="error">{phase.message}</StatusLine>
+        ) : null}
       </View>
     </StepFrame>
   );
@@ -472,26 +438,25 @@ export const RestoreStep = ({ onBack, onStartOver }: RestoreStepProps) => {
 
   const {
     addPhone,
+    adding,
     busy,
     clearMessage,
-    enrollment,
     findAccount,
-    identity,
     message,
     retryEnrollment,
-    stalled,
   } = useEnrollment();
 
   const recoveryKey = normalizeKey(input);
   const validFormat = KEY_PATTERN.test(recoveryKey);
+  const shownMessage = adding ? adding.phase.message : message;
 
   // Lookups and enrollment run with the keyboard closed, so screen readers
   // hear errors here.
   React.useEffect(() => {
-    if (message) {
-      AccessibilityInfo.announceForAccessibility(message);
+    if (shownMessage) {
+      AccessibilityInfo.announceForAccessibility(shownMessage);
     }
-  }, [message]);
+  }, [shownMessage]);
 
   const lookUp = async (key: string) => {
     if (!KEY_PATTERN.test(key)) {
@@ -512,20 +477,15 @@ export const RestoreStep = ({ onBack, onStartOver }: RestoreStepProps) => {
     void lookUp(normalizeKey(pasted));
   };
 
-  if (identity) {
+  if (adding) {
     return (
       <AddingPhone
-        busy={busy}
-        failureCode={
-          enrollment?.status === "failed" ? enrollment.failureCode : null
-        }
-        handle={enrollment?.handle ?? identity.handle}
-        message={message}
+        handle={adding.handle}
         onRetry={() => {
           void retryEnrollment();
         }}
         onStartOver={onStartOver}
-        stopped={enrollment?.status === "failed" || stalled}
+        phase={adding.phase}
       />
     );
   }
