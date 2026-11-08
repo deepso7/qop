@@ -15,8 +15,8 @@ Passed on macOS 27 (Apple silicon): link, restart mid-enrollment, restart once l
 Anvil test accounts: #0 deploys and is the registration admin, #1 is the registration signer (`REGISTRATION_PRIVATE_KEY`), #2 is the API relayer, #3 pays for the script's registrations.
 
 ```sh
-mkdir -p /tmp/qop-e2e && cd /tmp/qop-e2e
-anvil --port 18545 --silent > anvil.log 2>&1 & echo $! > anvil.pid
+mkdir -p /tmp/qop-e2e
+anvil --port 18545 --silent > /tmp/qop-e2e/anvil.log 2>&1 & echo $! > /tmp/qop-e2e/anvil.pid
 
 # from the repo root
 REGISTRATION_ADMIN=0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266 \
@@ -103,16 +103,16 @@ A second instance on the same data directory exits 1 with `qop: another qop Desk
 Headless mode reads button presses from stdin (`regenerate`, `stop-waiting`, `unlink`, `start-over`, `link HANDLE`); a FIFO fed by `tail -f` keeps it open.
 
 ```sh
-cd /tmp/qop-e2e && mkfifo b.in && touch b.cmds
-tail -f b.cmds > b.in & echo $! > tail.pid
-QOP_DATA_DIR=/tmp/qop-e2e/desktop-bob desktop --headless --link bob < b.in > b.log 2>&1 & echo $! > b.pid
+cd /tmp/qop-e2e && mkfifo b.in && touch b.cmds && cd -
+tail -f /tmp/qop-e2e/b.cmds > /tmp/qop-e2e/b.in & echo $! > /tmp/qop-e2e/tail.pid
+QOP_DATA_DIR=/tmp/qop-e2e/desktop-bob desktop --headless --link bob < /tmp/qop-e2e/b.in > /tmp/qop-e2e/b.log 2>&1 & echo $! > /tmp/qop-e2e/b.pid
 export QOP_E2E_PHONE=/tmp/qop-e2e/phone-bob.json
 phone register bob
-phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' b.log | tail -1)" --no-submit
+phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' /tmp/qop-e2e/b.log | tail -1)" --no-submit
 # approvalSaved 0x4c5b4046…   (the phone keeps it pending; pretend the reply was lost)
-echo stop-waiting >> b.cmds
+echo stop-waiting >> /tmp/qop-e2e/b.cmds
 # phase=AwaitingEnrollment handle=bob progress=Approved relay=LocalOnly recovery=qop-pair1.…
-phone approve "$(grep -o 'recovery=qop-pair1\.[A-Za-z0-9_-]*' b.log | tail -1 | sed 's/recovery=//')"
+phone approve "$(grep -o 'recovery=qop-pair1\.[A-Za-z0-9_-]*' /tmp/qop-e2e/b.log | tail -1 | sed 's/recovery=//')"
 # hello acknowledged by 60ACC541 (…)          same device key as the first offer
 # approvalSaved 0x4c5b4046…                   same record, replayed without the nonce/deadline checks
 # api status=confirmed
@@ -132,7 +132,8 @@ QOP_DATA_DIR=/tmp/qop-e2e/desktop-relay desktop --headless --link alice < /dev/n
 ## Teardown
 
 ```sh
-kill "$(cat /tmp/qop-e2e/api.pid)" "$(cat /tmp/qop-e2e/anvil.pid)"
+# Stop the foreground relay desktop (case 3) with Ctrl-C first.
+kill "$(cat /tmp/qop-e2e/b.pid)" "$(cat /tmp/qop-e2e/tail.pid)" "$(cat /tmp/qop-e2e/api.pid)" "$(cat /tmp/qop-e2e/anvil.pid)"
 pg_ctl -D /tmp/qop-e2e/pg stop
 rm -rf /tmp/qop-e2e
 ```

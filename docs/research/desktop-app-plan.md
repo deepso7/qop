@@ -27,7 +27,7 @@ The CLI (`cli/src`, ~4k lines) and the shared protocol modules it uses already i
 
 | TS source | Desktop equivalent |
 | --- | --- |
-| `cli/src/config.ts` | `config.rs`: RPC URL, registry address, chain ID, API URL, relay addrs. Production defaults baked in, env overrides for dev. Public endpoints only, no secrets. |
+| `cli/src/config.ts` | `config.rs`: RPC URL, registry address, chain ID, API URL, relay addrs. As built, all from env: `QOP_RPC_URL` and `QOP_REGISTRY_ADDRESS` are required, the chain ID defaults to 31337, the rest are optional; production defaults are still to bake in (see Risks). Public endpoints only, no secrets. |
 | `cli/src/identity-store.ts` | `identity.rs`: device Ed25519 key in the macOS Keychain; non-secret metadata (handle, qid, peer ID, link state, removal marker) in SQLite. Single-instance lock. |
 | `cli/src/pairing-link.ts`, `pairing-session.ts`, `pending-approval.ts` | `pairing.rs`: offer generation, `selectPairingAddrs` ranking, `/qop/pair/1` handler, claim rules, owner-signature and account checks, approval persistence, same-record replay, conflict rejection. |
 | `cli/src/enrollment-poll.ts`, `device-action-status.ts`, `protocol/src/membership.ts` | `enrollment.rs`: API status + chain membership polling with the terminal/absent/unknown distinctions in `membership.ts`. |
@@ -72,7 +72,7 @@ Unlinked
   -> Pairing { offer, expires_at }                 accepts /qop/pair/1
   -> AwaitingEnrollment { approval, status }        accepts /qop/pair/1 for recovery only
   -> Linked { account }
-  -> Revoked                                         wipe, then Unlinked
+  -> Revoked                                         wipe; Start over -> Unlinked
 ```
 
 Rules, ported from `pairing-session.ts`, `pending-approval.ts`, `enrollment-poll.ts` and `docs/research/cli-device-linking-plan.md`:

@@ -25,7 +25,7 @@ Passed on macOS 27 (Apple silicon), desktop @alice ↔ CLI @bob:
 As in `desktop-linking-e2e.md`, except:
 
 ```sh
-anvil --port 18545 --block-time 1 --silent > anvil.log 2>&1 & echo $! > anvil.pid
+anvil --port 18545 --block-time 1 --silent > /tmp/qop-e2e/anvil.log 2>&1 & echo $! > /tmp/qop-e2e/anvil.pid
 # env.sh additionally exports the relay, for the desktop and the CLI:
 export QOP_RELAY_ADDRS=/dns/relay.minip2p.com/udp/19876/quic-v1/p2p/12D3KooWNAHhp6rp11SvCDA84zua3hhEYTLNjgKmEDmt1BddtLdf
 ```
@@ -42,6 +42,7 @@ Headless stdin commands once linked: `chat HANDLE` (New chat), `open HANDLE`, `s
 cd /tmp/qop-e2e && mkfifo a.in && touch a.cmds && (tail -f a.cmds > a.in & echo $! > tail-a.pid); cd -
 phone register alice
 QOP_DATA_DIR=/tmp/qop-e2e/desktop desktop --headless --link alice < /tmp/qop-e2e/a.in > /tmp/qop-e2e/desktop.log 2>&1 & echo $! > /tmp/qop-e2e/desktop.pid
+until grep -q 'qop-pair1\.' /tmp/qop-e2e/desktop.log; do sleep 1; done
 phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' /tmp/qop-e2e/desktop.log | tail -1)"
 # phase=Linked handle=alice … relay=Connected messaging=Verifying …
 # phase=Linked handle=alice … relay=Connected messaging=Ready …
@@ -49,6 +50,7 @@ phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' /tmp/qop-e2e/desktop.log | 
 export QOP_E2E_PHONE=/tmp/qop-e2e/phone-bob.json
 phone register bob
 QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop link --account bob > /tmp/qop-e2e/bob-link.log 2>&1 &
+until grep -q 'qop-pair1\.' /tmp/qop-e2e/bob-link.log; do sleep 1; done
 phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' /tmp/qop-e2e/bob-link.log | tail -1)"
 # Linked as @bob. Run qop start.
 ```
@@ -56,11 +58,11 @@ phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' /tmp/qop-e2e/bob-link.log |
 ### CLI → desktop, desktop → CLI
 
 ```sh
-QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start --to alice --message "hi alice, bob here (cli)" > bob1.log 2>&1 & echo $! > bob.pid
+QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start --to alice --message "hi alice, bob here (cli)" > /tmp/qop-e2e/bob1.log 2>&1 & echo $! > /tmp/qop-e2e/bob.pid
 # bob1.log: Queued for @alice. … / Sent to @alice.
 # desktop:    chat @bob unread=1
 #               93dc227b received "hi alice, bob here (cli)"
-echo "open bob" >> a.cmds; echo "send bob hey bob, alice from the desktop" >> a.cmds
+echo "open bob" >> /tmp/qop-e2e/a.cmds; echo "send bob hey bob, alice from the desktop" >> /tmp/qop-e2e/a.cmds
 # bob1.log: @alice: hey bob, alice from the desktop
 # desktop:    chat @bob unread=0
 #               45b461a4 sent:Sent "hey bob, alice from the desktop"
@@ -69,12 +71,12 @@ echo "open bob" >> a.cmds; echo "send bob hey bob, alice from the desktop" >> a.
 ### Offline queueing
 
 ```sh
-kill "$(cat bob.pid)"
-echo "send bob are you there? (sent while offline)" >> a.cmds
+kill "$(cat /tmp/qop-e2e/bob.pid)"
+echo "send bob are you there? (sent while offline)" >> /tmp/qop-e2e/a.cmds
 # desktop: 87fc614e sent:Queued "are you there? (sent while offline)"
-sqlite3 desktop/qop.db "select substr(id,1,8), status, attempts, last_error from outbox"
+sqlite3 /tmp/qop-e2e/desktop/qop.db "select substr(id,1,8), status, attempts, last_error from outbox"
 # 87fc614e|queued|4|transport        (next attempt ~15 s out)
-QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start > bob2.log 2>&1 & echo $! > bob.pid
+QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start > /tmp/qop-e2e/bob2.log 2>&1 & echo $! > /tmp/qop-e2e/bob.pid
 # ~10 s later, bob2.log: @alice: are you there? (sent while offline)
 # desktop: 87fc614e sent:Sent "are you there? (sent while offline)"
 ```
@@ -82,15 +84,15 @@ QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start > bob2.log 2>&1 & echo $! > bob.pid
 ### Restart with a queued message
 
 ```sh
-kill "$(cat bob.pid)"
-echo "send bob queued before a desktop restart" >> a.cmds
+kill "$(cat /tmp/qop-e2e/bob.pid)"
+echo "send bob queued before a desktop restart" >> /tmp/qop-e2e/a.cmds
 # desktop: 7aec78ed sent:Queued …
-kill "$(cat desktop.pid)"; kill "$(cat tail-a.pid)"
+kill "$(cat /tmp/qop-e2e/desktop.pid)"; kill "$(cat /tmp/qop-e2e/tail-a.pid)"
 # outbox: 7aec78ed|queued|2|transport
-(tail -n 0 -f a.cmds > a.in & echo $! > tail-a.pid)
-QOP_DATA_DIR=/tmp/qop-e2e/desktop desktop --headless < a.in > desktop2.log 2>&1 & echo $! > desktop.pid
+(tail -n 0 -f /tmp/qop-e2e/a.cmds > /tmp/qop-e2e/a.in & echo $! > /tmp/qop-e2e/tail-a.pid)
+QOP_DATA_DIR=/tmp/qop-e2e/desktop desktop --headless < /tmp/qop-e2e/a.in > /tmp/qop-e2e/desktop2.log 2>&1 & echo $! > /tmp/qop-e2e/desktop.pid
 # phase=Linked … messaging=Verifying …   7aec78ed sent:Queued "queued before a desktop restart"
-QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start > bob3.log 2>&1 & echo $! > bob.pid
+QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start > /tmp/qop-e2e/bob3.log 2>&1 & echo $! > /tmp/qop-e2e/bob.pid
 # ~10 s later, bob3.log: @alice: queued before a desktop restart
 # desktop: 7aec78ed sent:Sent "queued before a desktop restart"
 ```
@@ -98,18 +100,18 @@ QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start > bob3.log 2>&1 & echo $! > bob.pid
 ### GUI and the render
 
 ```sh
-kill "$(cat desktop.pid)"
-QOP_DATA_DIR=/tmp/qop-e2e/desktop QOP_PRINT_OFFER=1 desktop > gui.log 2>&1 & echo $! > gui.pid
-QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start --to alice --message "got all three, nice work on the desktop app" > bob4.log 2>&1 &
+kill "$(cat /tmp/qop-e2e/desktop.pid)"
+QOP_DATA_DIR=/tmp/qop-e2e/desktop QOP_PRINT_OFFER=1 desktop > /tmp/qop-e2e/gui.log 2>&1 & echo $! > /tmp/qop-e2e/gui.pid
+QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start --to alice --message "got all three, nice work on the desktop app" > /tmp/qop-e2e/bob4.log 2>&1 &
 # gui.log: 0b7d6be2 received "got all three, nice work on the desktop app"
-kill "$(cat gui.pid)"
+kill "$(cat /tmp/qop-e2e/gui.pid)"
 QOP_DATA_DIR=/tmp/qop-e2e/desktop desktop --snap live-chat-light.png --scene live --theme light --at 1.5 --scale 1
 ```
 
 ## Teardown
 
 ```sh
-kill "$(cat bob.pid)" "$(cat tail-a.pid)" "$(cat api.pid)" "$(cat anvil.pid)"
+kill "$(cat /tmp/qop-e2e/bob.pid)" "$(cat /tmp/qop-e2e/tail-a.pid)" "$(cat /tmp/qop-e2e/api.pid)" "$(cat /tmp/qop-e2e/anvil.pid)"
 pg_ctl -D /tmp/qop-e2e/pg stop
 rm -rf /tmp/qop-e2e
 ```

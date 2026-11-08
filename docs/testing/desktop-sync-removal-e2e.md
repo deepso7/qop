@@ -33,16 +33,16 @@ As in `desktop-chat-e2e.md` (Anvil with `--block-time 1`, `QOP_RELAY_ADDRS` in `
 ```sh
 phone register alice
 # registered @alice qid=1 phone=0xa49d2660…
-QOP_DATA_DIR=/tmp/qop-e2e/desktop desktop --headless --link alice < a.in > desktop.log 2>&1 & echo $! > desktop.pid
-phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' desktop.log | tail -1)"
+QOP_DATA_DIR=/tmp/qop-e2e/desktop desktop --headless --link alice < /tmp/qop-e2e/a.in > /tmp/qop-e2e/desktop.log 2>&1 & echo $! > /tmp/qop-e2e/desktop.pid
+phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' /tmp/qop-e2e/desktop.log | tail -1)"
 # hello acknowledged by 6EC92CD9 (12D3KooWHGpwEiGmUhXABUKeidcGvjZKkc7wJMYiWsN275YZYh5b)
 # api status=confirmed …
 # desktop: phase=Linked handle=alice peer=12D3KooWHGpw… fingerprint=6EC92CD9 relay=Connected messaging=Ready
 
 export QOP_E2E_PHONE=/tmp/qop-e2e/phone-bob.json   # only for bob's two commands
 phone register bob
-QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop link --account bob > bob-link.log 2>&1 &
-phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' bob-link.log | tail -1)"
+QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop link --account bob > /tmp/qop-e2e/bob-link.log 2>&1 &
+phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' /tmp/qop-e2e/bob-link.log | tail -1)"
 # Linked as @bob. Run qop start.
 unset QOP_E2E_PHONE
 ```
@@ -54,12 +54,12 @@ phone handoff bob "hi bob, written on alice's phone, sent by the desktop"
 # held 1f05fed7-31ae-495a-8206-11fbc104f66d by 12D3KooWHGpw…          (1.5 s, relay dial included)
 # desktop:   chat @bob unread=0
 #              1f05fed7 sent:Queued "hi bob, written on alice's phone, sent by the desktop"
-sqlite3 desktop/qop.db "select substr(id,1,8), status, attempts, last_error from outbox"
+sqlite3 /tmp/qop-e2e/desktop/qop.db "select substr(id,1,8), status, attempts, last_error from outbox"
 # 1f05fed7|queued|1|transport          (Bob is offline)
 phone poll
 # 0 delivered, 1 still held
 
-QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start > bob1.log 2>&1 & echo $! > bob.pid
+QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start > /tmp/qop-e2e/bob1.log 2>&1 & echo $! > /tmp/qop-e2e/bob.pid
 # ~10 s later, bob1.log: @alice: hi bob, written on alice's phone, sent by the desktop
 # desktop:     1f05fed7 sent:Sent "hi bob, written on alice's phone, sent by the desktop"
 phone poll
@@ -72,8 +72,8 @@ phone poll
 The phone script runs only for each command, so the phone is offline whenever Bob sends.
 
 ```sh
-kill "$(cat bob.pid)"
-QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start --to alice --message "alice, your phone was off, so this went to your desktop" > bob2.log 2>&1 &
+kill "$(cat /tmp/qop-e2e/bob.pid)"
+QOP_DATA_DIR=/tmp/qop-e2e/cli-bob qop start --to alice --message "alice, your phone was off, so this went to your desktop" > /tmp/qop-e2e/bob2.log 2>&1 & echo $! > /tmp/qop-e2e/bob.pid
 # bob2.log: Sent to @alice.
 # desktop:     468dacf7 received "alice, your phone was off, so this went to your desktop"
 phone catchup
@@ -85,6 +85,13 @@ phone catchup
 
 The renders above were taken here (`desktop --snap … --scene live` and `--scene live-settings` with `QOP_DATA_DIR=/tmp/qop-e2e/desktop`, desktop stopped for the store lock), then the desktop was restarted on the same directory (`messaging=Verifying`, then `Ready`).
 
+```sh
+kill "$(cat /tmp/qop-e2e/desktop.pid)" "$(cat /tmp/qop-e2e/tail-a.pid)"
+# … renders …
+(tail -n 0 -f /tmp/qop-e2e/a.cmds > /tmp/qop-e2e/a.in & echo $! > /tmp/qop-e2e/tail-a.pid)
+QOP_DATA_DIR=/tmp/qop-e2e/desktop desktop --headless < /tmp/qop-e2e/a.in > /tmp/qop-e2e/desktop2.log 2>&1 & echo $! > /tmp/qop-e2e/desktop.pid
+```
+
 ### (c) Removal, wipe, relink with a new key
 
 ```sh
@@ -93,17 +100,17 @@ phone remove
 # submitted 0xde5b9812… status=submitted
 # api status=confirmed tx=0x83b64d81…                      (22:51:22)
 # desktop, 22:52:10 at the latest: phase=Revoked handle=alice
-ls desktop/
+ls /tmp/qop-e2e/desktop
 # lock  qop.db  qop.db-shm  qop.db-wal                     (device.key is gone)
-sqlite3 desktop/qop.db "select (select count(*) from outbox), (select count(*) from inbox),
+sqlite3 /tmp/qop-e2e/desktop/qop.db "select (select count(*) from outbox), (select count(*) from inbox),
   (select count(*) from contacts), (select count(*) from identity), (select handle from revoked)"
 # 0|0|0|0|alice
 
-echo start-over >> a.cmds
+echo start-over >> /tmp/qop-e2e/a.cmds
 # phase=EnterHandle lookup=Idle
-echo "link alice" >> a.cmds
+echo "link alice" >> /tmp/qop-e2e/a.cmds
 # phase=Pairing handle=alice relay=Connected offer=qop-pair1.…
-phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' desktop2.log | tail -1)"
+phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' /tmp/qop-e2e/desktop2.log | tail -1)"
 # hello acknowledged by 87E56365 (12D3KooWJxr5btz1R6jV4ZDSgmoiPuJ4vL9sSG9bgtzB52XmJAgw)   new key
 # api status=confirmed …
 # phase=Linked handle=alice peer=12D3KooWJxr5… fingerprint=87E56365 relay=Connected messaging=Ready
@@ -119,7 +126,7 @@ phone poll
 ## Teardown
 
 ```sh
-kill "$(cat bob.pid)" "$(cat desktop.pid)" "$(cat tail-a.pid)" "$(cat api.pid)" "$(cat anvil.pid)"
+kill "$(cat /tmp/qop-e2e/bob.pid)" "$(cat /tmp/qop-e2e/desktop.pid)" "$(cat /tmp/qop-e2e/tail-a.pid)" "$(cat /tmp/qop-e2e/api.pid)" "$(cat /tmp/qop-e2e/anvil.pid)"
 pg_ctl -D /tmp/qop-e2e/pg stop
 rm -rf /tmp/qop-e2e
 ```
