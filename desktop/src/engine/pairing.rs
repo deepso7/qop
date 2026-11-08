@@ -13,6 +13,7 @@
 
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use alloy_primitives::{Address, B256, U256};
 
@@ -359,6 +360,11 @@ fn is_rfc1918_block16(host: &str) -> bool {
         .is_some_and(|octet| (16..=31).contains(&octet))
 }
 
+/// The whole exchange, account reads included (as sync's, the CLI's `INBOUND_READ_TIMEOUT_MS`).
+const EXCHANGE_TIMEOUT: Duration = Duration::from_secs(15);
+/// Pairing streams handled at once; more are reset. One phone pairs, so a few covers its retries.
+pub const MAX_PAIRING_STREAMS: usize = 4;
+
 /// What [`serve`] needs besides the stream and its session.
 pub struct PairContext<C, A> {
     pub chain: C,
@@ -379,6 +385,7 @@ pub enum ServeError {
     Chain,
     Store(String),
     Stream(crate::node::NodeError),
+    Timeout,
 }
 
 /// Serves one inbound `/qop/pair/1` stream: read the frame to EOF, check it against a fresh
@@ -388,7 +395,9 @@ pub async fn serve<C: Chain, A: Api>(
     session: Arc<tokio::sync::Mutex<PairingSession>>,
     ctx: &PairContext<C, A>,
 ) -> Result<Option<Ack>, ServeError> {
-    let result = exchange(&mut stream, &session, ctx).await;
+    let result = tokio::time::timeout(EXCHANGE_TIMEOUT, exchange(&mut stream, &session, ctx))
+        .await
+        .unwrap_or(Err(ServeError::Timeout));
     if result.is_err() {
         stream.reset();
     }

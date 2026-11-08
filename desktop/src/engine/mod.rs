@@ -347,7 +347,10 @@ pub struct Engine<C: Chain, A: Api> {
     new_chat: NewChat,
     /// Recipients (QIDs) with a delivery task running.
     delivering: HashSet<String>,
+    /// Inbound chat and sync streams being served.
     inbound: Arc<AtomicUsize>,
+    /// Inbound pairing streams being served.
+    pairing: Arc<AtomicUsize>,
 }
 
 impl Engine<RegistryReader, ApiClient> {
@@ -397,6 +400,7 @@ impl<C: Chain, A: Api> Engine<C, A> {
             new_chat: NewChat::Lookup(HandleLookup::Idle),
             delivering: HashSet::new(),
             inbound: Arc::default(),
+            pairing: Arc::default(),
         }
     }
 
@@ -1014,8 +1018,13 @@ impl<C: Chain, A: Api> Engine<C, A> {
                     chain_id: identity.chain_id,
                     registry: identity.registry,
                 };
+                let Some(slot) = InboundSlot::take(&self.pairing, pairing::MAX_PAIRING_STREAMS)
+                else {
+                    return;
+                };
                 let internal = self.internal.clone();
                 tokio::spawn(async move {
+                    let _slot = slot;
                     match pairing::serve(stream, session, &context).await {
                         Ok(Some(ack)) => eprintln!("qop: pairing approval {ack:?}"),
                         Ok(None) => {}
@@ -1168,11 +1177,7 @@ impl<C: Chain, A: Api> Engine<C, A> {
         let ctx = self
             .chat_context()
             .filter(|_| self.messaging == Messaging::Ready)?;
-        if self.inbound.fetch_add(1, Ordering::SeqCst) >= chat::MAX_INBOUND_STREAMS {
-            self.inbound.fetch_sub(1, Ordering::SeqCst);
-            return None;
-        }
-        Some((ctx, InboundSlot(self.inbound.clone())))
+        Some((ctx, InboundSlot::take(&self.inbound, chat::MAX_INBOUND_STREAMS)?))
     }
 
     /// Serves an inbound chat stream.
@@ -1546,8 +1551,20 @@ fn sort_conversations(conversations: &mut [model::Conversation]) {
     conversations.sort_by_key(|c| std::cmp::Reverse(c.last().map_or(SystemTime::now(), |m| m.at)));
 }
 
-/// Holds one of the inbound stream slots chat and sync share; dropping it frees the slot.
+/// Holds one of a limited number of inbound stream slots (chat and sync share one count,
+/// pairing has its own); dropping it frees the slot.
 struct InboundSlot(Arc<AtomicUsize>);
+
+impl InboundSlot {
+    /// A slot from `count`, unless `max` are taken.
+    fn take(count: &Arc<AtomicUsize>, max: usize) -> Option<InboundSlot> {
+        if count.fetch_add(1, Ordering::SeqCst) >= max {
+            count.fetch_sub(1, Ordering::SeqCst);
+            return None;
+        }
+        Some(InboundSlot(count.clone()))
+    }
+}
 
 impl Drop for InboundSlot {
     fn drop(&mut self) {
