@@ -118,8 +118,11 @@ async fn receive<C: Chain>(
         .map_err(InboundError::Store)?;
     // Saved: the engine must hear of it even if the ACK is lost (the sender resends, and a
     // repeat is not inserted twice).
-    if let Err(error) = stream.send_message(ack).await {
-        eprintln!("qop: chat ack not written: {error:?}");
+    // Bounded: a write waits while the node's write budget is full.
+    match timeout(ACK_TIMEOUT, stream.send_message(ack)).await {
+        Ok(Ok(())) => {}
+        Ok(Err(error)) => eprintln!("qop: chat ack not written: {error:?}"),
+        Err(_) => eprintln!("qop: chat ack not written: timed out"),
     }
     Ok(Received {
         from_qid: record.from_qid,
@@ -195,15 +198,21 @@ pub async fn deliver<C: Chain>(
     result
 }
 
+/// Writes the frame and reads the ACK, both within `ACK_TIMEOUT`: a write waits while the node's
+/// write budget is full, and a stuck delivery would hold its outbox slot.
 async fn exchange(stream: &mut Stream, frame: Vec<u8>, id: &str) -> Result<(), DeliverError> {
-    stream
-        .send_message(frame)
-        .await
-        .map_err(|_| DeliverError::Transport)?;
-    let ack = timeout(ACK_TIMEOUT, stream.read_to_end(MAX_CHAT_PAYLOAD_BYTES))
-        .await
-        .map_err(|_| DeliverError::Timeout)?
-        .map_err(|_| DeliverError::Rejected)?;
+    let ack = timeout(ACK_TIMEOUT, async {
+        stream
+            .send_message(frame)
+            .await
+            .map_err(|_| DeliverError::Transport)?;
+        stream
+            .read_to_end(MAX_CHAT_PAYLOAD_BYTES)
+            .await
+            .map_err(|_| DeliverError::Rejected)
+    })
+    .await
+    .map_err(|_| DeliverError::Timeout)??;
     match ChatAck::decode(&ack) {
         Ok(ack) if ack.ack == id => Ok(()),
         _ => Err(DeliverError::Rejected),
