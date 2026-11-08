@@ -1,9 +1,4 @@
-import {
-  router,
-  Stack,
-  useFocusEffect,
-  useLocalSearchParams,
-} from "expo-router";
+import { router, Stack, useLocalSearchParams } from "expo-router";
 import * as React from "react";
 import { ScrollView, View } from "react-native";
 
@@ -11,50 +6,17 @@ import { ConversationScreen } from "@/components/chat/conversation-screen";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Text } from "@/components/ui/text";
+import { useFocusLoad } from "@/hooks/use-focus-load";
 import { getContactByQid } from "@/lib/db";
-import type { Contact } from "@/lib/db";
-import { useP2pStore } from "@/lib/p2p-store";
 
 const ChatRoute = () => {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const [contact, setContact] = React.useState<Contact | null>();
-  const [loadError, setLoadError] = React.useState(false);
+  const load = React.useCallback(() => getContactByQid(id), [id]);
+  // Reloads on every chat change; a failed refresh keeps the open conversation
+  // (and its draft) instead of swapping in the error page.
+  const [contact, retryLoad] = useFocusLoad(load);
 
-  const [retryCount, retryLoad] = React.useReducer(
-    (count: number) => count + 1,
-    0
-  );
-
-  const revision = useP2pStore((state) => state.revision);
-
-  useFocusEffect(
-    React.useCallback(() => {
-      let active = true;
-
-      const load = async (_revision: number, _retryCount: number) => {
-        try {
-          const loaded = await getContactByQid(id);
-
-          if (active) {
-            setContact(loaded);
-            setLoadError(false);
-          }
-        } catch {
-          if (active) {
-            setLoadError(true);
-          }
-        }
-      };
-
-      void load(revision, retryCount);
-
-      return () => {
-        active = false;
-      };
-    }, [id, revision, retryCount])
-  );
-
-  if (loadError) {
+  if (contact.kind === "failed") {
     return (
       <View className="bg-background flex-1 items-center justify-center gap-4 p-6">
         <Text>Could not load this conversation.</Text>
@@ -68,7 +30,7 @@ const ChatRoute = () => {
     );
   }
 
-  if (contact === undefined) {
+  if (contact.kind === "loading") {
     return (
       <View className="bg-background flex-1 items-center justify-center">
         <Spinner />
@@ -76,7 +38,7 @@ const ChatRoute = () => {
     );
   }
 
-  if (contact === null) {
+  if (contact.value === null) {
     return (
       <>
         <Stack.Screen options={{ title: "Chat" }} />
@@ -96,8 +58,8 @@ const ChatRoute = () => {
 
   return (
     <>
-      <Stack.Screen options={{ title: `@${contact.handle}` }} />
-      <ConversationScreen contact={contact} key={contact.qid} />
+      <Stack.Screen options={{ title: `@${contact.value.handle}` }} />
+      <ConversationScreen contact={contact.value} key={contact.value.qid} />
     </>
   );
 };

@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from "node:timers/promises";
+
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -17,6 +19,8 @@ import type {
   lookupHandle as LookupHandle,
 } from "@/lib/registry";
 import type { RegistryAccount } from "@/lib/registry-core";
+
+import { failNextRun } from "./support/sqlite";
 
 const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
 
@@ -165,7 +169,6 @@ const useP2pStore = createP2pStore({
       openStream: () =>
         Promise.reject(new Error("No stream in lifecycle fixture")),
       path,
-      peerId: () => "peer-alice",
       waitPeerReady,
     },
   }),
@@ -241,6 +244,16 @@ const beginSend = async () => {
   await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
 
   return { id, pending };
+};
+
+const runningConnection = () => {
+  const { connection } = useP2pStore.getState();
+
+  if (connection.status !== "running") {
+    throw new Error(`Expected running P2P, got ${connection.status}`);
+  }
+
+  return connection;
 };
 
 const inboundFrame = (id: string) =>
@@ -321,17 +334,33 @@ describe("interrupted sends", () => {
 
   it("tears down and recovers interrupted sends on driverFailed", async () => {
     const { id, pending } = await beginSend();
-    expect(useP2pStore.getState().status).toBe("running");
-    expect(useP2pStore.getState().peerId).toBe("peer-alice");
+    expect(useP2pStore.getState().connection.status).toBe("running");
     driverFailed?.({ detail: "native panic" });
     pending.reject(new Error("driver failed"));
     await vi.waitFor(async () =>
       expect(await getMessageById(id)).toMatchObject({ status: "failed" })
     );
-    expect(useP2pStore.getState()).toMatchObject({
-      connectedPeerIds: [],
-      error: "native panic",
-      peerId: undefined,
+    expect(useP2pStore.getState().connection).toEqual({
+      reason: "native panic",
+      status: "failed",
+    });
+  });
+
+  it("keeps the failure reason when send recovery hits a storage error", async () => {
+    const { pending } = await beginSend();
+
+    // Fail the recovery's failInterruptedMessages write.
+    const recoveryFailed = failNextRun((sql) =>
+      sql.includes("WHERE direction = 'out' AND status = 'sending'")
+    );
+
+    driverFailed?.({ detail: "native panic" });
+    pending.reject(new Error("driver failed"));
+    await recoveryFailed;
+    // Let the recovery's catch run before asserting.
+    await sleep(0);
+    expect(useP2pStore.getState().connection).toEqual({
+      reason: "native panic",
       status: "failed",
     });
   });
@@ -343,7 +372,7 @@ describe("interrupted sends", () => {
     await vi.waitFor(async () =>
       expect(await getMessageById(id)).toMatchObject({ status: "failed" })
     );
-    expect(useP2pStore.getState().status).toBe("failed");
+    expect(useP2pStore.getState().connection.status).toBe("failed");
     // retryMessage should call start itself — no prior start() from the test.
     await useP2pStore.getState().retryMessage(id);
     expect(await getMessageById(id)).toMatchObject({
@@ -351,7 +380,7 @@ describe("interrupted sends", () => {
       status: "sent",
       text: "hello",
     });
-    expect(useP2pStore.getState().status).toBe("running");
+    expect(useP2pStore.getState().connection.status).toBe("running");
     expect(send).toHaveBeenCalledTimes(2);
   });
 
@@ -533,10 +562,10 @@ describe("peer paths", () => {
   it("tracks a relayed path upgrading to hole-punched", async () => {
     path.mockReturnValue({ kind: "relayed", relayPeerId: "relay" });
     await useP2pStore.getState().start();
-    expect(useP2pStore.getState().peerPaths[PEER_BOB]?.kind).toBe("relayed");
+    expect(runningConnection().peerPaths[PEER_BOB]?.kind).toBe("relayed");
     path.mockReturnValue({ kind: "punched" });
     pathUpgraded?.();
-    expect(useP2pStore.getState().peerPaths[PEER_BOB]?.kind).toBe("punched");
+    expect(runningConnection().peerPaths[PEER_BOB]?.kind).toBe("punched");
   });
 });
 
@@ -576,6 +605,6 @@ describe("connectTo", () => {
   it("only reports peers that finished Identify as connected", async () => {
     isPeerReady.mockReturnValue(false);
     await useP2pStore.getState().start();
-    expect(useP2pStore.getState().connectedPeerIds).toEqual([]);
+    expect(runningConnection().connectedPeerIds).toEqual([]);
   });
 });

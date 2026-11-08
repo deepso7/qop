@@ -49,18 +49,25 @@ import type {
 } from "./p2p-sync";
 import type { lookupDeviceKey, lookupHandle, lookupQid } from "./registry";
 
-type P2pStatus = "failed" | "running" | "starting" | "stopped";
+/** The local endpoint's lifecycle. Peer data exists only while running. */
+export type P2pConnection =
+  | { readonly status: "starting" | "stopped" }
+  | {
+      readonly status: "running";
+      /** Peers that finished Identify (usable for streams), not just connected. */
+      readonly connectedPeerIds: readonly string[];
+      /** Transport path (direct, hole-punched, relayed) per connected peer. */
+      readonly peerPaths: Readonly<Record<string, Path>>;
+      readonly relayReserved: boolean;
+    }
+  | { readonly status: "failed"; readonly reason: string };
+
+type RunningConnection = Extract<P2pConnection, { status: "running" }>;
 
 interface P2pState {
-  /** Peers that finished Identify (usable for streams), not just connected. */
-  readonly connectedPeerIds: readonly string[];
-  readonly error?: string;
-  readonly peerId?: string;
-  /** Transport path (direct, hole-punched, relayed) per connected peer. */
-  readonly peerPaths: Readonly<Record<string, Path>>;
-  readonly relayReserved: boolean;
+  readonly connection: P2pConnection;
+  /** Bumped whenever stored chat data changes; screens reload on it. */
   readonly revision: number;
-  readonly status: P2pStatus;
 }
 
 interface P2pActions {
@@ -93,11 +100,8 @@ interface P2pActions {
 type P2pStore = P2pActions & P2pState;
 
 const initialState: P2pState = {
-  connectedPeerIds: [],
-  peerPaths: {},
-  relayReserved: false,
+  connection: { status: "stopped" },
   revision: 0,
-  status: "stopped",
 };
 
 export type P2pEndpoint = Pick<
@@ -112,7 +116,6 @@ export type P2pEndpoint = Pick<
   | "onClose"
   | "openStream"
   | "path"
-  | "peerId"
   | "waitPeerReady"
 >;
 
@@ -283,10 +286,9 @@ export const createP2pStore = ({
         await waitForInFlightJobs();
         await failInterruptedMessages();
         storeBridge.setState((state) => ({ revision: state.revision + 1 }));
-      } catch (error) {
-        storeBridge.setState({
-          error: errorMessage(error instanceof Error ? error : String(error)),
-        });
+      } catch {
+        // Interrupted sends stay "sending" until the next start retries this.
+        // Never touch the connection: it may already be failed with its reason.
       }
     };
 
@@ -1162,7 +1164,9 @@ export const createP2pStore = ({
 
   // Starts a failed/stopped node and waits (up to 15s) for it to be running.
   const ensureRunning = async (get: () => P2pStore) => {
-    if (get().status === "failed" || get().status === "stopped") {
+    const { status } = get().connection;
+
+    if (status === "failed" || status === "stopped") {
       // Must not run inside trackJob — start() waits for in-flight jobs.
       await get().start();
     }
@@ -1171,8 +1175,10 @@ export const createP2pStore = ({
 
     // Poll sequentially until start settles or the wait budget expires.
     const waitWhileStarting = async (): Promise<boolean> => {
-      if (get().status !== "starting" || Date.now() - startedAt >= 15_000) {
-        return get().status === "running";
+      const current = get().connection.status;
+
+      if (current !== "starting" || Date.now() - startedAt >= 15_000) {
+        return current === "running";
       }
 
       await Effect.runPromise(Effect.sleep(50));
@@ -1352,14 +1358,8 @@ export const createP2pStore = ({
               jobGeneration,
               controller.signal
             );
-          } catch (error) {
-            if (isCurrentGeneration(jobGeneration)) {
-              set({
-                error: errorMessage(
-                  error instanceof Error ? error : String(error)
-                ),
-              });
-            }
+          } catch {
+            // The message keeps its stored status; the user can retry again.
           }
         };
 
@@ -1391,7 +1391,7 @@ export const createP2pStore = ({
         direction: "out",
         id,
         sentAt: Date.now(),
-        status: get().status === "running" ? "sending" : "failed",
+        status: get().connection.status === "running" ? "sending" : "failed",
         text: text.trim(),
       };
 
@@ -1412,14 +1412,8 @@ export const createP2pStore = ({
           if (message.status === "sending") {
             await sendStoredMessage(message, contact, jobGeneration);
           }
-        } catch (error) {
-          if (isCurrentGeneration(jobGeneration)) {
-            set({
-              error: errorMessage(
-                error instanceof Error ? error : String(error)
-              ),
-            });
-          }
+        } catch {
+          // Storage failed; the conversation shows only what was saved.
         }
       };
 
@@ -1429,7 +1423,7 @@ export const createP2pStore = ({
     },
 
     start: async () => {
-      const { status } = get();
+      const { status } = get().connection;
 
       if (status === "starting" || status === "running") {
         return;
@@ -1437,11 +1431,7 @@ export const createP2pStore = ({
 
       const startGeneration = generation + 1;
       generation = startGeneration;
-      set((state) => ({
-        ...initialState,
-        revision: state.revision,
-        status: "starting",
-      }));
+      set({ connection: { status: "starting" } });
 
       try {
         await recoveryOperation;
@@ -1513,11 +1503,18 @@ export const createP2pStore = ({
           return { connectedPeerIds, peerPaths };
         };
 
-        const refreshPeers = () => {
+        // Peer events before "running" are dropped; going running re-reads all.
+        const updateRunning = (patch: () => Partial<RunningConnection>) => {
           if (generation === startGeneration) {
-            set(readPeers());
+            set(({ connection }) =>
+              connection.status === "running"
+                ? { connection: { ...connection, ...patch() } }
+                : {}
+            );
           }
         };
+
+        const refreshPeers = () => updateRunning(readPeers);
 
         const invalidateConnections = () => {
           if (generation !== startGeneration) {
@@ -1543,14 +1540,7 @@ export const createP2pStore = ({
 
           generation += 1;
           cleanupEndpoint(created);
-          set({
-            connectedPeerIds: [],
-            error,
-            peerId: undefined,
-            peerPaths: {},
-            relayReserved: false,
-            status: "failed",
-          });
+          set({ connection: { reason: error, status: "failed" } });
           void recoverInterruptedSends();
         };
 
@@ -1574,14 +1564,12 @@ export const createP2pStore = ({
             );
           }),
           created.on("relayReserved", () => {
-            if (generation === startGeneration) {
-              set({ relayReserved: true });
-            }
+            updateRunning(() => ({ relayReserved: true }));
           }),
           created.on("relayReservationLost", () => {
-            if (generation === startGeneration) {
-              set({ relayReserved: created.activeReservation() !== undefined });
-            }
+            updateRunning(() => ({
+              relayReserved: created.activeReservation() !== undefined,
+            }));
           }),
           created.on("connectionEstablished", (connection) => {
             if (generation === startGeneration) {
@@ -1631,18 +1619,22 @@ export const createP2pStore = ({
         }
 
         set({
-          ...readPeers(),
-          error: undefined,
-          peerId: created.peerId(),
-          relayReserved: created.activeReservation() !== undefined,
-          status: "running",
+          connection: {
+            ...readPeers(),
+            relayReserved: created.activeReservation() !== undefined,
+            status: "running",
+          },
         });
         void scheduleReconcile(startGeneration);
       } catch (error) {
         if (generation === startGeneration) {
           set({
-            error: errorMessage(error instanceof Error ? error : String(error)),
-            status: "failed",
+            connection: {
+              reason: errorMessage(
+                error instanceof Error ? error : String(error)
+              ),
+              status: "failed",
+            },
           });
         }
       }

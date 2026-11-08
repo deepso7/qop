@@ -88,7 +88,7 @@ const LinkDeviceSheet = ({
     (state) => state.invalidateOwnHolders
   );
 
-  const p2pStatus = useP2pStore((state) => state.status);
+  const p2pStatus = useP2pStore((state) => state.connection.status);
   const [text, setText] = React.useState("");
   // When the text last changed; expiry is checked against it, not render time.
   const [editedAtSeconds, setEditedAtSeconds] = React.useState(0n);

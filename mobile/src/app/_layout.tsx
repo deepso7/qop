@@ -42,7 +42,7 @@ const AppStack = () => {
   const status = useIdentityStore((state) => state.status);
   const startP2p = useP2pStore((state) => state.start);
   const stopP2p = useP2pStore((state) => state.stop);
-  const p2pStatus = useP2pStore((state) => state.status);
+  const p2pStatus = useP2pStore((state) => state.connection.status);
   const isReady = status === "ready";
   const p2pRestartAttempts = React.useRef(0);
   // A font error falls back to system type rather than blocking the app.
