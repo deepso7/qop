@@ -9,6 +9,7 @@ use super::theme::{Theme, motion, space, type_};
 use super::{Ui, countdown};
 use crate::model::{
     AwaitingEnrollment, Command, EnrollmentProgress, EnterHandle, HandleLookup, LookupError, Offer, RelayStatus, Revoked,
+    Unreachable,
 };
 
 /// A screen-filling column that centres `content`, with the wordmark in the corner.
@@ -237,6 +238,21 @@ pub fn awaiting(t: &Theme, a: &AwaitingEnrollment) -> El {
             )
             .child(el().h(space::L))
             .child(kit::card(t, col().padding(space::L)).child(list))
+            .children(a.trouble.map(|trouble| {
+                let words = match trouble {
+                    Unreachable::Chain => "Can't reach the network right now. Your approval is saved here; this keeps checking.",
+                    Unreachable::Api => "Can't reach the qop server right now. Your approval is saved here; this keeps checking.",
+                };
+                // Top-aligned: the dot sits on the first line of the wrapped text.
+                row()
+                    .key("trouble")
+                    .pt(space::M)
+                    .gap(space::S)
+                    .items_start()
+                    .child(kit::dot(t.link, true).mt(5.0))
+                    .child(text(words).font(type_::SMALL).color(t.muted).wrap().grow(1.0).min_w(0.0))
+                    .transition(Transition::opacity().springs(motion::SWAP))
+            }))
             .child(el().h(space::L))
             .child(row().child(kit::button(t, "stop-waiting", "Stop waiting", Kind::Secondary, |ui: &mut Ui, _| ui.send(Command::StopWaiting)))),
     )
@@ -252,7 +268,10 @@ pub fn revoked(t: &Theme, r: &Revoked) -> El {
             .child(el().h(space::L))
             .child(text("This Mac was unlinked").font(type_::DISPLAY).color(t.ink))
             .child(
-                text(format!("@{} removed this device from their phone. Its key and the messages stored here have been erased.", r.handle))
+                text(format!(
+                    "It was removed from @{} on your phone, so its key and the messages stored here have been erased. Start over to link it again; it gets a new key.",
+                    r.handle
+                ))
                     .font(type_::BODY)
                     .color(t.muted)
                     .wrap(),

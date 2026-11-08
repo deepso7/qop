@@ -18,7 +18,7 @@ pub fn linked(ui: &Ui, t: &Theme, l: &Linked) -> El {
         Pane::Settings => ("settings", settings(ui, t, l)),
         Pane::Chat => match ui.selected.as_ref().and_then(|id| l.conversation(id)) {
             Some(c) => ("chat", chat(ui, t, l, c)),
-            None => ("no-chat", no_chat(t, l)),
+            None => ("no-chat", col().w_full().h_full().children(notice(t, l)).child(no_chat(t, l).grow(1.0).min_h(0.0))),
         },
     };
     let swap = Transition::opacity().springs(motion::SWAP);
@@ -70,6 +70,7 @@ fn sidebar(ui: &Ui, t: &Theme, l: &Linked) -> El {
 fn relay_dot(t: &Theme, l: &Linked) -> El {
     use crate::model::RelayStatus::*;
     let (c, ring) = match (l.messaging, l.relay) {
+        _ if l.trouble.is_some() => (t.link, true),
         (Messaging::Verifying, _) | (_, Connecting) => (t.muted, true),
         (_, Connected) => (t.brand, false),
         (_, LocalOnly) => (t.muted, false),
@@ -153,22 +154,35 @@ fn chat(ui: &Ui, t: &Theme, l: &Linked, c: &Conversation) -> El {
         .border_sides([0.0, 0.0, 1.0, 0.0], t.border)
         .child(avatar(t, &c.peer, false))
         .child(text(format!("@{}", c.peer)).font(type_::HEADING).color(t.ink));
-    let mut pane = col().w_full().h_full().child(header);
-    if l.messaging == Messaging::Verifying {
-        pane = pane.child(
-            row()
-                .key("verifying")
-                .px(space::XL)
-                .py(space::S)
-                .gap(space::S)
-                .items_center()
-                .fill(t.tint)
-                .child(kit::dot(t.brand, true).cycle(rune::Cycle { period: 1.2, phase: 0.0, stops: &[(0.0, 1.0), (0.5, 0.25), (1.0, 1.0)], still: 1.0, fps: 30.0 }))
-                .child(text("Re-checking this Mac's membership. Messages queue until it's done.").font(type_::SMALL).color(t.ink))
-                .transition(Transition::opacity().springs(motion::SWAP)),
-        );
-    }
-    pane.child(thread(t, c)).child(composer(ui, t))
+    col().w_full().h_full().child(header).children(notice(t, l)).child(thread(t, c)).child(composer(ui, t))
+}
+
+/// One calm line under the header when messaging can't run normally: the chain unreachable,
+/// membership being re-checked, or no network at all. Nothing is lost meanwhile; it says so.
+fn notice(t: &Theme, l: &Linked) -> Option<El> {
+    use crate::model::RelayStatus;
+    let pulse = rune::Cycle { period: 1.2, phase: 0.0, stops: &[(0.0, 1.0), (0.5, 0.25), (1.0, 1.0)], still: 1.0, fps: 30.0 };
+    let (key, mark, words) = if l.trouble.is_some() {
+        ("unreachable", kit::dot(t.link, true), "Can't reach the qop network. Messages wait here and go out once it's back.")
+    } else if l.messaging == Messaging::Verifying {
+        ("verifying", kit::dot(t.brand, true).cycle(pulse), "Re-checking this Mac's membership. Messages queue until it's done.")
+    } else if l.relay == RelayStatus::Offline {
+        ("offline", kit::dot(t.link, true), "This Mac is offline. Messages wait here and go out once it reconnects.")
+    } else {
+        return None;
+    };
+    Some(
+        row()
+            .key(key)
+            .px(space::XL)
+            .py(space::S)
+            .gap(space::S)
+            .items_center()
+            .fill(t.tint)
+            .child(mark)
+            .child(text(words).font(type_::SMALL).color(t.ink).wrap().grow(1.0).min_w(0.0))
+            .transition(Transition::opacity().springs(motion::SWAP)),
+    )
 }
 
 /// The message list: only the rows on screen (and a little either side) are built, so a long
@@ -329,10 +343,12 @@ fn settings(ui: &Ui, t: &Theme, l: &Linked) -> El {
         col().gap(space::S).child(kit::caption(t, title)).child(card)
     };
     let value = |s: String| text(s).font(type_::BODY).color(t.ink).truncate_middle().grow(1.0).min_w(0.0);
-    let linked_state = match l.messaging {
-        Messaging::Ready => row().gap(space::S).items_center().child(kit::dot(t.brand, false)).child(text("Linked").font(type_::BODY).color(t.ink)),
-        Messaging::Verifying => row().gap(space::S).items_center().child(kit::dot(t.muted, true)).child(text("Linked, re-checking").font(type_::BODY).color(t.ink)),
+    let (dot, state) = match (l.messaging, l.trouble) {
+        (_, Some(_)) => (kit::dot(t.link, true), "Linked · can't reach the network"),
+        (Messaging::Ready, None) => (kit::dot(t.brand, false), "Linked"),
+        (Messaging::Verifying, None) => (kit::dot(t.muted, true), "Linked · re-checking membership"),
     };
+    let linked_state = row().gap(space::S).items_center().child(dot).child(text(state).font(type_::BODY).color(t.ink));
     let unlink = if ui.confirm_unlink {
         row()
             .key("unlink-confirm")

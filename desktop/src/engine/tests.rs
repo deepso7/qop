@@ -297,6 +297,13 @@ async fn pairs_survives_restarts_and_links_on_its_own_chain_read() {
             matches!(phase, Phase::EnterHandle(_))
         })
         .await;
+    // Linking again pairs with a new key: the removed one can never return.
+    chain.set_removed(Ok(false));
+    desktop.send(Command::SubmitHandle("alice".into()));
+    let code = pairing_offer(&mut desktop).await;
+    let fresh = PairingOffer::decode(&code, super::now_seconds()).unwrap().device_key;
+    assert_ne!(fresh, device_key);
+    assert!(dir.join("device.key").exists());
     desktop.stop().await;
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -715,10 +722,17 @@ async fn pauses_on_rejection_rpc_failure_and_a_stuck_head_but_keeps_everything()
             .is_none()
     );
     desktop.wait_for("paused on rpc failure", verifying).await;
+    // Our own read fails too: the UI says the chain is unreachable, calmly.
+    desktop
+        .wait_for("the chain unreachable", |p| {
+            linked(p).is_some_and(|l| l.trouble == Some(crate::model::Unreachable::Chain))
+        })
+        .await;
     desktop.stays_paused().await;
     assert!(dir.join("device.key").exists());
     chain.fail_lookups(false);
     let phase = desktop.wait_for("ready after the outage", ready).await;
+    assert_eq!(linked(&phase).unwrap().trouble, None);
     let conversation = &linked(&phase).unwrap().conversations[0];
     assert!(conversation.messages.iter().any(|m| m.text == "hi"));
     assert!(conversation.messages.iter().any(|m| m.text == "refused"));

@@ -179,6 +179,49 @@ pub fn chat_verifying(ui: &mut Ui) {
     });
 }
 
+/// The chain RPC is down: messaging paused, everything queues.
+pub fn chat_unreachable(ui: &mut Ui) {
+    chat(ui);
+    ui.update_model(|m| {
+        if let Phase::Linked(l) = &mut m.phase {
+            l.messaging = Messaging::Verifying;
+            l.trouble = Some(Unreachable::Chain);
+        }
+    });
+}
+
+/// No network at all, no chat open.
+pub fn linked_offline(ui: &mut Ui) {
+    linked_list(ui);
+    ui.update_model(|m| {
+        if let Phase::Linked(l) = &mut m.phase {
+            l.relay = RelayStatus::Offline;
+        }
+    });
+}
+
+/// A conversation far longer than the screen, with older pages still stored.
+pub fn chat_long(ui: &mut Ui) {
+    linked_list(ui);
+    ui.update_model(|m| {
+        if let Phase::Linked(l) = &mut m.phase {
+            let c = &mut l.conversations[0];
+            c.messages = (0..200_u64)
+                .map(|i| {
+                    let direction = match i % 5 {
+                        0 | 3 => Direction::Received,
+                        _ => Direction::Sent(MessageStatus::Sent),
+                    };
+                    msg(&format!("l{i}"), direction, &format!("message {} of a long day", i + 1), (200 - i) * 60)
+                })
+                .collect::<Vec<_>>()
+                .into();
+            c.earlier = true;
+        }
+    });
+    ui.selected = Some(ConversationId("bob".into()));
+}
+
 pub fn new_chat(ui: &mut Ui) {
     linked_list(ui);
     ui.pane = Pane::NewChat;
@@ -193,6 +236,30 @@ pub fn new_chat(ui: &mut Ui) {
 pub fn settings(ui: &mut Ui) {
     linked_list(ui);
     ui.pane = Pane::Settings;
+}
+
+/// Settings while the chain is unreachable and the relay is still connecting.
+pub fn settings_unreachable(ui: &mut Ui) {
+    settings(ui);
+    ui.update_model(|m| {
+        if let Phase::Linked(l) = &mut m.phase {
+            l.messaging = Messaging::Verifying;
+            l.trouble = Some(Unreachable::Chain);
+            l.relay = RelayStatus::Connecting;
+        }
+    });
+}
+
+pub fn linking_unreachable(ui: &mut Ui) {
+    ui.publish(Model {
+        phase: Phase::AwaitingEnrollment(AwaitingEnrollment {
+            handle: HANDLE.into(),
+            progress: EnrollmentProgress::Submitted,
+            recovery: None,
+            relay: RelayStatus::Connected,
+            trouble: Some(Unreachable::Api),
+        }),
+    });
 }
 
 pub fn revoked(ui: &mut Ui) {
@@ -213,6 +280,12 @@ pub fn live(ui: &mut Ui) {
     ui.selected = first;
 }
 
+/// Settings over `QOP_DATA_DIR`, as [`live`]: the real account, peer ID, fingerprint and path.
+pub fn live_settings(ui: &mut Ui) {
+    live(ui);
+    ui.pane = Pane::Settings;
+}
+
 /// Sets up a scene on a fresh `Ui`.
 type Scene = fn(&mut Ui);
 
@@ -226,12 +299,18 @@ pub const SCENES: &[(&str, Scene)] = &[
     ("pairing-expired", pairing_expired),
     ("linking", linking),
     ("linking-recovery", linking_recovery),
+    ("linking-unreachable", linking_unreachable),
     ("linked-empty", linked_empty),
     ("linked", linked_list),
     ("chat", chat),
     ("chat-verifying", chat_verifying),
+    ("chat-unreachable", chat_unreachable),
+    ("chat-long", chat_long),
+    ("linked-offline", linked_offline),
     ("new-chat", new_chat),
     ("settings", settings),
+    ("settings-unreachable", settings_unreachable),
     ("revoked", revoked),
     ("live", live),
+    ("live-settings", live_settings),
 ];

@@ -168,3 +168,19 @@ fn the_top_of_a_thread_with_earlier_messages_asks_for_them_once() {
     let asked: Vec<Command> = rx.try_iter().filter(|c| matches!(c, Command::LoadEarlier(_))).collect();
     assert_eq!(asked, [Command::LoadEarlier(ConversationId("bob".into()))]);
 }
+
+#[test]
+fn unlink_in_settings_asks_once_more_then_unlinks() {
+    let (mut rt, rx) = open(fake::settings);
+    click(&mut rt, "unlink");
+    assert!(rx.try_recv().is_err());
+    click(&mut rt, "unlink-yes");
+    assert_eq!(rx.try_recv(), Ok(Command::Unlink));
+}
+
+#[test]
+fn start_over_leaves_the_revoked_screen() {
+    let (mut rt, rx) = open(fake::revoked);
+    click(&mut rt, "start-over");
+    assert_eq!(rx.try_recv(), Ok(Command::AcknowledgeRevoked));
+}
