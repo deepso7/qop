@@ -159,6 +159,14 @@ Each milestone is a separate PR and is usable on its own.
 - The `live` scene renders a real `QOP_DATA_DIR` headless (used when a window screenshot is not possible).
 - For milestone 5: register `/qop/sync/1` next to chat in `start_node`; serve it from `node_event` behind `Auth::allowed()`, verifying the phone with `Auth::verify` against the own handle and QID; `held` after `Store::enqueue`; receipts from the outbox's `Sent` transition (`Internal::OutboxChanged`/`deliver_one`); catch-up pages from the inbox rowid (add an `inbox_after(seq, limit)` query).
 
+### Milestones 5 and 6 as built
+
+- `engine/sync.rs` ports `cli/src/sync.ts`: sync streams are served only while messaging is `Ready`, share chat's inbound stream limit, and the peer is verified on its own connection as an active device of our own handle and QID before the request is read and again before anything is stored. `held` follows `Store::enqueue`; receipts are read from the outbox (`sent` is only ever written after the recipient's ACK) rather than pushed; catch-up reads `Store::inbox_after` and packs under the 64 KiB cap. A handoff to someone who is not yet a conversation adds one, so the desktop shows phone-composed messages in that chat. E2e: `docs/testing/desktop-sync-removal-e2e.md`.
+- Removal needs no new mechanism: the once-a-minute own-membership read sees the registry's removal marker (53 s in the e2e run), stops the node, wipes, and shows `Revoked`; Start over deletes the key, so the next link pairs with a fresh one.
+- Errors stay calm and never block: `model::Unreachable` (chain or API) from the last poll, shown as one notice line in the linked view (also for re-checking membership and no network) and under enrollment progress. Settings shows the real account, peer ID, fingerprint, link state, relay and data directory (`live-settings` scene renders it from a data directory).
+- Performance: the engine keeps the newest `PAGE` (200) messages per conversation and reloads only the conversation an event touched (`Store::thread`, on new `(to_qid, sent_at)` / `(from_qid, received_at)` indexes, migration v3); messages are shared (`Arc<[Message]>`), so publishing copies none. The thread is an index-built virtual list (`El::virtual_rows`), and reaching its top asks for another page (`Command::LoadEarlier`). Debug-build numbers with a 5,000-message conversation open: 1.4 ms idle frame, 3.8 ms per frame while scrolling, ~15 ms for a frame that swaps in a new 5,000-message thread (78 ms before virtual rows); the newest page of 5,000 stored messages reads in 0.9 ms (`ui::tests::frame_cost…`, `store::tests::reads_the_newest…`).
+- Not done: a real phone run (the app's QR scan, handoff, catch-up and removal UI), and noticing a removal sooner than the minute poll (a peer refusing us already triggers a re-read; a quiet desktop waits for the poll).
+
 ## Testing
 
 - Vector tests (above), including rejection cases and stream framing.
