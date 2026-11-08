@@ -130,6 +130,28 @@ beforeEach(() => {
   registryMock.lookupHandle.mockReset().mockReturnValue(Effect.succeed(null));
 });
 
+// Stores a pending registration with `patch` applied, then loads it back.
+const loadPatchedRecord = async (patch: {
+  readonly failureCode?: string | null;
+  readonly qid?: string | null;
+  readonly status: string;
+}) => {
+  await Effect.runPromise(loadRegistration().startLocalRegistration("ABC-123"));
+
+  const stored = JSON.parse(
+    secureStoreMock.items.get(REGISTRATION_STORAGE_KEY) ?? "{}"
+  );
+
+  secureStoreMock.items.set(
+    REGISTRATION_STORAGE_KEY,
+    JSON.stringify({ ...stored, ...patch })
+  );
+
+  return Effect.runPromise(
+    loadRegistration().loadLocalRegistration().pipe(Effect.result)
+  );
+};
+
 describe("local registration", () => {
   it.each([
     { ...DOMAIN, chainId: "11155111" },
@@ -435,6 +457,30 @@ describe("local registration", () => {
 
     expect(second).toEqual(first);
     expect(clientMock.register).toHaveBeenCalledOnce();
+  });
+
+  describe("stored record", () => {
+    it.each([
+      { qid: "42", status: "confirmed" },
+      { failureCode: "HANDLE_TAKEN", status: "failed" },
+    ])("decodes %o", async (patch) => {
+      const loaded = await loadPatchedRecord(patch);
+
+      expect(Result.isSuccess(loaded) && loaded.success).toMatchObject(patch);
+    });
+
+    it.each([
+      { qid: null, status: "confirmed" },
+      { failureCode: null, status: "failed" },
+      { qid: "42", status: "submitted" },
+      { failureCode: "HANDLE_TAKEN", status: "confirmed" },
+    ])("rejects %o", async (patch) => {
+      const loaded = await loadPatchedRecord(patch);
+
+      expect(Result.isFailure(loaded) && loaded.failure.operation).toBe(
+        "decode"
+      );
+    });
   });
 
   it("treats unscoped registration state as absent", async () => {

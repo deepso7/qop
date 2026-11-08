@@ -3,7 +3,7 @@ import { useFocusEffect } from "expo-router";
 import * as React from "react";
 
 import { completeDeviceRemove } from "@/lib/device-link-flow";
-import { useIdentityStore } from "@/lib/identity-store";
+import type { Account } from "@/lib/identity-store";
 import { LocalDeviceActionError } from "@/lib/local-device-action";
 import { lookupQid } from "@/lib/registry";
 
@@ -11,6 +11,10 @@ interface RosterDevice {
   readonly deviceKey: string;
   readonly peerId: string;
 }
+
+type RosterState =
+  | { readonly status: "error" | "loading" }
+  | { readonly devices: readonly RosterDevice[]; readonly status: "ready" };
 
 const removeFailureMessage = (
   operation: LocalDeviceActionError["operation"] | undefined
@@ -38,15 +42,12 @@ const removeFailureMessage = (
  * The account's on-chain device roster, reloaded whenever the screen gains
  * focus (e.g. after the link-device sheet closes), plus device removal.
  */
-export const useDeviceRoster = () => {
-  const identity = useIdentityStore((state) => state.identity);
-  const qid = useIdentityStore((state) => state.qid);
-  const [devices, setDevices] = React.useState<readonly RosterDevice[]>([]);
+export const useDeviceRoster = ({ identity, qid }: Account) => {
+  const [roster, setRoster] = React.useState<RosterState>({
+    status: "loading",
+  });
 
-  const [status, setStatus] = React.useState<"error" | "loading" | "ready">(
-    "loading"
-  );
-
+  const { ownerAddress } = identity;
   const [removing, setRemoving] = React.useState(false);
   const [message, setMessage] = React.useState<string>();
 
@@ -58,13 +59,6 @@ export const useDeviceRoster = () => {
     loadSeq.current += 1;
     const seq = loadSeq.current;
 
-    if (!qid) {
-      setDevices([]);
-      setStatus("ready");
-
-      return;
-    }
-
     const account = await Effect.runPromise(
       lookupQid(BigInt(qid)).pipe(Effect.result)
     );
@@ -73,12 +67,11 @@ export const useDeviceRoster = () => {
       return;
     }
 
-    if (Result.isSuccess(account) && account.success) {
-      setDevices(account.success.devices);
-      setStatus("ready");
-    } else {
-      setStatus("error");
-    }
+    setRoster(
+      Result.isSuccess(account) && account.success
+        ? { devices: account.success.devices, status: "ready" }
+        : { status: "error" }
+    );
   }, [qid]);
 
   useFocusEffect(
@@ -92,13 +85,13 @@ export const useDeviceRoster = () => {
   );
 
   const retry = React.useCallback(() => {
-    setStatus("loading");
+    setRoster({ status: "loading" });
     void load();
   }, [load]);
 
   const remove = React.useCallback(
     async (deviceKey: string) => {
-      if (!identity || !qid || removing) {
+      if (removing) {
         return;
       }
 
@@ -108,7 +101,7 @@ export const useDeviceRoster = () => {
       const result = await Effect.runPromise(
         completeDeviceRemove({
           deviceKey,
-          expectedOwner: identity.ownerAddress,
+          expectedOwner: ownerAddress,
           qid: BigInt(qid),
         }).pipe(Effect.result)
       );
@@ -135,16 +128,15 @@ export const useDeviceRoster = () => {
           : "Removal submitted. Its conversation history stays."
       );
     },
-    [identity, load, qid, removing]
+    [load, ownerAddress, qid, removing]
   );
 
   return {
-    devices,
+    ...roster,
     message,
     remove,
     removing,
     retry,
-    status,
-    thisDeviceKey: identity?.deviceKey,
+    thisDeviceKey: identity.deviceKey,
   };
 };

@@ -11,7 +11,7 @@ import { VaultError } from "@/components/onboarding/vault-error";
 import { Welcome } from "@/components/onboarding/welcome";
 import { Cursor } from "@/components/pixel/cursor";
 import { primaryHaptic, selectionHaptic } from "@/lib/haptics";
-import { useIdentityStore } from "@/lib/identity-store";
+import { selectIdentity, useIdentityStore } from "@/lib/identity-store";
 
 // Screens before keys exist; afterwards the identity store picks the screen.
 type Stage = "handle" | "invite" | "restore" | "welcome";
@@ -19,10 +19,8 @@ type Stage = "handle" | "invite" | "restore" | "welcome";
 // Onboarding from welcome, either creating an account (handle → invite code →
 // recovery key) or restoring one (recovery key → add this phone).
 const OnboardingRoute = () => {
-  const error = useIdentityStore((state) => state.error);
-  const identity = useIdentityStore((state) => state.identity);
-  const resetIdentity = useIdentityStore((state) => state.resetIdentity);
-  const status = useIdentityStore((state) => state.status);
+  const state = useIdentityStore();
+  const identity = selectIdentity(state);
   const [stage, setStage] = React.useState<Stage>("welcome");
   const [handle, setHandle] = React.useState("");
 
@@ -44,7 +42,7 @@ const OnboardingRoute = () => {
     if (identity) {
       const previous = identity.handle;
 
-      if (Result.isSuccess(await resetIdentity())) {
+      if (Result.isSuccess(await state.resetIdentity())) {
         setHandle(previous);
       }
     }
@@ -57,12 +55,12 @@ const OnboardingRoute = () => {
     Keyboard.dismiss();
     void selectionHaptic();
     setStage("restore");
-    void resetIdentity();
+    void state.resetIdentity();
   };
 
   let content: React.ReactNode;
 
-  if (status === "resetting" || status === "loading") {
+  if (state.status === "resetting" || state.status === "loading") {
     content = (
       <View
         accessibilityLabel="Loading"
@@ -72,11 +70,13 @@ const OnboardingRoute = () => {
         <Cursor className="bg-foreground-secondary" />
       </View>
     );
-  } else if (status === "error") {
-    content = <VaultError error={error} key="error" />;
-  } else if (status === "backup" && identity) {
-    content = <RecoveryStep handle={identity.handle} key="recovery" />;
-  } else if (status === "enrolling" || stage === "restore") {
+  } else if (state.status === "error") {
+    content = (
+      <VaultError error={state.error} key="error" retrying={state.retrying} />
+    );
+  } else if (state.status === "backup") {
+    content = <RecoveryStep handle={state.identity.handle} key="recovery" />;
+  } else if (state.status === "enrolling" || stage === "restore") {
     // Ahead of the invite step: an identity restored on this phone must never
     // be registered as a new account.
     content = (

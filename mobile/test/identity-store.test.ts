@@ -1,7 +1,7 @@
 import { Effect, Result } from "effect";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createIdentityStore } from "@/lib/identity-store-core";
+import { createIdentityStore, selectIdentity } from "@/lib/identity-store-core";
 import { IdentityVaultError } from "@/lib/identity-vault-core";
 
 const vaultMock = {
@@ -185,7 +185,7 @@ describe("identity store", () => {
       identity: backedUpIdentity,
       status: "ready",
     });
-    expect(store.getState().identity).not.toHaveProperty("recoveryKey");
+    expect(selectIdentity(store.getState())).not.toHaveProperty("recoveryKey");
   });
 
   it("reveals recovery material without retaining it in store state", async () => {
@@ -194,7 +194,7 @@ describe("identity store", () => {
 
     expect(Result.isSuccess(result) && result.success).toBe("recovery-key");
     expect(store.getState()).not.toHaveProperty("recoveryKey");
-    expect(store.getState().identity).toBeNull();
+    expect(selectIdentity(store.getState())).toBeNull();
   });
 
   it("deletes registration retry material with the identity", async () => {
@@ -214,10 +214,10 @@ describe("identity store", () => {
     expect(registrationMock.deleteLocalRegistration).toHaveBeenCalledOnce();
     expect(deleteAllData).toHaveBeenCalledOnce();
     expect(vaultMock.deleteLocalIdentity).toHaveBeenCalledOnce();
-    expect(store.getState()).toMatchObject({
-      identity: null,
-      status: "absent",
-    });
+    // Replaced, not merged: nothing from the old identity lingers.
+    expect(store.getState().status).toBe("absent");
+    expect(store.getState()).not.toHaveProperty("identity");
+    expect(store.getState()).not.toHaveProperty("qid");
   });
 
   it("asks for the recovery backup only after registration is confirmed", async () => {
@@ -247,7 +247,7 @@ describe("identity store", () => {
 
     expect(store.getState()).toMatchObject({
       identity: backedUpIdentity,
-      registration: confirmedRegistration,
+      qid: confirmedRegistration.qid,
       status: "ready",
     });
   });
@@ -266,9 +266,7 @@ describe("identity store", () => {
 
     expect(store.getState()).toMatchObject({
       error: { _tag: "IdentityVaultError", operation: "read" },
-      identity: backedUpIdentity,
-      isHydrating: false,
-      registration: null,
+      retrying: false,
       status: "error",
     });
   });
@@ -286,7 +284,7 @@ describe("identity store", () => {
 
     store.getState().retryLoad();
     expect(store.getState()).toMatchObject({
-      isHydrating: true,
+      retrying: true,
       status: "error",
     });
     retry.resolve(null);
@@ -316,7 +314,7 @@ describe("identity store", () => {
 
       await store.getState().hydrate();
       expect(store.getState()).toMatchObject({
-        qid: null,
+        enrollment: null,
         status: "enrolling",
       });
 
@@ -325,7 +323,7 @@ describe("identity store", () => {
       );
       await store.getState().hydrate();
       expect(store.getState()).toMatchObject({
-        qid: null,
+        enrollment,
         status: "enrolling",
       });
     });

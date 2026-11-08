@@ -16,30 +16,41 @@ import type {
   LocalRegistration,
 } from "@/lib/local-registration-core";
 
-export type IdentityStatus =
-  | "absent"
-  | "backup"
-  | "creating"
-  // A restored identity whose device isn't confirmed on its account yet.
-  | "enrolling"
-  | "error"
-  | "loading"
-  | "ready"
-  | "resetting"
-  | "unregistered";
+// Each status carries exactly the data that exists in it, so screens never
+// guard against a missing identity or qid.
+export type IdentityState =
+  | { readonly status: "absent" | "creating" | "loading" | "resetting" }
+  | {
+      readonly error: IdentityVaultError;
+      // A retry is reloading behind the error screen.
+      readonly retrying: boolean;
+      readonly status: "error";
+    }
+  | {
+      readonly identity: LocalIdentity;
+      readonly registration: LocalRegistration | null;
+      readonly status: "unregistered";
+    }
+  | {
+      // A restored identity whose device isn't confirmed on its account yet.
+      readonly enrollment: LocalEnrollment | null;
+      readonly identity: LocalIdentity;
+      readonly status: "enrolling";
+    }
+  | {
+      readonly identity: LocalIdentity;
+      // The account's qid, by registration or enrollment.
+      readonly qid: string;
+      // "backup" until a new account's recovery key is saved or skipped.
+      readonly status: "backup" | "ready";
+    };
+
+export type IdentityStatus = IdentityState["status"];
+
+// An identity that belongs to its account.
+export type Account = Extract<IdentityState, { readonly qid: string }>;
 
 type IdentityResult<A> = Result.Result<A, IdentityVaultError>;
-
-interface IdentityState {
-  enrollment: LocalEnrollment | null;
-  error: IdentityVaultError | null;
-  identity: LocalIdentity | null;
-  isHydrating: boolean;
-  // The account's qid once this phone belongs to it, by registration or enrollment.
-  qid: string | null;
-  registration: LocalRegistration | null;
-  status: IdentityStatus;
-}
 
 interface IdentityActions {
   createIdentity: (handle: string) => Promise<IdentityResult<LocalIdentity>>;
@@ -49,6 +60,7 @@ interface IdentityActions {
     recoveryKey: string,
     handle: string
   ) => Promise<IdentityResult<LocalIdentity>>;
+  // Only for an identity that belongs to its account.
   setBackupState: (
     backupState: Exclude<IdentityBackupState, "pending">
   ) => Promise<IdentityResult<void>>;
@@ -60,19 +72,19 @@ interface IdentityActions {
 
 type IdentityStore = IdentityActions & IdentityState;
 
-const empty = {
-  enrollment: null,
-  identity: null,
-  qid: null,
-  registration: null,
-} as const;
+// Selectors for statuses that share data. They return a field or the state
+// itself, so zustand sees no change between unrelated updates.
+export const selectIdentity = (state: IdentityState) =>
+  "identity" in state ? state.identity : null;
 
-const initialState: IdentityState = {
-  ...empty,
-  error: null,
-  isHydrating: true,
-  status: "loading",
-};
+export const selectAccount = (state: IdentityState): Account | null =>
+  "qid" in state ? state : null;
+
+const accountState = (identity: LocalIdentity, qid: string): Account => ({
+  identity,
+  qid,
+  status: identity.backupState === "pending" ? "backup" : "ready",
+});
 
 // Create order: register the handle first, then back up the recovery key, so a
 // key is only ever shown for a handle that is actually registered. A restored
@@ -83,42 +95,26 @@ const stateForIdentity = (
   registration: LocalRegistration | null = null,
   enrollment: LocalEnrollment | null = null
 ): IdentityState => {
-  let qid: string | null = null;
+  if (identity === null) {
+    return { status: "absent" };
+  }
 
   if (registration?.status === "confirmed") {
-    ({ qid } = registration);
-  } else if (enrollment?.status === "confirmed") {
-    ({ qid } = enrollment);
+    return accountState(identity, registration.qid);
   }
 
-  let status: IdentityStatus = "ready";
-
-  if (identity === null) {
-    status = "absent";
-  } else if (qid === null) {
-    status =
-      enrollment || identity.backupState !== "pending"
-        ? "enrolling"
-        : "unregistered";
-  } else if (identity.backupState === "pending") {
-    status = "backup";
+  if (enrollment?.status === "confirmed") {
+    return accountState(identity, enrollment.qid);
   }
 
-  return {
-    enrollment,
-    error: null,
-    identity,
-    isHydrating: false,
-    qid,
-    registration,
-    status,
-  };
+  return enrollment || identity.backupState !== "pending"
+    ? { enrollment, identity, status: "enrolling" }
+    : { identity, registration, status: "unregistered" };
 };
 
 const failedState = (error: IdentityVaultError): IdentityState => ({
-  ...empty,
   error,
-  isHydrating: false,
+  retrying: false,
   status: "error",
 });
 
@@ -186,13 +182,20 @@ export const createIdentityStore = ({
   let backupStateOperation: Promise<IdentityResult<void>> | null = null;
   let resetOperation: Promise<IdentityResult<void>> | null = null;
 
-  return create<IdentityStore>((set, get) => {
+  return create<IdentityStore>((set, get, store) => {
+    // Replaces the whole state so no field outlives the status it belongs to
+    // (zustand's set otherwise merges). The actions come from the initial
+    // state, which has no other data.
+    const transition = (next: IdentityState) => {
+      set({ ...store.getInitialState(), ...next }, true);
+    };
+
     // Shared by create and restore: one vault write at a time, and the store
     // shows "creating" until it lands (or the vault error screen if it fails).
     const writeIdentity = (
       write: () => Effect.Effect<LocalIdentity, IdentityVaultError>
     ) => {
-      if (resetOperation || get().status === "resetting") {
+      if (resetOperation) {
         return Promise.resolve(Result.fail(makeIdentityVaultError("create")));
       }
 
@@ -201,21 +204,21 @@ export const createIdentityStore = ({
       }
 
       loadGeneration += 1;
-      set({ ...empty, error: null, isHydrating: false, status: "creating" });
+      transition({ status: "creating" });
 
       const operation = runOperation(
         write().pipe(
           Effect.tap((identity) =>
             Effect.sync(() => {
               if (!resetOperation) {
-                set(stateForIdentity(identity));
+                transition(stateForIdentity(identity));
               }
             })
           ),
           Effect.tapError((error) =>
             Effect.sync(() => {
               if (!resetOperation) {
-                set(failedState(error));
+                transition(failedState(error));
               }
             })
           ),
@@ -232,23 +235,23 @@ export const createIdentityStore = ({
     };
 
     return {
-      ...initialState,
+      status: "loading",
 
       createIdentity: (handle) =>
         writeIdentity(() => createLocalIdentity(handle)),
 
       hydrate: () => {
-        if (resetOperation || get().status === "resetting") {
+        if (resetOperation) {
           return Promise.resolve();
         }
 
         const generation = loadGeneration + 1;
         loadGeneration = generation;
+        const state = get();
 
-        if (get().status === "loading") {
-          set(initialState);
-        } else {
-          set({ isHydrating: true });
+        // Other statuses stay on screen until the load lands.
+        if (state.status === "error") {
+          transition({ error: state.error, retrying: true, status: "error" });
         }
 
         const current = () => loadGeneration === generation;
@@ -259,14 +262,14 @@ export const createIdentityStore = ({
               onFailure: (error) =>
                 Effect.sync(() => {
                   if (current()) {
-                    set(failedState(error));
+                    transition(failedState(error));
                   }
                 }),
               onSuccess: (identity) =>
                 identity === null
                   ? Effect.sync(() => {
                       if (current()) {
-                        set(stateForIdentity(null));
+                        transition(stateForIdentity(null));
                       }
                     })
                   : Effect.all([
@@ -277,23 +280,22 @@ export const createIdentityStore = ({
                         onFailure: (error) =>
                           Effect.sync(() => {
                             if (current()) {
-                              set({
-                                ...failedState(
+                              transition(
+                                failedState(
                                   makeIdentityVaultError(
                                     error.operation === "decode" ||
                                       error.operation === "verify"
                                       ? "decode"
                                       : "read"
                                   )
-                                ),
-                                identity,
-                              });
+                                )
+                              );
                             }
                           }),
                         onSuccess: ([loadedRegistration, loadedEnrollment]) =>
                           Effect.sync(() => {
                             if (current()) {
-                              set(
+                              transition(
                                 stateForIdentity(
                                   identity,
                                   loadedRegistration,
@@ -315,7 +317,7 @@ export const createIdentityStore = ({
         }
 
         loadGeneration += 1;
-        set({ error: null, isHydrating: false, status: "resetting" });
+        transition({ status: "resetting" });
 
         const effect = Effect.tryPromise({
           catch: () => makeIdentityVaultError("delete"),
@@ -332,12 +334,12 @@ export const createIdentityStore = ({
           Effect.andThen(deleteLocalIdentity()),
           Effect.tap(() =>
             Effect.sync(() => {
-              set(stateForIdentity(null));
+              transition(stateForIdentity(null));
             })
           ),
           Effect.tapError((error) =>
             Effect.sync(() => {
-              set(failedState(error));
+              transition(failedState(error));
             })
           ),
           Effect.result
@@ -367,9 +369,8 @@ export const createIdentityStore = ({
           return backupStateOperation;
         }
 
-        const { identity } = get();
-
-        if (!identity || resetOperation || get().status === "resetting") {
+        // Also false while resetting, which has no account.
+        if (!selectAccount(get())) {
           return Promise.resolve(
             Result.fail(makeIdentityVaultError("missing-identity"))
           );
@@ -378,16 +379,10 @@ export const createIdentityStore = ({
         const effect = updateLocalIdentityBackupState(backupState).pipe(
           Effect.tap((updatedIdentity) =>
             Effect.sync(() => {
-              if (!resetOperation) {
-                const state = get();
+              const account = selectAccount(get());
 
-                set(
-                  stateForIdentity(
-                    updatedIdentity,
-                    state.registration,
-                    state.enrollment
-                  )
-                );
+              if (account) {
+                transition(accountState(updatedIdentity, account.qid));
               }
             })
           )

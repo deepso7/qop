@@ -2,7 +2,11 @@ import { Minip2p, bindAppState } from "@minip2p/react-native";
 import { randomUUID } from "expo-crypto";
 import { AppState } from "react-native";
 
-import { useIdentityStore } from "./identity-store";
+import {
+  selectAccount,
+  selectIdentity,
+  useIdentityStore,
+} from "./identity-store";
 import { loadDeviceSecretKey } from "./identity-vault";
 import { performSend } from "./p2p-send";
 import { createP2pStore } from "./p2p-store-core";
@@ -15,15 +19,17 @@ export const useP2pStore = createP2pStore({
 
     return { bindAppState: () => bindAppState(endpoint), endpoint };
   },
-  getIdentityHandle: () => useIdentityStore.getState().identity?.handle,
+  getIdentityHandle: () => selectIdentity(useIdentityStore.getState())?.handle,
   getOwnDevice: () => {
-    // `qid` is set once this phone belongs to its account, whether it
-    // registered the account or was restored onto it.
-    const { identity, qid } = useIdentityStore.getState();
+    // Set once this phone belongs to its account, whether it registered the
+    // account or was restored onto it.
+    const account = selectAccount(useIdentityStore.getState());
 
-    if (identity === null || qid === null) {
+    if (!account) {
       return;
     }
+
+    const { identity, qid } = account;
 
     return {
       deviceKey: identity.deviceKey,

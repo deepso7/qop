@@ -22,7 +22,7 @@ import { Notch } from "@/components/pixel/notch";
 import { PixelButton } from "@/components/pixel/pixel-button";
 import { Text } from "@/components/ui/text";
 import { primaryHaptic, successHaptic } from "@/lib/haptics";
-import { useIdentityStore } from "@/lib/identity-store";
+import { selectIdentity, useIdentityStore } from "@/lib/identity-store";
 import {
   checkLocalEnrollment,
   findRecoveryAccount,
@@ -186,9 +186,12 @@ const KeyField = ({
 // Confirmation rehydrates the store, which leaves onboarding.
 const useEnrollment = () => {
   const hydrate = useIdentityStore((state) => state.hydrate);
-  const identity = useIdentityStore((state) => state.identity);
+  const identity = useIdentityStore(selectIdentity);
   const restoreIdentity = useIdentityStore((state) => state.restoreIdentity);
-  const storedEnrollment = useIdentityStore((state) => state.enrollment);
+
+  const storedEnrollment = useIdentityStore((state) =>
+    state.status === "enrolling" ? state.enrollment : null
+  );
 
   // The latest result, ahead of the store's next hydrate.
   const [latest, setLatest] = React.useState<LocalEnrollment>();

@@ -37,19 +37,37 @@ const CanonicalDeadline = UnixSeconds.pipe(
   Schema.decodeTo(UnixSeconds.pipe(Schema.flip))
 );
 
-const StoredLocalRegistrationV2 = Schema.Struct({
+const StoredLocalRegistrationBase = {
   deadline: CanonicalDeadline,
   digest: CanonicalHex32,
-  failureCode: Schema.NullOr(Schema.String),
   handle: Handle,
   nonce: CanonicalNonce,
   ownerAddress: EthereumAddress,
-  qid: Schema.NullOr(CanonicalQid),
-  status: Schema.Literals(["pending", "submitted", "confirmed", "failed"]),
   version: Schema.Literal(2),
-}).annotate({
-  messageUnexpectedKey: "Unexpected local registration field",
-});
+} as const;
+
+// One variant per status: only a confirmed record has a qid and only a failed
+// one has a failure code. The JSON keeps every key, as the flat record did.
+const StoredLocalRegistrationV2 = Schema.Union([
+  Schema.Struct({
+    ...StoredLocalRegistrationBase,
+    failureCode: Schema.Null,
+    qid: Schema.Null,
+    status: Schema.Literals(["pending", "submitted"]),
+  }),
+  Schema.Struct({
+    ...StoredLocalRegistrationBase,
+    failureCode: Schema.Null,
+    qid: CanonicalQid,
+    status: Schema.Literal("confirmed"),
+  }),
+  Schema.Struct({
+    ...StoredLocalRegistrationBase,
+    failureCode: Schema.String,
+    qid: Schema.Null,
+    status: Schema.Literal("failed"),
+  }),
+]);
 
 const StoredLocalRegistrationJson = Schema.fromJsonString(
   StoredLocalRegistrationV2

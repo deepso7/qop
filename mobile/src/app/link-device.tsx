@@ -17,7 +17,8 @@ import { useTheme } from "@/constants/theme";
 import { trustedIdentityDomain } from "@/lib/device-action-approval";
 import { completeDeviceLink } from "@/lib/device-link-flow";
 import { successHaptic } from "@/lib/haptics";
-import { useIdentityStore } from "@/lib/identity-store";
+import { selectAccount, useIdentityStore } from "@/lib/identity-store";
+import type { Account } from "@/lib/identity-store";
 import { LocalDeviceActionError } from "@/lib/local-device-action";
 import { useP2pStore } from "@/lib/p2p-store";
 import {
@@ -30,6 +31,18 @@ type Payload =
   | { readonly kind: "empty" }
   | { readonly kind: "invalid"; readonly reason: string }
   | { readonly kind: "valid"; readonly offer: PairingOfferV1 };
+
+type LinkState =
+  | { readonly kind: "failed"; readonly message: string }
+  | { readonly kind: "idle" }
+  | { readonly kind: "linking"; readonly step: keyof typeof STEP_LABELS };
+
+const STEP_LABELS = {
+  approving: "Approving…",
+  connecting: "Connecting to your computer…",
+} as const;
+
+const IDLE: LinkState = { kind: "idle" };
 
 // Native UIPasteControl, sized through classes.
 const PasteButton = withUniwind(Clipboard.ClipboardPasteButton);
@@ -60,11 +73,13 @@ const linkFailureMessage = (
  * Sheet that links a CLI to this account: paste its pairing payload, check
  * the fingerprint against the terminal, then one tap connects and approves.
  */
-const LinkDeviceSheet = () => {
+const LinkDeviceSheet = ({
+  account: { identity, qid },
+}: {
+  account: Account;
+}) => {
   const router = useRouter();
   const colors = useTheme();
-  const identity = useIdentityStore((state) => state.identity);
-  const accountQid = useIdentityStore((state) => state.qid);
   const pairConnect = useP2pStore((state) => state.pairConnect);
   const pairWaitPeerReady = useP2pStore((state) => state.pairWaitPeerReady);
   const openPairingStream = useP2pStore((state) => state.openPairingStream);
@@ -77,8 +92,8 @@ const LinkDeviceSheet = () => {
   const [text, setText] = React.useState("");
   // When the text last changed; expiry is checked against it, not render time.
   const [editedAtSeconds, setEditedAtSeconds] = React.useState(0n);
-  const [progress, setProgress] = React.useState<string>();
-  const [error, setError] = React.useState<string>();
+  const [state, setState] = React.useState<LinkState>(IDLE);
+  const busy = state.kind === "linking";
   const linking = React.useRef(false);
 
   const transport = React.useMemo(
@@ -130,7 +145,7 @@ const LinkDeviceSheet = () => {
     const sameAccount = Effect.runSync(
       assertOfferMatchesAccount(decoded.success, {
         chainId: domain.chainId,
-        qid: accountQid ?? "",
+        qid,
         registry: domain.verifyingContract,
       }).pipe(Effect.result)
     );
@@ -138,17 +153,18 @@ const LinkDeviceSheet = () => {
     if (Result.isFailure(sameAccount)) {
       return {
         kind: "invalid",
-        reason: `This payload is for a different account. Use --account ${identity?.handle ?? "<handle>"}.`,
+        reason: `This payload is for a different account. Use --account ${identity.handle}.`,
       };
     }
 
     return { kind: "valid", offer: decoded.success };
-  }, [editedAtSeconds, identity?.handle, accountQid, text]);
+  }, [editedAtSeconds, identity.handle, qid, text]);
 
   const changeText = React.useCallback((next: string) => {
     setText(next);
     setEditedAtSeconds(BigInt(Math.floor(Date.now() / 1000)));
-    setError(undefined);
+    // A slow clipboard read can land after linking started.
+    setState((current) => (current.kind === "failed" ? IDLE : current));
   }, []);
 
   const paste = React.useCallback(async () => {
@@ -156,16 +172,14 @@ const LinkDeviceSheet = () => {
     changeText(pasted.trim());
   }, [changeText]);
 
-  /** Connect to the CLI, then approve its enrollment and wait for it. */
+  /**
+   * Connect to the CLI, then approve its enrollment and wait for it. Resolves
+   * to a failure message, or undefined once linked; never throws.
+   */
   const approve = React.useCallback(
-    async (
-      offer: PairingOfferV1,
-      expectedOwner: NonNullable<typeof identity>["ownerAddress"],
-      qid: string
-    ) => {
+    async (offer: PairingOfferV1) => {
       const domain = trustedIdentityDomain();
-      setError(undefined);
-      setProgress("Connecting to your computer…");
+      setState({ kind: "linking", step: "connecting" });
 
       const handshake = await Effect.runPromise(
         handshakePairing(
@@ -181,19 +195,15 @@ const LinkDeviceSheet = () => {
       );
 
       if (Result.isFailure(handshake)) {
-        setError(
-          "Could not reach your computer. Keep the link command running and try again."
-        );
-
-        return;
+        return "Could not reach your computer. Keep the link command running and try again.";
       }
 
-      setProgress("Approving…");
+      setState({ kind: "linking", step: "approving" });
 
       const result = await Effect.runPromise(
         completeDeviceLink({
           deviceKey: asHex(offer.deviceKey),
-          expectedOwner,
+          expectedOwner: identity.ownerAddress,
           offer,
           peerId: handshake.success.peerId,
           qid: BigInt(qid),
@@ -203,41 +213,29 @@ const LinkDeviceSheet = () => {
 
       if (Result.isFailure(result)) {
         const { failure } = result;
-        setError(
-          linkFailureMessage(
-            failure instanceof LocalDeviceActionError
-              ? failure.operation
-              : undefined
-          )
-        );
 
-        return;
+        return linkFailureMessage(
+          failure instanceof LocalDeviceActionError
+            ? failure.operation
+            : undefined
+        );
       }
 
       if (result.success?.membership !== "linked") {
-        setError(
-          result.success?.membership === "removed"
-            ? "This device was linked and later removed. Run the link command again."
-            : "The approval finished, but the device did not become active."
-        );
-
-        return;
+        return result.success?.membership === "removed"
+          ? "This device was linked and later removed. Run the link command again."
+          : "The approval finished, but the device did not become active.";
       }
 
       invalidateOwnHolders();
       void successHaptic();
       router.back();
     },
-    [invalidateOwnHolders, router, transport]
+    [identity.ownerAddress, invalidateOwnHolders, qid, router, transport]
   );
 
   const link = React.useCallback(async () => {
-    if (
-      payload.kind !== "valid" ||
-      !identity ||
-      !accountQid ||
-      linking.current
-    ) {
+    if (payload.kind !== "valid" || linking.current) {
       return;
     }
 
@@ -245,18 +243,22 @@ const LinkDeviceSheet = () => {
 
     // The sheet may have stayed open past the offer's expiry.
     if (BigInt(offer.expiresAt) <= BigInt(Math.floor(Date.now() / 1000))) {
-      setError("This payload has expired. Run the link command again.");
+      setState({
+        kind: "failed",
+        message: "This payload has expired. Run the link command again.",
+      });
 
       return;
     }
 
     // A ref, not state: a second tap can land before the re-render.
-    // approve() reports failures via setError and never throws.
     linking.current = true;
-    await approve(offer, identity.ownerAddress, accountQid);
+    const failure = await approve(offer);
     linking.current = false;
-    setProgress(undefined);
-  }, [approve, identity, accountQid, payload]);
+    setState(
+      failure === undefined ? IDLE : { kind: "failed", message: failure }
+    );
+  }, [approve, payload]);
 
   const p2pReady = p2pStatus === "running";
 
@@ -280,7 +282,7 @@ const LinkDeviceSheet = () => {
       ) : null}
       <Text tone="secondary">
         On your computer, run{" "}
-        <Text variant="monospace">qop link --account {identity?.handle}</Text>{" "}
+        <Text variant="monospace">qop link --account {identity.handle}</Text>{" "}
         and paste the pairing payload it prints.
       </Text>
 
@@ -289,7 +291,7 @@ const LinkDeviceSheet = () => {
           autoCapitalize="none"
           autoCorrect={false}
           className="flex-1"
-          editable={!progress}
+          editable={!busy}
           onChangeText={changeText}
           placeholder="qop-pair1.…"
           value={text}
@@ -311,11 +313,7 @@ const LinkDeviceSheet = () => {
             className="h-11 w-21"
           />
         ) : (
-          <Button
-            disabled={Boolean(progress)}
-            onPress={paste}
-            variant="outline"
-          >
+          <Button disabled={busy} onPress={paste} variant="outline">
             <Text>Paste</Text>
           </Button>
         )}
@@ -342,12 +340,9 @@ const LinkDeviceSheet = () => {
         </View>
       ) : null}
 
-      <Button
-        disabled={!fingerprint || !p2pReady || Boolean(progress)}
-        onPress={link}
-      >
-        {progress ? <Spinner tone="onPrimary" /> : null}
-        <Text>{progress ?? "Link device"}</Text>
+      <Button disabled={!fingerprint || !p2pReady || busy} onPress={link}>
+        {busy ? <Spinner tone="onPrimary" /> : null}
+        <Text>{busy ? STEP_LABELS[state.step] : "Link device"}</Text>
       </Button>
 
       {fingerprint && !p2pReady ? (
@@ -355,13 +350,21 @@ const LinkDeviceSheet = () => {
           Waiting for this phone to come online…
         </Text>
       ) : null}
-      {error ? (
+      {state.kind === "failed" ? (
         <Text selectable tone="destructive" variant="caption">
-          {error}
+          {state.message}
         </Text>
       ) : null}
     </ScrollView>
   );
 };
 
-export default LinkDeviceSheet;
+// Stack.Protected can render this once more after the account is gone (e.g.
+// on log out), before it unmounts.
+const LinkDeviceRoute = () => {
+  const account = useIdentityStore(selectAccount);
+
+  return account ? <LinkDeviceSheet account={account} /> : null;
+};
+
+export default LinkDeviceRoute;

@@ -12,7 +12,7 @@ import { Surface } from "@/components/ui/surface";
 import { Text } from "@/components/ui/text";
 import { upsertContact } from "@/lib/db";
 import { selectionHaptic } from "@/lib/haptics";
-import { useIdentityStore } from "@/lib/identity-store";
+import { selectIdentity, useIdentityStore } from "@/lib/identity-store";
 import { lookupHandle } from "@/lib/registry";
 import type { RegistryAccount, RegistryReaderError } from "@/lib/registry";
 
@@ -49,7 +49,9 @@ const registryErrorMessage = (error: RegistryReaderError) => {
 const NewChatRoute = () => {
   const reduceMotion = useReducedMotion();
   const [opening, setOpening] = React.useState(false);
-  const ownHandle = useIdentityStore((state) => state.identity?.handle);
+
+  const ownHandle = useIdentityStore((state) => selectIdentity(state)?.handle);
+
   const [handle, setHandle] = React.useState("");
   const [lookingUp, setLookingUp] = React.useState(false);
   const [result, setResult] = React.useState<RegistryAccount | null>();
