@@ -140,6 +140,13 @@ Each milestone is a separate PR and is usable on its own.
 5. **Sync.** `/qop/sync/1` handoff, receipts, catch-up. Demo follows `phone-cli-handoff-e2e.md`.
 6. **Removal and polish.** Revocation UI and wipe, settings, error states, headless Rune snapshots for each screen.
 
+### Milestone 2 as built
+
+- `identity.rs` became `store.rs` (SQLite: identity, pending approval, revoked marker; single-instance `flock`) and `keys.rs` (device secret). The secret defaults to a 0600 `device.key` file: on macOS 27 a rebuilt, ad hoc signed binary blocks on a Keychain password prompt to read the item its previous build created. `QOP_KEY_STORE=keychain` opts in; revisit with code signing.
+- Chain reads are `rpc.rs`, a small blocking JSON-RPC client (`ureq`) with head pinning, run on tokio's blocking pool, instead of an alloy provider. `api.rs` reads device-action status the same way.
+- A pending approval that the API reports `confirmed` keeps its slot until the desktop's own read shows membership (the table above), where `occupiesApprovalSlot` would release it.
+- `qop-desktop --headless` runs the engine without a window, prints one line per model change (offer codes included) and takes button presses on stdin; e2e runs use it (`docs/testing/desktop-linking-e2e.md`).
+
 ## Testing
 
 - Vector tests (above), including rejection cases and stream framing.
