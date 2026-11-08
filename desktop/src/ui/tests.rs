@@ -49,6 +49,18 @@ fn sending_from_the_composer_emits_send_and_clears_it() {
 }
 
 #[test]
+fn a_message_over_the_limit_is_kept_and_not_sent() {
+    let (mut rt, rx) = open(fake::chat);
+    click(&mut rt, "composer");
+    let draft = "é".repeat(4001);
+    press(&mut rt, Key::Text(draft.clone()));
+    press(&mut rt, Key::Enter);
+    assert!(rx.try_recv().is_err());
+    assert_eq!(rt.state.composer.text, draft);
+    assert!(rt.find("composer-error").is_some());
+}
+
+#[test]
 fn retry_on_a_failed_message_emits_retry() {
     let (mut rt, rx) = open(fake::chat);
     click(&mut rt, "retry-b7");

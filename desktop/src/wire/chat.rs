@@ -8,7 +8,8 @@ use super::json::{self, Obj, Parsed};
 pub const CHAT_PROTOCOL: &str = "/qop/chat/1";
 pub const MAX_CHAT_PAYLOAD_BYTES: usize = 16 * 1024;
 
-const MAX_TEXT_UNITS: usize = 4000;
+/// Longest message text, in UTF-16 code units.
+pub const MAX_TEXT_UNITS: usize = 4000;
 /// Largest JS `Date` value, in milliseconds.
 pub(crate) const MAX_TIMESTAMP_MS: u64 = 8_640_000_000_000_000;
 

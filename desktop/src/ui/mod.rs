@@ -15,6 +15,7 @@ use std::time::{Duration, SystemTime};
 use rune::{Cx, El, Key, KeyEvent, TextEdit, Transition, Tx, col};
 
 use crate::model::{Command, ConversationId, Model, NewChat, Phase};
+use qop_desktop::wire::chat::MAX_TEXT_UNITS;
 use theme::{Theme, motion};
 
 /// Which pane fills the main area while linked.
@@ -141,10 +142,16 @@ impl Ui {
         }
     }
 
+    /// The draft's length in UTF-16 units when it is over the message limit; Send then keeps it.
+    pub fn composer_over(&self) -> Option<usize> {
+        let units = self.composer.text.trim().encode_utf16().count();
+        (units > MAX_TEXT_UNITS).then_some(units)
+    }
+
     fn send_message(&mut self) {
         let text = self.composer.text.trim().to_owned();
         let Some(conversation) = self.selected.clone() else { return };
-        if text.is_empty() {
+        if text.is_empty() || self.composer_over().is_some() {
             return;
         }
         self.send(Command::Send { conversation, text });

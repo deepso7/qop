@@ -9,6 +9,7 @@ use super::{Pane, Ui, ago, normalize_handle};
 use crate::model::{
     Command, Conversation, Direction, HandleLookup, Linked, LookupError, Message, MessageStatus, Messaging, NewChat,
 };
+use qop_desktop::wire::chat::MAX_TEXT_UNITS;
 
 const SIDEBAR: f32 = 280.0;
 
@@ -284,7 +285,7 @@ fn composer(ui: &Ui, t: &Theme) -> El {
         .on_edit(|ui: &mut Ui| &mut ui.composer)
         .on_submit(|ui: &mut Ui, _| ui.send_message());
     let field = notched(row().key("composer-box").grow(1.0).min_h(40.0).px(space::M).py(10.0).items_center(), Notch::Small, t.paper, Some(border)).child(input);
-    row()
+    let bar = row()
         .key("composer-bar")
         .px(space::XL)
         .py(space::M)
@@ -292,7 +293,14 @@ fn composer(ui: &Ui, t: &Theme) -> El {
         .items_end()
         .border_sides([1.0, 0.0, 0.0, 0.0], t.border)
         .child(field)
-        .child(kit::button(t, "send", "Send", Kind::Primary, |ui: &mut Ui, _| ui.send_message()).h(40.0))
+        .child(kit::button(t, "send", "Send", Kind::Primary, |ui: &mut Ui, _| ui.send_message()).h(40.0));
+    // Over the limit: say so above the bar; the draft stays until it is short enough to send.
+    let Some(units) = ui.composer_over() else { return bar };
+    let error = format!("Too long to send: {units} of {MAX_TEXT_UNITS} characters");
+    col()
+        .w_full()
+        .child(text(error).key("composer-error").font(type_::SMALL).color(t.link).px(space::XL).pb(space::XS))
+        .child(bar)
 }
 
 fn new_chat(ui: &Ui, t: &Theme, l: &Linked) -> El {
