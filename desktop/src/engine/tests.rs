@@ -1,5 +1,6 @@
 //! The engine end to end in-process: a real node on loopback, a scripted phone node speaking
-//! `/qop/pair/1`, fake chain and API, and restarts over the same data directory.
+//! `/qop/pair/1` (or a scripted contact speaking `/qop/chat/1`), fake chain and API, and
+//! restarts over the same data directory.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -13,12 +14,16 @@ use super::testing::{CHAIN_ID, FakeApi, FakeChain, QID, REGISTRY, approval_for};
 use super::{Engine, Publish};
 use crate::config::Config;
 use crate::keys::KeyStore;
-use crate::model::{Command, EnrollmentProgress, HandleLookup, LookupError, Model, Offer, Phase};
-use crate::node::{Node, NodeConfig, NodeHandle};
+use crate::model::{
+    Command, Direction, EnrollmentProgress, HandleLookup, LookupError, MessageStatus, Messaging,
+    Model, NewChat, Offer, Phase,
+};
+use crate::node::{Node, NodeConfig, NodeEvent, NodeHandle};
 use crate::store::Store;
 use crate::wire::{
-    DeviceActionApproval, DeviceActionStatus, PAIR_PROTOCOL, PAIRING_FRAME_MAX_BYTES, PairingFrame,
-    PairingOffer, device_key_from_secret, peer_id_from_device_key,
+    CHAT_PROTOCOL, ChatAck, ChatFrame, DeviceActionApproval, DeviceActionStatus,
+    MAX_CHAT_PAYLOAD_BYTES, PAIR_PROTOCOL, PAIRING_FRAME_MAX_BYTES, PairingFrame, PairingOffer,
+    device_key_from_secret, peer_id_from_device_key,
 };
 
 const PHONE_SECRET: [u8; 32] = [0x55; 32];
@@ -32,13 +37,17 @@ struct Desktop {
 
 impl Desktop {
     fn start(dir: &Path, chain: &FakeChain, api: &FakeApi) -> Desktop {
+        Self::start_on(dir, chain, api, "/ip4/127.0.0.1/udp/0/quic-v1")
+    }
+
+    fn start_on(dir: &Path, chain: &FakeChain, api: &FakeApi, listen: &str) -> Desktop {
         let config = Config {
             rpc_url: "http://unused".into(),
             registry: REGISTRY,
             chain_id: U256::from(CHAIN_ID),
             api_url: None,
             relays: vec![],
-            listen: vec!["/ip4/127.0.0.1/udp/0/quic-v1".into()],
+            listen: vec![listen.into()],
         };
         let store = Store::open(dir).expect("store");
         let keys = KeyStore::File {
@@ -74,6 +83,14 @@ impl Desktop {
 
     fn send(&self, command: Command) {
         self.commands.send(command).expect("engine running");
+    }
+
+    /// Nothing published over a few polls says messaging is ready.
+    async fn stays_paused(&mut self) {
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        while let Ok(model) = self.models.try_recv() {
+            assert!(!ready(&model.phase), "resumed while it should stay paused");
+        }
     }
 
     async fn stop(self) {
@@ -340,6 +357,360 @@ async fn unknown_and_invalid_handles_are_reported() {
     desktop
         .wait_for("not found", |phase| failed(phase, LookupError::NotFound))
         .await;
+    desktop.stop().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+// Chat: a linked desktop (@alice) and a scripted contact (@bob) on loopback. There is no relay,
+// so the desktop reaches Bob only over a connection Bob opened, as it would a peer that dialed it.
+
+const DESKTOP_SECRET: [u8; 32] = [0x66; 32];
+const BOB_SECRET: [u8; 32] = [0x77; 32];
+const BOB_QID: u64 = 7;
+
+/// A data directory holding a linked @alice, and the address the desktop will listen on.
+fn linked_dir(name: &str) -> (PathBuf, String) {
+    let dir = fresh_dir(name);
+    let store = Store::open(&dir).expect("store");
+    let keys = KeyStore::File {
+        path: dir.join("device.key"),
+    };
+    keys.save(&DESKTOP_SECRET).unwrap();
+    store
+        .save_identity(&crate::store::Identity {
+            handle: "alice".into(),
+            qid: U256::from(QID),
+            chain_id: U256::from(CHAIN_ID),
+            registry: REGISTRY,
+            device_key: device_key_from_secret(DESKTOP_SECRET),
+            linked: true,
+        })
+        .unwrap();
+    let port = std::net::UdpSocket::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    (dir, format!("/ip4/127.0.0.1/udp/{port}/quic-v1"))
+}
+
+/// Alice's own key is a member; Bob's device belongs to @bob.
+fn chat_chain() -> FakeChain {
+    let chain = FakeChain::default();
+    chain.set_membership(Some(QID));
+    chain.add_account(super::testing::account_with(
+        BOB_QID,
+        "bob",
+        vec![device_key_from_secret(BOB_SECRET)],
+    ));
+    chain
+}
+
+fn linked(phase: &Phase) -> Option<&crate::model::Linked> {
+    match phase {
+        Phase::Linked(linked) => Some(linked),
+        _ => None,
+    }
+}
+
+/// The first message of the conversation with @bob passes `want`.
+fn bob_message(phase: &Phase, want: impl Fn(&crate::model::Message) -> bool) -> bool {
+    linked(phase)
+        .and_then(|l| l.conversations.iter().find(|c| c.peer == "bob"))
+        .and_then(|c| c.messages.first())
+        .is_some_and(want)
+}
+
+fn ready(phase: &Phase) -> bool {
+    linked(phase).is_some_and(|l| l.messaging == Messaging::Ready)
+}
+
+fn verifying(phase: &Phase) -> bool {
+    linked(phase).is_some_and(|l| l.messaging == Messaging::Verifying)
+}
+
+struct Bob {
+    node: Node,
+    events: UnboundedReceiver<NodeEvent>,
+    desktop: PeerId,
+}
+
+impl Bob {
+    async fn connect(listen: &str) -> Bob {
+        let (node, events) = Node::start(NodeConfig {
+            secret: BOB_SECRET,
+            agent_version: "bob".into(),
+            protocols: vec![CHAT_PROTOCOL.into()],
+            relays: vec![],
+            listen: vec!["/ip4/127.0.0.1/udp/0/quic-v1".into()],
+        })
+        .expect("bob's node");
+        let desktop = peer_id_from_device_key(&device_key_from_secret(DESKTOP_SECRET));
+        let addr = format!("{listen}/p2p/{}", desktop.to_base58());
+        node.handle()
+            .connect(vec![addr])
+            .await
+            .expect("dials the desktop");
+        Bob {
+            node,
+            events,
+            desktop,
+        }
+    }
+
+    /// Sends one message; the ACK, or `None` if the desktop reset the stream.
+    async fn send(&self, id: &str, text: &str) -> Option<ChatAck> {
+        let frame = ChatFrame {
+            from_handle: "bob".into(),
+            id: id.into(),
+            sent_at: 1_700_000_000_000,
+            text: text.into(),
+        };
+        let mut stream = self
+            .node
+            .handle()
+            .open_stream(&self.desktop, CHAT_PROTOCOL)
+            .await
+            .expect("opens");
+        stream.send_message(frame.encode().unwrap()).await.ok()?;
+        let ack = stream.read_to_end(MAX_CHAT_PAYLOAD_BYTES).await.ok()?;
+        Some(ChatAck::decode(&ack).expect("an ack"))
+    }
+
+    /// Reads the next inbound message; ACKs it, or resets the stream (refusing it).
+    async fn receive(&mut self, ack: bool) -> ChatFrame {
+        let mut stream = loop {
+            match self.events.recv().await.expect("bob's node running") {
+                NodeEvent::InboundStream(stream) => break stream,
+                _ => continue,
+            }
+        };
+        let frame = ChatFrame::decode(&stream.read_to_end(MAX_CHAT_PAYLOAD_BYTES).await.unwrap())
+            .expect("a chat frame");
+        if ack {
+            let reply = ChatAck {
+                ack: frame.id.clone(),
+            }
+            .encode()
+            .unwrap();
+            stream.send_message(reply).await.unwrap();
+        } else {
+            stream.reset();
+        }
+        frame
+    }
+}
+
+const BOB_MESSAGE: &str = "0b0b0b0b-0000-4000-8000-000000000001";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn receives_saves_then_acks_and_marks_read() {
+    let (dir, listen) = linked_dir("receive");
+    let (chain, api) = (chat_chain(), FakeApi::down());
+    let mut desktop = Desktop::start_on(&dir, &chain, &api, &listen);
+    desktop.wait_for("ready", ready).await;
+
+    let bob = Bob::connect(&listen).await;
+    let ack = bob.send(BOB_MESSAGE, "hi alice").await;
+    assert_eq!(ack.map(|a| a.ack).as_deref(), Some(BOB_MESSAGE));
+    let phase = desktop
+        .wait_for("bob's message", |p| {
+            bob_message(p, |m| {
+                m.text == "hi alice" && m.direction == Direction::Received
+            })
+        })
+        .await;
+    let conversation = linked(&phase).unwrap().conversations[0].clone();
+    assert_eq!(
+        (conversation.peer.as_str(), conversation.unread),
+        ("bob", 1)
+    );
+    assert_eq!(conversation.id.0, BOB_QID.to_string());
+
+    // A resend of the same message is acknowledged again but stored once.
+    assert!(bob.send(BOB_MESSAGE, "hi alice").await.is_some());
+    desktop.send(Command::OpenConversation(conversation.id.clone()));
+    desktop
+        .wait_for("read", |p| {
+            linked(p).is_some_and(|l| {
+                l.conversations[0].unread == 0 && l.conversations[0].messages.len() == 1
+            })
+        })
+        .await;
+    // The same id with other text conflicts: refused, not acknowledged.
+    assert!(bob.send(BOB_MESSAGE, "edited").await.is_none());
+    drop(bob);
+    desktop.stop().await;
+
+    // Saved before the ACK: still there after a restart.
+    let mut desktop = Desktop::start_on(&dir, &chain, &api, &listen);
+    desktop
+        .wait_for("bob's message after restart", |p| {
+            bob_message(p, |m| m.text == "hi alice")
+        })
+        .await;
+    desktop.stop().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn sends_and_marks_delivered_only_on_the_ack() {
+    let (dir, listen) = linked_dir("send");
+    let (chain, api) = (chat_chain(), FakeApi::down());
+    let mut desktop = Desktop::start_on(&dir, &chain, &api, &listen);
+    desktop.wait_for("ready", ready).await;
+
+    desktop.send(Command::StartChat("nobody".into()));
+    desktop
+        .wait_for("not found", |p| {
+            linked(p).is_some_and(|l| {
+                matches!(
+                    &l.new_chat,
+                    NewChat::Lookup(HandleLookup::Failed {
+                        error: LookupError::NotFound,
+                        ..
+                    })
+                )
+            })
+        })
+        .await;
+    desktop.send(Command::StartChat("bob".into()));
+    let phase = desktop
+        .wait_for("resolved", |p| {
+            linked(p).is_some_and(|l| matches!(l.new_chat, NewChat::Resolved { .. }))
+        })
+        .await;
+    let Some(NewChat::Resolved { conversation, .. }) = linked(&phase).map(|l| l.new_chat.clone())
+    else {
+        unreachable!()
+    };
+    assert!(
+        linked(&phase)
+            .unwrap()
+            .conversation(&conversation)
+            .is_some()
+    );
+
+    let mut bob = Bob::connect(&listen).await;
+    desktop.send(Command::Send {
+        conversation: conversation.clone(),
+        text: "hello bob".into(),
+    });
+    let frame = bob.receive(true).await;
+    assert_eq!(
+        (frame.from_handle.as_str(), frame.text.as_str()),
+        ("alice", "hello bob")
+    );
+    desktop
+        .wait_for("delivered", |p| {
+            bob_message(p, |m| m.direction == Direction::Sent(MessageStatus::Sent))
+        })
+        .await;
+    desktop.stop().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn queues_while_offline_and_delivers_after_a_restart() {
+    let (dir, listen) = linked_dir("queue");
+    let (chain, api) = (chat_chain(), FakeApi::down());
+    let mut desktop = Desktop::start_on(&dir, &chain, &api, &listen);
+    desktop.wait_for("ready", ready).await;
+    desktop.send(Command::StartChat("bob".into()));
+    desktop
+        .wait_for("resolved", |p| {
+            linked(p).is_some_and(|l| matches!(l.new_chat, NewChat::Resolved { .. }))
+        })
+        .await;
+    desktop.send(Command::Send {
+        conversation: crate::model::ConversationId(BOB_QID.to_string()),
+        text: "are you there?".into(),
+    });
+    // Bob is offline: the attempt fails and the message stays queued.
+    desktop
+        .wait_for("queued", |p| {
+            bob_message(p, |m| m.direction == Direction::Sent(MessageStatus::Queued))
+        })
+        .await;
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    desktop.stop().await;
+    {
+        let store = Store::open(&dir).unwrap();
+        let queued = store.queued().unwrap();
+        assert_eq!(queued.len(), 1);
+        assert!(queued[0].attempts >= 1, "{queued:?}");
+    }
+
+    // After a restart, Bob comes online: his connection wakes the outbox despite the backoff.
+    let mut desktop = Desktop::start_on(&dir, &chain, &api, &listen);
+    desktop.wait_for("ready", ready).await;
+    let mut bob = Bob::connect(&listen).await;
+    assert_eq!(bob.receive(true).await.text, "are you there?");
+    desktop
+        .wait_for("delivered", |p| {
+            bob_message(p, |m| m.direction == Direction::Sent(MessageStatus::Sent))
+        })
+        .await;
+    desktop.stop().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// Revocation safety: a peer refusing us, an RPC failure, and a stuck head each pause messaging
+/// and re-read our membership, but never touch the key or the messages.
+#[tokio::test(flavor = "multi_thread")]
+async fn pauses_on_rejection_rpc_failure_and_a_stuck_head_but_keeps_everything() {
+    let (dir, listen) = linked_dir("pause");
+    let (chain, api) = (chat_chain(), FakeApi::down());
+    let mut desktop = Desktop::start_on(&dir, &chain, &api, &listen);
+    desktop.wait_for("ready", ready).await;
+    let mut bob = Bob::connect(&listen).await;
+    assert!(bob.send(BOB_MESSAGE, "hi").await.is_some());
+    desktop
+        .wait_for("bob's message", |p| bob_message(p, |_| true))
+        .await;
+
+    // Bob refuses our message (as a peer that cannot verify us would): stay queued, pause, and
+    // resume once a newer head confirms our membership again.
+    desktop.send(Command::Send {
+        conversation: crate::model::ConversationId(BOB_QID.to_string()),
+        text: "refused".into(),
+    });
+    assert_eq!(bob.receive(false).await.text, "refused");
+    desktop.wait_for("paused after rejection", verifying).await;
+    desktop.wait_for("ready again", ready).await;
+
+    // A stuck head: Bob refuses again; our re-read lands on the head of our last confirmation,
+    // which is no new confirmation, so messaging stays paused until the head moves.
+    chain.stick_head(true);
+    desktop.send(Command::Send {
+        conversation: crate::model::ConversationId(BOB_QID.to_string()),
+        text: "stuck".into(),
+    });
+    bob.receive(false).await;
+    desktop.wait_for("paused on a stuck head", verifying).await;
+    desktop.stays_paused().await;
+    assert!(dir.join("device.key").exists());
+    chain.stick_head(false);
+    desktop.wait_for("ready after the head moves", ready).await;
+
+    // The RPC fails outright: Bob reconnects (a new connection has nothing cached), his
+    // message cannot be verified, and messaging pauses. Nothing is wiped.
+    drop(bob);
+    let bob = Bob::connect(&listen).await;
+    chain.fail_lookups(true);
+    assert!(
+        bob.send("0b0b0b0b-0000-4000-8000-000000000002", "during outage")
+            .await
+            .is_none()
+    );
+    desktop.wait_for("paused on rpc failure", verifying).await;
+    desktop.stays_paused().await;
+    assert!(dir.join("device.key").exists());
+    chain.fail_lookups(false);
+    let phase = desktop.wait_for("ready after the outage", ready).await;
+    let conversation = &linked(&phase).unwrap().conversations[0];
+    assert!(conversation.messages.iter().any(|m| m.text == "hi"));
+    assert!(conversation.messages.iter().any(|m| m.text == "refused"));
     desktop.stop().await;
     std::fs::remove_dir_all(dir).unwrap();
 }

@@ -78,6 +78,11 @@ pub enum NodeEvent {
     RelayLost,
     /// A peer opened a stream for one of the configured protocols.
     InboundStream(Stream),
+    /// A peer went from disconnected to connected on `conn`.
+    ConnectionEstablished { conn: ConnectionId, peer: PeerId },
+    /// `conn` ended (closed, or replaced by a newer connection to the same peer). Authorization
+    /// bound to it is gone with it.
+    ConnectionClosed { conn: ConnectionId, peer: PeerId },
 }
 
 /// The running node. Dropping it (or [`Node::shutdown`]) closes the endpoint and joins the thread.
@@ -101,6 +106,10 @@ type Reply<T> = oneshot::Sender<Result<T, NodeError>>;
 enum Command {
     Connect {
         addrs: Vec<String>,
+        reply: Reply<PeerId>,
+    },
+    ConnectPeer {
+        peer: PeerId,
         reply: Reply<PeerId>,
     },
     Open {
@@ -250,6 +259,14 @@ impl NodeHandle {
             .await
     }
 
+    /// Connects to a peer by ID alone, through the configured relay (or reuses the live
+    /// connection, which is how a peer that dialed us is reached).
+    pub async fn connect_peer(&self, peer: &PeerId) -> Result<PeerId, NodeError> {
+        let peer = peer.clone();
+        self.request(|reply| Command::ConnectPeer { peer, reply })
+            .await
+    }
+
     /// Opens a stream to a connected peer and negotiates `protocol`.
     pub async fn open_stream(&self, peer: &PeerId, protocol: &str) -> Result<Stream, NodeError> {
         let (peer, protocol) = (peer.clone(), protocol.to_owned());
@@ -283,6 +300,11 @@ impl fmt::Debug for Stream {
 }
 
 impl Stream {
+    /// The connection this stream runs on; authorization is bound to it (`engine::auth`).
+    pub fn conn(&self) -> ConnectionId {
+        self.key.0
+    }
+
     /// Queues `data`; resolves once the endpoint accepted every byte.
     pub async fn write(&self, data: Vec<u8>) -> Result<(), NodeError> {
         let key = self.key;
@@ -436,6 +458,14 @@ impl Driver {
                     }
                 }
             }
+            Command::ConnectPeer { peer, reply } => match endpoint.connect(peer) {
+                Ok(id) => {
+                    self.connects.insert(id, reply);
+                }
+                Err(error) => {
+                    let _ = reply.send(Err(NodeError::Connect(error.to_string())));
+                }
+            },
             Command::Open {
                 peer,
                 protocol,
@@ -546,11 +576,27 @@ impl Driver {
                     self.end((conn, stream), &error.detail);
                 }
             }
-            EndpointEvent::ConnectionClosed { conn_id, .. } => {
-                self.end_connection(conn_id, "connection closed")
+            EndpointEvent::ConnectionEstablished { peer_id, conn_id } => {
+                let _ = self.events.send(NodeEvent::ConnectionEstablished {
+                    conn: conn_id,
+                    peer: peer_id,
+                });
             }
-            EndpointEvent::ConnectionReplaced { old, .. } => {
-                self.end_connection(old, "connection replaced")
+            EndpointEvent::ConnectionClosed {
+                peer_id, conn_id, ..
+            } => {
+                self.end_connection(conn_id, "connection closed");
+                let _ = self.events.send(NodeEvent::ConnectionClosed {
+                    conn: conn_id,
+                    peer: peer_id,
+                });
+            }
+            EndpointEvent::ConnectionReplaced { peer_id, old, .. } => {
+                self.end_connection(old, "connection replaced");
+                let _ = self.events.send(NodeEvent::ConnectionClosed {
+                    conn: old,
+                    peer: peer_id,
+                });
             }
             EndpointEvent::Nat(NatEvent::RelayReserved { relay, .. }) => {
                 if let Some(circuit) = self.circuit_address(&relay, endpoint.peer_id()) {
@@ -642,6 +688,17 @@ mod tests {
         .expect("node binds on loopback")
     }
 
+    /// The next inbound stream, past connection events.
+    async fn next_stream(events: &mut mpsc::UnboundedReceiver<NodeEvent>) -> Stream {
+        loop {
+            match events.recv().await {
+                Some(NodeEvent::InboundStream(stream)) => return stream,
+                Some(_) => {}
+                None => panic!("expected an inbound stream"),
+            }
+        }
+    }
+
     /// A request/response exchange over loopback QUIC: a payload larger than one stream window
     /// (so the write is held and completes later), half-close on both sides, then a clean
     /// shutdown of both threads.
@@ -652,9 +709,7 @@ mod tests {
         let request: Vec<u8> = (0..1_500_000u32).map(|i| i as u8).collect();
 
         let serve = tokio::spawn(async move {
-            let Some(NodeEvent::InboundStream(mut stream)) = server_events.recv().await else {
-                panic!("expected an inbound stream");
-            };
+            let mut stream = next_stream(&mut server_events).await;
             assert_eq!(stream.protocol, ECHO);
             let body = stream.read_to_end(2_000_000).await.expect("request");
             stream
@@ -694,9 +749,7 @@ mod tests {
         let (client, _client_events) = node(4);
 
         let serve = tokio::spawn(async move {
-            let Some(NodeEvent::InboundStream(mut stream)) = server_events.recv().await else {
-                panic!("expected an inbound stream");
-            };
+            let mut stream = next_stream(&mut server_events).await;
             stream.read_to_end(16).await
         });
 

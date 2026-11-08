@@ -97,13 +97,6 @@ pub fn decide(expected_qid: U256, deadline: Option<u64>, observation: &Observati
     }
 }
 
-/// Whether a linked device has affirmative chain evidence of its removal. Failed reads, a stale
-/// head or a missing roster entry alone never revoke.
-pub fn revoked(expected_qid: U256, observation: &Observation) -> bool {
-    matches!(observation.membership, Ok(qid) if qid != Some(expected_qid))
-        && observation.removed == Some(true)
-}
-
 fn progress(api: ApiLookup) -> EnrollmentProgress {
     match api {
         ApiLookup::Present(DeviceActionStatus::Submitted) => EnrollmentProgress::Submitted,
@@ -306,31 +299,6 @@ mod tests {
             ),
             Next::Wait(EnrollmentProgress::Approved)
         );
-    }
-
-    #[test]
-    fn only_an_affirmative_removal_read_revokes_a_linked_device() {
-        assert!(revoked(
-            qid(),
-            &observed(ApiLookup::Unknown, None, None, Some(true))
-        ));
-        assert!(!revoked(
-            qid(),
-            &observed(ApiLookup::Unknown, None, Some(QID), None)
-        ));
-        assert!(!revoked(
-            qid(),
-            &observed(ApiLookup::Unknown, None, None, Some(false))
-        ));
-        assert!(!revoked(
-            qid(),
-            &observed(ApiLookup::Unknown, None, None, None)
-        ));
-        let rpc_down = Observation {
-            membership: Err(ReadError::Rpc),
-            ..observed(ApiLookup::Unknown, None, None, Some(true))
-        };
-        assert!(!revoked(qid(), &rpc_down));
     }
 
     // Ports of `cli/test/enrollment-poll.test.ts`, polling through `observe`.

@@ -80,6 +80,43 @@ pub struct ChainState {
     pub removed: Result<bool, ReadError>,
     pub time: Result<u64, ReadError>,
     pub account: Option<Account>,
+    /// Other accounts (contacts), found by handle or device key.
+    pub accounts: Vec<Account>,
+    /// The head device-key lookups answer at; it advances on every lookup unless stuck.
+    pub head: u64,
+    pub stuck: bool,
+    pub fail_lookups: bool,
+    hold: Option<Hold>,
+}
+
+/// An account at block 1 with these active devices.
+pub fn account_with(qid: u64, handle: &str, devices: Vec<B256>) -> Account {
+    Account {
+        qid: U256::from(qid),
+        owner: OWNER,
+        nonce: U256::ZERO,
+        handle: handle.into(),
+        devices,
+        block: 1,
+    }
+}
+
+/// Holds the next device-key lookup until released, so a test can act mid-verification.
+#[derive(Clone, Default)]
+pub struct Hold {
+    entered: Arc<tokio::sync::Notify>,
+    release: Arc<tokio::sync::Notify>,
+}
+
+impl Hold {
+    /// Resolves once the held lookup has started.
+    pub async fn entered(&self) {
+        self.entered.notified().await;
+    }
+
+    pub fn release(&self) {
+        self.release.notify_one();
+    }
 }
 
 impl Default for FakeChain {
@@ -96,6 +133,11 @@ impl Default for FakeChain {
                 devices: vec![PHONE_KEY],
                 block: 1,
             }),
+            accounts: Vec::new(),
+            head: 0,
+            stuck: false,
+            fail_lookups: false,
+            hold: None,
         })))
     }
 }
@@ -118,12 +160,75 @@ impl FakeChain {
     pub fn set_time(&self, time: u64) {
         self.0.lock().unwrap().time = Ok(time);
     }
+
+    pub fn add_account(&self, account: Account) {
+        self.0.lock().unwrap().accounts.push(account);
+    }
+
+    /// A stuck head answers every lookup at the same block.
+    pub fn stick_head(&self, stuck: bool) {
+        self.0.lock().unwrap().stuck = stuck;
+    }
+
+    pub fn fail_lookups(&self, fail: bool) {
+        self.0.lock().unwrap().fail_lookups = fail;
+    }
+
+    pub fn hold_lookups(&self) -> Hold {
+        let hold = Hold::default();
+        self.0.lock().unwrap().hold = Some(hold.clone());
+        hold
+    }
 }
 
 impl Chain for FakeChain {
     async fn lookup_handle(&self, handle: String) -> Result<Option<Account>, ReadError> {
-        let account = self.0.lock().unwrap().account.clone();
-        Ok(account.filter(|account| account.handle == handle))
+        let state = self.0.lock().unwrap();
+        if state.fail_lookups {
+            return Err(ReadError::Rpc);
+        }
+        Ok(state
+            .account
+            .iter()
+            .chain(&state.accounts)
+            .find(|account| account.handle == handle)
+            .cloned())
+    }
+
+    async fn lookup_device_key(&self, device_key: B256) -> Result<Option<Account>, ReadError> {
+        let hold = self.0.lock().unwrap().hold.take();
+        if let Some(hold) = hold {
+            hold.entered.notify_one();
+            hold.release.notified().await;
+        }
+        let mut state = self.0.lock().unwrap();
+        if state.fail_lookups {
+            return Err(ReadError::Rpc);
+        }
+        if !state.stuck {
+            state.head += 1;
+        }
+        let head = state.head;
+        let at_head = |account: &Account| Account {
+            block: head,
+            ..account.clone()
+        };
+        if let Some(account) = state
+            .accounts
+            .iter()
+            .find(|a| a.devices.contains(&device_key))
+        {
+            return Ok(Some(at_head(account)));
+        }
+        match (state.membership, &state.account) {
+            (Ok(Some(qid)), Some(account)) if account.qid == qid => {
+                let mut account = at_head(account);
+                account.devices.push(device_key);
+                Ok(Some(account))
+            }
+            (Err(error), _) => Err(error),
+            _ => Ok(None),
+        }
     }
 
     async fn account_with_time(&self, qid: U256) -> Result<Option<(Account, u64)>, ReadError> {

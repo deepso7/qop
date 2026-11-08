@@ -2,9 +2,9 @@
 //!
 //! - `qop-desktop` opens the window and runs the engine against the configured chain, API and
 //!   relays (`config.rs`), with local state in the data directory (`store.rs`).
-//! - `qop-desktop --headless [--link HANDLE]` runs the engine without a window and prints one
-//!   line per model change, offer codes included; `--link` submits the handle when unlinked,
-//!   and stdin lines stand in for the buttons (`read_commands`).
+//! - `qop-desktop --headless [--link HANDLE]` runs the engine without a window and prints each
+//!   model change (one line, plus one per message once linked), offer codes included; `--link`
+//!   submits the handle when unlinked, and stdin lines stand in for the UI (`read_commands`).
 //!   E2e runs drive the desktop this way. `QOP_PRINT_OFFER=1` prints the same lines from the app.
 //! - Rune's tooling flags render a scene headless without the engine, e.g.
 //!   `--snap out.png --scene chat [--theme dark]` (`--list-scenes` lists them).
@@ -12,7 +12,7 @@
 mod ui;
 
 use std::process::ExitCode;
-use std::sync::mpsc;
+use std::sync::{Arc, Mutex, mpsc};
 
 use qop_desktop::config::Config;
 use qop_desktop::engine::{Engine, Publish};
@@ -125,33 +125,65 @@ fn headless(args: &[String]) -> ExitCode {
         // Ignored (and logged) unless the device starts unlinked.
         let _ = commands.send(Command::SubmitHandle(handle));
     }
+    // The latest model, so stdin commands can name conversations and messages.
+    let latest = Arc::new(Mutex::new(Model::STARTING));
     // The clone keeps the engine running after stdin closes; it ends with the process.
-    read_commands(commands.clone());
-    let publish: Publish = Box::new(|model: &Model| println!("{}", describe(model)));
+    read_commands(commands.clone(), latest.clone());
+    let publish: Publish = Box::new(move |model: &Model| {
+        println!("{}", describe(model));
+        *latest.lock().unwrap() = model.clone();
+    });
     run_engine(parts, publish, inbox);
     ExitCode::SUCCESS
 }
 
-/// Headless stand-ins for the UI's buttons, one per stdin line: `link HANDLE`, `regenerate`,
-/// `stop-waiting`, `unlink`, `start-over`.
-fn read_commands(commands: UnboundedSender<Command>) {
+/// Headless stand-ins for the UI, one per stdin line: `link HANDLE`, `regenerate`,
+/// `stop-waiting`, `unlink`, `start-over`; once linked, `chat HANDLE` (New chat), `open HANDLE`,
+/// `send HANDLE TEXT…` and `retry ID-PREFIX`.
+fn read_commands(commands: UnboundedSender<Command>, latest: Arc<Mutex<Model>>) {
     std::thread::Builder::new()
         .name("qop-stdin".into())
         .spawn(move || {
             for line in std::io::stdin().lines().map_while(Result::ok) {
-                let command = match line.split_whitespace().collect::<Vec<_>>().as_slice() {
-                    ["link", handle] => Command::SubmitHandle((*handle).to_owned()),
-                    ["regenerate"] => Command::RegeneratePairing,
-                    ["stop-waiting"] => Command::StopWaiting,
-                    ["unlink"] => Command::Unlink,
-                    ["start-over"] => Command::AcknowledgeRevoked,
+                let words: Vec<&str> = line.split_whitespace().collect();
+                let model = latest.lock().unwrap().clone();
+                let conversation = |handle: &str| match &model.phase {
+                    Phase::Linked(l) => l.conversations.iter().find(|c| c.peer == handle).map(|c| c.id.clone()),
+                    _ => None,
+                };
+                let command = match words.as_slice() {
+                    ["link", handle] => Some(Command::SubmitHandle((*handle).to_owned())),
+                    ["regenerate"] => Some(Command::RegeneratePairing),
+                    ["stop-waiting"] => Some(Command::StopWaiting),
+                    ["unlink"] => Some(Command::Unlink),
+                    ["start-over"] => Some(Command::AcknowledgeRevoked),
+                    ["chat", handle] => Some(Command::StartChat((*handle).to_owned())),
+                    ["open", handle] => conversation(handle).map(Command::OpenConversation),
+                    ["send", handle, ..] => conversation(handle).map(|conversation| Command::Send {
+                        conversation,
+                        text: words[2..].join(" "),
+                    }),
+                    ["retry", prefix] => match &model.phase {
+                        Phase::Linked(l) => l
+                            .conversations
+                            .iter()
+                            .flat_map(|c| &c.messages)
+                            .find(|m| m.id.0.starts_with(prefix))
+                            .map(|m| Command::Retry(m.id.clone())),
+                        _ => None,
+                    },
                     [] => continue,
                     _ => {
                         eprintln!("qop: unknown command {line:?}");
                         continue;
                     }
                 };
-                let _ = commands.send(command);
+                match command {
+                    Some(command) => {
+                        let _ = commands.send(command);
+                    }
+                    None => eprintln!("qop: nothing to {line:?} (start the chat first?)"),
+                }
             }
         })
         .expect("stdin thread");
@@ -173,14 +205,29 @@ fn describe(model: &Model) -> String {
             a.relay,
             offer(a.recovery.as_ref())
         ),
-        Phase::Linked(l) => format!(
-            "phase=Linked handle={} peer={} fingerprint={} relay={:?} data={}",
-            l.account.handle,
-            l.account.peer_id,
-            l.account.fingerprint,
-            l.relay,
-            l.account.data_dir.display()
-        ),
+        Phase::Linked(l) => {
+            let mut out = format!(
+                "phase=Linked handle={} peer={} fingerprint={} relay={:?} messaging={:?} new_chat={:?} data={}",
+                l.account.handle,
+                l.account.peer_id,
+                l.account.fingerprint,
+                l.relay,
+                l.messaging,
+                l.new_chat,
+                l.account.data_dir.display()
+            );
+            for c in &l.conversations {
+                out += &format!("\n  chat @{} unread={}", c.peer, c.unread);
+                for m in &c.messages {
+                    let direction = match m.direction {
+                        model::Direction::Received => "received".into(),
+                        model::Direction::Sent(status) => format!("sent:{status:?}"),
+                    };
+                    out += &format!("\n    {} {direction} {:?}", &m.id.0[..8], m.text);
+                }
+            }
+            out
+        }
         Phase::Revoked(r) => format!("phase=Revoked handle={}", r.handle),
     }
 }

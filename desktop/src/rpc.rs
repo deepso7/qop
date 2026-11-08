@@ -1,7 +1,7 @@
 //! Read-only chain access: a lean JSON-RPC client (`eth_blockNumber`, `eth_getBlockByNumber`,
 //! `eth_call`) and the registry reads on top of it (`registry-reader.ts`).
 //!
-//! Every lookup first captures the head (`eth_blockNumber`) and pins all of its calls to that
+//! Every lookup first captures the head (TS `freshness: "fresh"` always holds here) (`eth_blockNumber`) and pins all of its calls to that
 //! block, so one answer never mixes two chain states (`registry-reader.ts` `captureHead`).
 //! Calls block; the engine runs them on tokio's blocking pool.
 
@@ -161,6 +161,22 @@ impl RegistryReader {
             .iter()
             .any(|device| &device.device_key == device_key)
             .then_some(qid))
+    }
+
+    /// The account `device_key` is an active member of, read at one head (`lookupDeviceKey`):
+    /// what live authorization checks a peer against. `block` is that head, so callers can
+    /// demand a strictly newer one than their last confirmation. A stale `qidByDeviceKey` hit
+    /// whose roster lacks the key is `None`.
+    pub fn lookup_device_key(&self, device_key: &B256) -> Result<Option<Account>, ReadError> {
+        let block = self.head()?;
+        let Some(qid) = registry::decode_qid(
+            &self.call(&registry::qid_by_device_key_call(device_key), block)?,
+        )?
+        else {
+            return Ok(None);
+        };
+        let account = self.account_at(qid, block)?;
+        Ok(account.devices.contains(device_key).then_some(account))
     }
 
     /// The registry's permanent marker: this key was added and later removed (or wiped).
