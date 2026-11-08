@@ -1556,7 +1556,9 @@ fn conversation(
 
 /// Most recently active first; a chat with no messages yet (just started) leads.
 fn sort_conversations(conversations: &mut [model::Conversation]) {
-    conversations.sort_by_key(|c| std::cmp::Reverse(c.last().map_or(SystemTime::now(), |m| m.at)));
+    // One `now` for the whole sort: a key that changes between comparisons is not a total order.
+    let now = SystemTime::now();
+    conversations.sort_by_key(|c| std::cmp::Reverse(c.last().map_or(now, |m| m.at)));
 }
 
 /// Holds one of a limited number of inbound stream slots (chat and sync share one count,
