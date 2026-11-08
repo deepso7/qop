@@ -105,9 +105,10 @@ Headless mode reads button presses from stdin (`regenerate`, `stop-waiting`, `un
 ```sh
 cd /tmp/qop-e2e && mkfifo b.in && touch b.cmds && cd -
 tail -f /tmp/qop-e2e/b.cmds > /tmp/qop-e2e/b.in & echo $! > /tmp/qop-e2e/tail.pid
-QOP_DATA_DIR=/tmp/qop-e2e/desktop-bob desktop --headless --link bob < /tmp/qop-e2e/b.in > /tmp/qop-e2e/b.log 2>&1 & echo $! > /tmp/qop-e2e/b.pid
 export QOP_E2E_PHONE=/tmp/qop-e2e/phone-bob.json
-phone register bob
+phone register bob   # before the desktop looks @bob up
+QOP_DATA_DIR=/tmp/qop-e2e/desktop-bob desktop --headless --link bob < /tmp/qop-e2e/b.in > /tmp/qop-e2e/b.log 2>&1 & echo $! > /tmp/qop-e2e/b.pid
+until grep -q 'offer=qop-pair1' /tmp/qop-e2e/b.log; do sleep 1; done
 phone approve "$(grep -o 'qop-pair1\.[A-Za-z0-9_-]*' /tmp/qop-e2e/b.log | tail -1)" --no-submit
 # approvalSaved 0x4c5b4046…   (the phone keeps it pending; pretend the reply was lost)
 echo stop-waiting >> /tmp/qop-e2e/b.cmds

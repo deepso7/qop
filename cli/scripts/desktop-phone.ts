@@ -319,6 +319,11 @@ const submitRecord = Effect.fn("phone.submitRecord")(function* (
     if (row.status !== "ready" && row.status !== "submitted") {
       console.log(`api status=${row.status} tx=${row.transactionHash}`);
 
+      // Expired or reverted: the roster did not change, so the command must not pass.
+      if (row.status !== "confirmed") {
+        return yield* fail(`the approval ended ${row.status}`);
+      }
+
       return;
     }
 
