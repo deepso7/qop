@@ -11,5 +11,7 @@ rune_manifest=$(cargo metadata --format-version 1 | python3 -c 'import json, sys
 rune_root=$(dirname "$(dirname "$(dirname "$rune_manifest")")")
 # Rune's launcher needs Python 3.11+ (tomllib); macOS ships 3.9, so ask uv for one if it's there.
 python=$(uv python find '>=3.11' 2>/dev/null || command -v python3)
+"$python" -c 'import sys; sys.exit(sys.version_info < (3, 11))' ||
+  { echo "hot.sh: needs Python 3.11+; install one with: uv python install 3.12" >&2; exit 1; }
 # What `scripts/rune-hot` runs, with that interpreter instead of whatever `python3` is on PATH.
 exec "$python" "$rune_root/scripts/rune-dev" --local --manifest-path "$PWD/Cargo.toml" --patch 'src/ui/**/*.rs' --port 18745 "$@"
