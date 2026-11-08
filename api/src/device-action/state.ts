@@ -1,7 +1,7 @@
 import type { DeviceActionIntentStatus } from "./types.ts";
 
 export const deviceActionTransitionSources = {
-  confirm: ["ready", "submitted"],
+  confirm: ["submitted"],
   expire: ["ready"],
   revert: ["submitted"],
   submit: ["ready"],

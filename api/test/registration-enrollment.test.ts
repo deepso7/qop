@@ -15,6 +15,8 @@ import { privateKeyToAccount } from "viem/accounts";
 import { Database } from "../src/db/database.ts";
 import { registrationAdmissionCodes } from "../src/db/schema.ts";
 import { Env } from "../src/env.ts";
+import { RegistrationServiceUnavailable } from "../src/http/registration-api.ts";
+import { mapRegistrationHttpError } from "../src/http/registration-handlers.ts";
 import {
   decodeRegistrationAdmissionCode,
   RegistrationAdmission,
@@ -678,12 +680,10 @@ layer(
           yield* decodeRegisterIntentV1(input.intent)
         );
 
-        const failed = Option.getOrThrow(yield* store.get(digest));
-        assert.strictEqual(failed.status, "failed");
-        assert.strictEqual(
-          failed.failureCode,
-          registrationReconciliationFailureCodes.deadlineExpired
-        );
+        assert.deepInclude(Option.getOrThrow(yield* store.get(digest)), {
+          failureCode: registrationReconciliationFailureCodes.deadlineExpired,
+          status: "failed",
+        });
       })
   );
 });
@@ -785,5 +785,56 @@ layer(
         );
         assert.strictEqual(abandonedReplayPrepareAttempts, 3);
       })
+  );
+});
+
+layer(enrollmentLayer(readyReplayRelayerLayer(() => {})), {
+  timeout: "30 seconds",
+})((it) => {
+  it.effect(
+    "does not reject a replay whose ready intent was confirmed on-chain",
+    () =>
+      Effect.gen(function* () {
+        const admissionCode = "RDY-015";
+        yield* createAdmission(admissionCode);
+        const enrollment = yield* RegistrationEnrollment;
+
+        const input = yield* registerInput(
+          "readyconfirmed",
+          600n,
+          accountFor(20),
+          admissionCode
+        );
+
+        const digest = yield* hashRegisterIntentV1(
+          domain,
+          yield* decodeRegisterIntentV1(input.intent)
+        );
+
+        // Prepare fails, so the intent stays ready; then its nonce lands
+        // on-chain through a transaction this relayer never sent.
+        yield* enrollment.register(input).pipe(Effect.flip);
+        confirmedHandles.add("readyconfirmed");
+
+        const error = yield* enrollment.register(input).pipe(Effect.flip);
+
+        // A 4xx makes clients record the registration as failed.
+        assert.instanceOf(
+          mapRegistrationHttpError(error),
+          RegistrationServiceUnavailable
+        );
+
+        assert.deepStrictEqual(yield* enrollment.reconcile(digest), {
+          digest,
+          failureCode: null,
+          qid: 42n,
+          status: "confirmed",
+          transactionHash: null,
+        });
+      }).pipe(
+        Effect.ensuring(
+          Effect.sync(() => confirmedHandles.delete("readyconfirmed"))
+        )
+      )
   );
 });

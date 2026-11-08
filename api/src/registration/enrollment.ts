@@ -124,6 +124,13 @@ export class RegistrationProtocolError extends Data.TaggedError(
     | "verify-state";
 }> {}
 
+// The intent is confirmed on-chain, but by a transaction this relayer never
+// sent, so register has no hash to return. HTTP maps it to a retryable 503 so
+// clients keep the intent pending and pick up the confirmation via GET.
+export class RegistrationTransactionUnknown extends Data.TaggedError(
+  "RegistrationTransactionUnknown"
+)<{ readonly digest: Hash; readonly qid: bigint }> {}
+
 export type RegistrationEnrollmentError =
   | IdentityCryptoError
   | RegistrationAdmissionError
@@ -137,6 +144,7 @@ export type RegistrationEnrollmentError =
   | RegistrationSignatureMismatch
   | RegistrationSignerError
   | RegistrationStoreError
+  | RegistrationTransactionUnknown
   | RegistryChainReadError
   | RegistryInputError;
 
@@ -175,10 +183,10 @@ const reconciledRegistration = (
   stored: StoredRegistrationIntent
 ): ReconciledRegistration => ({
   digest: stored.digest,
-  failureCode: stored.failureCode,
-  qid: stored.qid,
+  failureCode: stored.status === "failed" ? stored.failureCode : null,
+  qid: stored.status === "confirmed" ? stored.qid : null,
   status: stored.status,
-  transactionHash: stored.transactionHash,
+  transactionHash: stored.status === "ready" ? null : stored.transactionHash,
 });
 
 const handleUnavailable = (handle: string, qid?: bigint) =>
@@ -238,11 +246,7 @@ export class RegistrationEnrollment extends Context.Service<
           return submitted;
         }
 
-        if (
-          submitted.status !== "submitted" ||
-          submitted.transactionHash === null ||
-          submitted.serializedTransaction === null
-        ) {
+        if (submitted.status !== "submitted") {
           return yield* new RegistrationProtocolError({
             cause: `Cannot submit registration in ${submitted.status} state`,
             operation: "verify-state",
@@ -267,15 +271,18 @@ export class RegistrationEnrollment extends Context.Service<
       const toRegisteredRegistration = Effect.fn(
         "RegistrationEnrollment.toRegisteredRegistration"
       )(function* (submitted: StoredRegistrationIntent) {
-        if (
-          (submitted.status !== "submitted" &&
-            submitted.status !== "confirmed") ||
-          submitted.transactionHash === null
-        ) {
+        if (submitted.status === "ready" || submitted.status === "failed") {
           return yield* new RegistrationTransitionConflict({
             actual: submitted.status,
             digest: submitted.digest,
             expected: ["submitted", "confirmed"],
+          });
+        }
+
+        if (submitted.transactionHash === null) {
+          return yield* new RegistrationTransactionUnknown({
+            digest: submitted.digest,
+            qid: submitted.qid,
           });
         }
 
@@ -385,7 +392,7 @@ export class RegistrationEnrollment extends Context.Service<
         if (blocker.status !== "ready" && blocker.status !== "submitted") {
           return {
             freed: true as const,
-            qid: blocker.qid ?? undefined,
+            qid: blocker.status === "confirmed" ? blocker.qid : undefined,
           };
         }
 
@@ -397,7 +404,7 @@ export class RegistrationEnrollment extends Context.Service<
 
         return {
           freed: false as const,
-          qid: reconciled.qid ?? undefined,
+          qid: reconciled.status === "confirmed" ? reconciled.qid : undefined,
         };
       });
 

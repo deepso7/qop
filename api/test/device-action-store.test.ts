@@ -91,7 +91,9 @@ layer(StoreTestLive, { timeout: "30 seconds" })((it) => {
           })
       );
 
-      assert.strictEqual(submittedFirst.transactionHash, testHash("device-7"));
+      assert.deepInclude(submittedFirst, {
+        transactionHash: testHash("device-7"),
+      });
 
       const second = yield* deviceActions.create(
         deviceInput(5, deadline, 201n)
@@ -107,7 +109,9 @@ layer(StoreTestLive, { timeout: "30 seconds" })((it) => {
           })
       );
 
-      assert.strictEqual(submittedSecond.transactionHash, testHash("device-8"));
+      assert.deepInclude(submittedSecond, {
+        transactionHash: testHash("device-8"),
+      });
     })
   );
 });
