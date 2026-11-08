@@ -113,7 +113,7 @@ html {
 
 /* Scroll reveal: sections rise in as they enter (observer in components/landing/sections.astro). */
 @utility reveal {
-  @media (prefers-reduced-motion: no-preference) {
+  @media screen and (prefers-reduced-motion: no-preference) {
     transition:
       opacity 0.7s cubic-bezier(0.2, 0.7, 0.2, 1),
       translate 0.7s cubic-bezier(0.2, 0.7, 0.2, 1),
