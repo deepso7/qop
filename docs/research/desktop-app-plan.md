@@ -147,6 +147,18 @@ Each milestone is a separate PR and is usable on its own.
 - A pending approval that the API reports `confirmed` keeps its slot until the desktop's own read shows membership (the table above), where `occupiesApprovalSlot` would release it.
 - `qop-desktop --headless` runs the engine without a window, prints one line per model change (offer codes included) and takes button presses on stdin; e2e runs use it (`docs/testing/desktop-linking-e2e.md`).
 
+### Milestones 3 and 4 as built
+
+- Modules: `engine/auth.rs` (sessions and the messaging gate), `engine/lifecycle.rs`, `engine/chat.rs`, `engine/outbox.rs`; messages live in the existing `store.rs` (migration v2: `contacts`, `outbox`, `inbox`), not a separate store. E2e: `docs/testing/desktop-chat-e2e.md`.
+- Sleep/wake: Rune exposes no wake notification, so `lifecycle.rs` ports the CLI's clock-gap detector (wall vs monotonic, stall, backwards step), observed every second by the engine. A platform signal can call `Lifecycle::mark_interrupted` later.
+- Authorization reads use a new `lookupDeviceKey` port (`rpc.rs`), always pinned to a captured head, so TS `freshness: "fresh"` always holds and the stale case is "head not strictly newer". A stale head or RPC failure is its own `VerifyError` so the engine can pause on it.
+- Linked gating: messaging starts `Verifying` and turns `Ready` only on the desktop's own membership read, which must also be at a head strictly newer than its last one. RPC errors, stale heads, a lifecycle invalidation, a contact's RPC/stale verification failure, and a peer refusing our frame after we wrote it pause and re-read; a plain peer identity failure does not (any peer could otherwise pause us). Reads repeat every 2 s while paused, every minute while ready. Only the removal marker revokes; revocation and Unlink also wipe messages.
+- The desktop dials contacts by peer ID through the relay (no mDNS/discovery yet), so without a relay it reaches only peers that dialed it. Contact connections wake the outbox for that account, ignoring backoff.
+- `Store::put` updates only, unlike the CLI's: a delivery that finishes after a wipe must not reinsert its record.
+- Conversations are keyed by contact QID; unread is the inbox rowid past the contact's `read_seq`. Messages arriving in the last opened conversation are marked read.
+- The `live` scene renders a real `QOP_DATA_DIR` headless (used when a window screenshot is not possible).
+- For milestone 5: register `/qop/sync/1` next to chat in `start_node`; serve it from `node_event` behind `Auth::allowed()`, verifying the phone with `Auth::verify` against the own handle and QID; `held` after `Store::enqueue`; receipts from the outbox's `Sent` transition (`Internal::OutboxChanged`/`deliver_one`); catch-up pages from the inbox rowid (add an `inbox_after(seq, limit)` query).
+
 ## Testing
 
 - Vector tests (above), including rejection cases and stream framing.
