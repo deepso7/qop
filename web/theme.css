@@ -1,5 +1,5 @@
 /* qop theme: warm off-white paper, near-black ink and one terracotta accent
-   used as a tint scale (solid, 10%, 5%). Surfaces are soft rounded panels
+   used as a tint scale (solid, 10%, 5%). Surfaces are soft squircle panels
    separated by hairline rings rather than shadows; the pixel character lives
    in the dithered scene art (components/landing/scene.ts), not the chrome.
    The --qp-* tokens are qop's own; the --blume-* tokens restyle the docs from
@@ -91,10 +91,27 @@ html {
   --color-on-night: var(--qp-on-night);
 }
 
-/* The two corner sizes: large panels and the cards inside them. */
+/* The corner sizes: large panels, the cards inside them, and controls
+   (buttons, chips). Generous, because squircle corners read tighter. */
 @theme {
-  --radius-panel: 1.75rem;
-  --radius-card: 1.25rem;
+  --radius-panel: 2.25rem;
+  --radius-card: 1.5rem;
+  --radius-control: 1rem;
+}
+
+/* Every rounded corner is a squircle (a smooth superellipse), not a circular
+   arc; browsers without corner-shape fall back to plain round corners. Dots
+   (rounded-full) stay circles. */
+@layer base {
+  *,
+  ::before,
+  ::after {
+    corner-shape: squircle;
+  }
+}
+
+@utility rounded-full {
+  corner-shape: round;
 }
 
 /* Frosted glass over the scene: the hero card, status chip and floating nav. */

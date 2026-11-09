@@ -124,7 +124,7 @@ const small = "text-xs text-subtle";
           </h2>
           <a
             href="/docs/how-it-works"
-            class="inline-flex h-11 items-center rounded-full px-5 text-sm ring-1 ring-on-night/20 transition-colors ring-inset hover:bg-on-night/10"
+            class="inline-flex h-11 items-center rounded-control px-5 text-sm ring-1 ring-on-night/20 transition-colors ring-inset hover:bg-on-night/10"
             >How it works ›</a
           >
         </div>
@@ -157,12 +157,12 @@ const small = "text-xs text-subtle";
               {p.href ? (
                 <a
                   href={p.href}
-                  class="inline-flex h-10 items-center rounded-full bg-ink px-4 text-sm text-paper transition-colors hover:bg-link"
+                  class="inline-flex h-10 items-center rounded-control bg-ink px-4 text-sm text-paper transition-colors hover:bg-link"
                 >
                   {p.value} <span class="ml-2" aria-hidden="true">›</span>
                 </a>
               ) : (
-                <span class="inline-flex h-10 items-center gap-2 rounded-full px-4 text-sm ring-1 ring-line ring-inset">
+                <span class="inline-flex h-10 items-center gap-2 rounded-control px-4 text-sm ring-1 ring-line ring-inset">
                   {p.value} <span class="text-subtle">soon</span>
                 </span>
               )}

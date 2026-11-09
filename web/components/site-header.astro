@@ -22,8 +22,8 @@ const { route, navigation, searchEnabled, searchStrings, searchLocale, searchVer
 
 const overScene = route === "/";
 
-// Round hover targets; h-9 chips keep the docs bar at Blume's h-16.
-const chip = "flex h-9 items-center rounded-full text-sm transition-colors hover:bg-ink/6";
+// Squircle hover targets; h-9 chips keep the docs bar at Blume's h-16.
+const chip = "flex h-9 items-center rounded-control text-sm transition-colors hover:bg-ink/6";
 const iconChip = [chip, "w-9 cursor-pointer justify-center border-0 p-0"];
 
 const links = [
@@ -41,7 +41,7 @@ const links = [
   ]}
   data-blume-header
 >
-  <div class:list={["flex items-center gap-1", overScene ? "glass rounded-full p-1" : "w-full"]}>
+  <div class:list={["flex items-center gap-1", overScene ? "glass rounded-[1.25rem] p-1" : "w-full"]}>
     <!-- On every page (Blume renders the drawer everywhere), so the logo never shifts. -->
     <button
       type="button"
@@ -54,7 +54,7 @@ const links = [
       <Icon name="menu" size={18} />
     </button>
     <!-- The app-icon mark on a tile that inverts per theme (see theme.css). -->
-    <a href="/" class="grid size-9 place-items-center rounded-full bg-mark-tile text-mark" aria-label="qop home">
+    <a href="/" class="grid size-9 place-items-center rounded-control bg-mark-tile text-mark" aria-label="qop home">
       <svg class="size-5" viewBox="0 0 128 128" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
         <path d="M32 16h64v32H32zM16 32h32v64H16zM80 32h32v64H80zM32 80h64v32H32z" />
       </svg>
@@ -79,7 +79,7 @@ const links = [
             class:list={[
               chip,
               // Blume's search trigger, restyled to fill the chip.
-              "[&_[data-blume-search-open]]:size-9 [&_[data-blume-search-open]]:rounded-full [&_[data-blume-search-open]]:text-inherit [&_[data-blume-search-open]:hover]:bg-transparent",
+              "[&_[data-blume-search-open]]:size-9 [&_[data-blume-search-open]]:rounded-control [&_[data-blume-search-open]]:text-inherit [&_[data-blume-search-open]:hover]:bg-transparent",
             ]}
           >
             <Search
@@ -100,10 +100,10 @@ const links = [
       </button>
       <a
         href="/#download"
-        class="ml-1 flex h-9 items-center gap-2 rounded-full whitespace-nowrap bg-ink pr-1.5 pl-4 text-sm text-paper transition-colors hover:bg-link"
+        class="ml-1 flex h-9 items-center gap-2 rounded-control whitespace-nowrap bg-ink pr-1.5 pl-4 text-sm text-paper transition-colors hover:bg-link"
       >
         Get qop
-        <span class="grid size-6 place-items-center rounded-full bg-paper/15 text-xs" aria-hidden="true">›</span>
+        <span class="grid size-6 place-items-center rounded-lg bg-paper/15 text-xs" aria-hidden="true">›</span>
       </a>
     </div>
   </div>
