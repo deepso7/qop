@@ -1,7 +1,8 @@
 ---
 // The landing page below the hero: a stat strip, the two-tone pitch, the
-// diorama panel, what you keep as quiet cards, one dark panel for how a
-// message travels, the download rows, then the shared site footer.
+// diorama panel, what you keep as a dotted-leader list, how a message travels
+// as the hero chat's last line making its trip, the download rows, then the
+// shared site footer.
 // Sections rise in as they scroll into view (the `reveal` utility, theme.css).
 import SiteFooter from "../site-footer.astro";
 
@@ -26,13 +27,29 @@ const sides = [
   { side: "Right", key: "qop", value: "Straight from one phone to the other. The tower sees nothing." },
 ];
 
-// The four steps of a send, condensed from docs/docs/01-how-it-works.mdx.
+// The four steps of a send, condensed from docs/docs/01-how-it-works.mdx,
+// each with what it looks like for the hero's mira and juno.
 const steps = [
-  { title: "Look up", body: "Your phone finds their handle and device keys in the public registry." },
-  { title: "Connect", body: "It opens an encrypted peer-to-peer connection, directly or through a relay." },
-  { title: "Verify", body: "Both sides check each other's device key before any message is accepted." },
-  { title: "Deliver", body: "The message lands on their device, and nowhere else." },
+  {
+    title: "Look up",
+    body: "Your phone finds their handle and device keys in the public registry.",
+    log: "mira → registry: where is @juno?",
+  },
+  {
+    title: "Connect",
+    body: "It opens an encrypted peer-to-peer connection, directly or through a relay.",
+    log: "mira ⇄ juno: encrypted channel open",
+  },
+  {
+    title: "Verify",
+    body: "Both sides check each other's device key before any message is accepted.",
+    log: "juno: mira's device key ✓",
+  },
+  { title: "Deliver", body: "The message lands on their device, and nowhere else.", log: "juno's phone: 1 new message" },
 ];
+
+// The hero chat's last line, which this section follows from phone to phone.
+const line = "nothing in the middle.";
 
 const platforms = [
   // No store listings yet: shown as text until there are real links.
@@ -41,7 +58,7 @@ const platforms = [
   { key: "Terminal", value: "qop link --account you", href: "/docs/cli" },
 ];
 
-const wrap = "mx-auto max-w-6xl px-4 md:px-6";
+const wrap = "mx-auto max-w-7xl px-4 md:px-6";
 const small = "text-xs text-subtle";
 ---
 
@@ -101,44 +118,67 @@ const small = "text-xs text-subtle";
   </section>
 
   <section class:list={[wrap, "reveal pt-20 md:pt-32"]} data-reveal>
-    <h2 class="mb-8 text-2xl tracking-[-0.03em] md:mb-10 md:text-3xl">What you keep</h2>
-    <dl class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {
-        facts.map((f) => (
-          <div class="rounded-card bg-surface p-6 ring-1 ring-line ring-inset">
-            <dt class:list={[small, "mb-6"]}>{f.key}</dt>
-            <dd class="text-lg leading-snug tracking-[-0.02em]">{f.value}</dd>
-          </div>
-        ))
-      }
-    </dl>
+    <div class="grid gap-8 md:grid-cols-[1fr_2fr]">
+      <h2 class="text-2xl tracking-[-0.03em] md:text-3xl">What you keep</h2>
+      <!-- Dotted leaders between each key and its value, like a settings
+           screen printed in mono; on phones the value drops below the key. -->
+      <dl class="text-sm md:text-base">
+        {
+          facts.map((f) => (
+            <div class="grid gap-1 border-b border-line py-4 first:pt-0 sm:flex sm:items-baseline sm:gap-3">
+              <dt class="shrink-0 text-subtle">{f.key}</dt>
+              <span class="hidden flex-1 translate-y-[-0.2em] border-b-2 border-dotted border-line sm:block" aria-hidden="true"></span>
+              <dd class="sm:max-w-[60%] sm:text-right">{f.value}</dd>
+            </div>
+          ))
+        }
+      </dl>
+    </div>
   </section>
 
-  <section class="reveal px-2 pt-20 md:px-3 md:pt-32" data-reveal>
-    <div class="rounded-panel bg-night py-16 text-on-night md:py-24">
-      <div class={wrap}>
-        <div class="mb-12 flex flex-wrap items-end justify-between gap-6 md:mb-16">
-          <h2 class="max-w-xl text-3xl leading-[1.1] tracking-[-0.04em] md:text-5xl">
-            How a message travels.{" "}
-            <span class="text-on-night/55">No stops on the way.</span>
-          </h2>
-          <a
-            href="/docs/how-it-works"
-            class="inline-flex h-11 items-center rounded-control px-5 text-sm ring-1 ring-on-night/20 transition-colors ring-inset hover:bg-on-night/10"
-            >How it works ›</a
-          >
+  <section class:list={[wrap, "reveal pt-20 md:pt-32"]} data-reveal>
+    <div class="grid gap-12 lg:grid-cols-[1fr_1.3fr] lg:gap-16">
+      <div class="lg:sticky lg:top-28 lg:self-start">
+        <h2 class="mb-6 max-w-md text-3xl leading-[1.1] tracking-[-0.04em] md:text-5xl">
+          How a message travels. <span class="text-subtle">No stops on the way.</span>
+        </h2>
+        <p class="mb-8 max-w-sm text-sm leading-relaxed text-subtle">
+          Follow mira's last line from one phone to the other. Four steps, two devices, and nothing kept in between.
+        </p>
+        <a
+          href="/docs/how-it-works"
+          class="inline-flex h-11 items-center rounded-control px-5 text-sm ring-1 ring-line transition-colors ring-inset hover:bg-surface"
+          >How it works ›</a
+        >
+      </div>
+
+      <!-- The trip: the sent bubble, a dashed pixel trail through the four
+           steps, and the same bubble arriving on the other phone. -->
+      <div>
+        <div class="mb-2 flex flex-col items-end gap-1">
+          <p class="text-[11px] text-subtle">mira's phone</p>
+          <p class="rounded-control bg-link px-4 py-2.5 text-sm text-paper">{line}</p>
         </div>
-        <ol class="grid gap-8 sm:grid-cols-2 lg:grid-cols-4 lg:gap-6">
+        <ol class="ml-3 border-l-2 border-dashed border-brand/45 py-4">
           {
             steps.map((s, i) => (
-              <li class="border-t border-on-night/15 pt-6">
-                <p class="mb-6 text-xs text-brand">0{i + 1}</p>
-                <p class="mb-2 text-lg">{s.title}</p>
-                <p class="text-sm leading-relaxed text-on-night/60">{s.body}</p>
+              <li class="relative py-5 pl-8 md:pl-10">
+                <span class="absolute top-6.5 -left-[7px] size-3 bg-brand ring-4 ring-paper" aria-hidden="true"></span>
+                <p class="mb-2 flex items-baseline gap-3">
+                  <span class="text-xs text-link">0{i + 1}</span>
+                  <span class="text-lg tracking-[-0.02em]">{s.title}</span>
+                </p>
+                <p class="mb-3 max-w-md text-sm leading-relaxed text-subtle">{s.body}</p>
+                <p class="inline-block rounded-lg bg-surface px-2.5 py-1 text-xs ring-1 ring-line ring-inset">{s.log}</p>
               </li>
             ))
           }
         </ol>
+        <div class="flex flex-col items-start gap-1">
+          <p class="text-[11px] text-subtle">juno's phone</p>
+          <p class="rounded-control bg-surface px-4 py-2.5 text-sm ring-1 ring-line ring-inset">{line}</p>
+          <p class="text-[11px] text-subtle">delivered · stored on 2 devices, 0 servers</p>
+        </div>
       </div>
     </div>
   </section>
@@ -153,11 +193,11 @@ const small = "text-xs text-subtle";
         {
           platforms.map((p) => (
             <li class="flex items-center justify-between gap-4 py-5">
-              <span class={small}>{p.key}</span>
+              <span class:list={[small, "shrink-0"]}>{p.key}</span>
               {p.href ? (
                 <a
                   href={p.href}
-                  class="inline-flex h-10 items-center rounded-control bg-ink px-4 text-sm text-paper transition-colors hover:bg-link"
+                  class="inline-flex h-10 items-center rounded-control bg-ink px-3 text-sm whitespace-nowrap sm:px-4 text-paper transition-colors hover:bg-link"
                 >
                   {p.value} <span class="ml-2" aria-hidden="true">›</span>
                 </a>

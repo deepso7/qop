@@ -8,7 +8,7 @@
 :root {
   --qp-paper: oklch(0.985 0.004 80);
   --qp-ink: oklch(0.2 0.008 30);
-  /* Raised panels (diorama, download, footer) and quiet chips. */
+  /* Raised panels (hero band, diorama, download), incoming bubbles and quiet chips. */
   --qp-element: oklch(0.955 0.006 70);
   /* Hairline rings and dividers. */
   --qp-border: oklch(0.2 0.008 30 / 0.1);
@@ -19,9 +19,6 @@
   /* The app-icon mark: terracotta o on a pale tile. */
   --qp-mark: oklch(0.609 0.112 46.7);
   --qp-mark-tile: oklch(0.944 0.02 62.9);
-  /* The one dark panel on the landing page stays dark in both themes. */
-  --qp-night: oklch(0.2 0.008 30);
-  --qp-on-night: oklch(0.96 0.008 70);
 
   --blume-background: var(--qp-paper);
   --blume-foreground: var(--qp-ink);
@@ -46,7 +43,6 @@
   --qp-orange: oklch(0.7 0.12 48);
   --qp-link: oklch(0.76 0.12 52);
   --qp-mark-tile: oklch(0.171 0.006 237);
-  --qp-night: oklch(0.225 0.012 40);
 
   --blume-background: var(--qp-paper);
   --blume-foreground: var(--qp-ink);
@@ -74,7 +70,7 @@ html {
     transparent;
 }
 
-/* qop tokens as Tailwind colours (bg-paper, text-ink, bg-night, …). `inline`
+/* qop tokens as Tailwind colours (bg-paper, text-ink, bg-surface, …). `inline`
    keeps them pointing at the variables, so they follow the theme. */
 @theme inline {
   --color-paper: var(--qp-paper);
@@ -87,8 +83,6 @@ html {
   --color-link: var(--qp-link);
   --color-mark: var(--qp-mark);
   --color-mark-tile: var(--qp-mark-tile);
-  --color-night: var(--qp-night);
-  --color-on-night: var(--qp-on-night);
 }
 
 /* The corner sizes: large panels, the cards inside them, and controls
@@ -114,15 +108,6 @@ html {
   corner-shape: round;
 }
 
-/* Frosted glass over the scene: the hero card, status chip and floating nav. */
-@utility glass {
-  background: color-mix(in oklab, var(--qp-paper) 72%, transparent);
-  backdrop-filter: blur(18px) saturate(1.2);
-  box-shadow:
-    inset 0 0 0 1px color-mix(in oklab, white 35%, transparent),
-    0 8px 24px oklch(0.2 0.02 40 / 0.08);
-}
-
 /* Upscale pixel art (the diorama) with hard edges, not blur. */
 @utility pixelated {
   image-rendering: pixelated;
@@ -146,7 +131,7 @@ html {
 }
 
 /* Mono display type: tighter tracking at large sizes. */
-.prose :is(h1, h2) {
+.prose :where(h1, h2) {
   letter-spacing: -0.03em;
 }
 
@@ -162,4 +147,12 @@ html {
   color: revert-layer;
   font-weight: revert-layer;
   text-decoration: revert-layer;
+}
+
+/* The same goes for Blume's article type and spacing (.prose h1, .prose p, …).
+   The landing page sets its own, so roll those back there too. */
+#blume-content:has([data-scene])
+  .not-prose
+  :where(h1, h2, p, ol, ul, li, dl, dt, dd, figure, figcaption) {
+  all: revert-layer;
 }

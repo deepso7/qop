@@ -1,68 +1,175 @@
 ---
-// The landing page hero: a rounded "window" onto the dithered harbour scene
-// (scene.ts), with the floating site header over its top edge, a live-looking
-// status chip, and the copy on a frosted card in the bottom-left corner.
-// The scene follows the site theme and redraws when it changes.
+// The landing page hero: the headline and actions on bare paper, then a wide
+// band of the dithered harbour (scene.ts) where two phones keep up a looping
+// conversation (chat.ts). Each message flies across the scene from one screen
+// to the other as a pixel o, with nothing in between. Side by side from lg,
+// stacked (top left, bottom right) below. The scene follows the site theme.
+
+// Each screen shows the chat from its owner's side, so its header names the other peer.
+const peers = [
+  { side: "a", owner: "mira", contact: "juno", place: "top-3 left-3 lg:top-8 lg:bottom-8 lg:left-8" },
+  { side: "b", owner: "juno", contact: "mira", place: "right-3 bottom-3 lg:top-8 lg:right-8 lg:bottom-8" },
+];
+
+const bubble = "max-w-[85%] rounded-control px-3 py-2 text-[13px] leading-snug";
+
+// New bubbles rise in (@starting-style); the still, reduced-motion chat never animates.
+const rise = "transition duration-300 ease-out starting:translate-y-2 starting:opacity-0";
 ---
 
-<section class="not-prose p-2 md:p-3">
-  <div
-    class="relative flex min-h-[max(40rem,calc(100svh-1rem))] flex-col justify-end overflow-hidden rounded-panel bg-paper md:h-[calc(100svh-1.5rem)] md:max-h-224 md:min-h-160"
-  >
-    <canvas class="absolute inset-0 size-full" data-scene aria-hidden="true"></canvas>
-
-    <p class="glass absolute top-5 right-5 hidden items-center gap-2 rounded-xl px-3 py-1.5 text-xs text-ink lg:flex">
-      <span class="relative flex size-2">
-        <span class="absolute inset-0 animate-ping rounded-full bg-brand opacity-60 motion-reduce:hidden"></span>
-        <span class="relative size-2 rounded-full bg-brand"></span>
-      </span>
-      peer → peer <span class="text-subtle">· 0 servers</span>
+<section class="not-prose text-ink">
+  <div class="mx-auto max-w-7xl px-4 pt-10 md:px-6 md:pt-14">
+    <p class="mb-5 flex items-center gap-2 text-xs text-subtle">
+      <span class="size-1.5 bg-brand" aria-hidden="true"></span>
+      Private messaging, peer to peer
     </p>
-
-    <!-- In the flow on phones, so the hero grows with the card (enlarged text). -->
-    <div class="glass relative m-2 rounded-card p-6 text-ink md:absolute md:bottom-5 md:left-5 md:m-0 md:max-w-xl md:p-8">
-      <p class="mb-4 text-xs text-subtle">Private messaging, peer to peer</p>
-      <h1 class="mb-4 text-4xl leading-[1.05] font-normal tracking-[-0.04em] md:text-6xl">Nothing in the middle.</h1>
-      <p class="mb-8 max-w-md leading-relaxed text-subtle md:text-lg">
-        qop sends each message straight from your phone to theirs. No server holds it, reads it, or keeps it.
-      </p>
-      <div class="flex flex-wrap items-center gap-3">
-        <a
-          class="group inline-flex h-11 items-center gap-3 rounded-control bg-ink pr-2 pl-5 text-paper transition-colors hover:bg-link"
-          href="#download"
-        >
-          Download
-          <span
-            class="grid size-7 place-items-center rounded-lg bg-paper/15 transition-transform group-hover:translate-y-0.5"
-            aria-hidden="true">↓</span
+    <div class="grid gap-8 lg:grid-cols-[minmax(0,1fr)_25rem] lg:items-end lg:gap-16">
+      <h1 class="text-5xl leading-[0.95] font-normal tracking-[-0.05em] sm:text-7xl lg:text-[5.25rem]">
+        Nothing in the middle.
+      </h1>
+      <div>
+        <p class="mb-6 leading-relaxed text-subtle">
+          qop sends each message straight from your phone to theirs. No server holds it, reads it, or keeps it.
+        </p>
+        <div class="flex flex-wrap items-center gap-3">
+          <a
+            class="group inline-flex h-11 items-center gap-3 rounded-control bg-ink pr-2 pl-5 text-paper transition-colors hover:bg-link"
+            href="#download"
           >
-        </a>
-        <a
-          class="inline-flex h-11 items-center rounded-control px-5 text-sm ring-1 ring-line transition-colors ring-inset hover:bg-paper/60"
-          href="/docs">$ qop --help</a
-        >
+            Download
+            <span
+              class="grid size-7 place-items-center rounded-lg bg-paper/15 transition-transform group-hover:translate-y-0.5"
+              aria-hidden="true">↓</span
+            >
+          </a>
+          <a
+            class="inline-flex h-11 items-center rounded-control px-5 text-sm ring-1 ring-line transition-colors ring-inset hover:bg-surface"
+            href="/docs">$ qop --help</a
+          >
+        </div>
       </div>
     </div>
+  </div>
+
+  <div class="mx-auto mt-8 max-w-7xl px-2 md:mt-12 md:px-6" data-chat>
+    <div
+      class="relative h-[38rem] overflow-hidden rounded-panel bg-surface after:pointer-events-none after:absolute after:inset-0 after:rounded-panel after:ring-1 after:ring-line after:ring-inset md:h-[36rem] lg:h-[30rem]"
+      role="img"
+      aria-label="Two phones chatting over a pixel-art harbour. Each message flies straight from one phone to the other, with no server in between."
+    >
+      <canvas class="absolute inset-0 size-full" data-scene></canvas>
+      {
+        peers.map((p) => (
+          <div
+            class:list={[
+              "absolute flex h-[14.5rem] w-[min(84%,22rem)] flex-col overflow-hidden rounded-card bg-paper shadow-[0_12px_32px_oklch(0.2_0.03_40/0.18)] ring-1 ring-line md:h-[16rem] lg:h-auto",
+              p.place,
+            ]}
+            data-phone={p.side}
+          >
+            <div class="flex items-center gap-3 border-b border-line px-4 py-2.5">
+              <span class="grid size-8 shrink-0 place-items-center rounded-[0.65rem] bg-mark-tile text-mark">
+                <svg class="size-4" viewBox="0 0 128 128" shape-rendering="crispEdges" fill="currentColor">
+                  <path d="M32 16h64v32H32zM16 32h32v64H16zM80 32h32v64H80zM32 80h64v32H32z" />
+                </svg>
+              </span>
+              <div class="min-w-0 flex-1 leading-tight">
+                <p class="text-sm">@{p.contact}</p>
+                <p class="text-[11px] text-subtle">key verified</p>
+              </div>
+              <p class="text-[11px] text-subtle">{p.owner}'s phone</p>
+            </div>
+            <ol
+              class="flex min-h-0 flex-1 flex-col justify-end gap-2 overflow-hidden p-3 transition-opacity duration-500"
+              data-log
+            >
+            </ol>
+            <div class="flex items-center gap-2 border-t border-line p-2.5">
+              <p class="flex h-9 min-w-0 flex-1 items-center overflow-hidden rounded-control bg-surface px-3 text-xs whitespace-nowrap">
+                <span class="empty:before:text-subtle empty:before:content-['message']" data-draft></span>
+                <span class="ml-px h-4 w-0.5 shrink-0 animate-pulse bg-brand motion-reduce:animate-none"></span>
+              </p>
+              <span class="grid size-9 shrink-0 place-items-center rounded-control bg-ink text-sm text-paper">↑</span>
+            </div>
+          </div>
+        ))
+      }
+    </div>
+
+    <div class="flex flex-wrap justify-between gap-x-6 gap-y-1 px-2 pt-4 text-xs text-subtle md:px-1">
+      <p class="flex items-center gap-2">
+        <span class="size-1.5 animate-pulse bg-brand motion-reduce:animate-none" aria-hidden="true"></span>
+        mira ⇄ juno, phone to phone
+      </p>
+      <p>
+        delivered <span class="text-ink tabular-nums" data-delivered>0</span> · copies on servers <span class="text-ink"
+          >0</span
+        >
+      </p>
+    </div>
+
+    <template data-bubble="out">
+      <li class:list={["flex flex-col items-end gap-1", rise]}>
+        <p class:list={[bubble, "bg-link text-paper"]} data-text></p>
+        <span class="px-1 text-[10px] text-subtle" data-status>sending…</span>
+      </li>
+    </template>
+    <template data-bubble="in">
+      <li class:list={["flex", rise]}>
+        <p class:list={[bubble, "bg-surface ring-1 ring-line ring-inset"]} data-text></p>
+      </li>
+    </template>
   </div>
 </section>
 
 <script>
+  import { conversation } from "./chat";
+  import type { Flight, Route } from "./scene";
   import { scene } from "./scene";
+
+  const html = document.documentElement;
+  const motion = matchMedia("(prefers-reduced-motion: reduce)");
 
   // Blume's client router swaps pages without a reload and runs this module
   // once, so (re)mount on every page load and stop before each swap.
   let stop: (() => void) | undefined;
 
   const mount = () => {
-    const canvas = document.querySelector<HTMLCanvasElement>("[data-scene]");
+    const root = document.querySelector<HTMLElement>("[data-chat]");
+    const canvas = root?.querySelector<HTMLCanvasElement>("[data-scene]");
+    const a = root?.querySelector<HTMLElement>('[data-phone="a"]');
+    const b = root?.querySelector<HTMLElement>('[data-phone="b"]');
 
-    if (!canvas) {
+    if (!root || !canvas || !a || !b) {
       return;
     }
 
+    // The arc between the screens, in canvas pixels: across the sky from edge
+    // to edge when side by side, through the gap when stacked.
+    const route = (): Route => {
+      const box = canvas.getBoundingClientRect();
+      const ra = a.getBoundingClientRect();
+      const rb = b.getBoundingClientRect();
+
+      if (ra.right < rb.left) {
+        const start = { x: ra.right - box.left + 16, y: ra.top - box.top + ra.height * 0.62 };
+        const end = { x: rb.left - box.left - 16, y: rb.top - box.top + rb.height * 0.62 };
+
+        return { a: start, b: end, c: { x: (start.x + end.x) / 2, y: start.y - box.height * 0.75 } };
+      }
+
+      const start = { x: ra.left - box.left + ra.width * 0.72, y: ra.bottom - box.top + 20 };
+      const end = { x: rb.left - box.left + rb.width * 0.28, y: rb.top - box.top - 20 };
+
+      return { a: start, b: end, c: { x: (start.x + end.x) / 2 + box.width * 0.3, y: (start.y + end.y) / 2 } };
+    };
+
+    let flight: Flight | undefined;
+
     // Draw in the current theme, and redraw when the reader toggles it.
-    const root = document.documentElement;
-    const draw = () => scene(canvas, root.dataset.theme === "dark" ? "dark" : "light");
+    const draw = () =>
+      scene(canvas, { mode: html.dataset.theme === "dark" ? "dark" : "light", route, flight: () => flight });
+
     let stopScene = draw();
 
     const observer = new MutationObserver(() => {
@@ -70,17 +177,34 @@
       stopScene = draw();
     });
 
-    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    observer.observe(html, { attributes: true, attributeFilter: ["data-theme"] });
+
+    const stopChat = conversation(root, {
+      still: motion.matches,
+      onSend: (from) => {
+        flight = { from, start: performance.now() / 1000 };
+      },
+    });
+
     stop = () => {
       stopScene();
+      stopChat();
       observer.disconnect();
     };
   };
 
-  document.addEventListener("astro:page-load", mount);
-
-  document.addEventListener("astro:before-swap", () => {
+  const unmount = () => {
     stop?.();
     stop = undefined;
+  };
+
+  document.addEventListener("astro:page-load", mount);
+
+  document.addEventListener("astro:before-swap", unmount);
+
+  // Switch between the playing and the still chat if the setting changes.
+  motion.addEventListener("change", () => {
+    unmount();
+    mount();
   });
 </script>

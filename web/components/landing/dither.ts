@@ -182,7 +182,8 @@ export const toneDither = (
   };
 };
 
-// The qop "o" mark as an 8x8 bitmap (from mobile/assets/brand/qop-o.svg at 16px cells).
+// The qop "o" mark as an 8x8 bitmap (from mobile/assets/brand/qop-o.svg at
+// 16px cells); the scene flies it between the peers as a message.
 export const O_MARK = [
   "........",
   "..####..",
@@ -193,42 +194,3 @@ export const O_MARK = [
   "..####..",
   "........",
 ];
-
-// Distance from a point (in mark units, 0..8) to the nearest inked mark cell,
-// read from a table sampled at 1/16 unit so per-frame fields stay cheap.
-const RES = 16;
-const SIZE = 8 * RES;
-const table = new Float32Array(SIZE * SIZE);
-
-for (let j = 0; j < SIZE; j += 1) {
-  for (let i = 0; i < SIZE; i += 1) {
-    let best = Infinity;
-
-    for (let y = 0; y < 8; y += 1) {
-      for (let x = 0; x < 8; x += 1) {
-        if (O_MARK[y][x] !== "#") {
-          continue;
-        }
-
-        const dx = Math.max(Math.abs((i + 0.5) / RES - (x + 0.5)) - 0.5, 0);
-        const dy = Math.max(Math.abs((j + 0.5) / RES - (y + 0.5)) - 0.5, 0);
-
-        best = Math.min(best, Math.hypot(dx, dy));
-      }
-    }
-
-    table[j * SIZE + i] = best;
-  }
-}
-
-export const markDistance = (mx: number, my: number) => {
-  const i = Math.floor(mx * RES);
-  const j = Math.floor(my * RES);
-
-  if (i < 0 || j < 0 || i >= SIZE || j >= SIZE) {
-    // Outside the table: approximate from the mark's centre.
-    return Math.max(Math.hypot(mx - 4, my - 4) - 3, 0);
-  }
-
-  return table[j * SIZE + i];
-};

@@ -1,8 +1,8 @@
 ---
 // qop's site header, used on every page through the `Header` layout slot
 // (components.ts): the app-icon mark, nav links, search, the theme toggle and
-// Download. On the landing page (`/`) it is a frosted pill floating over the
-// hero scene; elsewhere it is a sticky frosted bar over the docs.
+// Download. A plain sticky bar on every page; on the landing page (`/`) its
+// contents line up with the page's centred column instead of spanning the window.
 import Icon from "blume/components/Icon.astro";
 import Search from "blume/components/layout/Search.astro";
 import data from "blume:data";
@@ -20,7 +20,7 @@ interface Props {
 
 const { route, navigation, searchEnabled, searchStrings, searchLocale, searchVersion = null, assistantEnabled = false } = Astro.props;
 
-const overScene = route === "/";
+const landing = route === "/";
 
 // Squircle hover targets; h-9 chips keep the docs bar at Blume's h-16.
 const chip = "flex h-9 items-center rounded-control text-sm transition-colors hover:bg-ink/6";
@@ -32,20 +32,12 @@ const links = [
 ];
 ---
 
-<header
-  class:list={[
-    "z-40",
-    overScene
-      ? "absolute inset-x-0 top-5 flex justify-center px-4 md:top-6"
-      : "sticky top-0 border-b border-line bg-paper/80 px-4 py-3.5 backdrop-blur-xl md:px-6",
-  ]}
-  data-blume-header
->
-  <div class:list={["flex items-center gap-1", overScene ? "glass rounded-[1.25rem] p-1" : "w-full"]}>
+<header class="sticky top-0 z-40 border-b border-line bg-paper/85 backdrop-blur-xl" data-blume-header>
+  <div class:list={["flex h-16 items-center gap-1 px-4 md:px-6", landing && "mx-auto max-w-7xl"]}>
     <!-- On every page (Blume renders the drawer everywhere), so the logo never shifts. -->
     <button
       type="button"
-      class:list={[iconChip, "lg:hidden", overScene && "hidden"]}
+      class:list={[iconChip, "lg:hidden", landing && "hidden"]}
       aria-controls="blume-nav-drawer"
       aria-expanded="false"
       aria-label="Toggle navigation"
@@ -53,11 +45,14 @@ const links = [
     >
       <Icon name="menu" size={18} />
     </button>
-    <!-- The app-icon mark on a tile that inverts per theme (see theme.css). -->
-    <a href="/" class="grid size-9 place-items-center rounded-control bg-mark-tile text-mark" aria-label="qop home">
-      <svg class="size-5" viewBox="0 0 128 128" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
-        <path d="M32 16h64v32H32zM16 32h32v64H16zM80 32h32v64H80zM32 80h64v32H32z" />
-      </svg>
+    <!-- The app-icon mark on a tile that inverts per theme (see theme.css), and the name. -->
+    <a href="/" class="mr-2 flex items-center gap-2.5 rounded-control" aria-label="qop home">
+      <span class="grid size-9 place-items-center rounded-control bg-mark-tile text-mark">
+        <svg class="size-5" viewBox="0 0 128 128" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
+          <path d="M32 16h64v32H32zM16 32h32v64H16zM80 32h32v64H80zM32 80h64v32H32z" />
+        </svg>
+      </span>
+      <span class="text-[15px] tracking-[-0.03em] max-sm:hidden" aria-hidden="true">qop</span>
     </a>
     <nav class="flex" aria-label="Site">
       {

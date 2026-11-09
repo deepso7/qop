@@ -1,17 +1,10 @@
-// "Harbour" hero art: a dithered pixel seascape behind the landing page's glass
-// card. A sky graded down to the horizon (a day sky in light, night and stars
-// in dark), a sun or moon with its path on the water, hazy hills, and a
-// terracotta sea where two pale o peers float, joined by a dashed arc that a
-// packet crosses. Every region is a run of shades in one ramp (see `tones`),
-// so the dither only ever blends neighbouring shades of the same region.
-import {
-  hash,
-  markDistance,
-  noise,
-  O_MARK,
-  smoothstep,
-  toneDither,
-} from "./dither";
+// "Harbour" hero art: a dithered pixel seascape behind the hero conversation.
+// A sky graded down to the horizon (a day sky in light, night and stars in
+// dark), a sun or moon with its path on the water, hazy hills and a terracotta
+// sea, crossed by a dashed arc between the two peers' screens. Each sent
+// message rides the arc as a small pixel o. Every region is a run of shades in
+// one ramp (see `tones`), so the dither only blends neighbouring shades.
+import { hash, noise, O_MARK, smoothstep, toneDither } from "./dither";
 
 interface Palette {
   // Top of the sky down to the horizon; the last shade is the sun/moon disc.
@@ -20,9 +13,9 @@ interface Palette {
   readonly hills: readonly [string, string];
   // Sea from the horizon to the foreground.
   readonly sea: readonly string[];
-  // Peers, packet, glints and stars.
+  // The travelling o, glints and stars.
   readonly foam: string;
-  // The dashed arc between the peers.
+  // The dashed arc, and the outline around the travelling o.
   readonly line: string;
   // How far the disc's glow spreads, in disc radii.
   readonly glow: number;
@@ -72,7 +65,7 @@ const PALETTES = {
       "oklch(0.2 0.015 45)",
     ],
     foam: "oklch(0.944 0.02 62.9)",
-    line: "oklch(0.75 0.05 60)",
+    line: "oklch(0.62 0.07 55)",
     glow: 1.2,
     stars: true,
   },
@@ -80,13 +73,36 @@ const PALETTES = {
 
 export type SceneMode = keyof typeof PALETTES;
 
-// Seconds per send: TRAVEL crossing, then a pause.
-const PERIOD = 6;
-const TRAVEL = 4;
+// CSS pixels per cell.
+const CELL = 4;
 
-interface Pt {
+// Seconds a message takes to cross the arc.
+export const FLIGHT = 1.4;
+
+export interface Pt {
   x: number;
   y: number;
+}
+
+// The arc between the peers in CSS pixels: start (peer a), control, end (peer b).
+export interface Route {
+  readonly a: Pt;
+  readonly c: Pt;
+  readonly b: Pt;
+}
+
+// A message in the air: who sent it, and when (seconds, performance.now() / 1000).
+export interface Flight {
+  readonly from: "a" | "b";
+  readonly start: number;
+}
+
+export interface SceneOptions {
+  readonly mode: SceneMode;
+  // Read whenever the canvas changes size.
+  readonly route: () => Route;
+  // Read every frame.
+  readonly flight: () => Flight | undefined;
 }
 
 interface Layout {
@@ -94,17 +110,9 @@ interface Layout {
   horizon: number;
   sun: Pt;
   r: number;
-  // Mark scale, the two peers' top-left cells, and the arc as ordered cells.
-  s: number;
-  marks: readonly Pt[];
+  // The arc as ordered cells, from peer a to peer b.
   path: Pt[];
 }
-
-const lerp = (a: number, b: number, k: number) => a + (b - a) * k;
-
-// 1 for a wide (desktop) canvas, falling towards 0 as it gets taller than wide.
-// Wide layouts keep the left for the glass card; tall ones keep the bottom.
-const wideness = (w: number, h: number) => Math.min(1, w / h / 1.6);
 
 // Rasterises a quadratic curve into a staircase of cells, so index = distance.
 const staircase = (p0: Pt, c: Pt, p2: Pt) => {
@@ -140,57 +148,46 @@ const staircase = (p0: Pt, c: Pt, p2: Pt) => {
   return path;
 };
 
-const layout = (w: number, h: number): Layout => {
-  const k = wideness(w, h);
-  const horizon = Math.round(h * lerp(0.42, 0.6, k));
-  const s = Math.max(2, Math.floor(Math.min(h / 80, w / 64)));
+const cells = ({ x, y }: Pt) => ({ x: x / CELL, y: y / CELL });
 
-  // A peer's top-left cell, from its centre in fractions of the canvas
-  // (u across, dv below the horizon), blended from portrait to landscape.
-  const peer = (u0: number, u1: number, dv0: number, dv1: number) => ({
-    x: Math.round(lerp(u0, u1, k) * w - 4 * s),
-    y: Math.round(horizon + lerp(dv0, dv1, k) * h - 4 * s),
-  });
-
-  const a = peer(0.22, 0.56, 0.06, 0.07);
-  const b = peer(0.76, 0.86, 0.04, 0.2);
-
-  const path = staircase(
-    { x: a.x + 7 * s + 1, y: a.y + 4 * s },
-    { x: w * lerp(0.5, 0.74, k), y: horizon - h * lerp(0.3, 0.42, k) },
-    { x: b.x + s - 1, y: b.y + 4 * s }
-  );
+const layout = (w: number, h: number, route: Route): Layout => {
+  // Wide bands put the sun between the screens, under the arc; tall (phone)
+  // bands put it beside the gap between the stacked screens.
+  const wide = w > h;
+  const horizon = Math.round(h * (wide ? 0.62 : 0.52));
 
   return {
     horizon,
-    sun: { x: w * lerp(0.78, 0.22, k), y: h * lerp(0.13, 0.2, k) },
-    r: Math.max(4, Math.min(w, h) * 0.05),
-    s,
-    marks: [a, b],
-    path,
+    sun: wide
+      ? { x: w * 0.5, y: h * 0.34 }
+      : { x: w * 0.8, y: horizon - h * 0.07 },
+    r: Math.max(4, Math.min(w, h) * (wide ? 0.07 : 0.05)),
+    path: staircase(cells(route.a), cells(route.c), cells(route.b)),
   };
 };
 
 type Paint = (x: number, y: number, color: string) => void;
 
-// Paints a solid size x size square of cells.
-const block = (
-  paint: Paint,
-  x: number,
-  y: number,
-  size: number,
-  color: string
-) => {
-  for (let dy = 0; dy < size; dy += 1) {
-    for (let dx = 0; dx < size; dx += 1) {
-      paint(x + dx, y + dy, color);
+// The travelling o: the mark's inked cells, plus an outline (and the hole in
+// the middle) of every blank cell touching one, so it reads on any shade.
+const LETTER = O_MARK.flatMap((row, y) =>
+  [...row].flatMap((c, x) => {
+    if (c === "#") {
+      return [{ x, y, ink: true }];
     }
-  }
-};
 
-// Mounts the scene onto a canvas in the given theme; returns a stop function.
-export const scene = (canvas: HTMLCanvasElement, mode: SceneMode) => {
-  const { sky, hills, sea, foam, line, glow, stars }: Palette = PALETTES[mode];
+    const touches = [-1, 0, 1].some((dy) =>
+      [-1, 0, 1].some((dx) => O_MARK[y + dy]?.[x + dx] === "#")
+    );
+
+    return touches ? [{ x, y, ink: false }] : [];
+  })
+);
+
+// Mounts the scene onto a canvas; returns a stop function.
+export const scene = (canvas: HTMLCanvasElement, options: SceneOptions) => {
+  const { sky, hills, sea, foam, line, glow, stars }: Palette =
+    PALETTES[options.mode];
 
   // Tone numbers (1-based ramp indices) for each region.
   const ramp = [...sky, ...hills, ...sea];
@@ -204,25 +201,15 @@ export const scene = (canvas: HTMLCanvasElement, mode: SceneMode) => {
   let layW = -1;
   let layH = -1;
 
-  // `field` runs for every cell every frame, so these helpers allocate nothing.
+  // `field` runs for every cell every frame, so this allocates only on resize.
   const at = (w: number, h: number) => {
     if (!lay || layW !== w || layH !== h) {
       layW = w;
       layH = h;
-      lay = layout(w, h);
+      lay = layout(w, h, options.route());
     }
 
     return lay;
-  };
-
-  const nearMark = ({ s, marks }: Layout, x: number, y: number) => {
-    let best = Infinity;
-
-    for (const m of marks) {
-      best = Math.min(best, markDistance((x - m.x) / s, (y - m.y) / s));
-    }
-
-    return best;
   };
 
   // Stars: single cells that twinkle, kept clear of the moon.
@@ -257,10 +244,7 @@ export const scene = (canvas: HTMLCanvasElement, mode: SceneMode) => {
         ? Math.floor(l.sun.x + (r(2) - 0.5) * (l.r * 1.5 + depth * w * 0.18))
         : Math.floor((((r(2) * w - t * (1 + r(3) * 2)) % w) + w) % w);
 
-      if (
-        Math.sin(t * (0.6 + r(4) * 0.8) + i * 2.1) < (onPath ? 0.1 : 0.6) ||
-        nearMark(l, x, y) < 2
-      ) {
+      if (Math.sin(t * (0.6 + r(4) * 0.8) + i * 2.1) < (onPath ? 0.1 : 0.6)) {
         continue;
       }
 
@@ -270,8 +254,31 @@ export const scene = (canvas: HTMLCanvasElement, mode: SceneMode) => {
     }
   };
 
+  // The message in flight, eased so it leaves and lands softly.
+  const drawFlight = (paint: Paint, l: Layout, t: number) => {
+    const flight = options.flight();
+
+    if (!flight) {
+      return;
+    }
+
+    const k = (t - flight.start) / FLIGHT;
+
+    if (k < 0 || k > 1) {
+      return;
+    }
+
+    const eased = smoothstep(0, 1, k);
+    const along = flight.from === "a" ? eased : 1 - eased;
+    const p = l.path[Math.round(along * (l.path.length - 1))];
+
+    for (const c of LETTER) {
+      paint(p.x - 4 + c.x, p.y - 4 + c.y, c.ink ? foam : line);
+    }
+  };
+
   return toneDither(canvas, {
-    cell: 4,
+    cell: CELL,
     ramp,
     field: (x, y, t, w, h) => {
       const l = at(w, h);
@@ -317,11 +324,6 @@ export const scene = (canvas: HTMLCanvasElement, mode: SceneMode) => {
         return Math.min(DISC - 0.05, base + halo * (DISC - base));
       }
 
-      // A dark collar makes the pale marks read on any shade of water.
-      if (nearMark(l, x, y) < 0.6) {
-        return DEEP;
-      }
-
       // Sea: lighter at the horizon, deeper towards the viewer, with sliding
       // horizontal streaks for the painted grain.
       const kd = (y - l.horizon) / (h - l.horizon);
@@ -352,25 +354,7 @@ export const scene = (canvas: HTMLCanvasElement, mode: SceneMode) => {
         }
       }
 
-      // The packet, offset so the still (reduced-motion) frame shows it mid-flight.
-      const progress = ((t + 1.8) % PERIOD) / TRAVEL;
-
-      if (progress <= 1) {
-        const p = l.path[Math.round(progress * (l.path.length - 1))];
-
-        block(paint, p.x - 1, p.y - 1, 3, foam);
-      }
-
-      // The peers, as solid pale bitmaps.
-      for (const m of l.marks) {
-        for (const [my, row] of O_MARK.entries()) {
-          for (const [mx, c] of [...row].entries()) {
-            if (c === "#") {
-              block(paint, m.x + mx * l.s, m.y + my * l.s, l.s, foam);
-            }
-          }
-        }
-      }
+      drawFlight(paint, l, t);
     },
   });
 };
