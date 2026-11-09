@@ -1,8 +1,9 @@
 ---
-// qop's site footer: a rounded panel with the tagline, link columns, and the
-// pixel wordmark set huge along the bottom edge in a faint accent tint. The
-// landing page renders it after its sections; every docs page gets it through
-// the `Footer` layout slot (components.ts), so both ends of the site share it.
+// qop's site footer: the mark, a one-line blurb and the link columns on bare
+// paper, a hairline and the copyright row, then the stipple bay art
+// (footer-art.ts) full width, bleeding off the bottom. The landing page renders
+// it after its sections; every docs page gets it through the `Footer` layout
+// slot (components.ts), so both ends of the site share it.
 const columns = [
   {
     title: "Product",
@@ -23,17 +24,25 @@ const columns = [
 ];
 ---
 
-<footer class="not-prose px-2 pb-2 md:px-3 md:pb-3" data-blume-footer>
-  <div class="overflow-hidden rounded-panel bg-surface text-ink ring-1 ring-line ring-inset">
-    <div class="grid gap-10 px-6 pt-10 md:grid-cols-[2fr_1fr_1fr] md:px-10 md:pt-12">
-      <p class="max-w-sm text-xl leading-snug tracking-[-0.03em] md:text-2xl">
-        Your messages. <span class="text-subtle">Nobody else's.</span>
-      </p>
+<footer class="not-prose mt-16 overflow-hidden bg-paper text-ink md:mt-24" data-blume-footer>
+  <div class="mx-auto max-w-6xl px-4 pt-12 md:px-6 md:pt-16">
+    <div class="grid grid-cols-2 gap-10 sm:grid-cols-[1fr_auto_auto] sm:gap-16">
+      <div class="col-span-2 sm:col-span-1">
+        <a href="/" class="inline-flex items-center gap-2.5 text-xl tracking-[-0.03em]" aria-label="qop home">
+          <svg class="size-6 text-brand" viewBox="0 0 128 128" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
+            <path d="M32 16h64v32H32zM16 32h32v64H16zM80 32h32v64H80zM32 80h64v32H32z"></path>
+          </svg>
+          qop
+        </a>
+        <p class="mt-4 max-w-xs text-sm leading-relaxed text-subtle">
+          Your messages. Nobody else's. Sent straight from one phone to another.
+        </p>
+      </div>
       {
         columns.map((c) => (
           <div class="text-sm">
-            <p class="mb-3 text-xs text-link">{c.title}</p>
-            <ul class="grid gap-2">
+            <p class="mb-4 text-link">{c.title}</p>
+            <ul class="grid gap-2.5">
               {c.links.map((l) => (
                 <li>
                   <a href={l.href} class="text-subtle transition-colors hover:text-ink">
@@ -46,21 +55,51 @@ const columns = [
         ))
       }
     </div>
-    <div class="flex justify-between gap-4 px-6 pt-10 text-xs text-subtle md:px-10">
+    <div class="mt-12 flex justify-between gap-4 border-t border-line pt-5 text-xs text-subtle">
       <span>©2026 qop.sh</span>
       <span>Built on minip2p</span>
     </div>
-    <!-- The pixel wordmark (public/logo.svg), bleeding off the bottom edge. -->
-    <svg
-      class="-mb-[4%] block w-full px-4 pt-4 text-brand/15 md:px-8"
-      viewBox="0 16 352 128"
-      shape-rendering="crispEdges"
-      fill="currentColor"
-      aria-hidden="true"
-    >
-      <path
-        d="M32 16h64v32H32zM16 32h32v64H16zM80 32h32v112H80zM32 80h64v32H32zM144 16h64v32h-64zM128 32h32v64h-32zM192 32h32v64h-32zM144 80h64v32h-64zM240 16h80v32h-80zM240 16h32v128h-32zM304 32h32v64h-32zM272 80h48v32h-48z"
-      ></path>
-    </svg>
   </div>
+  <!-- Drawn in the canvas's CSS colour: terracotta ink, a little dimmed on dark paper. -->
+  <canvas class="mt-6 block h-[clamp(19rem,30vw,27rem)] w-full text-brand md:mt-2 dark:text-brand/80" data-footer-art aria-hidden="true"
+  ></canvas>
 </footer>
+
+<script>
+  import { footerArt } from "./footer-art";
+
+  // Blume's client router swaps pages without a reload and runs this module
+  // once, so (re)mount on every page load and stop before each swap.
+  let stop: (() => void) | undefined;
+
+  const mount = () => {
+    const canvas = document.querySelector<HTMLCanvasElement>("[data-footer-art]");
+
+    if (!canvas) {
+      return;
+    }
+
+    // Draw in the current theme, and redraw when the reader toggles it.
+    const root = document.documentElement;
+    const draw = () => footerArt(canvas, { dark: root.dataset.theme === "dark" });
+    let stopArt = draw();
+
+    const observer = new MutationObserver(() => {
+      stopArt();
+      stopArt = draw();
+    });
+
+    observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
+    stop = () => {
+      stopArt();
+      observer.disconnect();
+    };
+  };
+
+  document.addEventListener("astro:page-load", mount);
+
+  document.addEventListener("astro:before-swap", () => {
+    stop?.();
+    stop = undefined;
+  });
+</script>
