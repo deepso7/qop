@@ -151,7 +151,7 @@ const rise = "motion-safe:transition motion-safe:duration-300 motion-safe:ease-o
       const ra = a.getBoundingClientRect();
       const rb = b.getBoundingClientRect();
 
-      if (ra.right < rb.left) {
+      if (ra.right < rb.left && ra.bottom > rb.top) {
         const start = { x: ra.right - box.left + 16, y: ra.top - box.top + ra.height * 0.62 };
         const end = { x: rb.left - box.left - 16, y: rb.top - box.top + rb.height * 0.62 };
 

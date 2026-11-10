@@ -753,7 +753,7 @@ const paintForeground = (g: Grid) => {
     }
   }
 
-  for (let x = -20; x < cols + 20; x += Math.round(5 * s)) {
+  for (let x = -20; x < cols + 20; x += Math.max(1, Math.round(5 * s))) {
     const top = Math.min(fgLeft(uOf(x)), fgRight(uOf(x)));
     const r = hash(x * 0.13, 17);
 

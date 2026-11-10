@@ -126,8 +126,9 @@ const small = "text-xs text-subtle";
         {
           facts.map((f) => (
             <div class="grid gap-1 border-b border-line py-4 first:pt-0 sm:flex sm:items-baseline sm:gap-3">
-              <dt class="shrink-0 text-subtle">{f.key}</dt>
-              <span class="hidden flex-1 translate-y-[-0.2em] border-b-2 border-dotted border-line sm:block" aria-hidden="true"></span>
+              <dt class="text-subtle sm:flex sm:flex-1 sm:items-baseline sm:gap-3 sm:after:flex-1 sm:after:-translate-y-[0.2em] sm:after:border-b-2 sm:after:border-dotted sm:after:border-line sm:after:content-['']">
+                {f.key}
+              </dt>
               <dd class="sm:max-w-[60%] sm:text-right">{f.value}</dd>
             </div>
           ))
@@ -192,12 +193,12 @@ const small = "text-xs text-subtle";
       <ul class="divide-y divide-line rounded-panel bg-surface px-6 ring-1 ring-line ring-inset">
         {
           platforms.map((p) => (
-            <li class="flex items-center justify-between gap-4 py-5">
+            <li class="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 py-5">
               <span class:list={[small, "shrink-0"]}>{p.key}</span>
               {p.href ? (
                 <a
                   href={p.href}
-                  class="inline-flex h-10 items-center rounded-control bg-ink px-3 text-sm whitespace-nowrap sm:px-4 text-paper transition-colors hover:bg-link"
+                  class="inline-flex h-10 shrink-0 items-center rounded-control bg-ink px-3 text-sm whitespace-nowrap sm:px-4 text-paper transition-colors hover:bg-link"
                 >
                   {p.value} <span class="ml-2" aria-hidden="true">›</span>
                 </a>
