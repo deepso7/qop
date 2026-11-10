@@ -157,6 +157,7 @@ export const conversation = (
   // Start from empty screens (a remount after the motion setting changes).
   for (const { log, draft } of screens) {
     log.replaceChildren();
+    log.style.opacity = "";
     draft.textContent = "";
   }
 

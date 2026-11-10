@@ -14,7 +14,7 @@ const peers = [
 const bubble = "max-w-[85%] rounded-control px-3 py-2 text-[13px] leading-snug";
 
 // New bubbles rise in (@starting-style); the still, reduced-motion chat never animates.
-const rise = "transition duration-300 ease-out starting:translate-y-2 starting:opacity-0";
+const rise = "motion-safe:transition motion-safe:duration-300 motion-safe:ease-out motion-safe:starting:translate-y-2 motion-safe:starting:opacity-0";
 ---
 
 <section class="not-prose text-ink">
