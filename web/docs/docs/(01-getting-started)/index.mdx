@@ -1,0 +1,31 @@
+---
+title: What qop is
+description: qop is a messaging app with no message servers. Your phone talks straight to theirs, and the one server qop runs never sees a message.
+---
+
+qop gives you an **account**: a permanent handle, with keys that each of your **devices** makes for itself. A public **registry** records which device keys belong to which handle, so before any message is accepted, both sides can check who they're talking to.
+
+Messages travel over [minip2p](https://minip2p.com), directly between devices or through a relay when a direct path isn't possible. They're stored on the devices at each end, and nowhere else. The only server qop runs, the API, pays the registry's fees and can't approve anything without your signature. See [How it works](/docs/how-it-works).
+
+## The short version
+
+<Steps>
+  <Step title="Create your qop">
+    Pick a handle and register with an invitation code. Your phone makes its
+    keys and shows your recovery key: save it somewhere safe.
+  </Step>
+  <Step title="Start a chat">
+    Enter someone's handle. The app looks them up in the registry and connects
+    to their device.
+  </Step>
+  <Step title="Link more devices">
+    Add the CLI or another device, approved from your phone. An account can have
+    up to four.
+  </Step>
+</Steps>
+
+## Where to run it
+
+- **Phone**: the app runs on iOS and Android. Registration is invitation-only, and there are no store listings yet. See [Using the app](/docs/app).
+- **Terminal**: the [CLI](/docs/cli) is a second device on your account. It chats as you, and holds messages for your phone while it's offline.
+- **Your own setup**: every part is open source on [GitHub](https://github.com/deepso7/qop), so you can run your own.

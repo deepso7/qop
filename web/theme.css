@@ -135,11 +135,6 @@ html {
   letter-spacing: -0.03em;
 }
 
-/* The landing page lays out its own panels: drop the padding Blume's <main> adds. */
-#blume-content:has([data-scene]) {
-  padding: 0;
-}
-
 /* Blume's article link style (.prose a) is unlayered, so it beats Tailwind's
    layered utilities. Inside our own not-prose blocks, roll links back to the
    layers so their utility classes (and Tailwind's reset) apply. */
@@ -149,10 +144,567 @@ html {
   text-decoration: revert-layer;
 }
 
-/* The same goes for Blume's article type and spacing (.prose h1, .prose p, …).
-   The landing page sets its own, so roll those back there too. */
-#blume-content:has([data-scene])
-  .not-prose
-  :where(h1, h2, p, ol, ul, li, dl, dt, dd, figure, figcaption) {
+/* The same goes for Blume's article type and spacing (.prose p, .prose li, …)
+   inside home's chat scene, which sets its own. */
+#blume-content [data-chat] :where(p, ol, li) {
   all: revert-layer;
+}
+
+/* ---------------------------------------------------------------------------
+   Site layout, for home, the docs and privacy alike. Structured after
+   executor.sh (one sidebar: main links, search, the docs by group), styled
+   after zriz.dev's docs: an 11rem sidebar, a 35rem page column and a small
+   contents list, centered together, with no header bar on desktop. Inter for
+   text, Paper Mono for code and small labels, qop's paper and ink. Keyed on
+   `data-shell`, which components/docs/sidebar.astro renders; the sidebar,
+   contents list and page links are layout slots (components.ts).
+   ------------------------------------------------------------------------ */
+
+/* Inter (OFL, fonts/Inter-OFL.txt), self-hosted, for the sidebar and docs text. */
+@font-face {
+  font-family: "Inter";
+  src: url("/fonts/InterVariable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root:has([data-shell]) {
+  /* Shades of ink on paper, as ink at partial opacity (oklch relative colour);
+     they follow the theme because the --qp-* tokens do. */
+  --docs-soft: oklch(from var(--qp-ink) l c h / 0.78);
+  --docs-faint: oklch(from var(--qp-ink) l c h / 0.55);
+  --docs-underline: oklch(from var(--qp-ink) l c h / 0.25);
+  --docs-surface: oklch(from var(--qp-ink) l c h / 0.035);
+  --docs-chip: oklch(from var(--qp-ink) l c h / 0.06);
+  --docs-rule: oklch(from var(--qp-ink) l c h / 0.07);
+
+  /* The grid: sidebar, page, contents. */
+  @media (min-width: 64rem) {
+    /* The page column and gaps give way on narrower laptops, so the tracks
+       always fit the window. The contents track joins at 80rem, where Blume
+       shows the contents list. */
+    & [data-blume-doc-grid] {
+      grid-template-columns: 11rem minmax(0, 35rem);
+      column-gap: clamp(2rem, 6vw, 5rem);
+      justify-content: center;
+      padding-inline: 2rem;
+
+      @media (min-width: 80rem) {
+        grid-template-columns: 11rem minmax(0, 35rem) 11rem;
+      }
+    }
+
+    & #blume-nav-drawer {
+      top: 0;
+      height: 100dvh;
+      padding: 4.5rem 0 3rem;
+    }
+
+    & #blume-content {
+      padding: 4.5rem 0 0;
+    }
+
+    & [data-blume-toc] {
+      top: 0;
+      height: 100dvh;
+      padding: 5rem 0 3rem;
+    }
+
+    /* No header bar: the sidebar carries the links, search and theme toggle.
+       Clipped rather than display:none, because Blume's search dialog lives in
+       the header and must still open (top-layer dialogs escape the clip). */
+    & [data-blume-header] {
+      position: fixed;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+
+      /* Its controls are duplicated in the sidebar: keep them out of the tab
+         order (the search dialog and its own controls stay usable). */
+      & :is(a, button):not([data-blume-search-dialog] *) {
+        visibility: hidden;
+      }
+    }
+  }
+
+  /* The copy and chat links live in the right rail; the list is enough there. */
+  & [data-blume-toc] [data-blume-page-actions] {
+    display: none;
+  }
+
+  /* Sidebar */
+  & .docs-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 1.75rem;
+    font-family: "Inter", ui-sans-serif, system-ui, sans-serif;
+
+    & ul {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    & li a {
+      display: block;
+      padding: 0.125rem 0;
+      font-size: 0.875rem;
+      line-height: 1.25rem;
+      color: var(--qp-muted);
+      transition: color 0.15s;
+
+      &:hover,
+      &[aria-current="page"] {
+        color: var(--qp-ink);
+      }
+
+      &[aria-current="page"] {
+        font-weight: 550;
+        letter-spacing: -0.0076em;
+      }
+    }
+  }
+
+  /* The logo row: the mark and wordmark, the theme toggle at the far end. */
+  & .docs-nav-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  & .docs-nav-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 1rem;
+    font-weight: 600;
+    line-height: 1.25rem;
+    letter-spacing: -0.012em;
+
+    /* 14px of drawing: about the wordmark's cap height plus a pixel. */
+    & svg {
+      width: 0.875rem;
+      height: 0.875rem;
+      color: var(--qp-orange);
+    }
+  }
+
+  & .docs-theme {
+    display: grid;
+    place-items: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    margin-right: -0.375rem;
+    border-radius: 0.5rem;
+    color: var(--qp-muted);
+    cursor: pointer;
+    transition: color 0.15s;
+
+    &:hover {
+      color: var(--qp-ink);
+    }
+  }
+
+  & .docs-nav-label {
+    margin-bottom: 0.25rem;
+    font-family: var(--blume-font-mono);
+    font-size: 0.78125rem;
+    line-height: 1.25rem;
+    color: var(--docs-faint);
+  }
+
+  /* Docs groups: clear space between them, so a label reads as the head of
+     the links below it, not one more link. */
+  & .docs-nav-tree {
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  /* The search pill in the docs sidebar. */
+  & .docs-search {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 2.25rem;
+    margin-bottom: -0.5rem;
+    padding: 0 0.75rem;
+    border-radius: 0.75rem;
+    background: var(--docs-chip);
+    color: var(--qp-muted);
+    font-size: 0.8125rem;
+    cursor: pointer;
+    transition: color 0.15s;
+
+    &:hover {
+      color: var(--qp-ink);
+    }
+
+    & kbd {
+      font-family: var(--blume-font-mono);
+      font-size: 0.6875rem;
+      color: var(--docs-faint);
+    }
+  }
+
+  /* Contents list */
+  & .docs-toc {
+    & ul {
+      margin: 0.25rem 0 0;
+      padding: 0;
+      list-style: none;
+    }
+
+    & a {
+      display: block;
+      padding: 0.125rem 0;
+      font-size: 0.8125rem;
+      line-height: 1.25rem;
+      color: var(--qp-muted);
+
+      &:hover {
+        color: var(--qp-ink);
+      }
+    }
+  }
+
+  /* Previous / next */
+  & .docs-pages {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    max-width: var(--blume-content-width);
+    margin: 3.5rem auto 0;
+
+    & a {
+      display: flex;
+      flex-direction: column;
+      gap: 0.125rem;
+      font-weight: 500;
+      text-decoration: underline 1px transparent;
+      transition: text-decoration-color 0.15s;
+
+      &:hover {
+        text-decoration-color: currentColor;
+      }
+    }
+
+    & span {
+      font-family: var(--blume-font-mono);
+      font-size: 0.78125rem;
+      font-weight: 400;
+      line-height: 1rem;
+      color: var(--docs-faint);
+    }
+  }
+
+  & .docs-pages-next {
+    grid-column: 2;
+    align-items: flex-end;
+    text-align: right;
+  }
+
+  /* Phones keep the header bar, on the page colour. */
+  & [data-blume-header] {
+    background: var(--qp-paper);
+  }
+}
+
+:root:has([data-shell]) {
+  --blume-font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --blume-font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --blume-content-width: 35rem;
+
+  & body {
+    font-size: 0.9375rem;
+    line-height: 1.5rem;
+    font-feature-settings: "cv11", "ss01";
+  }
+
+  /* Article */
+  & .prose {
+    color: var(--qp-ink);
+    font-size: 0.9375rem;
+    line-height: 1.5rem;
+
+    & > h1 {
+      margin: 0 0 0.5rem;
+      font-size: 1.5rem;
+      line-height: 2rem;
+      font-weight: 600;
+      letter-spacing: -0.0076em;
+    }
+
+    & > h1 + p.text-lg {
+      margin: 0 0 2.25rem;
+      font-size: 1rem;
+      line-height: 1.625rem;
+      color: var(--qp-muted);
+    }
+
+    & h2 {
+      margin: 3.5rem 0 0.75rem;
+      font-size: 1.125rem;
+      line-height: 1.625rem;
+      font-weight: 600;
+      letter-spacing: -0.0076em;
+    }
+
+    & h3 {
+      margin: 2rem 0 0.5rem;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      letter-spacing: 0;
+    }
+
+    & :is(h2, h3) a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    & :is(p, ul, ol):not(.not-prose *) {
+      margin: 0.75rem 0;
+    }
+
+    & li:not(.not-prose *) {
+      margin: 0.25rem 0;
+    }
+
+    & a:not(.blume-heading-anchor, .not-prose *) {
+      color: inherit;
+      font-weight: inherit;
+      text-decoration: underline 1px var(--docs-underline);
+      text-underline-offset: 0.2em;
+
+      &:hover {
+        text-decoration-color: currentColor;
+      }
+    }
+
+    & strong:not(.not-prose *) {
+      font-weight: 550;
+    }
+
+    /* Inline code as small terracotta chips. */
+    & :not(pre) > code {
+      padding: 0.05em 0.3em;
+      border-radius: 0.3rem;
+      background: var(--docs-chip);
+      color: var(--qp-link);
+      font-size: 0.893em;
+      font-weight: 400;
+
+      &::before,
+      &::after {
+        content: none;
+      }
+    }
+
+    /* Code blocks and tables on a faint panel. */
+    & pre.astro-code {
+      margin: 0.75rem 0;
+      border: 0;
+      border-radius: 0.875rem;
+      background: var(--docs-surface) !important;
+      font-size: 0.8125rem;
+      line-height: 1.25rem;
+    }
+
+    & .blume-table-scroll {
+      margin: 0.75rem 0;
+      border: 0;
+      border-radius: 0;
+      background: none;
+      box-shadow: none;
+
+      & > table {
+        margin: 0;
+      }
+    }
+
+    & table {
+      display: table;
+      width: 100%;
+      margin: 0.75rem 0;
+      padding: 0 1rem;
+      border-collapse: separate;
+      border-spacing: 0;
+      border-radius: 0.875rem;
+      background: var(--docs-surface);
+      font-size: 0.875rem;
+      line-height: 1.375rem;
+    }
+
+    & thead th {
+      padding: 0.5rem 1rem 0.4rem 0;
+      border: 0;
+      background: transparent;
+      font-size: 0.8125rem;
+      font-weight: 450;
+      color: var(--qp-muted);
+      text-align: left;
+    }
+
+    /* A table with blank headings (a plain list of pairs) shows no header row. */
+    & thead:not(:has(th:not(:empty))) {
+      display: none;
+    }
+
+    & tr {
+      border: 0;
+    }
+
+    & tbody td {
+      padding: 0.7rem 1rem 0.7rem 0;
+      border: 0;
+      box-shadow: inset 0 1px 0 var(--docs-rule);
+      color: var(--docs-soft);
+      vertical-align: top;
+
+      &:first-child {
+        width: 12rem;
+        color: var(--qp-ink);
+
+        & strong {
+          font-weight: 450;
+        }
+      }
+    }
+
+    /* Without a header row, the first row needs no rule above it. */
+    & thead:not(:has(th:not(:empty))) + tbody tr:first-child td {
+      box-shadow: none;
+    }
+
+    /* Phones: stack each row, name over description. Real headings stay for
+       screen readers, hidden only visually (blank ones are gone already). */
+    @media (max-width: 40rem) {
+      & thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+      }
+
+      & tbody tr {
+        display: block;
+        padding: 0.6rem 0;
+        box-shadow: inset 0 1px 0 var(--docs-rule);
+
+        &:first-child {
+          box-shadow: none;
+        }
+      }
+
+      & tbody td,
+      & tbody td:first-child {
+        display: block;
+        width: auto;
+        padding: 0.1rem 0;
+        box-shadow: none;
+      }
+    }
+  }
+}
+
+/* Home: no contents list, so the page runs into that space (keeping the same
+   left edge as every other page) with a little larger type. */
+:root:has([data-shell="home"]) {
+  --blume-content-width: 46rem;
+
+  @media (min-width: 64rem) {
+    & #blume-content {
+      grid-column: 2 / -1;
+    }
+
+    & #blume-content > * {
+      margin-inline-start: 0;
+    }
+  }
+
+  & .prose {
+    /* `wide` lifts Blume's measure; keep a readable one. */
+    max-width: var(--blume-content-width);
+    font-size: 1rem;
+    line-height: 1.625rem;
+
+    & > h1 {
+      font-size: 2rem;
+      line-height: 2.5rem;
+      letter-spacing: -0.02em;
+    }
+
+    & > h1 + p.text-lg {
+      margin-bottom: 2.75rem;
+      font-size: 1.125rem;
+      line-height: 1.75rem;
+    }
+
+    & h2 {
+      margin-top: 4.5rem;
+      font-size: 1.375rem;
+      line-height: 2rem;
+      letter-spacing: -0.015em;
+    }
+
+    & table {
+      font-size: 0.9375rem;
+      line-height: 1.5rem;
+    }
+  }
+
+  & .docs-demo figcaption {
+    font-size: 0.875rem;
+    line-height: 1.375rem;
+  }
+}
+
+/* Home's diorama (components/home/diorama.astro): the pixel loop on the page
+   colour inside a faint frame, a caption under each half. */
+.docs-demo {
+  margin: 0 0 2.5rem;
+  padding: 0.25rem;
+  border-radius: 1.125rem;
+  background: var(--docs-surface);
+
+  & figcaption {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1rem;
+    padding: 0.75rem 0.75rem 0.5rem;
+    font-size: 0.8125rem;
+    line-height: 1.25rem;
+    color: var(--docs-soft);
+  }
+
+  & figcaption span {
+    display: block;
+    margin-bottom: 0.125rem;
+    font-family: var(--blume-font-mono);
+    font-size: 0.75rem;
+    color: var(--docs-faint);
+  }
+}
+
+.docs-demo-stage {
+  position: relative;
+  height: 20rem;
+  border-radius: 0.875rem;
+  background: var(--qp-paper);
+  box-shadow: inset 0 0 0 1px var(--docs-rule);
+
+  & img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    padding: 1.25rem;
+    object-fit: contain;
+    image-rendering: pixelated;
+  }
 }

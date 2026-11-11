@@ -9,11 +9,13 @@ export default defineConfig({
   description: "Peer-to-peer messaging with nothing in the middle.",
   // The pixel wordmark, in currentColor so it follows the theme.
   logo: { image: "/logo.svg", text: "" },
-  // The docs sidebar covers /docs only, so the landing and privacy pages stay
-  // standalone. The header and footer are our own (components/site-*.astro).
-  navigation: {
-    tabs: [{ label: "Docs", path: "/docs" }],
-  },
+  // Home, the docs and privacy share one sidebar of our own
+  // (components/docs/sidebar.astro), with the header and footer
+  // (components/site-*.astro). Home lives at /, as on executor.sh; /home is an
+  // alias for it.
+  redirects: [{ from: "/home", to: "/" }],
+  // External links in pages open in a new tab, like the sidebar's and footer's.
+  markdown: { externalLinks: true },
   // qop has no analytics, so Blume's "Was this page helpful?" would record nothing.
   feedback: false,
   // Colours and the dark theme live in theme.css; these set the accent for

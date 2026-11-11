@@ -1,11 +1,69 @@
 ---
-title: qop
-description: Peer-to-peer messaging with nothing in the middle.
-mode: custom
+title: Nothing in the middle.
+description: qop sends each message straight from your phone to theirs. No server holds it, reads it, or keeps it.
+# Home, in the site layout (theme.css, "Site layout"). `wide` drops the
+# contents list, and theme.css widens the column into that space with larger
+# type. The sidebar links it as Home, so it stays out of the docs tree.
+mode: wide
 sidebar:
   hidden: true
+pagination: false
 ---
 
-<Hero />
+<ChatScene />
 
-<Sections />
+## Same chat, different trip
+
+<Diorama />
+
+## What you keep
+
+|  |  |
+| --- | --- |
+| [Phone number](/docs/app#create-your-qop) | Not needed. You pick a handle |
+| [Servers](/docs/how-it-works) | No message servers. Messages go device to device |
+| [Tracking](/privacy) | No analytics, ads or crash reporters |
+| [Keys](/docs/how-it-works#accounts-and-devices) | Made on your device and never sent to us |
+| [Source](https://github.com/deepso7/qop) | Open, and self-hostable |
+| [Terminal](/docs/cli) | Link a second device and chat from the CLI |
+
+## How a message travels
+
+Follow mira's message to juno: four steps, two devices, and nothing kept in between. [How it works](/docs/how-it-works) has the details.
+
+<Steps>
+  <Step title="Look up">
+    Your phone finds their handle and device keys in the public registry.
+
+    `mira → registry: where is @juno?`
+
+  </Step>
+  <Step title="Connect">
+    It opens an encrypted peer-to-peer connection, directly or through a relay.
+
+    `mira ⇄ juno: encrypted channel open`
+
+  </Step>
+  <Step title="Verify">
+    Both sides check each other's device key before any message is accepted.
+
+    `juno: mira's device key ✓`
+
+  </Step>
+  <Step title="Deliver">
+    The message lands on their device, and nowhere else.
+
+    `juno's phone: 1 new message`
+
+  </Step>
+</Steps>
+
+## Get qop [#download]
+
+Registration is invitation-only for now, and there are no store listings yet.
+
+|          |                                                |
+| -------- | ---------------------------------------------- |
+| iOS      | App Store, soon                                |
+| Android  | Google Play, soon                              |
+| Terminal | `qop link --account you`. See [CLI](/docs/cli) |

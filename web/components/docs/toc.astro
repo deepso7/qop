@@ -1,0 +1,28 @@
+---
+// "On this page" for Blume's `TableOfContents` slot: a small list in the right
+// rail. The mobile dropdown is left out; short docs pages read fine without it.
+import type { Heading } from "blume/core/types.ts";
+
+interface Props {
+  readonly headings: Heading[];
+  readonly title: string;
+  readonly variant: "mobile" | "desktop";
+}
+
+const { headings, title, variant } = Astro.props;
+---
+
+{
+  variant === "desktop" && headings.length > 0 && (
+    <nav class="docs-toc" aria-label={title}>
+      <p class="docs-nav-label">{title}</p>
+      <ul>
+        {headings.map((h) => (
+          <li class:list={[h.depth > 2 && "pl-3"]}>
+            <a href={`#${h.slug}`}>{h.text}</a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}

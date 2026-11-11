@@ -1,0 +1,36 @@
+---
+// Home's "Same chat, different trip" (docs/index.mdx): the pixel diorama loop
+// (experiments/diorama) in a faint frame, with a caption under each half.
+// Reduced motion gets a still.
+const sides = [
+  { side: "Left", key: "The usual apps", value: "Every message passes the tower. It keeps a copy and sells you an ad." },
+  { side: "Right", key: "qop", value: "Straight from one phone to the other. The tower sees nothing." },
+];
+---
+
+<figure class="docs-demo not-prose">
+  <div class="docs-demo-stage">
+    <picture>
+      <source media="(prefers-reduced-motion: reduce)" srcset="/diorama.png" />
+      <img
+        src="/diorama.webp"
+        width="192"
+        height="192"
+        loading="lazy"
+        alt="A looping pixel-art island split by a stream. On the left, two people chat through the usual apps: every message flies up to a surveillance tower, which keeps a copy and pops an ad over the receiver. On the right, two people chat on qop: messages go straight from one to the other, and the tower can only show a question mark."
+      />
+    </picture>
+  </div>
+  <figcaption>
+    {
+      sides.map((s) => (
+        <p>
+          <span>
+            {s.side} · {s.key}
+          </span>
+          {s.value}
+        </p>
+      ))
+    }
+  </figcaption>
+</figure>
