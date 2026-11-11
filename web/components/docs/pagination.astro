@@ -1,0 +1,36 @@
+---
+// Previous/next for Blume's `Pagination` slot: a small label over the page
+// name, no boxes.
+interface Link {
+  readonly route: string;
+  readonly label: string;
+}
+
+interface Props {
+  readonly prev: Link | null;
+  readonly next: Link | null;
+}
+
+const { prev, next } = Astro.props;
+---
+
+{
+  (prev || next) && (
+    <nav aria-label="Pages" class="docs-pages">
+      {prev ? (
+        <a href={prev.route} rel="prev">
+          <span>Previous</span>
+          {prev.label}
+        </a>
+      ) : (
+        <span />
+      )}
+      {next && (
+        <a href={next.route} rel="next" class="docs-pages-next">
+          <span>Next</span>
+          {next.label}
+        </a>
+      )}
+    </nav>
+  )
+}

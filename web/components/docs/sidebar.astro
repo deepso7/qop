@@ -1,0 +1,111 @@
+---
+// The site sidebar, used through Blume's `Sidebar` layout slot (components.ts).
+// The same on every page, after executor.sh's: the qop mark and the theme
+// toggle, the main links, search, then the docs by group. Styled after zriz.dev's docs (theme.css,
+// "Site layout"). Blume renders the drawer on every page, so this also renders
+// `data-shell` on the pages that use the layout, which theme.css keys on.
+import Icon from "blume/components/Icon.astro";
+import { newTabAttrs } from "blume/core/new-tab.ts";
+import type { NavNode } from "blume/core/types.ts";
+
+interface Props {
+  readonly items: NavNode[];
+  readonly currentRoute: string;
+}
+
+const { items, currentRoute } = Astro.props;
+
+const main = [
+  { label: "Home", href: "/", current: currentRoute === "/" },
+  { label: "Docs", href: "/docs", current: currentRoute.startsWith("/docs") },
+  { label: "Privacy", href: "/privacy", current: currentRoute === "/privacy" },
+  { label: "GitHub", href: "https://github.com/deepso7/qop", current: false },
+];
+
+// The docs folder's groups (Getting started, Using qop, …) from the content tree.
+const docs = items.find((node) => node.kind === "group" && node.path === "/docs");
+const groups = docs?.kind === "group" ? docs.children : [];
+
+// "home" on /, which theme.css gives a wider column and larger type; "" on the
+// other pages in the layout.
+let shell: "home" | "" | undefined;
+
+if (currentRoute === "/") {
+  shell = "home";
+} else if (main.some((l) => l.current)) {
+  shell = "";
+}
+---
+
+<div class="docs-nav" data-shell={shell}>
+  <div class="docs-nav-top">
+    <a href="/" class="docs-nav-logo" aria-label="qop home">
+      <!-- The app-icon mark, its viewBox cropped to the drawing so it lines up
+           with the links below and centres on the wordmark. -->
+      <svg viewBox="16 16 96 96" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true">
+        <path d="M32 16h64v32H32zM16 32h32v64H16zM80 32h32v64H80zM32 80h64v32H32z"></path>
+      </svg>
+      qop
+    </a>
+    <!-- The header's script handles every [data-blume-theme-toggle] click. -->
+    <button type="button" class="docs-theme" data-blume-theme-toggle aria-label="Toggle dark mode">
+      <Icon name="sun" size={16} class="dark:hidden" />
+      <Icon name="moon" size={16} class="hidden dark:block" />
+    </button>
+  </div>
+
+  <nav aria-label="Main">
+    <ul>
+      {
+        main.map((l) => (
+          <li>
+            <a href={l.href} aria-current={l.current ? "page" : undefined} {...newTabAttrs(l.href)}>
+              {l.label}
+            </a>
+          </li>
+        ))
+      }
+    </ul>
+  </nav>
+
+  <!-- Opens Blume's search, whose trigger sits in the header. -->
+  <button type="button" class="docs-search" data-docs-search>
+    <span>Search</span>
+    <kbd>Ctrl K</kbd>
+  </button>
+
+  <nav aria-label="Documentation" class="docs-nav-tree">
+    {
+      groups.map((g) => (
+        <div>
+          <p class="docs-nav-label">{g.label}</p>
+          <ul>
+            {(g.kind === "group" ? g.children : [g]).map(
+              (p) =>
+                p.route && (
+                  <li>
+                    <a href={p.route} aria-current={p.route === currentRoute ? "page" : undefined}>
+                      {p.label}
+                    </a>
+                  </li>
+                ),
+            )}
+          </ul>
+        </div>
+      ))
+    }
+  </nav>
+</div>
+
+<!-- Inline: Blume doesn't bundle scripts from layout-slot components. Bound once;
+     the listener survives client-side page swaps. -->
+<script is:inline>
+  if (!window.__qopDocsSearch) {
+    window.__qopDocsSearch = true;
+    document.addEventListener("click", (event) => {
+      if (event.target.closest?.("[data-docs-search]")) {
+        document.querySelector("[data-blume-search-open]")?.click();
+      }
+    });
+  }
+</script>

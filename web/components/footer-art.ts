@@ -7,7 +7,7 @@
 //
 // The scene is composed once per size into a tone buffer; each frame only
 // re-thresholds it with a slow shimmer on the water and redraws the boat.
-import { hash, noise, smoothstep } from "./landing/dither";
+import { hash, noise, smoothstep } from "./home/dither";
 
 // Cell kinds: sky (the default), land, and water, which the frame loop shimmers.
 const LAND = 1;

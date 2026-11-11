@@ -1,14 +1,14 @@
 ---
-// The landing page hero: the headline and actions on bare paper, then a wide
-// band of the dithered harbour (scene.ts) where two phones keep up a looping
-// conversation (chat.ts). Each message flies across the scene from one screen
-// to the other as a pixel o, with nothing in between. Side by side from lg,
-// stacked (top left, bottom right) below. The scene follows the site theme.
+// Home's demo (docs/index.mdx): the dithered harbour (scene.ts) where two
+// phones keep up a looping conversation (chat.ts). Each message flies across
+// the scene from one screen to the other as a pixel o, with nothing in between.
+// It sizes to its container, not the window: stacked (top left, bottom right)
+// in the page column, side by side once it has 48rem. Follows the site theme.
 
 // Each screen shows the chat from its owner's side, so its header names the other peer.
 const peers = [
-  { side: "a", owner: "mira", contact: "juno", place: "top-3 left-3 lg:top-8 lg:bottom-8 lg:left-8" },
-  { side: "b", owner: "juno", contact: "mira", place: "right-3 bottom-3 lg:top-8 lg:right-8 lg:bottom-8" },
+  { side: "a", owner: "mira", contact: "juno", place: "top-3 left-3 @3xl:top-8 @3xl:bottom-8 @3xl:left-8" },
+  { side: "b", owner: "juno", contact: "mira", place: "right-3 bottom-3 @3xl:top-8 @3xl:right-8 @3xl:bottom-8" },
 ];
 
 const bubble = "max-w-[85%] rounded-control px-3 py-2 text-[13px] leading-snug";
@@ -17,43 +17,10 @@ const bubble = "max-w-[85%] rounded-control px-3 py-2 text-[13px] leading-snug";
 const rise = "motion-safe:transition motion-safe:duration-300 motion-safe:ease-out motion-safe:starting:translate-y-2 motion-safe:starting:opacity-0";
 ---
 
-<section class="not-prose text-ink">
-  <div class="mx-auto max-w-7xl px-4 pt-10 md:px-6 md:pt-14">
-    <p class="mb-5 flex items-center gap-2 text-xs text-subtle">
-      <span class="size-1.5 bg-brand" aria-hidden="true"></span>
-      Private messaging, peer to peer
-    </p>
-    <div class="grid gap-8 lg:grid-cols-[minmax(0,1fr)_25rem] lg:items-end lg:gap-16">
-      <h1 class="text-5xl leading-[0.95] font-normal tracking-[-0.05em] sm:text-7xl lg:text-[5.25rem]">
-        Nothing in the middle.
-      </h1>
-      <div>
-        <p class="mb-6 leading-relaxed text-subtle">
-          qop sends each message straight from your phone to theirs. No server holds it, reads it, or keeps it.
-        </p>
-        <div class="flex flex-wrap items-center gap-3">
-          <a
-            class="group inline-flex h-11 items-center gap-3 rounded-control bg-ink pr-2 pl-5 text-paper transition-colors hover:bg-link"
-            href="#download"
-          >
-            Download
-            <span
-              class="grid size-7 place-items-center rounded-lg bg-paper/15 transition-transform group-hover:translate-y-0.5"
-              aria-hidden="true">↓</span
-            >
-          </a>
-          <a
-            class="inline-flex h-11 items-center rounded-control px-5 text-sm ring-1 ring-line transition-colors ring-inset hover:bg-surface"
-            href="/docs">$ qop --help</a
-          >
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="mx-auto mt-8 max-w-7xl px-2 md:mt-12 md:px-6" data-chat>
+<figure class="not-prose @container mb-10 text-ink">
+  <div data-chat>
     <div
-      class="relative h-[38rem] overflow-hidden rounded-panel bg-surface after:pointer-events-none after:absolute after:inset-0 after:rounded-panel after:ring-1 after:ring-line after:ring-inset md:h-[36rem] lg:h-[30rem]"
+      class="relative h-[33rem] overflow-hidden rounded-[1.125rem] bg-surface after:pointer-events-none after:absolute after:inset-0 after:rounded-[1.125rem] after:ring-1 after:ring-line after:ring-inset @3xl:h-[30rem]"
       role="img"
       aria-label="Two phones chatting over a pixel-art harbour. Each message flies straight from one phone to the other, with no server in between."
     >
@@ -62,7 +29,7 @@ const rise = "motion-safe:transition motion-safe:duration-300 motion-safe:ease-o
         peers.map((p) => (
           <div
             class:list={[
-              "absolute flex h-[14.5rem] w-[min(84%,22rem)] flex-col overflow-hidden rounded-card bg-paper shadow-[0_12px_32px_oklch(0.2_0.03_40/0.18)] ring-1 ring-line md:h-[16rem] lg:h-auto",
+              "absolute flex h-[13.5rem] w-[min(84%,20rem)] flex-col overflow-hidden rounded-xl bg-paper shadow-[0_12px_32px_oklch(0.2_0.03_40/0.18)] ring-1 ring-line @3xl:h-auto @3xl:w-[17rem]",
               p.place,
             ]}
             data-phone={p.side}
@@ -96,7 +63,7 @@ const rise = "motion-safe:transition motion-safe:duration-300 motion-safe:ease-o
       }
     </div>
 
-    <div class="flex flex-wrap justify-between gap-x-6 gap-y-1 px-2 pt-4 text-xs text-subtle md:px-1">
+    <figcaption class="flex flex-wrap justify-between gap-x-6 gap-y-1 px-1 pt-3 text-xs text-subtle">
       <p class="flex items-center gap-2">
         <span class="size-1.5 animate-pulse bg-brand motion-reduce:animate-none" aria-hidden="true"></span>
         mira ⇄ juno, phone to phone
@@ -106,7 +73,7 @@ const rise = "motion-safe:transition motion-safe:duration-300 motion-safe:ease-o
           >0</span
         >
       </p>
-    </div>
+    </figcaption>
 
     <template data-bubble="out">
       <li class:list={["flex flex-col items-end gap-1", rise]}>
@@ -120,7 +87,7 @@ const rise = "motion-safe:transition motion-safe:duration-300 motion-safe:ease-o
       </li>
     </template>
   </div>
-</section>
+</figure>
 
 <script>
   import { conversation } from "./chat";

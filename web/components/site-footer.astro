@@ -1,9 +1,11 @@
 ---
 // qop's site footer: the mark, a one-line blurb and the link columns on bare
 // paper, a hairline and the copyright row, then the stipple bay art
-// (footer-art.ts) full width, bleeding off the bottom. The landing page renders
-// it after its sections; every docs page gets it through the `Footer` layout
-// slot (components.ts), so both ends of the site share it.
+// (footer-art.ts) full width, bleeding off the bottom. Every page gets it
+// through the `Footer` layout slot (components.ts). External links open in a
+// new tab.
+import { newTabAttrs } from "blume/core/new-tab.ts";
+
 const columns = [
   {
     title: "Product",
@@ -45,7 +47,7 @@ const columns = [
             <ul class="grid gap-2.5">
               {c.links.map((l) => (
                 <li>
-                  <a href={l.href} class="text-subtle transition-colors hover:text-ink">
+                  <a href={l.href} class="text-subtle transition-colors hover:text-ink" {...newTabAttrs(l.href)}>
                     {l.label}
                   </a>
                 </li>

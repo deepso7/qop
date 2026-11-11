@@ -1,14 +1,19 @@
 import { defineComponents } from "blume";
 
 export default defineComponents({
-  // The landing page's building blocks, used by docs/index.mdx.
+  // Home's demos, used by docs/index.mdx.
   mdx: {
-    Sections: "./components/landing/sections.astro",
-    Hero: "./components/landing/hero.astro",
+    ChatScene: "./components/home/chat-scene.astro",
+    Diorama: "./components/home/diorama.astro",
   },
-  // One header and footer for the whole site: the landing page and every docs page.
+  // One header, footer and sidebar layout for the whole site (components/docs
+  // holds the sidebar, contents list and page links).
   layout: {
     Header: "./components/site-header.astro",
     Footer: "./components/site-footer.astro",
+    Sidebar: "./components/docs/sidebar.astro",
+    TableOfContents: "./components/docs/toc.astro",
+    Pagination: "./components/docs/pagination.astro",
+    Breadcrumbs: "./components/docs/breadcrumbs.astro",
   },
 });
