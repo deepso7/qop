@@ -579,10 +579,16 @@ html {
       box-shadow: none;
     }
 
-    /* Phones: stack each row, name over description. */
+    /* Phones: stack each row, name over description. Real headings stay for
+       screen readers, hidden only visually (blank ones are gone already). */
     @media (max-width: 40rem) {
       & thead {
-        display: none;
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
       }
 
       & tbody tr {
