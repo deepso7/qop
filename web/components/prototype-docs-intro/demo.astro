@@ -1,0 +1,141 @@
+---
+// PROTOTYPE (throwaway): the intro's demo panel, in zriz's demo frame (chip bar,
+// stage, control row). A and C get a live fake chat: two phones and the wire
+// between them, no server. B swaps the stage for the pixel diorama. All state is
+// in memory.
+---
+
+<div class="z-demo not-prose" data-wire>
+  <div class="z-demo-bar">
+    <span class="z-chip">you → @alice</span>
+    <div class="z-demo-bar-end">
+      <button type="button" class="z-chip" data-wire-offline>alice: online</button>
+      <button type="button" class="z-chip" data-wire-reset>Reset</button>
+    </div>
+  </div>
+
+  <div class="z-stage z-stage-wire">
+    <div class="z-pane" data-wire-pane="you"></div>
+    <div class="z-wire">
+      <span class="z-wire-server">server</span>
+      <div class="z-wire-line"></div>
+      <div class="z-wire-packet" data-wire-packet></div>
+      <span class="z-wire-path" data-wire-path>direct</span>
+    </div>
+    <div class="z-pane" data-wire-pane="alice"></div>
+  </div>
+
+  <div class="z-stage z-stage-diorama">
+    <picture>
+      <source srcset="/diorama.webp" type="image/webp" />
+      <img src="/diorama.png" alt="Left: messages pass through a tower. Right: qop, straight from phone to phone." />
+    </picture>
+  </div>
+
+  <form class="z-demo-zone" data-wire-form>
+    <input placeholder="Say hi to alice" maxlength="80" data-wire-input />
+    <button type="submit">Send</button>
+  </form>
+  <ol class="z-steps" data-wire-steps>
+    <li data-step>look up</li>
+    <li data-step>connect</li>
+    <li data-step>verify</li>
+    <li data-step>deliver</li>
+  </ol>
+</div>
+
+
+<!-- Inline: see sidebar.astro. -->
+<script is:inline>
+(() => {
+  const replies = ["hey!", "no server saw that, right?", "nice", "lol", "brb, on a train"];
+
+  const setup = () => {
+    const root = document.querySelector("[data-wire]");
+    if (!root || root.dataset.ready) return;
+    root.dataset.ready = "1";
+
+    const q = (s) => root.querySelector(s);
+    const panes = { you: q("[data-wire-pane=you]"), alice: q("[data-wire-pane=alice]") };
+    const packet = q("[data-wire-packet]");
+    const path = q("[data-wire-path]");
+    const input = q("[data-wire-input]");
+    const offlineBtn = q("[data-wire-offline]");
+    const steps = [...root.querySelectorAll("[data-step]")];
+    let online = true;
+    let queue = [];
+    let replyIndex = 0;
+
+    const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+    const showStep = (done) => steps.forEach((li, i) => li.toggleAttribute("data-done", i < done));
+
+    const bubble = (side, text) => {
+      const el = document.createElement("div");
+      el.className = `z-bubble ${side}`;
+      el.textContent = text;
+      const mark = document.createElement("small");
+      el.append(mark);
+      panes[side].append(el);
+      return mark;
+    };
+
+    const fly = (dir) =>
+      packet.animate(
+        [
+          { left: dir === 1 ? "0%" : "calc(100% - 8px)", opacity: 1 },
+          { left: dir === 1 ? "calc(100% - 8px)" : "0%", opacity: 1 },
+        ],
+        { duration: 450, easing: "cubic-bezier(.4,0,.2,1)" },
+      ).finished;
+
+    const deliver = async (text, mark) => {
+      path.textContent = Math.random() < 0.3 ? "via relay" : "direct";
+      for (let i = 1; i <= 3; i++) {
+        showStep(i);
+        await wait(200);
+      }
+      await fly(1);
+      showStep(4);
+      bubble("alice", text);
+      mark.textContent = "delivered";
+      await wait(700);
+      await fly(-1);
+      bubble("alice", replies[replyIndex++ % replies.length])
+    };
+
+    q("[data-wire-form]").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const text = input.value.trim() || "hi alice";
+      input.value = "";
+      const mark = bubble("you", text);
+      if (!online) {
+        showStep(1);
+        mark.textContent = "waiting for alice";
+        queue.push({ text, mark });
+        return;
+      }
+      mark.textContent = "sending…";
+      await deliver(text, mark);
+    });
+
+    offlineBtn.addEventListener("click", async () => {
+      online = !online;
+      offlineBtn.textContent = `alice: ${online ? "online" : "offline"}`;
+      if (!online) return;
+      const pending = queue;
+      queue = [];
+      for (const m of pending) await deliver(m.text, m.mark);
+    });
+
+    q("[data-wire-reset]").addEventListener("click", () => {
+      panes.you.replaceChildren();
+      panes.alice.replaceChildren();
+      queue = [];
+      showStep(0);
+    });
+  };
+
+  setup();
+  document.addEventListener("astro:page-load", setup);
+})();
+</script>

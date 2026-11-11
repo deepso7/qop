@@ -1,0 +1,30 @@
+---
+// PROTOTYPE (throwaway): zriz-style "On this page" for Blume's `TableOfContents`
+// slot. Only variant C shows the desktop rail (sidebar.astro CSS); the mobile
+// dropdown is dropped in every variant.
+import type { Heading } from "blume/core/types.ts";
+
+interface Props {
+  readonly headings: Heading[];
+  readonly title: string;
+  readonly variant: "mobile" | "desktop";
+}
+
+const { headings, title, variant } = Astro.props;
+---
+
+{
+  variant === "desktop" && headings.length > 0 && (
+    <nav class="z-toc" aria-label={title}>
+      <div class="z-group-label">{title}</div>
+      <ul>
+        {headings.map((h) => (
+          <li style={h.depth > 2 ? "padding-left: 0.75rem" : undefined}>
+            <a href={`#${h.slug}`}>{h.text}</a>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+

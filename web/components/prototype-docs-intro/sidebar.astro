@@ -1,0 +1,167 @@
+---
+// PROTOTYPE (throwaway): zriz-style docs shell, after https://zriz.dev/docs/introduction.
+// Mounted as Blume's `Sidebar` layout slot (components.ts), so it renders on every
+// page. On /docs routes it also: sets html[data-zriz=A..E] from ?variant= (kept in
+// localStorage so it survives navigation), carries the global zriz CSS, and shows
+// the floating variant switcher (dev only).
+//   A  zriz port: Inter text, Paper Mono chips, neutral page, soft corners, no TOC
+//   B  same structure in qop's brand: Paper Mono, warm paper, stepped corners
+//   C  A plus a small "On this page" rail
+//   D  C with B's pixel diorama in the demo panel
+//   E  after https://executor.sh: full-height bordered rail at the page edge with
+//      search, numbered sections, tile grid, right rail; Geist; diorama
+import type { NavNode } from "blume/core/types.ts";
+
+interface Props {
+  readonly items: NavNode[];
+  readonly currentRoute: string;
+}
+
+const { items, currentRoute } = Astro.props;
+const docs = currentRoute.startsWith("/docs");
+
+// Top-level pages share one list; a folder becomes a labelled group (zriz style).
+type Group = { label: string | null; pages: NavNode[] };
+const groups = items.reduce<Group[]>((acc, n) => {
+  const last = acc.at(-1);
+  if (n.kind === "group") acc.push({ label: n.label, pages: n.children });
+  else if (last && last.label === null) last.pages.push(n);
+  else acc.push({ label: null, pages: [n] });
+  return acc;
+}, []);
+
+const variants = [
+  { key: "A", name: "zriz port" },
+  { key: "B", name: "qop pixel" },
+  { key: "C", name: "with page rail" },
+  { key: "D", name: "C + pixel art" },
+  { key: "E", name: "executor rail" },
+];
+
+// Same 9x9 mark as the site header, drawn as plain squares.
+const mark = "M32 16h64v32H32zM16 32h32v64H16zM80 32h32v64H80zM32 80h64v32H32z";
+---
+
+{
+  docs && (
+    <script is:inline>
+      (() => {
+        const keys = ["A", "B", "C", "D", "E"];
+        const q = new URL(location.href).searchParams.get("variant");
+        let v = keys.includes(q) ? q : null;
+        try {
+          v = v ?? localStorage.getItem("proto-zriz");
+          if (v) localStorage.setItem("proto-zriz", v);
+        } catch {}
+        document.documentElement.dataset.zriz = keys.includes(v) ? v : "A";
+      })();
+    </script>
+  )
+}
+
+<div class="z-nav">
+  <a href="/docs" class="z-logo">
+    <svg viewBox="0 0 128 128" shape-rendering="crispEdges" fill="currentColor" aria-hidden="true"><path d={mark} /></svg>
+    qop
+  </a>
+  <!-- E only: a search pill in the rail that opens Blume's search. -->
+  <button type="button" class="z-search" data-zriz-search>
+    <span>Search</span><kbd>Ctrl K</kbd>
+  </button>
+  {
+    groups.map((g) => (
+      <div class="z-group">
+        {g.label ? <div class="z-group-label">{g.label}</div> : <div class="z-group-label z-only-e">Docs</div>}
+        <ul>
+          {g.pages.map(
+            (p) =>
+              "route" in p &&
+              p.route && (
+                <li>
+                  <a href={p.route} aria-current={p.route === currentRoute ? "page" : undefined}>
+                    {p.label}
+                  </a>
+                </li>
+              ),
+          )}
+        </ul>
+      </div>
+    ))
+  }
+  <div class="z-group">
+    <div class="z-group-label">More</div>
+    <ul>
+      <li><a href="/privacy">Privacy</a></li>
+      <li><a href="https://github.com/deepso7/qop">GitHub</a></li>
+    </ul>
+  </div>
+  <!-- E only: executor's rail footer. -->
+  <div class="z-rail-foot">
+    <a href="https://github.com/deepso7/qop"><span>Open source</span><span>GitHub ↗</span></a>
+    <a href="https://minip2p.com"><span>Built on minip2p</span><span>↗</span></a>
+  </div>
+</div>
+
+{
+  docs && import.meta.env.DEV && (
+    <div class="z-switcher" data-variants={JSON.stringify(variants)}>
+      <button type="button" data-step="-1" aria-label="Previous variant">←</button>
+      <span data-label />
+      <button type="button" data-step="1" aria-label="Next variant">→</button>
+    </div>
+  )
+}
+
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400..600&family=Geist:wght@400..700&family=Geist+Mono:wght@400;500&display=swap" />
+
+<!-- Inline: Blume doesn't bundle scripts from layout-slot components. -->
+<script is:inline>
+  (() => {
+    const root = document.documentElement;
+    const bar = () => document.querySelector(".z-switcher");
+    const list = () => JSON.parse(bar()?.dataset.variants ?? "[]");
+
+    const label = () => {
+      const v = list().find((x) => x.key === root.dataset.zriz);
+      const el = bar()?.querySelector("[data-label]");
+      if (el && v) el.textContent = `${v.key} (${v.name})`;
+    };
+
+    const step = (by) => {
+      const vs = list();
+      const i = Math.max(0, vs.findIndex((v) => v.key === root.dataset.zriz));
+      const next = vs[(i + by + vs.length) % vs.length].key;
+      root.dataset.zriz = next;
+      try { localStorage.setItem("proto-zriz", next); } catch {}
+      const url = new URL(location.href);
+      url.searchParams.set("variant", next);
+      history.replaceState(history.state, "", url);
+      label();
+    };
+
+    // The drawer is transformed, which would pin a fixed child to it; lift the bar to <body>.
+    const lift = () => { const b = bar(); if (b && b.parentElement !== document.body) document.body.append(b); };
+    lift();
+    document.addEventListener("astro:after-swap", lift);
+
+    if (window.__zrizBound) return label();
+    window.__zrizBound = true;
+
+    document.addEventListener("click", (e) => {
+      const b = e.target.closest?.(".z-switcher [data-step]");
+      if (b) step(Number(b.dataset.step));
+      if (e.target.closest?.("[data-zriz-search]")) document.querySelector("[data-blume-search-open]")?.click();
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (!root.dataset.zriz || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.target.closest?.("input, textarea, select, [contenteditable]")) return;
+      if (e.key === "ArrowLeft") step(-1);
+      if (e.key === "ArrowRight") step(1);
+    });
+
+    label();
+    document.addEventListener("astro:page-load", label);
+  })();
+</script>

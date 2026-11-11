@@ -1,0 +1,49 @@
+---
+// PROTOTYPE (throwaway): zriz-style prev/next for Blume's `Pagination` slot, plus
+// the small in-column footer zriz ends every page with (the site footer is hidden
+// on docs pages by sidebar.astro CSS).
+interface Link {
+  readonly route: string;
+  readonly label: string;
+}
+
+interface Props {
+  readonly prev: Link | null;
+  readonly next: Link | null;
+}
+
+const { prev, next } = Astro.props;
+
+const footer = [
+  { label: "GitHub", href: "https://github.com/deepso7/qop" },
+  { label: "Privacy", href: "/privacy" },
+  { label: "llms.txt", href: "/llms.txt" },
+];
+---
+
+<nav aria-label="Pages" class="z-pages">
+  {
+    prev ? (
+      <a href={prev.route} rel="prev">
+        <span class="z-pages-dir">Previous</span>
+        <span class="z-pages-title">{prev.label}</span>
+      </a>
+    ) : (
+      <span />
+    )
+  }
+  {
+    next && (
+      <a href={next.route} rel="next" class="z-pages-next">
+        <span class="z-pages-dir">Next</span>
+        <span class="z-pages-title">{next.label}</span>
+      </a>
+    )
+  }
+</nav>
+
+<footer class="z-foot">
+  <div>{footer.map((l) => <a href={l.href}>{l.label}</a>)}</div>
+  <span>built on minip2p</span>
+</footer>
+

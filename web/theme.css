@@ -156,3 +156,977 @@ html {
   :where(h1, h2, p, ol, ul, li, dl, dt, dd, figure, figcaption) {
   all: revert-layer;
 }
+
+/* ==== PROTOTYPE (throwaway) START: zriz-style docs, see components/prototype-docs-intro.
+ Lives here because Blume drops <style> from layout-slot components and
+ inlines theme.css mid-file, so @import cannot work. Delete this block. ==== */
+
+/* ---- sidebar.astro ---- */
+/* ---------- tokens per skin ---------- */
+html[data-zriz="A"],
+html[data-zriz="C"],
+html[data-zriz="D"] {
+  --z-page: #fdfdfc;
+  --z-ink: #111;
+  --z-soft: #000000bf;
+  --z-muted: #0009;
+  --z-faint: #0000008f;
+  --z-underline: #00000040;
+  --z-surface: #00000008;
+  --z-chip: #0000000d;
+  --z-rule: #0000000f;
+  --z-accent: oklch(0.5 0.11 45);
+  --z-radius-panel: 10px;
+  --z-radius-demo: 12px;
+  --z-radius-chip: 4px;
+  --z-clip: none;
+  --z-clip-sm: none;
+  --blume-font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --blume-font-display: "Inter", ui-sans-serif, system-ui, sans-serif;
+}
+html[data-zriz="A"][data-theme="dark"],
+html[data-zriz="C"][data-theme="dark"],
+html[data-zriz="D"][data-theme="dark"] {
+  --z-page: #111110;
+  --z-ink: #eeeeec;
+  --z-soft: #ffffffbf;
+  --z-muted: #ffffff99;
+  --z-faint: #ffffff80;
+  --z-underline: #ffffff40;
+  --z-surface: #ffffff0a;
+  --z-chip: #ffffff12;
+  --z-rule: #ffffff14;
+  --z-accent: oklch(0.74 0.12 50);
+}
+html[data-zriz="B"] {
+  --z-page: var(--qp-paper);
+  --z-ink: var(--qp-ink);
+  --z-soft: color-mix(in oklch, var(--qp-ink) 80%, transparent);
+  --z-muted: var(--qp-muted);
+  --z-faint: color-mix(in oklch, var(--qp-muted) 85%, transparent);
+  --z-underline: var(--qp-border);
+  --z-surface: var(--qp-element);
+  --z-chip: var(--qp-element);
+  --z-rule: var(--qp-border);
+  --z-accent: var(--qp-link);
+  --z-radius-panel: 0;
+  --z-radius-demo: 0;
+  --z-radius-chip: 0;
+  --z-clip: var(--qp-notch);
+  --z-clip-sm: var(--qp-notch-sm);
+}
+
+html[data-zriz] {
+  --blume-background: var(--z-page);
+  --blume-foreground: var(--z-ink);
+  --blume-muted-foreground: var(--z-muted);
+  --blume-border: var(--z-rule);
+  --blume-accent: var(--z-accent);
+  --blume-content-width: 35rem;
+}
+
+html[data-zriz] body {
+  background: var(--z-page);
+  color: var(--z-ink);
+  font-size: 0.9375rem;
+  line-height: 1.5rem;
+  font-feature-settings: "cv11", "ss01";
+}
+
+/* ---------- the grid: 11rem nav + 35rem page, centered together ---------- */
+@media (min-width: 64rem) {
+  html[data-zriz] [data-blume-doc-grid] {
+    grid-template-columns: 11rem 35rem;
+    column-gap: 5rem;
+    justify-content: center;
+    padding-inline: 2rem;
+  }
+  html:is([data-zriz="C"], [data-zriz="D"]) [data-blume-doc-grid] {
+    grid-template-columns: 11rem 35rem 11rem;
+  }
+  html[data-zriz] #blume-nav-drawer {
+    top: 0;
+    height: 100dvh;
+    padding: 4.5rem 0 3rem;
+  }
+  html[data-zriz] #blume-content {
+    padding: 4.5rem 0 0;
+  }
+
+  /* Header on desktop: no bar, just search + theme, top right of the page column. */
+  html[data-zriz] [data-blume-header] {
+    position: absolute;
+    top: 4rem;
+    right: max(2rem, calc((100% - 51rem) / 2));
+    left: auto;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    backdrop-filter: none;
+  }
+  html[data-zriz] [data-blume-header] > div {
+    height: auto;
+    padding: 0;
+  }
+  /* Over the page column's right edge, clear of the contents list. */
+  html:is([data-zriz="C"], [data-zriz="D"]) [data-blume-header] {
+    right: max(2rem, calc((100% - 67rem) / 2 + 16rem));
+  }
+  html[data-zriz] [data-blume-header] :is(a[aria-label="qop home"], nav[aria-label="Site"], a[href="/#download"]) {
+    display: none;
+  }
+}
+/* Search and theme icons: bare, muted, like zriz's quiet controls. */
+html[data-zriz] [data-blume-header] :is(button, [data-blume-search-open]),
+html[data-zriz] [data-blume-header] .ml-auto > span {
+  background: transparent;
+  color: var(--z-muted);
+}
+html[data-zriz] [data-blume-header] :is(button, [data-blume-search-open]):hover {
+  color: var(--z-ink);
+}
+
+/* The rail: only C shows it, and never the mobile dropdown. */
+html[data-zriz] [data-blume-toc] {
+  display: none;
+}
+@media (min-width: 64rem) {
+  html:is([data-zriz="C"], [data-zriz="D"]) [data-blume-toc] {
+    display: block;
+    top: 0;
+    height: 100dvh;
+    padding: 5rem 0 3rem;
+  }
+  html:is([data-zriz="C"], [data-zriz="D"]) [data-blume-toc] [data-blume-page-actions] {
+    display: none;
+  }
+}
+html[data-zriz] #blume-content > [data-blume-toc-mobile],
+html[data-zriz] #blume-content details:has([data-blume-page-actions-mount]) {
+  display: none;
+}
+
+/* Blume's own site footer: replaced by the small one in the pagination slot. */
+html[data-zriz] [data-blume-footer] {
+  /* Collapsed, not display:none: its canvas art sizes itself from the footer's width. */
+  height: 0;
+  margin: 0;
+  overflow: hidden;
+  visibility: hidden;
+}
+
+/* ---------- sidebar ---------- */
+.z-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+}
+.z-logo {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.012em;
+  color: var(--z-ink, inherit);
+}
+.z-logo svg {
+  width: 1.125rem;
+  height: 1.125rem;
+  color: var(--qp-orange);
+}
+.z-group ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.z-group-label {
+  padding: 0.125rem 0;
+  font-family: var(--blume-font-mono);
+  font-size: 0.78125rem;
+  line-height: 1.25rem;
+  color: var(--z-faint);
+}
+.z-group a {
+  display: block;
+  padding: 0.125rem 0;
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+  color: var(--z-muted);
+  clip-path: none;
+  transition: color 0.15s;
+}
+.z-group a:hover {
+  color: var(--z-ink);
+}
+.z-group a[aria-current="page"] {
+  color: var(--z-ink);
+  font-weight: 550;
+  letter-spacing: -0.0076em;
+}
+
+/* ---------- article ---------- */
+html[data-zriz] .prose {
+  color: var(--z-ink);
+  font-size: 0.9375rem;
+  line-height: 1.5rem;
+}
+html[data-zriz] .prose > h1 {
+  margin: 0 0 0.5rem;
+  font-size: 1.5rem;
+  line-height: 2rem;
+  font-weight: 600;
+  letter-spacing: -0.0076em;
+}
+html[data-zriz] .prose > h1 + p.text-lg {
+  margin: 0 0 2.25rem;
+  font-size: 1rem;
+  line-height: 1.625rem;
+  color: var(--z-muted);
+}
+html[data-zriz] .prose h2 {
+  margin: 3.5rem 0 0.75rem;
+  font-size: 1.125rem;
+  line-height: 1.625rem;
+  font-weight: 600;
+  letter-spacing: -0.0076em;
+}
+html[data-zriz] .prose h3 {
+  margin: 2rem 0 0.5rem;
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+html[data-zriz] .prose :is(h2, h3) a {
+  color: inherit;
+  text-decoration: none;
+}
+html[data-zriz] .prose p,
+html[data-zriz] .prose ul,
+html[data-zriz] .prose ol {
+  margin: 0.75rem 0;
+}
+html[data-zriz] .prose li {
+  margin: 0.25rem 0;
+}
+html[data-zriz] .prose a:not(.blume-heading-anchor) {
+  color: inherit;
+  font-weight: inherit;
+  text-decoration: underline 1px var(--z-underline);
+  text-underline-offset: 0.2em;
+}
+html[data-zriz] .prose a:not(.blume-heading-anchor):hover {
+  text-decoration-color: currentColor;
+}
+html[data-zriz] .prose strong {
+  font-weight: 550;
+}
+
+/* Inline code as zriz chips. */
+html[data-zriz] .prose :not(pre) > code {
+  padding: 0.05em 0.3em;
+  border-radius: var(--z-radius-chip);
+  background: var(--z-chip);
+  color: var(--z-accent);
+  font-family: var(--blume-font-mono);
+  font-size: 0.893em;
+  font-weight: 400;
+}
+html[data-zriz] .prose :not(pre) > code::before,
+html[data-zriz] .prose :not(pre) > code::after {
+  content: none;
+}
+
+/* Panels: tables and code blocks on a faint surface. */
+html[data-zriz] .prose pre.astro-code {
+  margin: 0.75rem 0;
+  border: 0;
+  border-radius: var(--z-radius-panel);
+  clip-path: var(--z-clip);
+  background: var(--z-surface) !important;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+}
+html[data-zriz] .prose table {
+  display: table;
+  width: 100%;
+  margin: 0.75rem 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  padding: 0 1rem;
+  border-radius: var(--z-radius-panel);
+  clip-path: var(--z-clip);
+  background: var(--z-surface);
+  font-size: 0.875rem;
+  line-height: 1.375rem;
+}
+html[data-zriz] .prose thead th {
+  padding: 0.5rem 1rem 0.4rem 0;
+  border: 0;
+  background: transparent;
+  font-size: 0.8125rem;
+  font-weight: 450;
+  color: var(--z-muted);
+  text-align: left;
+}
+html[data-zriz] .prose tbody td {
+  padding: 0.7rem 1rem 0.7rem 0;
+  border: 0;
+  box-shadow: inset 0 1px 0 var(--z-rule);
+  color: var(--z-soft);
+  vertical-align: top;
+}
+html[data-zriz] .prose tbody td:first-child {
+  width: 12rem;
+  color: var(--z-ink);
+}
+html[data-zriz] .prose tbody td:first-child strong {
+  font-weight: 450;
+}
+html[data-zriz] .prose tr {
+  border: 0;
+}
+html[data-zriz] .prose .blume-table-scroll {
+  margin: 0.75rem 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  box-shadow: none;
+}
+html[data-zriz] .prose .blume-table-scroll > table {
+  margin: 0;
+}
+/* Phones: stack each row, name over description (zriz does the same). */
+@media (max-width: 40rem) {
+  html[data-zriz] .prose thead {
+    display: none;
+  }
+  html[data-zriz] .prose tbody tr {
+    display: block;
+    padding: 0.6rem 0;
+    box-shadow: inset 0 1px 0 var(--z-rule);
+  }
+  html[data-zriz] .prose tbody tr:first-child {
+    box-shadow: none;
+  }
+  html[data-zriz] .prose tbody td,
+  html[data-zriz] .prose tbody td:first-child {
+    display: block;
+    width: auto;
+    padding: 0.1rem 0;
+    box-shadow: none;
+  }
+}
+html[data-zriz] [data-blume-header] {
+  background: var(--z-page);
+}
+
+/* Blume's step and card components, flattened to match. */
+html[data-zriz] .prose [data-blume-step]::before {
+  border-radius: var(--z-radius-chip);
+  clip-path: var(--z-clip-sm);
+}
+
+/* ---------- the switcher (prototype chrome, not part of the design) ---------- */
+.z-switcher {
+  position: fixed;
+  bottom: 1.25rem;
+  left: 50%;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem;
+  transform: translateX(-50%);
+  border-radius: 999px !important;
+  background: #000;
+  color: #fff;
+  font: 500 0.8125rem/1 ui-sans-serif, system-ui, sans-serif;
+  box-shadow: 0 6px 24px #0004;
+}
+.z-switcher button {
+  color: inherit;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px !important;
+  cursor: pointer;
+}
+.z-switcher button:hover {
+  background: #fff3;
+}
+.z-switcher [data-label] {
+  min-width: 10rem;
+  text-align: center;
+}
+
+/* ---- toc.astro ---- */
+.z-toc ul {
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.z-toc a {
+  display: block;
+  padding: 0.125rem 0;
+  font-size: 0.8125rem;
+  line-height: 1.25rem;
+  color: var(--z-muted);
+  clip-path: none;
+}
+.z-toc a:hover {
+  color: var(--z-ink);
+}
+
+/* ---- pagination.astro ---- */
+.z-pages {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  margin-top: 3.5rem;
+}
+.z-pages a {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  clip-path: none;
+}
+.z-pages-next {
+  grid-column: 2;
+  align-items: flex-end;
+  text-align: right;
+}
+.z-pages-dir {
+  font-family: var(--blume-font-mono);
+  font-size: 0.78125rem;
+  line-height: 1rem;
+  color: var(--z-faint);
+}
+.z-pages-title {
+  font-weight: 500;
+  color: var(--z-ink);
+  text-decoration: underline 1px transparent;
+  transition: text-decoration-color 0.15s;
+}
+.z-pages a:hover .z-pages-title {
+  text-decoration-color: currentColor;
+}
+.z-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 6rem 0 4rem;
+  font-size: 0.8125rem;
+  color: var(--z-faint);
+}
+.z-foot div {
+  display: flex;
+  gap: 1.25rem;
+}
+.z-foot a {
+  color: var(--z-soft);
+}
+.z-foot a:hover {
+  color: var(--z-ink);
+}
+
+/* ---- demo.astro ---- */
+.z-demo {
+  display: flex;
+  flex-direction: column;
+  margin: 0 0 2.5rem;
+  padding: 0.25rem;
+  border-radius: var(--z-radius-demo);
+  clip-path: var(--z-clip);
+  background: var(--z-surface);
+}
+.z-demo-bar {
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 0.25rem;
+}
+.z-demo-bar-end {
+  display: flex;
+  gap: 0.375rem;
+}
+.z-chip {
+  display: flex;
+  align-items: center;
+  height: 2rem;
+  padding: 0 0.625rem;
+  border-radius: 8px;
+  clip-path: var(--z-clip-sm);
+  background: var(--z-page);
+  box-shadow: 0 0 0 1px var(--z-rule), 0 1px 2px #0000000f;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--z-ink);
+  cursor: pointer;
+}
+span.z-chip {
+  cursor: default;
+}
+.z-stage {
+  position: relative;
+  height: 20rem;
+  border-radius: 8px;
+  clip-path: var(--z-clip);
+  background: var(--z-page);
+  box-shadow: inset 0 0 0 1px var(--z-rule);
+  overflow: hidden;
+}
+.z-stage-wire {
+  display: grid;
+  grid-template-columns: 1fr 7rem 1fr;
+}
+.z-stage-diorama {
+  display: none;
+  place-items: center;
+  background: var(--qp-foam);
+}
+.z-stage-diorama picture {
+  display: contents;
+}
+.z-stage-diorama img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 1.5rem;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+html:is([data-zriz="B"], [data-zriz="D"], [data-zriz="E"]) .z-stage-wire,
+html:is([data-zriz="B"], [data-zriz="D"], [data-zriz="E"]) .z-demo-zone,
+html:is([data-zriz="B"], [data-zriz="D"], [data-zriz="E"]) .z-steps,
+html:is([data-zriz="B"], [data-zriz="D"], [data-zriz="E"]) .z-demo-bar {
+  display: none;
+}
+html:is([data-zriz="B"], [data-zriz="D"], [data-zriz="E"]) .z-stage-diorama {
+  display: grid;
+}
+.z-pane {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 0.375rem;
+  padding: 0.75rem;
+  overflow: hidden;
+}
+.z-pane::before {
+content: attr(data-wire-pane);
+position: absolute;
+top: 0.625rem;
+left: 0.75rem;
+font-family: var(--blume-font-mono);
+font-size: 0.6875rem;
+color: var(--z-faint);
+}
+.z-pane[data-wire-pane="alice"]::before {
+left: auto;
+right: 0.75rem;
+}
+.z-pane::before {
+  content: attr(data-wire-pane);
+  position: absolute;
+  top: 0.625rem;
+  left: 0.75rem;
+  font-family: var(--blume-font-mono);
+  font-size: 0.6875rem;
+  color: var(--z-faint);
+}
+.z-pane[data-wire-pane="alice"]::before {
+  left: auto;
+  right: 0.75rem;
+}
+.z-bubble {
+  max-width: 85%;
+  padding: 0.375rem 0.625rem;
+  border-radius: 10px;
+  font-size: 0.8125rem;
+  line-height: 1.125rem;
+}
+.z-bubble.you {
+  align-self: flex-end;
+  background: var(--qp-orange);
+  color: #fff;
+}
+.z-bubble.alice {
+  align-self: flex-start;
+  background: var(--z-chip);
+}
+.z-bubble small {
+  display: block;
+  font-size: 0.6875rem;
+  opacity: 0.7;
+}
+.z-wire {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.z-wire-line {
+  width: 100%;
+  border-top: 1px dashed var(--z-underline);
+}
+.z-wire-server,
+.z-wire-path {
+  position: absolute;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-family: var(--blume-font-mono);
+  font-size: 0.6875rem;
+  color: var(--z-faint);
+}
+.z-wire-server {
+  top: 2.5rem;
+  text-decoration: line-through;
+}
+.z-wire-path {
+  bottom: 2.5rem;
+}
+.z-wire-packet {
+  position: absolute;
+  top: 50%;
+  width: 0.5rem;
+  height: 0.5rem;
+  margin-top: -0.25rem;
+  border-radius: 999px;
+  background: var(--qp-orange);
+  opacity: 0;
+}
+.z-demo-zone {
+  display: flex;
+  gap: 0.375rem;
+  padding-top: 0.25rem;
+}
+.z-demo-zone input {
+  flex: 1;
+  min-width: 0;
+  height: 2.25rem;
+  padding: 0 0.75rem;
+  border-radius: 8px;
+  background: var(--z-page);
+  box-shadow: inset 0 0 0 1px var(--z-rule);
+  font-size: 0.875rem;
+  outline: none;
+}
+.z-demo-zone input:focus {
+  box-shadow: inset 0 0 0 1px var(--z-muted);
+}
+.z-demo-zone button {
+  height: 2.25rem;
+  padding: 0 1rem;
+  border-radius: 8px;
+  background: var(--z-ink);
+  color: var(--z-page);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.z-steps {
+  display: flex;
+  justify-content: center;
+  gap: 1.25rem;
+  margin: 0;
+  padding: 0.625rem 0 0.375rem;
+  list-style: none;
+  font-family: var(--blume-font-mono);
+  font-size: 0.75rem;
+  color: var(--z-faint);
+}
+.z-steps li[data-done] {
+  color: var(--z-accent);
+}
+
+/* ---------- E: after executor.sh ---------- */
+/* Rail-only bits stay hidden in the other variants. */
+html:not([data-zriz="E"]) :is(.z-search, .z-rail-foot, .z-only-e) {
+  display: none;
+}
+
+html[data-zriz="E"] {
+  --z-page: #fff;
+  --z-ink: #111;
+  --z-soft: #555;
+  --z-muted: #666;
+  --z-faint: #888;
+  --z-underline: #d4d4d4;
+  --z-surface: #fafafa;
+  --z-chip: #f0f0f0;
+  --z-rule: #eaeaea;
+  --z-accent: #111;
+  --z-radius-panel: 12px;
+  --z-radius-demo: 12px;
+  --z-radius-chip: 5px;
+  --z-clip: none;
+  --z-clip-sm: none;
+  --blume-font-body: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --blume-font-display: "Geist", ui-sans-serif, system-ui, sans-serif;
+  --blume-font-mono: "Geist Mono", ui-monospace, monospace;
+  --blume-content-width: 44rem;
+}
+html[data-zriz="E"][data-theme="dark"] {
+  --z-page: #0a0a0a;
+  --z-ink: #ededed;
+  --z-soft: #b4b4b4;
+  --z-muted: #a1a1a1;
+  --z-faint: #7c7c7c;
+  --z-underline: #444;
+  --z-surface: #111;
+  --z-chip: #1f1f1f;
+  --z-rule: #262626;
+  --z-accent: #ededed;
+}
+html[data-zriz="E"] body {
+  font-size: 1rem;
+  line-height: 1.75rem;
+  font-feature-settings: normal;
+}
+
+@media (min-width: 64rem) {
+  /* Rail pinned to the page edge, content next to it, contents list on the right. */
+  html[data-zriz="E"] [data-blume-doc-grid] {
+    grid-template-columns: clamp(16rem, 24vw, 21.25rem) minmax(0, 44rem) 15rem;
+    column-gap: clamp(2.5rem, 4vw, 4rem);
+    justify-content: start;
+    max-width: none;
+    padding: 0;
+  }
+  html[data-zriz="E"] #blume-nav-drawer {
+    padding: 2.25rem 1.5rem 1.5rem clamp(1.5rem, 8.5vw, 7.75rem);
+    border-right: 1px solid var(--z-rule);
+  }
+  html[data-zriz="E"] #blume-content {
+    padding-top: 4.5rem;
+  }
+  html[data-zriz="E"] [data-blume-toc] {
+    display: block;
+    top: 0;
+    height: 100dvh;
+    padding: 4.75rem 2rem 3rem 0;
+  }
+  html[data-zriz="E"] [data-blume-toc] [data-blume-page-actions] {
+    display: none;
+  }
+  /* Search moves into the rail, so the header keeps only the theme toggle. */
+  html[data-zriz="E"] [data-blume-header] {
+    top: 1.75rem;
+    right: 2rem;
+  }
+  html[data-zriz="E"] [data-blume-header] .ml-auto > span {
+    display: none;
+  }
+}
+
+/* Rail */
+html[data-zriz="E"] .z-nav {
+  gap: 1.5rem;
+  min-height: calc(100dvh - 3.75rem);
+}
+html[data-zriz="E"] .z-logo {
+  font-size: 0.9375rem;
+}
+html[data-zriz="E"] .z-logo svg {
+  width: 1.25rem;
+  height: 1.25rem;
+}
+.z-search {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 2.375rem;
+  padding: 0 0.875rem;
+  border: 1px solid var(--z-rule);
+  border-radius: 999px !important;
+  color: var(--z-muted);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.z-search:hover {
+  border-color: var(--z-underline);
+  color: var(--z-ink);
+}
+.z-search kbd {
+  font-family: var(--blume-font-mono);
+  font-size: 0.6875rem;
+  color: var(--z-faint);
+}
+html[data-zriz="E"] .z-group-label {
+  margin-bottom: 0.375rem;
+  font-size: 0.6875rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+/* A hairline down the list, with a dark tick on the current page. */
+html[data-zriz="E"] .z-group ul {
+  border-left: 1px solid var(--z-rule);
+}
+html[data-zriz="E"] .z-group a {
+  margin-left: -1px;
+  padding: 0.3rem 0 0.3rem 0.8rem;
+  border-left: 1px solid transparent;
+  font-size: 0.875rem;
+}
+html[data-zriz="E"] .z-group a[aria-current="page"] {
+  border-left-color: var(--z-ink);
+  font-weight: 600;
+}
+.z-rail-foot {
+  display: grid;
+  gap: 0.375rem;
+  margin-top: auto;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--z-rule);
+  font-size: 0.8125rem;
+}
+.z-rail-foot a {
+  display: flex;
+  justify-content: space-between;
+  color: var(--z-muted);
+}
+.z-rail-foot a:hover {
+  color: var(--z-ink);
+}
+.z-rail-foot a span:last-child {
+  font-family: var(--blume-font-mono);
+  font-size: 0.6875rem;
+  color: var(--z-faint);
+}
+
+/* Contents list: numbered in mono, like executor's 01 02 03. */
+html[data-zriz="E"] .z-toc ul {
+  counter-reset: z-toc;
+}
+html[data-zriz="E"] .z-toc > .z-group-label {
+  font-family: var(--blume-font-body);
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--z-ink);
+  text-transform: none;
+  letter-spacing: 0;
+}
+html[data-zriz="E"] .z-toc li {
+  counter-increment: z-toc;
+}
+html[data-zriz="E"] .z-toc a {
+  padding: 0.3rem 0;
+  font-size: 0.875rem;
+}
+html[data-zriz="E"] .z-toc a::before {
+  content: counter(z-toc, decimal-leading-zero);
+  margin-right: 0.625rem;
+  font-family: var(--blume-font-mono);
+  font-size: 0.75rem;
+  color: var(--z-faint);
+}
+
+/* Article: bigger, bolder type; sections set off by hairline rules. */
+html[data-zriz="E"] .prose {
+  font-size: 1rem;
+  line-height: 1.75rem;
+}
+html[data-zriz="E"] .prose > h1 {
+  font-size: 2.25rem;
+  line-height: 1.15;
+  letter-spacing: -0.03em;
+  margin-bottom: 0.875rem;
+}
+html[data-zriz="E"] .prose > h1 + p.text-lg {
+  max-width: 52ch;
+  font-size: 1.125rem;
+  line-height: 1.65;
+  letter-spacing: -0.01em;
+  color: var(--z-faint);
+}
+html[data-zriz="E"] .prose {
+  counter-reset: z-h2;
+}
+html[data-zriz="E"] .prose h2 {
+  counter-increment: z-h2;
+  margin-top: 3.5rem;
+  padding-top: 3rem;
+  border-top: 1px solid var(--z-rule);
+  font-size: 1.375rem;
+  line-height: 1.3;
+  letter-spacing: -0.02em;
+}
+html[data-zriz="E"] .prose h2::before {
+  content: counter(z-h2, decimal-leading-zero);
+  display: block;
+  margin-bottom: 0.5rem;
+  font-family: var(--blume-font-mono);
+  font-size: 0.75rem;
+  font-weight: 400;
+  letter-spacing: 0;
+  color: var(--z-faint);
+}
+html[data-zriz="E"] .prose :not(pre) > code {
+  color: var(--z-ink);
+}
+html[data-zriz="E"] .prose strong {
+  font-weight: 600;
+}
+
+/* Panels: white with a hairline border instead of a tint. */
+html[data-zriz="E"] .z-demo,
+html[data-zriz="E"] .prose pre.astro-code {
+  border: 1px solid var(--z-rule);
+  background: var(--z-surface) !important;
+}
+
+/* Tables become a tile grid: name over description, hairlines between tiles. */
+html[data-zriz="E"] .prose table {
+  display: block;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--z-rule);
+  background: var(--z-rule);
+}
+html[data-zriz="E"] .prose thead {
+  display: none;
+}
+html[data-zriz="E"] .prose tbody {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+}
+html[data-zriz="E"] .prose tbody tr {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 1rem 1.125rem;
+  background: var(--z-page);
+  box-shadow: none;
+}
+html[data-zriz="E"] .prose tbody td,
+html[data-zriz="E"] .prose tbody td:first-child {
+  width: auto;
+  padding: 0;
+  box-shadow: none;
+  font-size: 0.875rem;
+  line-height: 1.375rem;
+}
+html[data-zriz="E"] .prose tbody td:first-child {
+  font-weight: 500;
+}
+html[data-zriz="E"] .prose tbody td:first-child a {
+  text-decoration: none;
+}
+html[data-zriz="E"] .prose tbody td:not(:first-child) {
+  font-size: 0.8125rem;
+  color: var(--z-muted);
+}
+/* Odd tile count: let the last one span, so the grid has no hole. */
+html[data-zriz="E"] .prose tbody tr:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+@media (max-width: 40rem) {
+  html[data-zriz="E"] .prose tbody {
+    grid-template-columns: 1fr;
+  }
+}
+/* ==== PROTOTYPE END ==== */

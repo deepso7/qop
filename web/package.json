@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "blume dev",
+    "prototype:docs-intro": "__VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS=rem blume dev --host 0.0.0.0 --port 4330",
     "build": "blume build",
     "doctor": "blume doctor"
   },

@@ -1,35 +1,32 @@
 ---
 title: Introduction
-description: qop is a minimal, secure messaging app. Messages go straight from your phone to theirs, with no message servers in between.
+description: qop is a messaging app where every message goes straight from your phone to theirs, with no server in between.
 ---
 
-qop is built on [minip2p](https://minip2p.com). It's open source and self-hostable.
+{/* PROTOTYPE: zriz-style intro (components/prototype-docs-intro). */}
 
-## At a glance
+<PrototypeDemo />
 
-- **Peer to peer.** Messages travel directly between devices. qop has no message servers.
-- **Keys stay on your devices.** Your phone creates its keys and never sends the private halves to us.
-- **Identity on chain.** A public registry maps your handle to your owner address and device keys, so peers can check who they're talking to.
-- **No phone number.** You pick a handle instead.
+## What it does
 
-## Start here
+| Feature | What you get |
+| --- | --- |
+| [Peer to peer](/docs/how-it-works#sending-a-message) | Messages go straight from device to device, directly or through a relay. qop runs no message servers |
+| [Handles](/docs/app#create-your-qop) | No phone number or email. You pick a permanent handle, and people find you by it |
+| [Keys on device](/docs/how-it-works#accounts-and-devices) | Each device makes its own key pair. The private half never leaves it |
+| [Verified peers](/docs/how-it-works#the-registry) | A public registry maps handles to device keys, and both sides check it before a message is accepted |
+| [Linked devices](/docs/devices#link-a-device) | Up to four, each approved from your phone and removable later |
+| [Recovery key](/docs/devices#your-recovery-key) | Your owner key, exported. It controls the device list, separately from sending |
+| [Terminal](/docs/cli) | The CLI chats as you, and holds messages for your phone while it's away |
+| [Open source](https://github.com/deepso7/qop) | Every part is on GitHub, built on [minip2p](https://minip2p.com), and you can run your own |
 
-<CardGroup cols={2}>
-  <Card title="How it works" href="/docs/how-it-works" icon="network">
-    Accounts, devices, the registry, and how a message gets delivered.
-  </Card>
-  <Card title="Using the app" href="/docs/app" icon="smartphone">
-    Create your qop, save your recovery key, and start a chat.
-  </Card>
-  <Card title="Devices and recovery" href="/docs/devices" icon="key-round">
-    Link or remove devices, and what your recovery key does.
-  </Card>
-  <Card title="CLI" href="/docs/cli" icon="terminal">
-    Link a computer as a second device and chat from the terminal.
-  </Card>
-  <Card title="Privacy policy" href="/privacy" icon="shield">
-    What data qop handles and where it goes.
-  </Card>
-</CardGroup>
+## Chat from a terminal
 
-The source is on [GitHub](https://github.com/deepso7/qop).
+The CLI is a second device on your account. Link it with `qop link`, approve it on your phone under **Profile → Devices**, then `qop start` sends and receives as you:
+
+```sh
+qop link --account you
+qop start --to alice --message "hello from the terminal"
+```
+
+Messages are saved before they're acknowledged, and anything sent while alice is offline stays queued until she's back. See [CLI](/docs/cli) for setup.
