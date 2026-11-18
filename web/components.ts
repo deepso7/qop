@@ -1,9 +1,8 @@
 import { defineComponents } from "blume";
 
 export default defineComponents({
-  // Home's demos, used by docs/index.mdx.
+  // Home's demo, used by docs/index.mdx.
   mdx: {
-    ChatScene: "./components/home/chat-scene.astro",
     Diorama: "./components/home/diorama.astro",
   },
   // One header, footer and sidebar layout for the whole site (components/docs

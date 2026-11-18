@@ -103,7 +103,16 @@ if (currentRoute === "/") {
   if (!window.__qopDocsSearch) {
     window.__qopDocsSearch = true;
     document.addEventListener("click", (event) => {
-      if (event.target.closest?.("[data-docs-search]")) {
+      const pill = event.target.closest?.("[data-docs-search]");
+
+      if (pill) {
+        // A mouse click (detail > 0) shouldn't leave the pill focused: the
+        // dialog hands focus back on close, and an Esc there would ring it.
+        // Keyboard opens keep focus, so it returns where the reader was.
+        if (event.detail > 0) {
+          pill.blur();
+        }
+
         document.querySelector("[data-blume-search-open]")?.click();
       }
     });
