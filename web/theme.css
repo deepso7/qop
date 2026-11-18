@@ -691,11 +691,11 @@ html {
 
 .docs-demo-stage {
   position: relative;
-  /* 26rem less 1rem of padding a side leaves 384px: the 192px loop at exactly
-     2x, so its pixels stay square. Square below that, so phones get no empty
-     band above and below. */
+  /* 384px inside the 1rem padding: the 192px loop at exactly 2x, so its
+     pixels stay square at any root font size. Square below that, so phones
+     get no empty band above and below. */
   aspect-ratio: 1;
-  max-height: 26rem;
+  max-height: calc(384px + 2rem);
   width: 100%;
   border-radius: 0.875rem;
   background: var(--qp-paper);
