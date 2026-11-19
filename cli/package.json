@@ -13,18 +13,18 @@
     "vectors:desktop": "node scripts/desktop-vectors.ts"
   },
   "dependencies": {
-    "@effect/platform-node": "4.1.2",
-    "@minip2p/node": "0.11.6",
+    "@effect/platform-node": "4.1.4",
+    "@minip2p/node": "0.12.0",
     "@qop/identity": "workspace:*",
     "@qop/protocol": "workspace:*",
     "effect": "catalog:",
-    "viem": "2.57.16"
+    "viem": "2.58.0"
   },
   "devDependencies": {
-    "@effect/vitest": "4.1.2",
+    "@effect/vitest": "4.1.4",
     "@types/node": "26.6.6",
     "typescript": "catalog:",
-    "vitest": "5.1.0"
+    "vitest": "5.1.1"
   },
   "engines": {
     "node": "24.22.0"

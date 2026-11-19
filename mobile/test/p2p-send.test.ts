@@ -344,10 +344,7 @@ describe("performSend", () => {
       timeoutMs: 10_000,
     });
 
-    const rejected = sending.then(
-      () => false,
-      () => true
-    );
+    const rejected = sending.then(() => false).catch(() => true);
 
     await vi.waitFor(() => expect(endpoint.openStream).toHaveBeenCalledOnce());
     controller.abort(new Error("endpoint stopped"));

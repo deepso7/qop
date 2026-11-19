@@ -16,12 +16,12 @@
   },
   "devDependencies": {
     "@effect/language-service": "0.87.5",
-    "@oxlint/plugins": "1.92.0",
+    "@oxlint/plugins": "1.94.0",
     "@shadcn/lint": "0.2.5",
-    "oxfmt": "0.77.0",
-    "oxlint": "1.92.0",
+    "oxfmt": "0.79.0",
+    "oxlint": "1.94.0",
     "typescript": "catalog:",
-    "ultracite": "8.1.1"
+    "ultracite": "8.3.0"
   },
   "engines": {
     "node": "24.22.1"
