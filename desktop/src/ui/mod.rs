@@ -220,8 +220,7 @@ pub fn device() -> &'static str {
         "windows" => "PC".into(),
         "linux" => ["/etc/os-release", "/usr/lib/os-release"]
             .iter()
-            .find_map(|path| std::fs::read_to_string(path).ok())
-            .and_then(|release| distro_name(&release))
+            .find_map(|path| distro_name(&std::fs::read_to_string(path).ok()?))
             .unwrap_or_else(|| "computer".into()),
         _ => "computer".into(),
     })
