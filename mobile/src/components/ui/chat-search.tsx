@@ -51,7 +51,7 @@ const ChatSearchRender = (
   return (
     <View
       className={cn(
-        "bg-background-element border-continuous h-11 flex-row items-center gap-2 rounded-xl px-3",
+        "bg-input border-continuous h-11 flex-row items-center gap-2 rounded-md px-3",
         className
       )}
     >
@@ -61,7 +61,7 @@ const ChatSearchRender = (
         accessibilityLabel="Search chats"
         autoCapitalize="none"
         autoCorrect={false}
-        className="text-foreground min-w-0 flex-1 py-0 text-base leading-5"
+        className="text-foreground min-w-0 flex-1 py-0 font-sans text-base leading-5"
         clearButtonMode="never"
         onChangeText={handleChangeText}
         placeholder={placeholder}

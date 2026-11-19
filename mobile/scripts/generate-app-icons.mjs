@@ -22,8 +22,9 @@ const BADGE_RECTS = [
 
 const COLORS = {
   black: [13, 16, 18, 255],
-  cream: [242, 238, 234, 255],
+  cream: [247, 234, 223, 255],
   orange: [185, 108, 69, 255],
+  orangeDark: [218, 134, 89, 255],
   transparent: [0, 0, 0, 0],
   white: [255, 255, 255, 255],
 };
@@ -36,7 +37,7 @@ const VARIANTS = {
     dark: {
       background: COLORS.black,
       badgeColor: COLORS.cream,
-      mark: COLORS.orange,
+      mark: COLORS.orangeDark,
     },
     light: {
       background: COLORS.cream,
@@ -52,7 +53,7 @@ const VARIANTS = {
     dark: {
       background: COLORS.black,
       badgeColor: COLORS.cream,
-      mark: COLORS.orange,
+      mark: COLORS.orangeDark,
     },
     light: {
       background: COLORS.cream,
@@ -62,20 +63,20 @@ const VARIANTS = {
     mark: COLORS.orange,
   },
   production: {
-    background: COLORS.orange,
-    badgeColor: COLORS.cream,
+    background: COLORS.cream,
+    badgeColor: COLORS.black,
     badgeCount: 0,
     dark: {
       background: COLORS.black,
-      badgeColor: COLORS.orange,
-      mark: COLORS.orange,
+      badgeColor: COLORS.orangeDark,
+      mark: COLORS.orangeDark,
     },
     light: {
-      background: COLORS.orange,
-      badgeColor: COLORS.cream,
-      mark: COLORS.black,
+      background: COLORS.cream,
+      badgeColor: COLORS.black,
+      mark: COLORS.orange,
     },
-    mark: COLORS.black,
+    mark: COLORS.orange,
   },
 };
 
@@ -162,23 +163,13 @@ function drawRect(image, x, y, width, height, color) {
 }
 
 function drawLegacyTile(image, color) {
-  const rectangles = [
-    { height: 56, width: 40, x: 12, y: 4 },
-    { height: 52, width: 48, x: 8, y: 6 },
-    { height: 48, width: 52, x: 6, y: 8 },
-    { height: 40, width: 56, x: 4, y: 12 },
-  ];
-  const pixelSize = image.width / LOGICAL_GRID_SIZE;
-
-  for (const { height, width, x, y } of rectangles) {
-    drawRect(
-      image,
-      x * pixelSize,
-      y * pixelSize,
-      width * pixelSize,
-      height * pixelSize,
-      color
-    );
+  const half = (image.width * 28) / LOGICAL_GRID_SIZE;
+  const center = image.width / 2;
+  for (let y = Math.ceil(center - half); y < center + half; y += 1) {
+    const extent =
+      half * (1 - Math.abs((y + 0.5 - center) / half) ** 4) ** 0.25;
+    const x = Math.ceil(center - extent);
+    drawRect(image, x, y, image.width - 2 * x, 1, color);
   }
 }
 

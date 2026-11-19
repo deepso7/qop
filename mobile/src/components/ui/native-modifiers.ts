@@ -7,4 +7,6 @@ type Modifiers = ComponentProps<typeof FieldGroup>["modifiers"];
 
 export const settingsFormModifiers: Modifiers = [];
 
+export const settingsSectionModifiers = (_color: string): Modifiers => [];
+
 export const accessibleButtonModifiers = (_label: string): Modifiers => [];

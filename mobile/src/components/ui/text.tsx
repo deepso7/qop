@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 // their own colour (lead, muted, linkPrimary) keep it unless a tone is set.
 const textVariants = cva(
   cn(
-    "text-foreground text-base",
+    "text-foreground font-sans text-base",
     Platform.select({
       web: "select-text",
     })
@@ -22,18 +22,16 @@ const textVariants = cva(
     },
     variants: {
       variant: {
-        // Paper Mono (the web's face): action, eyebrow, glyph, heading, hero,
-        // readout, tag, terminal. The rest use the system font.
-        action: "font-paper-medium text-base",
+        action: "font-sans text-base font-medium",
         blockquote: "mt-4 border-l-2 pl-3 italic sm:mt-6 sm:pl-6",
-        body: "leading-6 font-normal",
-        caption: "text-sm leading-5 font-normal",
+        body: "text-subhead leading-5 font-normal",
+        caption: "font-paper text-faint text-xs leading-4 tabular-nums",
         code: cn(
           "bg-muted relative rounded px-1.5 py-0.5 font-mono text-sm font-semibold"
         ),
         default: "",
-        display: "text-5xl leading-14 font-semibold tracking-tight",
-        eyebrow: "font-paper text-xs tracking-widest uppercase",
+        display: "tracking-display text-3xl leading-9 font-semibold",
+        eyebrow: "font-paper text-faint text-xs leading-4",
         // A key fingerprint or code to compare by eye.
         fingerprint: "font-mono text-lg font-semibold",
         footnote: "text-xs leading-4",
@@ -56,11 +54,11 @@ const textVariants = cva(
         ),
         // iOS headline: conversation titles and chat names.
         headline: "text-headline font-semibold",
-        heading: "font-paper text-4xl leading-11 tracking-tighter",
-        hero: "font-paper text-5xl leading-12 tracking-tighter",
-        label: "text-sm leading-5 font-semibold",
+        heading: "text-sm leading-5 font-semibold",
+        hero: "tracking-display text-3xl leading-9 font-semibold",
+        label: "text-label leading-4.5 font-medium",
         large: "text-lg font-semibold",
-        lead: "text-foreground-secondary text-lg leading-7",
+        lead: "text-foreground-secondary text-base leading-6",
         link: "text-sm leading-5 font-medium",
         linkPrimary: "text-primary text-sm leading-5 font-medium",
         mono: "font-mono text-xs leading-4 font-medium",
@@ -72,8 +70,8 @@ const textVariants = cva(
         small: "text-sm leading-none font-medium",
         strong: "font-medium",
         tag: "font-paper text-xs",
-        terminal: "font-paper text-sm",
-        title: "text-3xl leading-10 font-semibold tracking-tight",
+        terminal: "font-paper text-xs leading-4",
+        title: "text-xl leading-6.5 font-semibold tracking-tight",
       },
     },
   }

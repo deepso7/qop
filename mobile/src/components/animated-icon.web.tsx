@@ -1,11 +1,8 @@
 import { View } from "react-native";
 import Animated, { Keyframe, Easing } from "react-native-reanimated";
 
-import expoLogo from "@/assets/images/expo-logo.png";
-import logoGlow from "@/assets/images/logo-glow.png";
-import { Image } from "@/components/ui/image";
-
-import classes from "./animated-icon.module.css";
+import { QopMark } from "@/components/brand-mark";
+import { useTheme } from "@/constants/theme";
 
 const DURATION = 300;
 
@@ -41,42 +38,21 @@ const logoKeyframe = new Keyframe({
   },
 });
 
-const glowKeyframe = new Keyframe({
-  0: {
-    opacity: 0,
-    transform: [{ rotateZ: "-180deg" }, { scale: 0.8 }],
-  },
-  [DURATION / 1000]: {
-    easing: Easing.elastic(0.7),
-    opacity: 1,
-    transform: [{ rotateZ: "0deg" }, { scale: 1 }],
-  },
-  100: {
-    transform: [{ rotateZ: "7200deg" }],
-  },
-});
+export const AnimatedIcon = () => {
+  const colors = useTheme();
 
-export const AnimatedIcon = () => (
-  <View className="size-32 items-center justify-center">
-    <Animated.View
-      entering={glowKeyframe.duration(60 * 1000 * 4)}
-      className="absolute size-50.25"
-    >
-      <Image className="absolute size-50.25" source={logoGlow} />
-    </Animated.View>
-
-    <Animated.View
-      className="absolute size-32"
-      entering={keyframe.duration(DURATION)}
-    >
-      <div className={classes.expoLogoBackground} />
-    </Animated.View>
-
-    <Animated.View
-      className="items-center justify-center"
-      entering={logoKeyframe.duration(DURATION)}
-    >
-      <Image className="absolute h-17.75 w-19" source={expoLogo} />
-    </Animated.View>
-  </View>
-);
+  return (
+    <View className="size-32 items-center justify-center">
+      <Animated.View
+        entering={keyframe.duration(DURATION)}
+        className="bg-foam border-continuous rounded-icon absolute size-32"
+      />
+      <Animated.View
+        entering={logoKeyframe.duration(DURATION)}
+        className="items-center justify-center"
+      >
+        <QopMark color={colors.brand} size={128} />
+      </Animated.View>
+    </View>
+  );
+};

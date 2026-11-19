@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
 
-// iOS and web use the platform's own grouped-cell colors; see the Android file.
+// iOS rows are styled with settingsSectionModifiers; Android supplies a palette.
 export const SettingsPalette = ({ children }: { children: ReactNode }) =>
   children;

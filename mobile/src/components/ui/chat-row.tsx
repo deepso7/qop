@@ -137,7 +137,7 @@ const ChatRowTrailing = ({
     {time ? (
       <Text
         className={cn(
-          "text-foreground-secondary text-xs tabular-nums",
+          "text-faint font-paper text-xs tabular-nums",
           hasUnread && "text-primary font-medium"
         )}
       >
@@ -171,7 +171,7 @@ const ChatRowRender = (
     preview,
     previewAuthor,
     security,
-    showSeparator = true,
+    showSeparator = false,
     time,
     unreadCount = 0,
     ...props
@@ -205,7 +205,7 @@ const ChatRowRender = (
           accessibilityRole ?? (opensConversation ? "button" : undefined)
         }
         className={cn(
-          "active:bg-background-element/70 flex-row items-center gap-3",
+          "border-continuous active:bg-accent rounded-bubble flex-row items-center gap-3",
           disabled && "opacity-50"
         )}
         disabled={disabled}

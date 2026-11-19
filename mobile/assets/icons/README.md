@@ -4,9 +4,9 @@ Run `pnpm --filter mobile icons:generate` from the repository root after changin
 
 | Variant | Light / dark treatment | Build identity |
 | --- | --- | --- |
-| Production | Orange/black; black/orange | `sh.qop` |
-| Preview | Cream/orange with one pixel; black/orange with one pixel | `sh.qop.preview` |
-| Development | Cream/orange with two pixels; black/orange with two pixels | `sh.qop.dev` |
+| Production | Mark tile/terracotta; dark tile/terracotta | `sh.qop` |
+| Preview | Mark tile/terracotta with one pixel; dark tile/terracotta with one pixel | `sh.qop.preview` |
+| Development | Mark tile/terracotta with two pixels; dark tile/terracotta with two pixels | `sh.qop.dev` |
 
 Each variant contains:
 
@@ -16,7 +16,7 @@ Each variant contains:
 - `splash-light.png` and `splash-dark.png`: transparent 256×256 launch marks matched to each appearance and build variant.
 - `android-foreground.png`: transparent 1024×1024 adaptive foreground.
 - `android-monochrome.png`: single-color Android themed-icon layer.
-- `android-legacy.png`: combined fallback with stepped, grid-aligned corners for pre-adaptive Android launchers.
+- `android-legacy.png`: combined fallback with squircle corners for pre-adaptive Android launchers.
 - `favicon.png`: 64×64 web favicon rendered directly on the same logical grid.
 
 The Android foreground artwork stays within the centered 66/108 adaptive-icon safe zone. Do not add corner masks or shadows to the iOS source image; iOS applies its own mask.

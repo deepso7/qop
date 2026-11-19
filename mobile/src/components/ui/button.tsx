@@ -52,7 +52,7 @@ const buttonVariants = cva(
           Platform.select({ web: "hover:bg-primary/90" })
         ),
         destructive: cn(
-          "bg-destructive active:bg-destructive/90 dark:bg-destructive/60",
+          "bg-secondary active:bg-accent",
           Platform.select({
             web: "hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
           })
@@ -63,7 +63,7 @@ const buttonVariants = cva(
         ),
         link: "",
         outline: cn(
-          "border-border bg-background active:bg-accent dark:bg-input/30 dark:border-input dark:active:bg-input/50 border",
+          "bg-secondary active:bg-accent",
           Platform.select({
             web: "hover:bg-accent dark:hover:bg-input/50",
           })
@@ -97,8 +97,8 @@ const buttonTextVariants = cva(
       },
       variant: {
         default: "text-primary-foreground",
-        destructive: "text-white",
-        ghost: "group-active:text-accent-foreground",
+        destructive: "text-link",
+        ghost: "text-foreground-secondary group-active:text-accent-foreground",
         link: cn(
           "text-primary group-active:underline",
           Platform.select({

@@ -18,7 +18,7 @@ const chatComposerVariants = cva(
       variant: {
         // Embedded in a screen or catalog that frames it already.
         bare: "",
-        default: "border-border border p-2",
+        default: "p-2",
       },
     },
   }
@@ -89,7 +89,7 @@ const ChatComposerInput = ({
 }: React.ComponentProps<typeof TextInput>) => (
   <TextInput
     className={cn(
-      "bg-background-element text-foreground rounded-panel border-continuous max-h-40 min-h-11 flex-1 px-4 py-2.5 text-base leading-5",
+      "bg-background-element text-foreground border-continuous max-h-40 min-h-11 flex-1 rounded-md px-4 py-2.5 font-sans text-base leading-5",
       className
     )}
     multiline

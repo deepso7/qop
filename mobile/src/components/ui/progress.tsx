@@ -62,7 +62,7 @@ const NativeIndicator = ({ value, className }: IndicatorProps) => {
     <ProgressPrimitive.Indicator asChild>
       <Animated.View
         style={animatedStyle}
-        className={cn("bg-foreground h-full", className)}
+        className={cn("bg-brand h-full", className)}
       />
     </ProgressPrimitive.Indicator>
   );
@@ -86,7 +86,7 @@ const Progress = ({
 }) => (
   <ProgressPrimitive.Root
     className={cn(
-      "bg-primary/20 relative h-2 w-full overflow-hidden rounded-full",
+      "bg-primary/20 relative h-1 w-full overflow-hidden rounded-full",
       className
     )}
     {...props}

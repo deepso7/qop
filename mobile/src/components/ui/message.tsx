@@ -128,10 +128,10 @@ const messageBubbleVariants = cva(
     defaultVariants: { tone: "incoming" },
     variants: {
       tone: {
-        failed: "border-destructive bg-primary border-2",
+        failed: "border-destructive bg-brand/10 border-2",
         incoming: "bg-background-element",
-        outgoing: "bg-primary",
-        pending: "bg-primary",
+        outgoing: "bg-brand/10",
+        pending: "bg-brand/10",
       },
     },
   }
@@ -154,7 +154,7 @@ const MessageBubble = ({
 
   const textClassName =
     tone === "outgoing" || tone === "failed" || tone === "pending"
-      ? "text-primary-foreground"
+      ? "text-foreground"
       : undefined;
 
   return (
@@ -282,15 +282,16 @@ const MessageMeta = ({
   return (
     <View
       accessibilityLabel={`${time}${status ? `, ${status}` : ""}`}
-      className={cn(
-        "mt-1 flex-row items-center gap-1 self-end opacity-65",
-        className
-      )}
+      className={cn("mt-1 flex-row items-center gap-1 self-end", className)}
       {...props}
     >
-      <Text className="text-xs leading-4 tabular-nums">{time}</Text>
+      <Text variant="caption">{time}</Text>
       {status ? (
-        <Icon as={StatusIcon} className="size-3.5" strokeWidth={2.25} />
+        <Icon
+          as={StatusIcon}
+          className="text-faint size-3.5"
+          strokeWidth={2.25}
+        />
       ) : null}
     </View>
   );
@@ -638,7 +639,7 @@ const MessageLongPressOverlay = ({
                 : FadeInDown.springify().damping(18).stiffness(260)
             }
           >
-            <MessageReactionPicker className="bg-background border-border shadow-lg">
+            <MessageReactionPicker className="bg-background-element">
               {reactions.map((emoji) => (
                 <MessageReactionPickerItem
                   emoji={emoji}
@@ -844,7 +845,7 @@ const MessageReactors = ({
 }: React.ComponentProps<typeof View>) => (
   <View
     className={cn(
-      "bg-background-element border-border border-continuous rounded-tile overflow-hidden border",
+      "bg-background-element border-continuous rounded-tile overflow-hidden",
       className
     )}
     {...props}

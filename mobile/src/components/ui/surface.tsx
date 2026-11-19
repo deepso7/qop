@@ -18,8 +18,8 @@ const surfaceVariants = cva("bg-background border-continuous", {
       card: "gap-4 rounded-xl p-4",
       // A tab or segment in a bar.
       chip: "rounded-md px-4",
-      // A card with a 1px border.
-      outline: "border-background-selected gap-4 rounded-xl border p-4",
+      // A raised panel without outline chrome.
+      outline: "bg-background-element rounded-panel gap-4 p-4",
       plain: "",
       // A floating bar of chips and actions.
       toolbar: "gap-2 rounded-2xl px-8 py-2",
