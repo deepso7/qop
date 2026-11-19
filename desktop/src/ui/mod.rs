@@ -211,6 +211,28 @@ impl Ui {
     }
 }
 
+/// What to call this computer in copy ("Link this Mac"): Mac, PC, or the Linux distribution's
+/// name from os-release ("Ubuntu", "Fedora"), else "computer". Read once.
+pub fn device() -> &'static str {
+    static NAME: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    NAME.get_or_init(|| match std::env::consts::OS {
+        "macos" => "Mac".into(),
+        "windows" => "PC".into(),
+        "linux" => ["/etc/os-release", "/usr/lib/os-release"]
+            .iter()
+            .find_map(|path| distro_name(&std::fs::read_to_string(path).ok()?))
+            .unwrap_or_else(|| "computer".into()),
+        _ => "computer".into(),
+    })
+}
+
+/// The short distribution name from os-release text: `NAME="Fedora Linux"` gives `Fedora`.
+fn distro_name(release: &str) -> Option<String> {
+    let name = release.lines().find_map(|l| l.strip_prefix("NAME="))?.trim().trim_matches(['"', '\'']);
+    let name = name.trim_end_matches(" GNU/Linux").trim_end_matches(" Linux").trim();
+    (!name.is_empty()).then(|| name.to_owned())
+}
+
 /// A handle as typed, without spaces or a leading `@`.
 pub fn normalize_handle(s: &str) -> String {
     s.trim().trim_start_matches('@').to_lowercase()

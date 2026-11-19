@@ -50,6 +50,7 @@ fn editing_the_handle_hides_the_lookup_error_for_the_old_one() {
 #[test]
 fn tab_reaches_a_conversation_row_and_space_opens_it() {
     let (mut rt, rx) = open(fake::linked_list);
+    press(&mut rt, Key::Tab); // Settings
     press(&mut rt, Key::Tab); // New chat
     press(&mut rt, Key::Tab);
     press(&mut rt, Key::Text(" ".into()));
@@ -249,4 +250,20 @@ fn start_over_leaves_the_revoked_screen() {
     let (mut rt, rx) = open(fake::revoked);
     click(&mut rt, "start-over");
     assert_eq!(rx.try_recv(), Ok(Command::AcknowledgeRevoked));
+}
+
+#[test]
+fn distro_name_drops_the_linux_suffix() {
+    assert_eq!(super::distro_name("ID=ubuntu\nNAME=\"Ubuntu\"\n").as_deref(), Some("Ubuntu"));
+    assert_eq!(super::distro_name("NAME=\"Fedora Linux\"").as_deref(), Some("Fedora"));
+    assert_eq!(super::distro_name("NAME='Debian GNU/Linux'").as_deref(), Some("Debian"));
+    assert_eq!(super::distro_name("ID=void"), None);
+}
+
+#[test]
+fn pairing_steps_read_with_their_numbers() {
+    let (rt, _rx) = open(fake::pairing);
+    let tree = rt.accessibility_json().to_string();
+    assert!(tree.contains("1. Open qop on your phone"), "{tree}");
+    assert!(tree.contains("3. Scan this code and approve"));
 }
