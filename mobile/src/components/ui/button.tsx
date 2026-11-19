@@ -54,7 +54,7 @@ const buttonVariants = cva(
         destructive: cn(
           "bg-secondary active:bg-accent",
           Platform.select({
-            web: "hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
+            web: "hover:bg-accent focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40",
           })
         ),
         ghost: cn(

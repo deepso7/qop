@@ -9,7 +9,7 @@ type LabelProps = React.ComponentProps<typeof Text> & {
 const Label = ({ className, disabled, ...props }: LabelProps) => (
   <Text
     className={cn(
-      "text-foreground font-sans-medium font-sans text-sm",
+      "text-foreground font-sans-medium text-sm",
       disabled && "opacity-50",
       className
     )}
