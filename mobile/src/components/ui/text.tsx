@@ -56,6 +56,7 @@ const textVariants = cva(
         // iOS headline: conversation titles and chat names.
         headline: "text-headline font-sans-semibold",
         helper: "text-foreground-secondary text-label font-sans leading-4.5",
+        inputPrefix: "font-sans text-2xl leading-8",
         largeTitle:
           "font-sans-semibold tracking-large-title text-large-title leading-10",
         heading: "font-sans-semibold text-sm leading-5",

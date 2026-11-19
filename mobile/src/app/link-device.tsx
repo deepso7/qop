@@ -381,7 +381,7 @@ const LinkDeviceSheet = ({ account }: { account: Account }) => {
         </View>
       ) : null}
 
-      <View className="flex-row gap-2">
+      <View className="flex-row items-center gap-2">
         <Input
           autoCapitalize="none"
           autoCorrect={false}
@@ -405,10 +405,15 @@ const LinkDeviceSheet = ({ account }: { account: Account }) => {
                 changeText(data.text.trim());
               }
             }}
-            className="h-11 w-21"
+            className="h-12 w-21"
           />
         ) : (
-          <Button disabled={busy} onPress={paste} variant="outline">
+          <Button
+            className="h-12"
+            disabled={busy}
+            onPress={paste}
+            variant="outline"
+          >
             <Text>Paste</Text>
           </Button>
         )}

@@ -163,7 +163,7 @@ export const HandleStep = ({
 
       <View className="gap-3">
         <RoundedSurface className="h-14" variant="field" focused={focused}>
-          <Text tone="secondary" variant="glyph">
+          <Text tone="secondary" variant="inputPrefix">
             @
           </Text>
           <TextInput
@@ -173,7 +173,7 @@ export const HandleStep = ({
             autoComplete="off"
             autoCorrect={false}
             autoFocus
-            className="text-foreground h-full flex-1 font-sans text-2xl"
+            className="text-foreground h-full flex-1 py-0 font-sans text-2xl leading-8"
             enterKeyHint="next"
             maxLength={MAX_LENGTH + 1}
             onBlur={() => setFocused(false)}
@@ -186,6 +186,7 @@ export const HandleStep = ({
             selectionColorClassName="accent-primary"
             spellCheck={false}
             submitBehavior="submit"
+            textAlignVertical="center"
             value={handle}
           />
         </RoundedSurface>
