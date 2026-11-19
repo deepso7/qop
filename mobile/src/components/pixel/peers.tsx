@@ -135,7 +135,7 @@ export const Peers = () => {
             return hole ? (
               <AnimatedRect
                 animatedProps={animatedProps}
-                fill={colors.primary}
+                fill={colors.brand}
                 height={hole.size * cell}
                 key={hole.x}
                 width={hole.size * cell}
@@ -146,7 +146,7 @@ export const Peers = () => {
           })}
           <AnimatedRect
             animatedProps={packetProps}
-            fill={colors.primary}
+            fill={colors.brand}
             height={cell * 3}
             width={cell * 3}
           />

@@ -2,12 +2,10 @@ import { Pressable } from "react-native";
 import type { PressableProps } from "react-native";
 
 import { Cursor } from "@/components/pixel/cursor";
-import { Notch } from "@/components/pixel/notch";
+import { RoundedSurface } from "@/components/ui/rounded-surface";
 import { Text } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
 
-// "primary" is the web's ink CTA (terracotta while pressed); "quiet" is a bare
-// mono text action for secondary choices.
 type PixelButtonVariant = "primary" | "quiet";
 
 export type PixelButtonProps = Omit<PressableProps, "children"> & {
@@ -20,7 +18,7 @@ export type PixelButtonProps = Omit<PressableProps, "children"> & {
   variant?: PixelButtonVariant;
 };
 
-// The onboarding button: Paper Mono on a notched tile, pressed state as a colour swap.
+// The main onboarding action, with a quiet alternative.
 export const PixelButton = ({
   busy = false,
   className,
@@ -46,18 +44,14 @@ export const PixelButton = ({
     >
       {({ pressed }) => {
         const pressedTone = primary ? "onPrimary" : "link";
-        const restingTone = primary ? "inverse" : "secondary";
+        const restingTone = primary ? "onPrimary" : "secondary";
         const tone = pressed ? pressedTone : restingTone;
 
-        const primaryFill = pressed ? "accent-primary" : "accent-foreground";
-
         return (
-          <Notch
-            className={cn(
-              "flex-row items-center justify-center gap-3 px-5",
-              primary ? "h-14" : "h-11"
-            )}
-            fillClassName={primary ? primaryFill : undefined}
+          <RoundedSurface
+            className={primary ? "h-12" : "h-11"}
+            variant={primary ? "primary" : "quiet"}
+            pressed={pressed}
           >
             <Text tone={tone} variant="action">
               {label}
@@ -74,7 +68,7 @@ export const PixelButton = ({
                 {trailing}
               </Text>
             ) : null}
-          </Notch>
+          </RoundedSurface>
         );
       }}
     </Pressable>

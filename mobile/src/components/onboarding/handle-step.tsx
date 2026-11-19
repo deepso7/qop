@@ -10,8 +10,8 @@ import {
   StepFrame,
   Title,
 } from "@/components/onboarding/chrome";
-import { Notch } from "@/components/pixel/notch";
 import { PixelButton } from "@/components/pixel/pixel-button";
+import { RoundedSurface } from "@/components/ui/rounded-surface";
 import { Text } from "@/components/ui/text";
 import { lookupHandle } from "@/lib/registry";
 
@@ -162,11 +162,7 @@ export const HandleStep = ({
       </View>
 
       <View className="gap-3">
-        <Notch
-          className="h-16 flex-row items-center gap-1 px-4"
-          fillClassName="accent-background-element"
-          strokeClassName={focused ? "accent-primary" : "accent-border"}
-        >
+        <RoundedSurface className="h-14" variant="field" focused={focused}>
           <Text tone="secondary" variant="glyph">
             @
           </Text>
@@ -177,7 +173,7 @@ export const HandleStep = ({
             autoComplete="off"
             autoCorrect={false}
             autoFocus
-            className="font-paper text-foreground h-full flex-1 text-2xl"
+            className="text-foreground h-full flex-1 font-sans text-2xl"
             enterKeyHint="next"
             maxLength={MAX_LENGTH + 1}
             onBlur={() => setFocused(false)}
@@ -192,7 +188,7 @@ export const HandleStep = ({
             submitBehavior="submit"
             value={handle}
           />
-        </Notch>
+        </RoundedSurface>
         <View className="flex-row items-center gap-4">
           <View className="flex-1">
             <HandleStatus

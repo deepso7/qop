@@ -16,7 +16,7 @@ export const STEP_COUNT = 3;
 const enter = FadeIn.duration(180).reduceMotion(ReduceMotion.System);
 const exit = FadeOut.duration(100).reduceMotion(ReduceMotion.System);
 
-// Small uppercase mono label, the web's section label ("ABOUT", "GET QOP").
+// Small mono section label.
 export const Eyebrow = ({
   children,
   tone = "secondary",
@@ -29,9 +29,9 @@ export const Eyebrow = ({
   </Text>
 );
 
-// The step headline: big, tight Paper Mono at normal weight, as on the web hero.
+// The display scale shared with desktop onboarding.
 export const Title = ({ children }: { children: ReactNode }) => (
-  <Text variant="heading">{children}</Text>
+  <Text variant="display">{children}</Text>
 );
 
 export const Lede = ({ children }: { children: ReactNode }) => (
@@ -40,7 +40,7 @@ export const Lede = ({ children }: { children: ReactNode }) => (
   </Text>
 );
 
-// "← back" on the left, "01 / 03" with one pixel per step on the right.
+// "← back" on the left, "01 / 03" with one dot per step on the right.
 const StepHeader = ({
   onBack,
   step,
@@ -74,7 +74,10 @@ const StepHeader = ({
       <View className="flex-row gap-1">
         {Array.from({ length: STEP_COUNT }, (_, i) => (
           <View
-            className={cn("size-2", i < step ? "bg-primary" : "bg-border")}
+            className={cn(
+              "size-2 rounded-full",
+              i < step ? "bg-primary" : "bg-border"
+            )}
             key={i}
           />
         ))}
@@ -129,7 +132,7 @@ export const StepFrame = ({
   </Animated.View>
 );
 
-// One-line mono status under a field or action: a pixel light plus text.
+// One-line mono status under a field or action: a status light plus text.
 export const StatusLine = ({
   children,
   tone = "muted",
@@ -140,7 +143,7 @@ export const StatusLine = ({
   <View className="flex-row items-center gap-2">
     <View
       className={cn(
-        "size-2",
+        "size-2 rounded-full",
         tone === "error" && "bg-destructive",
         tone === "muted" && "bg-border",
         tone === "ok" && "bg-online"
@@ -160,7 +163,7 @@ export const StatusLine = ({
 export type LogState = "active" | "done" | "failed" | "waiting";
 
 // One line of a terminal-style progress log: a blinking cursor while active,
-// otherwise a pixel coloured by state.
+// otherwise a dot coloured by state.
 export const LogRow = ({
   label,
   state,

@@ -408,10 +408,7 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
         renderItem={renderItem}
         variant="grouped"
       />
-      <Animated.View
-        className="border-border bg-background border-t px-3 pt-2"
-        style={animatedStyle}
-      >
+      <Animated.View className="bg-background px-3 pt-2" style={animatedStyle}>
         <ChatComposer variant="bare">
           <ChatComposerInput
             accessibilityLabel="Message"
