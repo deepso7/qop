@@ -12,19 +12,19 @@ interface AppVariantConfig {
 
 const VARIANTS = {
   development: {
-    backgroundColor: "#F2EEEA",
+    backgroundColor: "#F7EADF",
     identifier: "sh.qop.dev",
     name: "qop dev",
     scheme: "qop-dev",
   },
   preview: {
-    backgroundColor: "#F2EEEA",
+    backgroundColor: "#F7EADF",
     identifier: "sh.qop.preview",
     name: "qop preview",
     scheme: "qop-preview",
   },
   production: {
-    backgroundColor: "#B96C45",
+    backgroundColor: "#F7EADF",
     identifier: "sh.qop",
     name: "qop",
     scheme: "qop",
