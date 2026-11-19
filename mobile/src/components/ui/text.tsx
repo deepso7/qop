@@ -22,6 +22,7 @@ const textVariants = cva(
     },
     variants: {
       variant: {
+        // Inter for reading and actions; Paper Mono for compact metadata and codes.
         action: "font-sans-medium text-base",
         blockquote: "mt-4 border-l-2 pl-3 italic sm:mt-6 sm:pl-6",
         body: "text-subhead font-sans leading-5",

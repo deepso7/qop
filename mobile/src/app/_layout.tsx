@@ -28,6 +28,7 @@ void SplashScreen.preventAutoHideAsync();
 
 SplashScreen.setOptions({ duration: 250, fade: true });
 
+// Static faces named to match the --font-sans* and --font-paper* tokens.
 const FONTS = {
   "Inter-Medium": interMedium,
   "Inter-Regular": interRegular,

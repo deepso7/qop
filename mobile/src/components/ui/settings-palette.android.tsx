@@ -8,7 +8,7 @@ import { processColor } from "react-native";
 
 import { useTheme } from "@/constants/theme";
 
-/** Match grouped Material rows to the app’s element surface. */
+/** Match grouped Material rows to the app’s element surface. Render inside <Host>. */
 export const SettingsPalette = ({ children }: { children: ReactNode }) => {
   const palette = useMaterialColors();
   const colors = useTheme();

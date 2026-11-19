@@ -3,6 +3,7 @@
 @import "tw-animate-css";
 
 @theme {
+  /* Radius scale: panels 24px, cards/rows/bubbles 16px, controls 12px. */
   --radius: 12px;
   --radius-sm: 12px;
   --radius-md: 12px;
@@ -11,12 +12,18 @@
   --radius-tile: 16px;
   --radius-panel: 24px;
   --radius-bubble: 16px;
+  /* The app icon's corner, for the animated splash tile. */
   --radius-icon: 40px;
   --tracking-display: -0.9px;
+  /* iOS subheadline/headline sizes for chat lists and conversation headers. */
   --text-subhead: 15px;
   --text-label: 13px;
   --text-headline: 17px;
   --spacing-hairline: hairlineWidth();
+  /* Inter for reading; Paper Mono for small labels, timestamps and codes.
+     OFL licenses: assets/fonts/Inter-OFL.txt and PaperMono-OFL.txt.
+     RN takes a single family, not a fallback stack; each weight is a static
+     face loaded in app/_layout.tsx. */
   --font-sans: "Inter-Regular";
   --font-sans-medium: "Inter-Medium";
   --font-sans-semibold: "Inter-SemiBold";
@@ -38,6 +45,7 @@
 
 @layer theme {
   :root {
+    /* Secondary/muted and faint text are ink at partial opacity for AA contrast. */
     @variant light {
       --color-background: oklch(0.985 0.004 80);
       --color-background-element: oklch(0.955 0.006 70);
@@ -64,6 +72,7 @@
       --color-action-foreground: oklch(0.985 0.004 80);
       --color-popover: oklch(0.955 0.006 70);
       --color-popover-foreground: oklch(0.2 0.008 30);
+      /* App mark tile, matching desktop's light/dark mark surfaces. */
       --color-foam: oklch(0.944 0.02 62.9);
       --color-primary: oklch(0.5 0.11 45);
       --color-primary-foreground: oklch(0.985 0.004 80);
@@ -96,6 +105,7 @@
       --color-action-foreground: oklch(0.165 0.008 40);
       --color-popover: oklch(0.205 0.01 40);
       --color-popover-foreground: oklch(0.95 0.008 70);
+      /* App mark tile, matching desktop's light/dark mark surfaces. */
       --color-foam: oklch(0.171 0.006 237);
       --color-primary: oklch(0.76 0.12 52);
       --color-primary-foreground: oklch(0.165 0.008 40);

@@ -6,6 +6,7 @@ import { RoundedSurface } from "@/components/ui/rounded-surface";
 import { Text } from "@/components/ui/text";
 import { cn } from "@/lib/utils";
 
+// Primary uses link fill; quiet leaves the surface visible with muted text.
 type PixelButtonVariant = "primary" | "quiet";
 
 export type PixelButtonProps = Omit<PressableProps, "children"> & {
