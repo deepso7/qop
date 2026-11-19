@@ -173,26 +173,42 @@ function drawLegacyTile(image, color) {
   }
 }
 
-function drawMark(image, markColor, badgeCount, badgeColor) {
+function drawMark(image, markColor, badgeCount, badgeColor, adaptive = false) {
   if (image.width !== image.height || image.width % LOGICAL_GRID_SIZE !== 0) {
     throw new Error(
       `Icon size must be a square multiple of ${LOGICAL_GRID_SIZE}px`
     );
   }
 
-  const pixelSize = image.width / LOGICAL_GRID_SIZE;
+  let pixelSize = image.width / LOGICAL_GRID_SIZE;
+  let centerX = LOGICAL_GRID_SIZE / 2;
+  let centerY = LOGICAL_GRID_SIZE / 2;
+  if (adaptive) {
+    // Use every variant's accents so all adaptive marks share the same placement.
+    const rectangles = [...MARK_RECTS, ...BADGE_RECTS];
+    const left = Math.min(...rectangles.map(({ x }) => x));
+    const top = Math.min(...rectangles.map(({ y }) => y));
+    const right = Math.max(...rectangles.map(({ x, width }) => x + width));
+    const bottom = Math.max(...rectangles.map(({ y, height }) => y + height));
+    centerX = (left + right) / 2;
+    centerY = (top + bottom) / 2;
+    // Reserve one pixel for rounding inside Android's 66dp circle on 108dp.
+    pixelSize =
+      (image.width * (33 / 108) - 1) /
+      Math.hypot((right - left) / 2, (bottom - top) / 2);
+  }
   const drawGridRect = ({ height, width, x, y }, color) => {
-    drawRect(
-      image,
-      x * pixelSize,
-      y * pixelSize,
-      width * pixelSize,
-      height * pixelSize,
-      color
+    const left = Math.round((x - centerX) * pixelSize + image.width / 2);
+    const top = Math.round((y - centerY) * pixelSize + image.height / 2);
+    const right = Math.round(
+      (x + width - centerX) * pixelSize + image.width / 2
     );
+    const bottom = Math.round(
+      (y + height - centerY) * pixelSize + image.height / 2
+    );
+    drawRect(image, left, top, right - left, bottom - top, color);
   };
 
-  // The mark occupies 30 logical cells and stays inside Android's 66/108 safe zone.
   for (const rectangle of MARK_RECTS) {
     drawGridRect(rectangle, markColor);
   }
@@ -246,11 +262,17 @@ for (const [name, variant] of Object.entries(VARIANTS)) {
   writePng(`${name}/splash-dark.png`, splashDark);
 
   const foreground = createImage(ICON_SIZE, ICON_SIZE);
-  drawMark(foreground, variant.mark, variant.badgeCount, variant.badgeColor);
+  drawMark(
+    foreground,
+    variant.mark,
+    variant.badgeCount,
+    variant.badgeColor,
+    true
+  );
   writePng(`${name}/android-foreground.png`, foreground);
 
   const monochrome = createImage(ICON_SIZE, ICON_SIZE);
-  drawMark(monochrome, COLORS.white, variant.badgeCount, COLORS.white);
+  drawMark(monochrome, COLORS.white, variant.badgeCount, COLORS.white, true);
   writePng(`${name}/android-monochrome.png`, monochrome);
 
   const legacy = createImage(ICON_SIZE, ICON_SIZE);
