@@ -40,7 +40,7 @@ const badgeVariants = cva(
   }
 );
 
-const badgeTextVariants = cva("text-xs font-medium", {
+const badgeTextVariants = cva("font-sans-medium text-xs", {
   defaultVariants: {
     variant: "default",
   },

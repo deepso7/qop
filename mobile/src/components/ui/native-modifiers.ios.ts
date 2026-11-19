@@ -14,7 +14,7 @@ import {
 /** Hide SwiftUI Form's grouped background so the screen background shows. */
 export const settingsFormModifiers = [
   scrollContentBackground("hidden"),
-  font({ family: "InterVariable", size: 13 }),
+  font({ family: "Inter-Regular", size: 13 }),
 ];
 
 export const settingsSectionModifiers = (color: string) => [

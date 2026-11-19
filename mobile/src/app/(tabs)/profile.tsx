@@ -32,7 +32,7 @@ import { selectionHaptic } from "@/lib/haptics";
 import { selectAccount, useIdentityStore } from "@/lib/identity-store";
 import type { Account } from "@/lib/identity-store";
 
-const readingFont = Platform.OS === "ios" ? "InterVariable" : "Inter";
+const readingFont = "Inter-Regular";
 
 // @expo/ui views take a plain style object (mapped to SwiftUI/Compose
 // modifiers), so resolve classes into `style` directly rather than an array.
@@ -95,10 +95,9 @@ const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
           <Spacer flexible />
           <UIText
             textStyle={{
-              fontFamily: readingFont,
+              fontFamily: "Inter-SemiBold",
               color: ink,
               fontSize: 28,
-              fontWeight: "600",
             }}
           >
             {handle.slice(0, 2).toUpperCase()}
@@ -111,9 +110,8 @@ const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
         <UIText
           numberOfLines={1}
           textStyle={{
-            fontFamily: readingFont,
+            fontFamily: "Inter-SemiBold",
             fontSize: 24,
-            fontWeight: "600",
           }}
         >
           {`@${handle}`}
@@ -372,7 +370,7 @@ const ProfileScreen = ({ account }: { account: Account }) => {
 
   return (
     <View className="bg-background pt-safe flex-1">
-      <Text className="mx-5 mt-10 mb-2" variant="title">
+      <Text className="mx-5 mt-10 mb-2" variant="largeTitle">
         Profile
       </Text>
       <StyledHost
@@ -393,8 +391,10 @@ const ProfileScreen = ({ account }: { account: Account }) => {
 
             <FieldGroup.Section
               modifiers={settingsSectionModifiers(colors.backgroundElement)}
-              title="Recovery key"
             >
+              <FieldGroup.SectionHeader>
+                <Secondary>Recovery key</Secondary>
+              </FieldGroup.SectionHeader>
               <SettingsRow trailing={<Secondary>{recovery.status}</Secondary>}>
                 <UIText
                   textStyle={{ fontFamily: readingFont, color: colors.text }}
@@ -433,9 +433,11 @@ const ProfileScreen = ({ account }: { account: Account }) => {
             </FieldGroup.Section>
 
             <FieldGroup.Section
-              title="Devices"
               modifiers={settingsSectionModifiers(colors.backgroundElement)}
             >
+              <FieldGroup.SectionHeader>
+                <Secondary>Devices</Secondary>
+              </FieldGroup.SectionHeader>
               {/* From the local identity, so it (and peer ID copy) never waits
                   on the on-chain roster lookup. */}
               <SettingsRow

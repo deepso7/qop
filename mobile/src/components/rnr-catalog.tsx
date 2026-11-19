@@ -570,7 +570,7 @@ const RnrCatalog = () => {
 
       <View className="bg-muted flex-row items-center gap-2 rounded-lg p-3">
         <CheckCircle2 className="text-foreground size-4 shrink-0" />
-        <Text className="min-w-0 flex-1" variant="caption">
+        <Text className="min-w-0 flex-1" variant="helper">
           Branded QOP primitives use RNR and Uniwind.
         </Text>
       </View>

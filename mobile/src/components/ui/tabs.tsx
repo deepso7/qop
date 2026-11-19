@@ -38,7 +38,7 @@ const TabsTrigger = ({
   const { value } = TabsPrimitive.useRootContext();
 
   const textClassName = cn(
-    "text-foreground dark:text-muted-foreground text-sm font-medium",
+    "text-foreground dark:text-muted-foreground font-sans-medium text-sm",
     value === props.value && "dark:text-foreground"
   );
 

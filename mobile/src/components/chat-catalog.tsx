@@ -232,7 +232,7 @@ const ChatCatalog = () => {
           </Message>
 
           <View className="gap-2">
-            <Text tone="secondary" variant="caption">
+            <Text tone="secondary" variant="helper">
               Picker · touch and hold the outgoing bubble
             </Text>
             <MessageReactionPicker>

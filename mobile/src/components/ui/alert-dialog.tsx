@@ -101,7 +101,7 @@ const AlertDialogTitle = ({
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Title>) => (
   <AlertDialogPrimitive.Title
-    className={cn("text-foreground text-lg font-semibold", className)}
+    className={cn("text-foreground font-sans-semibold text-lg", className)}
     {...props}
   />
 );

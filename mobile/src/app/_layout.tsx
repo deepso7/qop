@@ -15,7 +15,9 @@ import { useTheme } from "@/constants/theme";
 import { useIdentityStore } from "@/lib/identity-store";
 import { useP2pStore } from "@/lib/p2p-store";
 
-import inter from "../../assets/fonts/Inter.ttf";
+import interMedium from "../../assets/fonts/Inter-Medium.ttf";
+import interRegular from "../../assets/fonts/Inter-Regular.ttf";
+import interSemiBold from "../../assets/fonts/Inter-SemiBold.ttf";
 import paperMonoMedium from "../../assets/fonts/PaperMono-Medium.ttf";
 import paperMonoRegular from "../../assets/fonts/PaperMono-Regular.ttf";
 import paperMonoSemiBold from "../../assets/fonts/PaperMono-SemiBold.ttf";
@@ -26,9 +28,10 @@ void SplashScreen.preventAutoHideAsync();
 
 SplashScreen.setOptions({ duration: 250, fade: true });
 
-// SDK 58 resolves the variable Inter weight axis on both native platforms.
 const FONTS = {
-  Inter: inter,
+  "Inter-Medium": interMedium,
+  "Inter-Regular": interRegular,
+  "Inter-SemiBold": interSemiBold,
   "PaperMono-Medium": paperMonoMedium,
   "PaperMono-Regular": paperMonoRegular,
   "PaperMono-SemiBold": paperMonoSemiBold,

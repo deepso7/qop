@@ -132,7 +132,7 @@ export const StepFrame = ({
   </Animated.View>
 );
 
-// One-line mono status under a field or action: a status light plus text.
+// Field feedback pairs a status light with supporting copy.
 export const StatusLine = ({
   children,
   tone = "muted",
@@ -153,7 +153,7 @@ export const StatusLine = ({
       className="flex-1"
       selectable
       tone={tone === "error" ? "destructive" : "secondary"}
-      variant="terminal"
+      variant="helper"
     >
       {children}
     </Text>
@@ -209,7 +209,7 @@ export const WaitCaption = () => {
   }, []);
 
   return (
-    <Text tone="secondary" variant="caption">
+    <Text tone="secondary" variant="helper">
       {slow
         ? "Still working. The registry can be slow, and it’s safe to wait."
         : "Keep qop open. This takes a few seconds."}

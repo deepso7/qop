@@ -86,7 +86,7 @@ const MenubarTrigger = ({
   const { value: itemValue } = MenubarPrimitive.useMenuContext();
 
   const textClassName = cn(
-    "group-active:text-accent-foreground text-sm font-medium select-none",
+    "group-active:text-accent-foreground font-sans-medium text-sm select-none",
     value === itemValue && "text-accent-foreground"
   );
 
@@ -324,7 +324,7 @@ const MenubarLabel = ({
 }) => (
   <MenubarPrimitive.Label
     className={cn(
-      "text-foreground px-2 py-2 text-sm font-medium",
+      "text-foreground font-sans-medium px-2 py-2 text-sm",
       inset && "pl-8",
       className
     )}

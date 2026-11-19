@@ -106,7 +106,7 @@ const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
     <View className="gap-5">
       <View className="gap-2">
         <Text variant="label">Platform controls</Text>
-        <Text tone="secondary" variant="caption">
+        <Text tone="secondary" variant="helper">
           Native rendering is intentional for settings and system preferences.
         </Text>
         <ExpoNativePreview className="h-46" inset seedColor={theme.primary}>
@@ -184,13 +184,13 @@ const UIScreen = () => {
       <Screen variant="catalog">
         <View className="gap-1 px-1 pb-1">
           <Text variant="title">UI</Text>
-          <Text tone="secondary" variant="caption">
+          <Text tone="secondary" variant="helper">
             Shared product primitives and their current states.
           </Text>
         </View>
 
         <ComponentSection title="QOP · branded primitives">
-          <Text tone="secondary" variant="caption">
+          <Text tone="secondary" variant="helper">
             Source-owned RNR components styled with Uniwind. Use these for
             product UI and branded interactions.
           </Text>
@@ -198,7 +198,7 @@ const UIScreen = () => {
         </ComponentSection>
 
         <ComponentSection title="QOP · chat primitives">
-          <Text tone="secondary" variant="caption">
+          <Text tone="secondary" variant="helper">
             Composable message, delivery, attachment, reply, typing, and
             composer states for peer conversations.
           </Text>
@@ -206,7 +206,7 @@ const UIScreen = () => {
         </ComponentSection>
 
         <ComponentSection title="QOP · native platform primitives">
-          <Text tone="secondary" variant="caption">
+          <Text tone="secondary" variant="helper">
             Expo UI controls reserved for settings and system-native
             presentation on SwiftUI and Jetpack Compose.
           </Text>
@@ -264,7 +264,7 @@ const UIScreen = () => {
             </Surface>
             <View className="flex-1 gap-1">
               <Text variant="label">Expo Image</Text>
-              <Text tone="secondary" variant="caption">
+              <Text tone="secondary" variant="helper">
                 Wrapped for Uniwind class names.
               </Text>
             </View>

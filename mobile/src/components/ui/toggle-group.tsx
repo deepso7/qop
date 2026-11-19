@@ -73,7 +73,7 @@ const ToggleGroupItem = ({
   const resolvedSize = context.size || size || "default";
 
   const textClassName = cn(
-    "text-foreground font-medium",
+    "text-foreground font-sans-medium",
     toggleTextSizes[resolvedSize],
     ToggleGroupPrimitive.utils.getIsSelected(value, props.value)
       ? "text-accent-foreground"

@@ -57,7 +57,7 @@ const Toggle = ({
 }: React.ComponentProps<typeof TogglePrimitive.Root> &
   VariantProps<typeof toggleVariants>) => {
   const textClassName = cn(
-    "text-foreground font-medium",
+    "text-foreground font-sans-medium",
     toggleTextSizes[size ?? "default"],
     props.pressed
       ? "text-accent-foreground"

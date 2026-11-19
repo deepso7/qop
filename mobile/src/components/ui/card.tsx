@@ -33,7 +33,7 @@ const CardTitle = ({
   <Text
     ref={ref}
     accessibilityRole="header"
-    className={cn("leading-none font-semibold", className)}
+    className={cn("font-sans-semibold leading-none", className)}
     {...props}
   />
 );

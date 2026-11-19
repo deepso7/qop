@@ -365,7 +365,7 @@ const LinkDeviceSheet = ({ account }: { account: Account }) => {
 
       {scanner === "denied" ? (
         <View className="gap-2">
-          <Text tone="secondary" variant="caption">
+          <Text tone="secondary" variant="helper">
             Camera access is off, so paste the code instead. You can allow the
             camera in Settings.
           </Text>
@@ -415,7 +415,7 @@ const LinkDeviceSheet = ({ account }: { account: Account }) => {
       </View>
 
       {payload.kind === "invalid" ? (
-        <Text tone="destructive" variant="caption">
+        <Text tone="destructive" variant="helper">
           {payload.reason}
         </Text>
       ) : null}
@@ -428,7 +428,7 @@ const LinkDeviceSheet = ({ account }: { account: Account }) => {
           <Text selectable variant="fingerprint">
             {fingerprint}
           </Text>
-          <Text tone="secondary" variant="caption">
+          <Text tone="secondary" variant="helper">
             Only link if this matches the fingerprint shown on the other device.
             It will be able to send and receive as you.
           </Text>
@@ -441,12 +441,12 @@ const LinkDeviceSheet = ({ account }: { account: Account }) => {
       </Button>
 
       {fingerprint && !p2pReady ? (
-        <Text tone="secondary" variant="caption">
+        <Text tone="secondary" variant="helper">
           Waiting for this phone to come online…
         </Text>
       ) : null}
       {state.kind === "failed" ? (
-        <Text selectable tone="destructive" variant="caption">
+        <Text selectable tone="destructive" variant="helper">
           {state.message}
         </Text>
       ) : null}

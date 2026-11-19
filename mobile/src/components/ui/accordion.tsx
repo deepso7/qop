@@ -87,7 +87,7 @@ const AccordionTrigger = ({
   );
 
   const textClassName = cn(
-    "text-left text-sm font-medium",
+    "font-sans-medium text-left text-sm",
     Platform.select({ web: "group-hover:underline" })
   );
 

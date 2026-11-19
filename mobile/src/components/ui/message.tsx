@@ -128,10 +128,10 @@ const messageBubbleVariants = cva(
     defaultVariants: { tone: "incoming" },
     variants: {
       tone: {
-        failed: "border-destructive bg-brand/10 border-2",
+        failed: "border-destructive bg-sent border-2",
         incoming: "bg-background-element",
-        outgoing: "bg-brand/10",
-        pending: "bg-brand/10",
+        outgoing: "bg-sent",
+        pending: "bg-sent",
       },
     },
   }
@@ -203,7 +203,7 @@ const MessageStatus = ({
     <Text
       className={cn(
         "text-foreground-secondary text-xs leading-4",
-        tone === "failed" && "text-destructive font-semibold"
+        tone === "failed" && "text-destructive font-sans-semibold"
       )}
       selectable
     >
@@ -240,7 +240,7 @@ const MessageReply = ({
   <View className={cn("mb-2 flex-row gap-2", className)} {...props}>
     <View className="bg-primary w-0.5 rounded-full" />
     <View className="min-w-0 flex-1">
-      <Text className="text-primary text-xs font-semibold" selectable>
+      <Text className="text-primary font-sans-semibold text-xs" selectable>
         {author}
       </Text>
       <Text
@@ -880,12 +880,12 @@ const MessageReactor = ({
     {...props}
   >
     <Text className="text-lg">{emoji}</Text>
-    <Text className="min-w-0 flex-1 font-medium" selectable>
+    <Text className="font-sans-medium min-w-0 flex-1" selectable>
       {name}
     </Text>
     {actionLabel ? (
       <Pressable accessibilityRole="button" hitSlop={8} onPress={onAction}>
-        <Text className="text-primary text-sm font-semibold">
+        <Text className="text-primary font-sans-semibold text-sm">
           {actionLabel}
         </Text>
       </Pressable>

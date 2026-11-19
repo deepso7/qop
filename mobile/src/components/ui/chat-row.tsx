@@ -45,7 +45,7 @@ const ChatRowIdentity = ({
       {group ? (
         <Icon as={Users} className="text-foreground-secondary size-6" />
       ) : (
-        <Text className="text-foreground-secondary text-lg font-semibold">
+        <Text className="text-foreground-secondary font-sans-semibold text-lg">
           {avatarFallback ?? name.slice(0, 2).toUpperCase()}
         </Text>
       )}
@@ -110,15 +110,15 @@ const ChatRowPreview = ({
   <Text
     className={cn(
       "text-foreground-secondary text-subhead leading-5",
-      hasUnread && "text-foreground font-medium"
+      hasUnread && "text-foreground font-sans-medium"
     )}
     numberOfLines={1}
   >
     {draft ? (
-      <Text className="text-destructive font-medium">Draft: </Text>
+      <Text className="text-destructive font-sans-medium">Draft: </Text>
     ) : null}
     {previewAuthor ? (
-      <Text className="font-medium">{previewAuthor}: </Text>
+      <Text className="font-sans-medium">{previewAuthor}: </Text>
     ) : null}
     {preview}
   </Text>
@@ -138,7 +138,7 @@ const ChatRowTrailing = ({
       <Text
         className={cn(
           "text-faint font-paper text-xs tabular-nums",
-          hasUnread && "text-primary font-medium"
+          hasUnread && "text-primary font-paper-medium"
         )}
       >
         {time}
@@ -148,7 +148,7 @@ const ChatRowTrailing = ({
     )}
     {hasUnread ? (
       <View className="bg-primary min-w-5 items-center justify-center rounded-full px-1.5 py-0.5">
-        <Text className="text-primary-foreground text-xs font-semibold tabular-nums">
+        <Text className="text-primary-foreground font-sans-semibold text-xs tabular-nums">
           {unreadCount > 99 ? "99+" : unreadCount}
         </Text>
       </View>
@@ -224,7 +224,7 @@ const ChatRowRender = (
             <View className="min-w-0 flex-1 gap-1">
               <View className="flex-row items-center gap-1.5">
                 <Text
-                  className="text-headline min-w-0 shrink leading-5 font-semibold"
+                  className="text-headline font-sans-semibold min-w-0 shrink leading-5"
                   numberOfLines={1}
                 >
                   {name}

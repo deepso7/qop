@@ -168,7 +168,9 @@ const NewChatRoute = () => {
         keyboardShouldPersistTaps="handled"
       >
         <View className="gap-3">
-          <Text variant="label">Handle</Text>
+          <Text tone="secondary" variant="label">
+            Handle
+          </Text>
           <Input
             accessibilityHint="Lowercase letters, numbers, and underscores"
             accessibilityLabel="qop handle"
@@ -196,7 +198,7 @@ const NewChatRoute = () => {
           <Text
             selectable
             tone={handle.length > 0 && !isValid ? "destructive" : "secondary"}
-            variant="caption"
+            variant="helper"
           >
             {isValid ? `Look up @${handle}.` : getHandleHint(handle)}
           </Text>

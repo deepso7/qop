@@ -25,14 +25,16 @@ export const Welcome = ({ onCreate, onRestore }: WelcomeProps) => {
       {/* The art takes whatever height the copy leaves, under the status bar;
         with large text it shrinks away and the copy and actions scroll. */}
       <ScrollView className="flex-1" contentContainerClassName="grow">
-        <View className="mt-safe flex-1">
-          <Peers />
-        </View>
-        <View className="pb-safe-offset-10 gap-8 px-6 pt-4">
+        <View className="mt-safe px-6 pt-4">
           <View className="flex-row items-center gap-1">
             <QopMark color={colors.brand} size={32} />
             <Text variant="title">qop</Text>
           </View>
+        </View>
+        <View className="flex-1">
+          <Peers />
+        </View>
+        <View className="pb-safe-offset-10 gap-8 px-6 pt-4">
           <View className="gap-4">
             <Text tone="link" variant="tag">
               peer → peer

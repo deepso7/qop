@@ -138,7 +138,7 @@ const DialogTitle = ({
 }: React.ComponentProps<typeof DialogPrimitive.Title>) => (
   <DialogPrimitive.Title
     className={cn(
-      "text-foreground text-lg leading-none font-semibold",
+      "text-foreground font-sans-semibold text-lg leading-none",
       className
     )}
     {...props}
