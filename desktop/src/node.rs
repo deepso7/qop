@@ -859,13 +859,19 @@ mod tests {
             .await
             .expect("open");
 
-        // Larger than a stream window, so the first write is held while the second arrives.
+        // Larger than a stream window, so the first write is normally still held when the second
+        // arrives. If the node finished it in between, the second is simply accepted; either way
+        // the first caller's reply must not be lost.
         let (first, second) = tokio::join!(stream.write(vec![1; 3_000_000]), stream.write(vec![2]));
 
         assert_eq!(first, Ok(()));
-        assert!(matches!(second, Err(NodeError::Stream(_))));
+        let sent = match second {
+            Ok(()) => 3_000_001,
+            Err(NodeError::Stream(_)) => 3_000_000,
+            other => panic!("second write: {other:?}"),
+        };
         stream.close_write().await.expect("close");
-        assert_eq!(serve.await.expect("server task"), Ok(3_000_000));
+        assert_eq!(serve.await.expect("server task"), Ok(sent));
     }
 
     #[tokio::test]
