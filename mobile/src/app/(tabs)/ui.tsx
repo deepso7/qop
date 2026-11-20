@@ -11,7 +11,7 @@ import {
   Text as ExpoText,
 } from "@expo/ui";
 import { useState } from "react";
-import { View } from "react-native";
+import { useWindowDimensions, View } from "react-native";
 import type { LayoutChangeEvent } from "react-native";
 import { ScopedVariables, withUniwind } from "uniwind";
 
@@ -54,20 +54,19 @@ const ComponentSection = ({
 );
 
 /**
- * Matches content height unless vertical matching is disabled for a bounded
- * scrolling preview. Children render once the width is measured and can size
- * to it with `w-(--preview-width)`.
+ * Matches content height unless a height is supplied for a bounded scrolling
+ * preview. Children render once the width is measured (`w-(--preview-width)`).
  */
 const ExpoNativePreview = ({
   children,
   className,
+  height,
   inset = false,
-  matchContentsVertical = true,
   seedColor,
 }: React.PropsWithChildren<{
-  className: string;
+  className?: string;
+  height?: number;
   inset?: boolean;
-  matchContentsVertical?: boolean;
   seedColor?: string;
 }>) => {
   const [contentWidth, setContentWidth] = useState(0);
@@ -84,17 +83,26 @@ const ExpoNativePreview = ({
     <View className="bg-background-element/50 overflow-hidden rounded-xl">
       <View className={inset ? "px-4 py-3" : undefined}>
         <View onLayout={handleLayout}>
-          <Host
-            className={cn("w-full", className)}
-            colorScheme={colorScheme}
-            ignoreSafeArea="all"
-            matchContents={{ vertical: matchContentsVertical }}
-            seedColor={seedColor}
+          <ScopedVariables
+            variables={{
+              "--preview-width": contentWidth,
+              "--preview-height": height ?? 0,
+            }}
           >
-            <ScopedVariables variables={{ "--preview-width": contentWidth }}>
+            <Host
+              className={cn(
+                "w-full",
+                className,
+                height !== undefined && "h-(--preview-height)"
+              )}
+              colorScheme={colorScheme}
+              ignoreSafeArea="all"
+              matchContents={{ vertical: height === undefined }}
+              seedColor={seedColor}
+            >
               {contentWidth > 0 && children}
-            </ScopedVariables>
-          </Host>
+            </Host>
+          </ScopedVariables>
         </View>
       </View>
     </View>
@@ -104,6 +112,7 @@ const ExpoNativePreview = ({
 const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
   const [isSwitchedOn, setIsSwitchedOn] = useState(true);
   const [sliderValue, setSliderValue] = useState(60);
+  const { fontScale } = useWindowDimensions();
   const theme = useTheme();
 
   return (
@@ -147,8 +156,10 @@ const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
       <View className="gap-2">
         <Text variant="label">Native settings group</Text>
         <ExpoNativePreview
-          className="android:h-46 h-42"
-          matchContentsVertical={false}
+          height={
+            (process.env.EXPO_OS === "android" ? 184 : 168) *
+            Math.max(1, fontScale)
+          }
         >
           <ExpoFieldGroup>
             <ExpoFieldGroup.Section title="Preferences">

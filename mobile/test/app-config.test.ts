@@ -54,17 +54,17 @@ const manifestWithChanges = (
 });
 
 describe("Android configuration changes", () => {
-  it("preserves existing flags while handling font and display scaling", async () => {
-    expect(await applyManifest(manifestWithChanges("orientation|uiMode"))).toBe(
-      "orientation|uiMode|fontScale|density"
-    );
+  it("preserves existing flags while handling font scaling", async () => {
+    expect(
+      await applyManifest(manifestWithChanges("orientation|uiMode|density"))
+    ).toBe("orientation|uiMode|density|fontScale");
   });
 
   it.each([undefined, ""])(
     "handles an empty configChanges value: %s",
     async (changes) => {
       expect(await applyManifest(manifestWithChanges(changes))).toBe(
-        "fontScale|density"
+        "fontScale"
       );
     }
   );

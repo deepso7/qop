@@ -12,7 +12,6 @@ const withAndroidConfigurationChanges = (config: ExpoConfig) =>
     );
 
     changes.add("fontScale");
-    changes.add("density");
     activity.$["android:configChanges"] = [...changes].join("|");
 
     return mod;
