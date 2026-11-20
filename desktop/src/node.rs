@@ -18,14 +18,14 @@ use std::thread::JoinHandle;
 
 use minip2p::{
     ConnectId, ConnectOutcome, ConnectionId, Ed25519Keypair, Endpoint, EndpointEvent,
-    EndpointWaitOutcome, Multiaddr, NatEvent, PeerAddr, PeerId, Protocol, StreamId, StreamWriter,
-    WaitDeadline, WaitHandle, WriteProgress,
+    EndpointWaitOutcome, Multiaddr, NatEvent, PeerAddr, PeerId, Protocol, StreamKey, WaitDeadline,
+    WaitHandle,
 };
 use tokio::sync::{mpsc, oneshot};
 
 use crate::wire::{FrameReader, Oversized};
 
-/// Most unsent bytes the node holds across all streams (pairing frames are 16 KiB).
+/// Most unsent bytes the endpoint queues across all streams (pairing frames are 16 KiB).
 const WRITE_BUDGET: usize = 4 * 1024 * 1024;
 
 /// What to bind and announce. Mirrors the CLI's `Minip2p.create` options.
@@ -105,7 +105,6 @@ pub struct NodeHandle {
     wake: WaitHandle,
 }
 
-type StreamKey = (ConnectionId, StreamId);
 type Reply<T> = oneshot::Sender<Result<T, NodeError>>;
 
 enum Command {
@@ -189,7 +188,8 @@ impl Node {
             .collect::<Result<Vec<_>, _>>()?;
         let mut builder = Endpoint::builder()
             .identity(Ed25519Keypair::from_secret_key_bytes(config.secret))
-            .agent_version(config.agent_version);
+            .agent_version(config.agent_version)
+            .write_budget(WRITE_BUDGET);
         for protocol in &config.protocols {
             builder = builder.protocol(protocol.clone());
         }
@@ -213,7 +213,7 @@ impl Node {
             .iter()
             .map(ToString::to_string)
             .collect();
-        let peer_id = endpoint.peer_id().clone();
+        let peer_id = *endpoint.peer_id();
         let (commands, inbox) = std_mpsc::channel();
         let handle = NodeHandle {
             commands,
@@ -293,14 +293,14 @@ impl NodeHandle {
     /// Connects to a peer by ID alone, through the configured relay (or reuses the live
     /// connection, which is how a peer that dialed us is reached).
     pub async fn connect_peer(&self, peer: &PeerId) -> Result<PeerId, NodeError> {
-        let peer = peer.clone();
+        let peer = *peer;
         self.request(|reply| Command::ConnectPeer { peer, reply })
             .await
     }
 
     /// Opens a stream to a connected peer and negotiates `protocol`.
     pub async fn open_stream(&self, peer: &PeerId, protocol: &str) -> Result<Stream, NodeError> {
-        let (peer, protocol) = (peer.clone(), protocol.to_owned());
+        let (peer, protocol) = (*peer, protocol.to_owned());
         self.request(|reply| Command::Open {
             peer,
             protocol,
@@ -333,7 +333,7 @@ impl fmt::Debug for Stream {
 impl Stream {
     /// The connection this stream runs on; authorization is bound to it (`engine::auth`).
     pub fn conn(&self) -> ConnectionId {
-        self.key.0
+        self.key.conn_id()
     }
 
     /// Queues `data`; resolves once the endpoint accepted every byte.
@@ -408,12 +408,12 @@ struct Driver {
     handle: NodeHandle,
     events: mpsc::UnboundedSender<NodeEvent>,
     relays: Vec<PeerAddr>,
-    writer: StreamWriter,
     max_unread: usize,
     /// Readers of live streams.
     streams: HashMap<StreamKey, Reader>,
     /// Locally opened streams awaiting negotiation, with their reader halves.
     opens: HashMap<StreamKey, (Reply<Stream>, String, PeerId, Incoming)>,
+    /// Writes the endpoint queued, answered on `StreamWriteAccepted` or `StreamWriteAborted`.
     writes: HashMap<StreamKey, Reply<()>>,
     connects: HashMap<ConnectId, Reply<PeerId>>,
 }
@@ -429,7 +429,6 @@ impl Driver {
             handle,
             events,
             relays,
-            writer: StreamWriter::new(WRITE_BUDGET),
             max_unread,
             streams: HashMap::new(),
             opens: HashMap::new(),
@@ -512,21 +511,24 @@ impl Driver {
                     let _ = reply.send(Err(NodeError::Stream(error.to_string())));
                 }
             },
-            Command::Write { key, data, reply } => {
-                match self.writer.write(endpoint, key.0, key.1, data) {
-                    Ok(WriteProgress::Accepted) => {
-                        let _ = reply.send(Ok(()));
-                    }
-                    Ok(WriteProgress::Pending) => {
-                        self.writes.insert(key, reply);
-                    }
-                    Err(error) => {
-                        let _ = reply.send(Err(NodeError::Stream(error.to_string())));
-                    }
-                }
+            // One write per stream at a time: the endpoint would append a second one behind the
+            // first, but `writes` holds a single reply per stream.
+            Command::Write { reply, key, .. } if self.writes.contains_key(&key) => {
+                let _ = reply.send(Err(NodeError::Stream("a write is already pending".into())));
             }
+            Command::Write { key, data, reply } => match endpoint.send_stream(key, data) {
+                Ok(()) if endpoint.is_write_pending(key) => {
+                    self.writes.insert(key, reply);
+                }
+                Ok(()) => {
+                    let _ = reply.send(Ok(()));
+                }
+                Err(error) => {
+                    let _ = reply.send(Err(NodeError::Stream(error.to_string())));
+                }
+            },
             Command::CloseWrite { key, reply } => {
-                let result = self.writer.close_write(endpoint, key.0, key.1);
+                let result = endpoint.close_stream_write(key);
                 let _ = reply.send(result.map_err(|e| NodeError::Stream(e.to_string())));
             }
             Command::Reset { key } => self.reset(endpoint, key),
@@ -536,23 +538,14 @@ impl Driver {
 
     fn reset(&mut self, endpoint: &mut Endpoint, key: StreamKey) {
         self.streams.remove(&key);
-        self.writer.forget(key.0, key.1);
         if let Some(reply) = self.writes.remove(&key) {
             let _ = reply.send(Err(NodeError::Stream("reset".into())));
         }
         // Already gone is fine: there is nothing left to reset.
-        let _ = endpoint.abandon_stream(key.0, key.1);
+        let _ = endpoint.abandon_stream(key);
     }
 
     fn event(&mut self, endpoint: &mut Endpoint, event: EndpointEvent) {
-        if let Some(done) = self.writer.observe(endpoint, &event)
-            && let Some(reply) = self.writes.remove(&(done.conn_id, done.stream_id))
-        {
-            let _ = reply.send(Ok(()));
-        }
-        // A held write the writer dropped (stream or connection ended) will never complete.
-        let writer = &self.writer;
-        self.writes.retain(|key, _| writer.is_pending(key.0, key.1));
         match event {
             EndpointEvent::ConnectSettled {
                 connect_id,
@@ -569,12 +562,11 @@ impl Driver {
             }
             EndpointEvent::StreamReady {
                 peer_id,
-                conn_id,
-                stream_id,
+                stream: key,
                 protocol_id,
                 initiated_locally,
+                ..
             } => {
-                let key = (conn_id, stream_id);
                 if initiated_locally {
                     if let Some((reply, protocol, peer, incoming)) = self.opens.remove(&key) {
                         let stream = self.stream(key, peer, protocol, incoming);
@@ -587,27 +579,28 @@ impl Driver {
                     let _ = self.events.send(NodeEvent::InboundStream(stream));
                 }
             }
-            EndpointEvent::StreamData {
-                conn_id,
-                stream_id,
-                data,
-                ..
-            } => {
-                self.data(endpoint, (conn_id, stream_id), &data);
+            EndpointEvent::StreamWriteAccepted { stream, .. } => {
+                if let Some(reply) = self.writes.remove(&stream) {
+                    let _ = reply.send(Ok(()));
+                }
             }
-            EndpointEvent::StreamRemoteWriteClosed {
-                conn_id, stream_id, ..
-            } => {
-                self.chunk((conn_id, stream_id), Chunk::Eof);
+            EndpointEvent::StreamWriteAborted { stream, unsent, .. } => {
+                if let Some(reply) = self.writes.remove(&stream) {
+                    let _ = reply.send(Err(NodeError::Stream(format!("{unsent} bytes unsent"))));
+                }
             }
-            EndpointEvent::StreamClosed {
-                conn_id, stream_id, ..
-            } => {
-                self.end((conn_id, stream_id), "closed");
+            EndpointEvent::StreamData { stream, data, .. } => {
+                self.data(endpoint, stream, &data);
+            }
+            EndpointEvent::StreamRemoteWriteClosed { stream, .. } => {
+                self.chunk(stream, Chunk::Eof);
+            }
+            EndpointEvent::StreamClosed { stream, .. } => {
+                self.end(stream, "closed");
             }
             EndpointEvent::Error(error) => {
                 if let (Some(conn), Some(stream)) = (error.conn_id, error.stream_id) {
-                    self.end((conn, stream), &error.detail);
+                    self.end(StreamKey::new(conn, stream), &error.detail);
                 }
             }
             EndpointEvent::ConnectionEstablished { peer_id, conn_id } => {
@@ -696,7 +689,7 @@ impl Driver {
             .streams
             .keys()
             .chain(self.opens.keys())
-            .filter(|key| key.0 == conn)
+            .filter(|key| key.conn_id() == conn)
             .copied()
             .collect();
         for key in keys {
@@ -709,9 +702,9 @@ impl Driver {
         let relay = self.relays.iter().find(|addr| addr.peer_id() == relay)?;
         let mut protocols = relay.transport().protocols().to_vec();
         protocols.extend([
-            Protocol::P2p(relay.peer_id().clone()),
+            Protocol::P2p(*relay.peer_id()),
             Protocol::P2pCircuit,
-            Protocol::P2p(own.clone()),
+            Protocol::P2p(*own),
         ]);
         Some(Multiaddr::from_protocols(protocols).to_string())
     }
@@ -844,6 +837,41 @@ mod tests {
         // Read only now, with a cap of its own the data never reaches: the node cut it off.
         assert_eq!(inbound.read_to_end(1 << 20).await, Err(NodeError::Oversized));
         assert!(stream.read_to_end(1024).await.is_err());
+    }
+
+    /// A write behind one the endpoint still holds is refused, and the held one still completes.
+    #[tokio::test]
+    async fn refuses_a_second_write_while_one_is_held() {
+        let (server, mut server_events) = node_holding(8, 8_000_000);
+        let (client, _client_events) = node(9);
+        let serve = tokio::spawn(async move {
+            let mut stream = next_stream(&mut server_events).await;
+            stream.read_to_end(8_000_000).await.map(|body| body.len())
+        });
+        let peer = client
+            .handle()
+            .connect(server.listen_addrs().to_vec())
+            .await
+            .expect("connect");
+        let mut stream = client
+            .handle()
+            .open_stream(&peer, ECHO)
+            .await
+            .expect("open");
+
+        // Larger than a stream window, so the first write is normally still held when the second
+        // arrives. If the node finished it in between, the second is simply accepted; either way
+        // the first caller's reply must not be lost.
+        let (first, second) = tokio::join!(stream.write(vec![1; 3_000_000]), stream.write(vec![2]));
+
+        assert_eq!(first, Ok(()));
+        let sent = match second {
+            Ok(()) => 3_000_001,
+            Err(NodeError::Stream(_)) => 3_000_000,
+            other => panic!("second write: {other:?}"),
+        };
+        stream.close_write().await.expect("close");
+        assert_eq!(serve.await.expect("server task"), Ok(sent));
     }
 
     #[tokio::test]

@@ -917,7 +917,7 @@ async fn pauses_on_rejection_rpc_failure_and_a_stuck_head_but_keeps_everything()
 
     // The RPC fails outright: Bob reconnects (a new connection has nothing cached), his
     // message cannot be verified, and messaging pauses. Nothing is wiped.
-    let old = bob.node.peer_id().clone();
+    let old = *bob.node.peer_id();
     drop(bob);
     desktop.wait_disconnected(&old).await;
     let bob = Bob::connect(&listen).await;

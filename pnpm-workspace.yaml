@@ -3,7 +3,7 @@ engineStrict: true
 saveExact: true
 
 catalog:
-  effect: 4.1.2
+  effect: 4.1.4
   typescript: 7.0.2
 
 packages:
@@ -15,7 +15,7 @@ packages:
 
 overrides:
   "@react-native/metro-config": 0.88.1
-  "@effect/platform-node-shared": 4.1.2
+  "@effect/platform-node-shared": 4.1.4
 
 allowBuilds:
   dtrace-provider: true
@@ -26,16 +26,16 @@ patchedDependencies:
   drizzle-orm@1.0.0-rc.5-5935859: patches/drizzle-orm@1.0.0-rc.5-5935859.patch
 
 minimumReleaseAgeExclude:
-  - "@minip2p/core@0.11.6"
-  - "@minip2p/node-darwin-arm64@0.11.6"
-  - "@minip2p/node-darwin-x64@0.11.6"
-  - "@minip2p/node-linux-arm64-gnu@0.11.6"
-  - "@minip2p/node-linux-arm64-musl@0.11.6"
-  - "@minip2p/node-linux-x64-gnu@0.11.6"
-  - "@minip2p/node-linux-x64-musl@0.11.6"
-  - "@minip2p/node-win32-x64-msvc@0.11.6"
-  - "@minip2p/node@0.11.6"
-  - "@minip2p/react-native@0.11.6"
+  - "@minip2p/core@0.12.0"
+  - "@minip2p/node-darwin-arm64@0.12.0"
+  - "@minip2p/node-darwin-x64@0.12.0"
+  - "@minip2p/node-linux-arm64-gnu@0.12.0"
+  - "@minip2p/node-linux-arm64-musl@0.12.0"
+  - "@minip2p/node-linux-x64-gnu@0.12.0"
+  - "@minip2p/node-linux-x64-musl@0.12.0"
+  - "@minip2p/node-win32-x64-msvc@0.12.0"
+  - "@minip2p/node@0.12.0"
+  - "@minip2p/react-native@0.12.0"
 
 permissions:
   blume:

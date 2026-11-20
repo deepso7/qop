@@ -85,7 +85,7 @@ async fn exchange<C: Chain>(
     if !ctx.auth.allowed() {
         return Err(SyncError::Paused);
     }
-    let (conn, peer) = (stream.conn(), stream.peer.clone());
+    let (conn, peer) = (stream.conn(), stream.peer);
     ctx.auth.opened(conn, &peer);
     let contact = ctx
         .auth
