@@ -2,10 +2,31 @@
 
 use std::sync::mpsc::{self, Receiver};
 
-use rune::{Env, Key, KeyEvent, Mods, Runtime};
+use rune::{Color, Env, Key, KeyEvent, Mods, Runtime};
 
 use super::{Pane, Ui, fake, view};
+use super::theme::Theme;
 use crate::model::{Command, ConversationId, MessageId, NewChat, Phase};
+
+#[test]
+fn danger_text_meets_aa_on_surfaces_and_hovered_chips() {
+    let luminance = |c: Color| 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    for dark in [false, true] {
+        let t = Theme::new(dark);
+        assert_eq!(t.danger.hex(), if dark { "#fa6863ff" } else { "#c2181dff" });
+        for (name, surface) in [("paper", t.paper), ("panel", t.element)] {
+            let chip = surface.mix(t.danger, t.danger_chip.a);
+            let hover = chip.mix(t.danger, t.danger_hover.a);
+            for (state, background) in [("plain", surface), ("chip", chip), ("hover", hover)] {
+                let a = luminance(t.danger);
+                let b = luminance(background);
+                let ratio = (a.max(b) + 0.05) / (a.min(b) + 0.05);
+                println!("danger dark={dark} {name} {state}: {ratio:.2}:1");
+                assert!(ratio >= 4.5);
+            }
+        }
+    }
+}
 
 /// A runtime showing `scene`, and the receiving end of its commands.
 fn open(scene: fn(&mut Ui)) -> (Runtime<Ui>, Receiver<Command>) {
