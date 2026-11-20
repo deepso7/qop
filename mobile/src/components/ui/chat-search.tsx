@@ -29,6 +29,7 @@ const ChatSearchRender = (
   const [uncontrolledValue, setUncontrolledValue] = React.useState(
     defaultValue ?? ""
   );
+
   const [focused, setFocused] = React.useState(false);
 
   const isControlled = value !== undefined;
