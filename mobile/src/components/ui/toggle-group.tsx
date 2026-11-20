@@ -90,7 +90,10 @@ const ToggleGroupItem = ({
           }),
           props.disabled && "opacity-50",
           ToggleGroupPrimitive.utils.getIsSelected(value, props.value) &&
-            "bg-primary",
+            cn(
+              "bg-primary active:bg-primary",
+              Platform.select({ web: "hover:bg-primary" })
+            ),
           "min-w-0 shrink-0 rounded-none shadow-none",
           isFirst && "rounded-l-md",
           isLast && "rounded-r-md",

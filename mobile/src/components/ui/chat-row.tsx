@@ -117,7 +117,7 @@ const ChatRowPreview = ({
       "text-foreground-secondary text-subhead leading-5",
       hasUnread && "text-foreground font-sans-medium"
     )}
-    numberOfLines={expanded ? undefined : 1}
+    numberOfLines={expanded ? 3 : 1}
   >
     {draft ? (
       <Text className="text-destructive font-sans-medium">Draft: </Text>

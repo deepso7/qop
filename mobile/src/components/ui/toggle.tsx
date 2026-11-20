@@ -71,7 +71,11 @@ const Toggle = ({
         className={cn(
           toggleVariants({ size, variant }),
           props.disabled && "opacity-50",
-          props.pressed && "bg-primary",
+          props.pressed &&
+            cn(
+              "bg-primary active:bg-primary",
+              Platform.select({ web: "hover:bg-primary" })
+            ),
           className
         )}
         hitSlop={hitSlop ?? toggleHitSlop[size ?? "default"]}

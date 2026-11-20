@@ -121,13 +121,13 @@ const OnboardingRoute = () => {
 
   return (
     <View className="bg-background flex-1">
-      {Platform.OS === "ios" && fontScale >= 2 ? (
-        content
-      ) : (
-        <KeyboardAvoidingView behavior="padding" className="flex-1">
-          {content}
-        </KeyboardAvoidingView>
-      )}
+      <KeyboardAvoidingView
+        behavior="padding"
+        className="flex-1"
+        enabled={Platform.OS !== "ios" || fontScale < 2}
+      >
+        {content}
+      </KeyboardAvoidingView>
     </View>
   );
 };
