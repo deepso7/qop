@@ -55,7 +55,7 @@
       --color-card-foreground: oklch(0.2 0.008 30);
       --color-code-background: oklch(0.2 0.008 30 / 0.06);
       /* Mobile danger is red; desktop/web intentionally use terracotta. */
-      --color-destructive: oklch(0.54 0.2 27);
+      --color-destructive: oklch(0.52 0.2 27);
       --color-destructive-foreground: oklch(0.985 0.004 80);
       --color-foreground: oklch(0.2 0.008 30);
       --color-foreground-secondary: oklch(0.2 0.008 30 / 0.66);
