@@ -9,6 +9,54 @@ use super::theme::Theme;
 use crate::model::{Command, ConversationId, MessageId, NewChat, Phase};
 
 #[test]
+fn text_links_keep_interaction_on_the_hover_group() {
+    fn links(_: &usize, _: &mut rune::Cx<usize>) -> rune::El {
+        let t = Theme::new(false);
+        rune::col()
+            .child(super::kit::link(&t, "plain", "Copy", super::theme::type_::SMALL, |n: &mut usize, _| *n += 1))
+            .child(super::kit::danger_link(&t, "danger", "Use another handle", |n: &mut usize, _| *n += 1))
+    }
+    let mut rt = Runtime::new(0, links, (980.0, 660.0), Env::new(false, 2.0));
+    rt.frame(0.0);
+    for (key, label, color) in [("plain", "Copy", Theme::new(false).link), ("danger", "Use another handle", Theme::new(false).danger)] {
+        let elements = rt.elements();
+        let index = elements.iter().position(|e| e.key.as_deref() == Some(key)).unwrap();
+        let button = &elements[index];
+        assert_eq!(button.role, "button");
+        assert_eq!(button.label.as_deref(), Some(label));
+        assert!(button.focusable);
+        let text = elements.iter().find(|e| e.parent == Some(index) && e.text.as_deref() == Some(label)).unwrap();
+        assert_eq!(text.text_color, Some(color));
+        assert_eq!(&button.rect[..2], &text.rect[..2]);
+        assert_eq!(button.rect[3], text.rect[3]);
+        let (x, y) = rt.find(key).unwrap();
+        rt.pointer_down(x, y);
+        rt.pointer_up(x, y);
+        rt.frame(1.0 / 60.0);
+    }
+    rt.key(KeyEvent { key: Key::Tab, mods: Mods::default() });
+    rt.frame(1.0 / 60.0);
+    rt.key(KeyEvent { key: Key::Text(" ".into()), mods: Mods::default() });
+    rt.frame(1.0 / 60.0);
+    assert_eq!(rt.state, 3);
+}
+
+#[test]
+fn ink_text_meets_aa_on_paper_and_panels() {
+    let luminance = |c: Color| 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    for dark in [false, true] {
+        let t = Theme::new(dark);
+        for (name, surface) in [("paper", t.paper), ("panel", t.element)] {
+            let a = luminance(t.ink);
+            let b = luminance(surface);
+            let ratio = (a.max(b) + 0.05) / (a.min(b) + 0.05);
+            println!("ink dark={dark} {name}: {ratio:.2}:1");
+            assert!(ratio >= 4.5);
+        }
+    }
+}
+
+#[test]
 fn danger_text_meets_aa_on_surfaces_and_hovered_chips() {
     let luminance = |c: Color| 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
     for dark in [false, true] {
