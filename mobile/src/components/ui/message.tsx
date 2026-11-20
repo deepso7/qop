@@ -912,25 +912,35 @@ const MessageAttachment = ({
   preview,
   size,
   ...props
-}: MessageAttachmentProps) => (
-  <Pressable
-    accessibilityLabel={`${name}${size ? `, ${size}` : ""}`}
-    accessibilityRole="button"
-    className={cn(
-      "bg-background-element border-continuous rounded-panel w-56 overflow-hidden",
-      className
-    )}
-    {...props}
-  >
-    {preview ? <View className="h-36">{preview}</View> : null}
-    <View className="px-4 py-2.5">
-      <Text className="text-sm" numberOfLines={1} selectable>
-        {name}
-        {size ? ` · ${size}` : ""}
-      </Text>
-    </View>
-  </Pressable>
-);
+}: MessageAttachmentProps) => {
+  const { fontScale } = useWindowDimensions();
+  const largeText = fontScale >= 2;
+
+  return (
+    <Pressable
+      accessibilityLabel={`${name}${size ? `, ${size}` : ""}`}
+      accessibilityRole="button"
+      className={cn(
+        "bg-background-element border-continuous rounded-panel w-56 overflow-hidden",
+        className
+      )}
+      {...props}
+    >
+      {preview ? <View className="h-36">{preview}</View> : null}
+      <View className="px-4 py-2.5">
+        <Text className="text-sm" numberOfLines={largeText ? 3 : 1} selectable>
+          {name}
+          {!largeText && size ? ` · ${size}` : ""}
+        </Text>
+        {largeText && size ? (
+          <Text className="text-sm" selectable tone="secondary">
+            {size}
+          </Text>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+};
 
 const MessageTypingDot = ({ index }: { index: number }) => {
   const reduceMotion = useReducedMotion();

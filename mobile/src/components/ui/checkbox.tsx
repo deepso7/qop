@@ -9,7 +9,8 @@ import { cn } from "@/lib/utils";
 
 const CheckboxPrimitive = { ...CheckboxPrimitiveModule };
 
-const DEFAULT_HIT_SLOP = Platform.OS === "android" ? 16 : 14;
+const checkboxClasses =
+  "border-faint dark:bg-input/30 size-4 shrink-0 rounded border";
 
 const indicatorEnter = new Keyframe({
   0: { opacity: 0, transform: [{ scale: 0.92 }] },
@@ -37,30 +38,38 @@ const Checkbox = ({
   indicatorClassName?: string;
   iconClassName?: string;
 }) => (
-  <View
-    className={Platform.select({
-      android: "size-12 items-center justify-center",
-      ios: "size-11 items-center justify-center",
-      web: "contents",
-    })}
+  <CheckboxPrimitive.Root
+    className={cn(
+      "shrink-0 items-center justify-center",
+      Platform.select({
+        native: "size-11 android:size-12",
+        web: cn(
+          checkboxClasses,
+          "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive peer cursor-default transition-shadow outline-none focus-visible:ring-3 disabled:cursor-not-allowed",
+          props.checked && cn("border-primary", checkedClassName)
+        ),
+      }),
+      props.disabled && "opacity-50",
+      className
+    )}
+    onCheckedChange={(checked) => {
+      void selectionHaptic();
+      onCheckedChange?.(checked);
+    }}
+    {...props}
   >
-    <CheckboxPrimitive.Root
-      className={cn(
-        "border-faint dark:bg-input/30 size-4 shrink-0 rounded border",
-        Platform.select({
-          native: "overflow-hidden",
-          web: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive peer cursor-default outline-none transition-shadow focus-visible:ring-[3px] disabled:cursor-not-allowed",
-        }),
-        props.checked && cn("border-primary", checkedClassName),
-        props.disabled && "opacity-50",
-        className
-      )}
-      onCheckedChange={(checked) => {
-        void selectionHaptic();
-        onCheckedChange?.(checked);
-      }}
-      hitSlop={DEFAULT_HIT_SLOP}
-      {...props}
+    <View
+      accessible={false}
+      className={Platform.select({
+        native: cn(
+          checkboxClasses,
+          "overflow-hidden",
+          props.checked && cn("border-primary", checkedClassName)
+        ),
+        web: "contents",
+      })}
+      importantForAccessibility="no-hide-descendants"
+      pointerEvents="none"
     >
       <CheckboxPrimitive.Indicator asChild>
         <Animated.View
@@ -78,8 +87,8 @@ const Checkbox = ({
           />
         </Animated.View>
       </CheckboxPrimitive.Indicator>
-    </CheckboxPrimitive.Root>
-  </View>
+    </View>
+  </CheckboxPrimitive.Root>
 );
 
 export { Checkbox };
