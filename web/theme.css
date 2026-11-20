@@ -16,6 +16,7 @@
   /* Brand terracotta for fills and art; --qp-link is the AA-contrast text shade. */
   --qp-orange: oklch(0.61 0.112 47);
   --qp-link: oklch(0.5 0.11 45);
+  --qp-danger: #c2181d;
   /* The app-icon mark: terracotta o on a pale tile. */
   --qp-mark: oklch(0.609 0.112 46.7);
   --qp-mark-tile: oklch(0.944 0.02 62.9);
@@ -42,6 +43,7 @@
   --qp-muted: oklch(0.95 0.008 70 / 0.6);
   --qp-orange: oklch(0.7 0.12 48);
   --qp-link: oklch(0.76 0.12 52);
+  --qp-danger: #fa6863;
   --qp-mark-tile: oklch(0.171 0.006 237);
 
   --blume-background: var(--qp-paper);
@@ -81,8 +83,21 @@ html {
   /* brand is for fills and art; link is the AA text shade of it. */
   --color-brand: var(--qp-orange);
   --color-link: var(--qp-link);
+  --color-danger: var(--qp-danger);
   --color-mark: var(--qp-mark);
   --color-mark-tile: var(--qp-mark-tile);
+}
+
+[data-blume-callout="danger"] {
+  color: var(--qp-danger);
+  background: color-mix(in srgb, var(--qp-danger) 6%, var(--qp-paper));
+  border-color: color-mix(in srgb, var(--qp-danger) 25%, transparent);
+
+  & > span,
+  & a,
+  & code {
+    color: inherit;
+  }
 }
 
 /* The corner sizes: large panels, the cards inside them, and controls

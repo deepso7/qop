@@ -2,7 +2,7 @@
 //! ink and one terracotta accent. Surfaces are soft squircle panels told apart by ink at low
 //! opacity, not borders or shadows. Inter for text, Paper Mono for small labels and digits.
 
-use rune::{Color, Spring, SpringPair, TextStyle, oklch};
+use rune::{Color, Spring, SpringPair, TextStyle, color::hex, oklch};
 
 /// Inter and Paper Mono (both OFL), decompressed from `web/public/fonts/InterVariable.woff2` and
 /// `web/fonts/PaperMono.woff2`. Both variable (Inter wght 100–900, Paper Mono 100–800).
@@ -35,6 +35,9 @@ pub struct Theme {
     pub brand: Color,
     /// Terracotta that reads as text on paper, AA (`--qp-link`).
     pub link: Color,
+    pub danger: Color,
+    pub danger_chip: Color,
+    pub danger_hover: Color,
     /// Sent bubbles: brand at 10%, the web's tint scale.
     pub tint: Color,
     /// The app icon's tile behind the terracotta o (`--qp-mark-tile`).
@@ -76,6 +79,7 @@ impl Theme {
                 (0.66, 0.64),
             )
         };
+        let danger = hex(if dark { "#FA6863" } else { "#C2181D" }).unwrap();
         Theme {
             controls_lead: 0.0,
             paper,
@@ -88,6 +92,9 @@ impl Theme {
             border: ink.alpha(0.1),
             brand,
             link,
+            danger,
+            danger_chip: danger.alpha(0.04),
+            danger_hover: danger.alpha(0.02),
             tint: brand.alpha(if dark { 0.16 } else { 0.1 }),
             mark_tile,
             qr_light,

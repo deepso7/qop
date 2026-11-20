@@ -27,7 +27,7 @@ pub enum Kind {
     Secondary,
     /// Muted text until hovered.
     Quiet,
-    /// Destructive: terracotta text on a chip.
+    /// Destructive: danger red text on a danger-tinted chip.
     Danger,
 }
 
@@ -37,7 +37,7 @@ pub fn button<S: 'static>(t: &Theme, key: &str, label: &str, kind: Kind, on: imp
         Kind::Primary => (t.link, t.paper, t.paper.alpha(0.12)),
         Kind::Secondary => (t.chip, t.ink, t.hover),
         Kind::Quiet => (Color::TRANSPARENT, t.muted, t.hover),
-        Kind::Danger => (t.chip, t.link, t.hover),
+        Kind::Danger => (t.danger_chip, t.danger, t.danger_hover),
     };
     let label_el = text(label).font(type_::LABEL).color(ink).a11y_hidden();
     let label_el = if kind == Kind::Quiet { label_el.group_color(t.ink) } else { label_el };
@@ -87,7 +87,7 @@ pub fn gear(color: Color, size: f32) -> El {
     canvas(shape.view_box(24.0, 24.0)).size(size, size)
 }
 
-/// A text action in terracotta (Unlink, Use another handle), underlined on hover like site links.
+/// A text action in terracotta, underlined on hover like site links.
 pub fn link<S: 'static>(t: &Theme, key: &str, label: &str, on: impl Fn(&mut S, &mut Tx) + 'static) -> El {
     text(label)
         .key(key)
@@ -100,6 +100,10 @@ pub fn link<S: 'static>(t: &Theme, key: &str, label: &str, on: impl Fn(&mut S, &
         .focus_ring(2.0, 2.0, t.brand)
         .cursor(Cursor::Pointer)
         .on_press_tx(on)
+}
+
+pub fn danger_link<S: 'static>(t: &Theme, key: &str, label: &str, on: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+    link(t, key, label, on).color(t.danger).group_color(t.danger).focus_ring(2.0, 2.0, t.danger)
 }
 
 /// A single-line input on a soft chip, ringed in terracotta while focused. `prefix` (such as `@`)
@@ -269,4 +273,3 @@ fn srgb8(c: Color) -> [u8; 4] {
     };
     [enc(c.r), enc(c.g), enc(c.b), 255]
 }
-

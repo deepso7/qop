@@ -115,7 +115,7 @@ pub fn pairing(ui: &Ui, t: &Theme, handle: &str, offer: Option<&Offer>, relay: R
         .child(el().h(space::XL + space::S))
         .child(relay_line(t, relay));
     if !recovering {
-        left = left.child(el().h(space::M)).child(kit::link(t, "unlink", &format!("Not @{handle}? Use another handle"), |ui: &mut Ui, _| ui.send(Command::Unlink)));
+        left = left.child(el().h(space::M)).child(kit::danger_link(t, "unlink", &format!("Not @{handle}? Use another handle"), |ui: &mut Ui, _| ui.send(Command::Unlink)));
     }
     page(t, row().gap(56.0).items_center().child(left).child(qr_card(ui, t, offer, relay)))
 }
