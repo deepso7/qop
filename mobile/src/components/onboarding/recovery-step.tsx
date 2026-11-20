@@ -248,13 +248,13 @@ export const RecoveryStep = ({ handle }: { handle: string }) => {
       <View>
         {RULES.map((rule) => (
           <View
-            className="flex-row items-baseline gap-4 py-1.5"
+            className="flex-row flex-wrap items-baseline gap-x-4 gap-y-1 py-1.5"
             key={rule.label}
           >
-            <Text className="w-24" tone="secondary" variant="eyebrow">
+            <Text className="min-w-24" tone="secondary" variant="eyebrow">
               {rule.label}
             </Text>
-            <Text className="flex-1">{rule.value}</Text>
+            <Text className="min-w-48 flex-1">{rule.value}</Text>
           </View>
         ))}
       </View>

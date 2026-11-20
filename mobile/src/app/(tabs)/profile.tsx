@@ -14,7 +14,14 @@ import { Result } from "effect";
 import * as Clipboard from "expo-clipboard";
 import { useRouter } from "expo-router";
 import * as React from "react";
-import { Alert, Platform, Share, useColorScheme, View } from "react-native";
+import {
+  Alert,
+  Platform,
+  Share,
+  useColorScheme,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { ScopedVariables, withUniwind } from "uniwind";
 
 import { NativeAlert } from "@/components/ui/native-alert";
@@ -82,15 +89,22 @@ const showQrCode = () => {
 const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
   const colors = useTheme();
   const [tint, ink] = avatarTint(handle);
+  const { fontScale } = useWindowDimensions();
+  const Layout = fontScale >= 2 ? StyledColumn : StyledRow;
 
   return (
     // No row-wide spacing: it would also pad around the flexible spacer and
     // squeeze the QR circle when the handle is long.
-    <StyledRow alignment="center" className="py-3.5">
-      <ScopedVariables variables={{ "--avatar-tint": tint }}>
+    <Layout alignment="center" className="py-3.5">
+      <ScopedVariables
+        variables={{
+          "--avatar-tint": tint,
+          "--avatar-size": 72 * Math.max(1, fontScale / 1.5),
+        }}
+      >
         <StyledColumn
           alignment="center"
-          className="size-18 rounded-full bg-(--avatar-tint)"
+          className="size-(--avatar-size) rounded-full bg-(--avatar-tint)"
         >
           <Spacer flexible />
           <UIText
@@ -108,7 +122,7 @@ const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
       <Spacer size={16} />
       <Column spacing={4}>
         <UIText
-          numberOfLines={1}
+          numberOfLines={fontScale >= 2 ? undefined : 1}
           textStyle={{
             fontFamily: "Inter-SemiBold",
             fontSize: 24,
@@ -143,7 +157,7 @@ const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
         />
         <Spacer flexible />
       </StyledColumn>
-    </StyledRow>
+    </Layout>
   );
 };
 
@@ -370,7 +384,13 @@ const ProfileScreen = ({ account }: { account: Account }) => {
 
   return (
     <View className="bg-background pt-safe flex-1">
-      <Text className="mx-5 mt-10 mb-2" variant="largeTitle">
+      <Text
+        adjustsFontSizeToFit
+        minimumFontScale={0.5}
+        numberOfLines={1}
+        className="mx-5 mt-10 mb-2"
+        variant="largeTitle"
+      >
         Profile
       </Text>
       <StyledHost

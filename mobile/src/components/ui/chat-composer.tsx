@@ -88,8 +88,9 @@ const ChatComposerInput = ({
   ...props
 }: React.ComponentProps<typeof TextInput>) => (
   <TextInput
+    accessibilityLabel="Message"
     className={cn(
-      "bg-background-element text-foreground border-continuous max-h-40 min-h-11 flex-1 rounded-md px-4 py-2.5 font-sans text-base leading-5",
+      "border-faint bg-background-element text-foreground border-continuous max-h-40 min-h-11 flex-1 rounded-md border px-4 py-2.5 font-sans text-base leading-5",
       className
     )}
     multiline
@@ -127,7 +128,7 @@ const ChatRecording = ({
 }: ChatRecordingProps) => (
   <View
     className={cn(
-      "bg-background-element h-11 flex-1 flex-row items-center gap-3 rounded-full px-4",
+      "bg-background-element min-h-11 flex-1 flex-row items-center gap-3 rounded-full px-4 py-2",
       className
     )}
     {...props}

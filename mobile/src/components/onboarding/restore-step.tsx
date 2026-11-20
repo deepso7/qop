@@ -136,7 +136,7 @@ const KeyField = ({
         accessibilityHint="Pastes the key from your clipboard"
         accessibilityLabel="Paste"
         accessibilityRole="button"
-        className="self-end"
+        className="min-h-11 min-w-11 items-center justify-center self-end"
         hitSlop={12}
         onPress={onPaste}
       >

@@ -1,10 +1,10 @@
 import * as RadioGroupPrimitiveModule from "@rn-primitives/radio-group";
-import { Platform } from "react-native";
+import { Platform, View } from "react-native";
 
 import { cn } from "@/lib/utils";
 
 const RadioGroupPrimitive = { ...RadioGroupPrimitiveModule };
-const DEFAULT_HIT_SLOP = 14;
+const DEFAULT_HIT_SLOP = Platform.OS === "android" ? 16 : 14;
 
 const RadioGroup = ({
   className,
@@ -17,20 +17,28 @@ const RadioGroupItem = ({
   className,
   ...props
 }: React.ComponentProps<typeof RadioGroupPrimitive.Item>) => (
-  <RadioGroupPrimitive.Item
-    className={cn(
-      "border-input dark:bg-input/30 aspect-square size-4 shrink-0 items-center justify-center rounded-full border",
-      Platform.select({
-        web: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive outline-none transition-all focus-visible:ring-[3px] disabled:cursor-not-allowed",
-      }),
-      props.disabled && "opacity-50",
-      className
-    )}
-    hitSlop={DEFAULT_HIT_SLOP}
-    {...props}
+  <View
+    className={Platform.select({
+      android: "size-12 items-center justify-center",
+      ios: "size-11 items-center justify-center",
+      web: "contents",
+    })}
   >
-    <RadioGroupPrimitive.Indicator className="bg-primary size-2 rounded-full" />
-  </RadioGroupPrimitive.Item>
+    <RadioGroupPrimitive.Item
+      className={cn(
+        "border-faint dark:bg-input/30 aspect-square size-4 shrink-0 items-center justify-center rounded-full border",
+        Platform.select({
+          web: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive outline-none transition-all focus-visible:ring-[3px] disabled:cursor-not-allowed",
+        }),
+        props.disabled && "opacity-50",
+        className
+      )}
+      hitSlop={DEFAULT_HIT_SLOP}
+      {...props}
+    >
+      <RadioGroupPrimitive.Indicator className="bg-primary size-2 rounded-full" />
+    </RadioGroupPrimitive.Item>
+  </View>
 );
 
 export { RadioGroup, RadioGroupItem };

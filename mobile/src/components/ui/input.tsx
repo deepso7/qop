@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 const inputVariants = cva(
   cn(
-    "border-continuous bg-input text-foreground h-12 w-full min-w-0 rounded-md border border-transparent px-3 font-sans text-base",
+    "border-continuous border-faint bg-input text-foreground min-h-12 w-full min-w-0 rounded-md border px-3 py-3 font-sans text-base",
     Platform.select({
       web: cn(
         "placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground transition outline-none md:text-sm",
@@ -21,12 +21,12 @@ const inputVariants = cva(
     variants: {
       size: {
         default: "",
-        // Pair with a taller height (e.g. h-14) for a screen's primary field.
+        // Pair with a taller minimum height for a screen's primary field.
         lg: "rounded-md px-4 text-lg",
       },
       variant: {
         default: "",
-        // Sits on the page as a filled well rather than an outlined box.
+        // A filled input well.
         filled: "bg-input",
       },
     },

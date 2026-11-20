@@ -239,12 +239,14 @@ const CodeBoxes = ({
 
   const box = (index: number) => (
     <RoundedSurface
-      className="h-16 flex-1"
+      className="min-h-16 flex-1 justify-center"
       variant="cell"
       key={index}
       focused={index === active}
     >
-      <Text variant="glyph">{value[index] ?? ""}</Text>
+      <Text maxFontSizeMultiplier={2} variant="glyph">
+        {value[index] ?? ""}
+      </Text>
     </RoundedSurface>
   );
 
@@ -261,7 +263,7 @@ const CodeBoxes = ({
         importantForAccessibility="no-hide-descendants"
       >
         {[0, 1, 2].map(box)}
-        <Text tone="secondary" variant="glyph">
+        <Text maxFontSizeMultiplier={2} tone="secondary" variant="glyph">
           –
         </Text>
         {[3, 4, 5].map(box)}

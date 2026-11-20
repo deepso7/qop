@@ -333,7 +333,7 @@ const MessageReaction = ({
     accessibilityLabel={`${emoji} reaction${selected ? ", you reacted" : ""}`}
     accessibilityState={{ selected }}
     className={cn(
-      "border-border h-8 min-w-8 rounded-full border px-2",
+      "border-faint min-h-11 min-w-11 rounded-full border px-2 py-2",
       selected && "bg-primary border-primary",
       className
     )}
@@ -360,7 +360,7 @@ const MessageReactionAdd = ({
   <Button
     accessibilityLabel="Add reaction"
     className={cn(
-      "size-8 rounded-full",
+      "size-11 rounded-full",
       variant === "filled"
         ? "bg-background-selected dark:bg-background-selected border-0"
         : "border-border border",
@@ -531,7 +531,7 @@ const MessageActionRows = ({
         <Pressable
           accessibilityRole="menuitem"
           accessibilityState={{ disabled: action.disabled }}
-          className="active:bg-background-selected h-11.5 flex-row items-center gap-3.5 px-4"
+          className="active:bg-background-selected min-h-11.5 flex-row items-center gap-3.5 px-4 py-2"
           disabled={action.disabled}
           onPress={() => onRunAction(action)}
           ref={index === 0 ? firstActionRef : undefined}

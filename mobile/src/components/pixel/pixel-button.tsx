@@ -50,11 +50,11 @@ export const PixelButton = ({
 
         return (
           <RoundedSurface
-            className={primary ? "h-12" : "h-11"}
+            className={primary ? "min-h-12" : "min-h-11"}
             variant={primary ? "primary" : "quiet"}
             pressed={pressed}
           >
-            <Text tone={tone} variant="action">
+            <Text className="shrink text-center" tone={tone} variant="action">
               {label}
             </Text>
             {busy ? (

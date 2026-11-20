@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ComponentProps, ReactNode } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import Animated, {
   FadeIn,
   FadeOut,
@@ -31,7 +31,9 @@ export const Eyebrow = ({
 
 // The display scale shared with desktop onboarding.
 export const Title = ({ children }: { children: ReactNode }) => (
-  <Text variant="display">{children}</Text>
+  <Text maxFontSizeMultiplier={2} variant="display">
+    {children}
+  </Text>
 );
 
 export const Lede = ({ children }: { children: ReactNode }) => (
@@ -48,12 +50,12 @@ const StepHeader = ({
   onBack?: () => void;
   step: number;
 }) => (
-  <View className="h-11 flex-row items-center justify-between">
+  <View className="min-h-11 flex-row items-center justify-between">
     {onBack ? (
       <Pressable
         accessibilityLabel="Back"
         accessibilityRole="button"
-        className="-ml-2 h-11 justify-center px-2"
+        className="-ml-2 min-h-11 justify-center px-2"
         hitSlop={8}
         onPress={onBack}
       >
@@ -82,7 +84,7 @@ const StepHeader = ({
           />
         ))}
       </View>
-      <Text tone="secondary" variant="tag">
+      <Text maxFontSizeMultiplier={2} tone="secondary" variant="tag">
         {String(step).padStart(2, "0")} / {String(STEP_COUNT).padStart(2, "0")}
       </Text>
     </View>
@@ -91,46 +93,57 @@ const StepHeader = ({
 
 export interface StepFrameProps {
   children: ReactNode;
-  // Pinned under the scrolling body, above the keyboard.
+  // Pinned below the body at standard text sizes; scrolls at accessibility sizes.
   footer?: ReactNode;
   onBack?: () => void;
   // Omit for screens outside the numbered steps (welcome, errors).
   step?: number;
 }
 
-// Layout for every onboarding screen: header, scrolling body, pinned footer.
-// The route wraps it in a KeyboardAvoidingView so the footer rides the keyboard.
+// Shared onboarding header, scrolling body and responsive footer.
 export const StepFrame = ({
   children,
   footer,
   onBack,
   step,
-}: StepFrameProps) => (
-  <Animated.View
-    className="pt-safe-or-4 flex-1"
-    entering={enter}
-    exiting={exit}
-  >
-    {step === undefined ? null : (
-      <View className="px-6">
-        <StepHeader onBack={onBack} step={step} />
-      </View>
-    )}
-    <ScrollView
-      className="flex-1"
-      contentContainerClassName="grow gap-8 px-6 pt-8 pb-6"
-      keyboardDismissMode={
-        process.env.EXPO_OS === "ios" ? "interactive" : "on-drag"
-      }
-      keyboardShouldPersistTaps="handled"
+}: StepFrameProps) => {
+  const { fontScale } = useWindowDimensions();
+  const scrollFooter = fontScale >= 2;
+
+  return (
+    <Animated.View
+      className="pt-safe-or-4 flex-1"
+      entering={enter}
+      exiting={exit}
     >
-      {children}
-    </ScrollView>
-    {footer ? (
-      <View className="pb-safe-offset-10 gap-3 px-6 pt-3">{footer}</View>
-    ) : null}
-  </Animated.View>
-);
+      {step === undefined ? null : (
+        <View className="px-6">
+          <StepHeader onBack={onBack} step={step} />
+        </View>
+      )}
+      <ScrollView
+        automaticallyAdjustKeyboardInsets={scrollFooter}
+        className="flex-1"
+        contentContainerClassName={cn(
+          "grow gap-8 px-6 pt-8 pb-6",
+          scrollFooter && "pb-safe-offset-10"
+        )}
+        keyboardDismissMode={
+          process.env.EXPO_OS === "ios" ? "interactive" : "on-drag"
+        }
+        keyboardShouldPersistTaps="handled"
+      >
+        {children}
+        {scrollFooter && footer ? (
+          <View className="gap-3 pt-3">{footer}</View>
+        ) : null}
+      </ScrollView>
+      {!scrollFooter && footer ? (
+        <View className="pb-safe-offset-10 gap-3 px-6 pt-3">{footer}</View>
+      ) : null}
+    </Animated.View>
+  );
+};
 
 // Field feedback pairs a status light with supporting copy.
 export const StatusLine = ({
@@ -171,7 +184,7 @@ export const LogRow = ({
   label: string;
   state: LogState;
 }) => (
-  <View className="h-6 flex-row items-center gap-3">
+  <View className="min-h-6 flex-row items-center gap-3">
     <View className="w-2 items-center">
       {state === "active" ? (
         <Cursor className="bg-primary" />

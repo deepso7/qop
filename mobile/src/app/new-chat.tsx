@@ -165,6 +165,7 @@ const NewChatRoute = () => {
         className="bg-background flex-1"
         contentContainerClassName="gap-6 p-5"
         contentInsetAdjustmentBehavior="automatic"
+        automaticallyAdjustKeyboardInsets
         keyboardShouldPersistTaps="handled"
       >
         <View className="gap-3">
@@ -178,7 +179,7 @@ const NewChatRoute = () => {
             autoCapitalize="none"
             autoComplete="off"
             autoCorrect={false}
-            className="h-14"
+            className="min-h-14"
             size="lg"
             variant="filled"
             // Locked while opening too: editing would drop the card mid-save.

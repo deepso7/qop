@@ -162,7 +162,7 @@ export const HandleStep = ({
       </View>
 
       <View className="gap-3">
-        <RoundedSurface className="h-14" variant="field" focused={focused}>
+        <RoundedSurface className="min-h-14" variant="field" focused={focused}>
           <Text tone="secondary" variant="inputPrefix">
             @
           </Text>
@@ -173,7 +173,7 @@ export const HandleStep = ({
             autoComplete="off"
             autoCorrect={false}
             autoFocus
-            className="text-foreground h-full flex-1 py-0 font-sans text-2xl leading-8"
+            className="text-foreground min-h-14 flex-1 py-0 font-sans text-2xl leading-8"
             enterKeyHint="next"
             maxLength={MAX_LENGTH + 1}
             onBlur={() => setFocused(false)}

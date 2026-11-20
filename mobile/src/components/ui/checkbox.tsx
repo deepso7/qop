@@ -1,6 +1,6 @@
 import * as CheckboxPrimitiveModule from "@rn-primitives/checkbox";
 import { Check } from "lucide-react-native";
-import { Platform } from "react-native";
+import { Platform, View } from "react-native";
 import Animated, { Keyframe, ReduceMotion } from "react-native-reanimated";
 
 import { Icon } from "@/components/ui/icon";
@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 
 const CheckboxPrimitive = { ...CheckboxPrimitiveModule };
 
-const DEFAULT_HIT_SLOP = 14;
+const DEFAULT_HIT_SLOP = Platform.OS === "android" ? 16 : 14;
 
 const indicatorEnter = new Keyframe({
   0: { opacity: 0, transform: [{ scale: 0.92 }] },
@@ -37,41 +37,49 @@ const Checkbox = ({
   indicatorClassName?: string;
   iconClassName?: string;
 }) => (
-  <CheckboxPrimitive.Root
-    className={cn(
-      "border-input dark:bg-input/30 size-4 shrink-0 rounded border",
-      Platform.select({
-        native: "overflow-hidden",
-        web: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive peer cursor-default outline-none transition-shadow focus-visible:ring-[3px] disabled:cursor-not-allowed",
-      }),
-      props.checked && cn("border-primary", checkedClassName),
-      props.disabled && "opacity-50",
-      className
-    )}
-    onCheckedChange={(checked) => {
-      void selectionHaptic();
-      onCheckedChange?.(checked);
-    }}
-    hitSlop={DEFAULT_HIT_SLOP}
-    {...props}
+  <View
+    className={Platform.select({
+      android: "size-12 items-center justify-center",
+      ios: "size-11 items-center justify-center",
+      web: "contents",
+    })}
   >
-    <CheckboxPrimitive.Indicator asChild>
-      <Animated.View
-        className={cn(
-          "bg-primary h-full w-full items-center justify-center",
-          indicatorClassName
-        )}
-        entering={indicatorEnter}
-        exiting={indicatorExit}
-      >
-        <Icon
-          as={Check}
-          className={cn("text-primary-foreground size-3", iconClassName)}
-          strokeWidth={3}
-        />
-      </Animated.View>
-    </CheckboxPrimitive.Indicator>
-  </CheckboxPrimitive.Root>
+    <CheckboxPrimitive.Root
+      className={cn(
+        "border-faint dark:bg-input/30 size-4 shrink-0 rounded border",
+        Platform.select({
+          native: "overflow-hidden",
+          web: "focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive peer cursor-default outline-none transition-shadow focus-visible:ring-[3px] disabled:cursor-not-allowed",
+        }),
+        props.checked && cn("border-primary", checkedClassName),
+        props.disabled && "opacity-50",
+        className
+      )}
+      onCheckedChange={(checked) => {
+        void selectionHaptic();
+        onCheckedChange?.(checked);
+      }}
+      hitSlop={DEFAULT_HIT_SLOP}
+      {...props}
+    >
+      <CheckboxPrimitive.Indicator asChild>
+        <Animated.View
+          className={cn(
+            "bg-primary h-full w-full items-center justify-center",
+            indicatorClassName
+          )}
+          entering={indicatorEnter}
+          exiting={indicatorExit}
+        >
+          <Icon
+            as={Check}
+            className={cn("text-primary-foreground size-3", iconClassName)}
+            strokeWidth={3}
+          />
+        </Animated.View>
+      </CheckboxPrimitive.Indicator>
+    </CheckboxPrimitive.Root>
+  </View>
 );
 
 export { Checkbox };

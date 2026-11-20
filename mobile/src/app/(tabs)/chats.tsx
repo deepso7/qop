@@ -122,7 +122,13 @@ const ChatsScreen = () => {
     () => (
       <View className="gap-4 px-5 pt-10 pb-4">
         <View className="flex-row items-center justify-between gap-4">
-          <Text className="min-w-0 flex-1" variant="largeTitle">
+          <Text
+            adjustsFontSizeToFit
+            minimumFontScale={0.5}
+            numberOfLines={1}
+            className="min-w-0 flex-1"
+            variant="largeTitle"
+          >
             Chats
           </Text>
           <Button

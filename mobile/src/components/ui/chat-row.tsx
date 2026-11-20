@@ -1,6 +1,6 @@
 import { Users } from "lucide-react-native";
 import * as React from "react";
-import { Pressable, View } from "react-native";
+import { Pressable, useWindowDimensions, View } from "react-native";
 
 import { Icon } from "@/components/ui/icon";
 import { Separator } from "@/components/ui/separator";
@@ -45,7 +45,10 @@ const ChatRowIdentity = ({
       {group ? (
         <Icon as={Users} className="text-foreground-secondary size-6" />
       ) : (
-        <Text className="text-foreground-secondary font-sans-semibold text-lg">
+        <Text
+          maxFontSizeMultiplier={1}
+          className="text-foreground-secondary font-sans-semibold text-lg"
+        >
           {avatarFallback ?? name.slice(0, 2).toUpperCase()}
         </Text>
       )}
@@ -99,11 +102,13 @@ const buildChatRowAccessibilityLabel = ({
 const ChatRowPreview = ({
   draft,
   hasUnread,
+  expanded,
   preview,
   previewAuthor,
 }: {
   draft: boolean;
   hasUnread: boolean;
+  expanded: boolean;
   preview: string;
   previewAuthor?: string;
 }) => (
@@ -112,7 +117,7 @@ const ChatRowPreview = ({
       "text-foreground-secondary text-subhead leading-5",
       hasUnread && "text-foreground font-sans-medium"
     )}
-    numberOfLines={1}
+    numberOfLines={expanded ? undefined : 1}
   >
     {draft ? (
       <Text className="text-destructive font-sans-medium">Draft: </Text>
@@ -125,15 +130,23 @@ const ChatRowPreview = ({
 );
 
 const ChatRowTrailing = ({
+  expanded,
   hasUnread,
   time,
   unreadCount,
 }: {
+  expanded: boolean;
   hasUnread: boolean;
   time?: string;
   unreadCount: number;
 }) => (
-  <View className="h-12 min-w-10 items-end justify-between py-0.5">
+  <View
+    className={cn(
+      "min-h-12 min-w-10 shrink-0 items-end justify-between py-0.5",
+      expanded &&
+        "min-h-0 flex-row flex-wrap items-center justify-start gap-3 self-stretch"
+    )}
+  >
     {time ? (
       <Text
         className={cn(
@@ -178,6 +191,8 @@ const ChatRowRender = (
   }: ChatRowProps,
   ref: React.ForwardedRef<React.ElementRef<typeof Pressable>>
 ) => {
+  const { fontScale } = useWindowDimensions();
+  const expanded = fontScale >= 2;
   const hasUnread = unreadCount > 0;
   const opensConversation = onPress !== undefined;
 
@@ -220,12 +235,22 @@ const ChatRowRender = (
         />
 
         <View className="min-w-0 flex-1">
-          <View className="min-h-20 flex-row items-center gap-3 py-3 pr-4">
-            <View className="min-w-0 flex-1 gap-1">
+          <View
+            className={cn(
+              "min-h-20 w-full flex-row items-center gap-3 py-3 pr-4",
+              expanded && "flex-col items-start"
+            )}
+          >
+            <View
+              className={cn(
+                "min-w-0 flex-1 shrink basis-0 gap-1",
+                expanded && "w-full flex-none basis-auto"
+              )}
+            >
               <View className="flex-row items-center gap-1.5">
                 <Text
                   className="text-headline font-sans-semibold min-w-0 shrink leading-5"
-                  numberOfLines={1}
+                  numberOfLines={expanded ? undefined : 1}
                 >
                   {name}
                 </Text>
@@ -233,6 +258,7 @@ const ChatRowRender = (
 
               <ChatRowPreview
                 draft={draft}
+                expanded={expanded}
                 hasUnread={hasUnread}
                 preview={preview}
                 previewAuthor={previewAuthor}
@@ -240,6 +266,7 @@ const ChatRowRender = (
             </View>
 
             <ChatRowTrailing
+              expanded={expanded}
               hasUnread={hasUnread}
               time={time}
               unreadCount={unreadCount}

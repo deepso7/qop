@@ -137,7 +137,7 @@ const CatalogGroup = ({
 );
 
 const RowLabel = ({ children }: React.PropsWithChildren) => (
-  <View className="flex-row items-center gap-3">{children}</View>
+  <View className="min-h-11 flex-row items-center gap-3">{children}</View>
 );
 
 const RnrCatalog = () => {
@@ -190,7 +190,11 @@ const RnrCatalog = () => {
           <Button size="lg">
             <Text>Large</Text>
           </Button>
-          <Button size="icon" variant="outline">
+          <Button
+            accessibilityLabel="Notifications"
+            size="icon"
+            variant="outline"
+          >
             <ToggleIcon as={Bell} />
           </Button>
         </View>
@@ -216,28 +220,36 @@ const RnrCatalog = () => {
         <View className="gap-2">
           <Label nativeID="catalog-email">Email</Label>
           <Input
+            accessibilityLabel="Email"
             aria-labelledby="catalog-email"
             inputMode="email"
             placeholder="you@example.com"
           />
         </View>
-        <Textarea placeholder="Write a longer prompt…" />
+        <Textarea
+          accessibilityLabel="Prompt"
+          placeholder="Write a longer prompt…"
+        />
         <RowLabel>
-          <Checkbox checked={checked} onCheckedChange={setChecked} />
+          <Checkbox
+            accessibilityLabel="Checkbox"
+            checked={checked}
+            onCheckedChange={setChecked}
+          />
           <Text>Checkbox</Text>
         </RowLabel>
         <RadioGroup onValueChange={setRadioValue} value={radioValue}>
           <RowLabel>
-            <RadioGroupItem value="fast" />
+            <RadioGroupItem accessibilityLabel="Fast" value="fast" />
             <Text>Fast</Text>
           </RowLabel>
           <RowLabel>
-            <RadioGroupItem value="balanced" />
+            <RadioGroupItem accessibilityLabel="Balanced" value="balanced" />
             <Text>Balanced</Text>
           </RowLabel>
         </RadioGroup>
         <Select onValueChange={setSelectValue} value={selectValue}>
-          <SelectTrigger className="w-full">
+          <SelectTrigger accessibilityLabel="Response mode" className="w-full">
             <SelectValue placeholder="Select a mode" />
           </SelectTrigger>
           <SelectContent>
@@ -371,6 +383,7 @@ const RnrCatalog = () => {
             <Text>Bold</Text>
           </Toggle>
           <Toggle
+            accessibilityLabel="Settings"
             onPressedChange={setOutlineTogglePressed}
             pressed={outlineTogglePressed}
             variant="outline"
@@ -384,13 +397,17 @@ const RnrCatalog = () => {
           value={toggleGroupValue}
           variant="outline"
         >
-          <ToggleGroupItem isFirst value="bold">
+          <ToggleGroupItem accessibilityLabel="Bold" isFirst value="bold">
             <ToggleGroupIcon as={Bold} />
           </ToggleGroupItem>
-          <ToggleGroupItem value="italic">
+          <ToggleGroupItem accessibilityLabel="Italic" value="italic">
             <ToggleGroupIcon as={Italic} />
           </ToggleGroupItem>
-          <ToggleGroupItem isLast value="underline">
+          <ToggleGroupItem
+            accessibilityLabel="Underline"
+            isLast
+            value="underline"
+          >
             <ToggleGroupIcon as={Underline} />
           </ToggleGroupItem>
         </ToggleGroup>
@@ -478,7 +495,11 @@ const RnrCatalog = () => {
 
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button size="icon" variant="outline">
+              <Button
+                accessibilityLabel="More information"
+                size="icon"
+                variant="outline"
+              >
                 <ToggleIcon as={Info} />
               </Button>
             </TooltipTrigger>
@@ -520,7 +541,11 @@ const RnrCatalog = () => {
 
           <ContextMenu>
             <ContextMenuTrigger asChild>
-              <Pressable className="border-input active:bg-accent min-h-11 justify-center rounded-md border px-4 py-2">
+              <Pressable
+                accessibilityRole="button"
+                accessibilityHint="Opens the conversation menu"
+                className="border-faint active:bg-accent min-h-11 justify-center rounded-md border px-4 py-2"
+              >
                 <Text variant="link">Long press</Text>
               </Pressable>
             </ContextMenuTrigger>

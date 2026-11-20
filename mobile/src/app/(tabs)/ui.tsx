@@ -85,6 +85,7 @@ const ExpoNativePreview = ({
             className={cn("w-full", className)}
             colorScheme={colorScheme}
             ignoreSafeArea="all"
+            matchContents={{ vertical: true }}
             seedColor={seedColor}
           >
             <ScopedVariables variables={{ "--preview-width": contentWidth }}>
@@ -112,22 +113,16 @@ const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
         <ExpoNativePreview className="h-46" inset seedColor={theme.primary}>
           <Column className="w-(--preview-width)" spacing={16}>
             <Row alignment="center" className="w-(--preview-width)">
-              <ExpoText textStyle={{ color: theme.text }}>
-                Native controls
-              </ExpoText>
-              <ExpoSpacer flexible />
               <ExpoSwitch
+                label="Native controls"
                 onValueChange={setIsSwitchedOn}
                 value={isSwitchedOn}
               />
             </Row>
             <Row alignment="center" className="w-(--preview-width)">
-              <ExpoText textStyle={{ color: theme.textSecondary }}>
-                Disabled switch
-              </ExpoText>
-              <ExpoSpacer flexible />
               <ExpoSwitch
                 disabled
+                label="Disabled switch"
                 onValueChange={setIsSwitchedOn}
                 value={false}
               />

@@ -8,8 +8,14 @@ import * as Clipboard from "expo-clipboard";
 import * as Crypto from "expo-crypto";
 import { useRouter } from "expo-router";
 import * as React from "react";
-import { Linking, Platform, ScrollView, View } from "react-native";
-import { withUniwind } from "uniwind";
+import {
+  Linking,
+  Platform,
+  ScrollView,
+  useWindowDimensions,
+  View,
+} from "react-native";
+import { ScopedVariables, withUniwind } from "uniwind";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +34,7 @@ import {
   decodePairingPayload,
   handshakePairing,
 } from "@/lib/pairing-client-core";
+import { cn } from "@/lib/utils";
 
 type Payload =
   | { readonly kind: "empty" }
@@ -132,6 +139,8 @@ const LinkDeviceSheet = ({ account }: { account: Account }) => {
   const { identity, qid } = account;
   const router = useRouter();
   const colors = useTheme();
+  const { fontScale } = useWindowDimensions();
+  const largeText = fontScale >= 2;
   const pairConnect = useP2pStore((state) => state.pairConnect);
   const pairWaitPeerReady = useP2pStore((state) => state.pairWaitPeerReady);
   const openPairingStream = useP2pStore((state) => state.openPairingStream);
@@ -329,6 +338,7 @@ const LinkDeviceSheet = ({ account }: { account: Account }) => {
       className="flex-1"
       contentContainerClassName="gap-5 px-5 pt-2 pb-8"
       contentInsetAdjustmentBehavior="automatic"
+      automaticallyAdjustKeyboardInsets
       keyboardShouldPersistTaps="handled"
     >
       {/* Android form sheets have no navigation header to show the title. */}
@@ -381,43 +391,51 @@ const LinkDeviceSheet = ({ account }: { account: Account }) => {
         </View>
       ) : null}
 
-      <View className="flex-row items-center gap-2">
-        <Input
-          autoCapitalize="none"
-          autoCorrect={false}
-          className="flex-1"
-          editable={!busy}
-          onChangeText={changeText}
-          placeholder="qop-pair1.…"
-          value={text}
-        />
-        {Clipboard.isPasteButtonAvailable ? (
-          // Native UIPasteControl pastes without the "Allow Paste" prompt.
-          <PasteButton
-            acceptedContentTypes={["plain-text"]}
-            backgroundColor={colors.backgroundElement}
-            cornerStyle="medium"
-            displayMode="labelOnly"
-            foregroundColor={colors.text}
-            onPress={(data) => {
-              // The native control stays tappable during approval.
-              if (!linking.current && data.type === "text") {
-                changeText(data.text.trim());
-              }
-            }}
-            className="h-12 w-21"
+      <ScopedVariables variables={{ "--paste-height": 48 * fontScale }}>
+        <View
+          className={cn(
+            "flex-row items-center gap-2",
+            largeText && "flex-col items-stretch"
+          )}
+        >
+          <Input
+            accessibilityLabel="Pairing code"
+            autoCapitalize="none"
+            autoCorrect={false}
+            className={cn("flex-1", largeText && "w-full flex-none")}
+            editable={!busy}
+            onChangeText={changeText}
+            placeholder="qop-pair1.…"
+            value={text}
           />
-        ) : (
-          <Button
-            className="h-12"
-            disabled={busy}
-            onPress={paste}
-            variant="outline"
-          >
-            <Text>Paste</Text>
-          </Button>
-        )}
-      </View>
+          {Clipboard.isPasteButtonAvailable ? (
+            // Native UIPasteControl pastes without the "Allow Paste" prompt.
+            <PasteButton
+              acceptedContentTypes={["plain-text"]}
+              backgroundColor={colors.backgroundElement}
+              cornerStyle="medium"
+              displayMode="labelOnly"
+              foregroundColor={colors.text}
+              onPress={(data) => {
+                // The native control stays tappable during approval.
+                if (!linking.current && data.type === "text") {
+                  changeText(data.text.trim());
+                }
+              }}
+              className={largeText ? "h-(--paste-height) w-full" : "h-12 w-21"}
+            />
+          ) : (
+            <Button
+              className="min-h-12"
+              disabled={busy}
+              onPress={paste}
+              variant="outline"
+            >
+              <Text>Paste</Text>
+            </Button>
+          )}
+        </View>
+      </ScopedVariables>
 
       {payload.kind === "invalid" ? (
         <Text tone="destructive" variant="helper">

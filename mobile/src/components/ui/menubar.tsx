@@ -67,7 +67,7 @@ const Menubar = ({
       ) : null}
       <MenubarPrimitive.Root
         className={cn(
-          "bg-background border-border flex h-11 flex-row items-center gap-1 rounded-md border p-1",
+          "bg-background border-border flex min-h-11 flex-row flex-wrap items-center gap-1 rounded-md border p-1",
           className
         )}
         value={value ?? valueProp}
@@ -94,7 +94,7 @@ const MenubarTrigger = ({
     <TextClassContext.Provider value={textClassName}>
       <MenubarPrimitive.Trigger
         className={cn(
-          "group flex min-h-9 items-center rounded-md px-2 py-1.5",
+          "group flex min-h-11 items-center rounded-md px-2 py-1.5",
           Platform.select({
             web: "focus:bg-accent focus:text-accent-foreground cursor-default outline-none",
           }),

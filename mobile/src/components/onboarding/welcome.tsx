@@ -28,7 +28,9 @@ export const Welcome = ({ onCreate, onRestore }: WelcomeProps) => {
         <View className="mt-safe px-6 pt-4">
           <View className="flex-row items-center gap-1">
             <QopMark color={colors.brand} size={32} />
-            <Text variant="title">qop</Text>
+            <Text maxFontSizeMultiplier={1} variant="title">
+              qop
+            </Text>
           </View>
         </View>
         <View className="flex-1">
@@ -39,7 +41,9 @@ export const Welcome = ({ onCreate, onRestore }: WelcomeProps) => {
             <Text tone="link" variant="tag">
               peer → peer
             </Text>
-            <Text variant="hero">Nothing in{"\n"}the middle.</Text>
+            <Text maxFontSizeMultiplier={2} variant="hero">
+              Nothing in{"\n"}the middle.
+            </Text>
             <Lede>
               qop sends each message straight from your phone to theirs. Your
               keys are made here and never leave it.
