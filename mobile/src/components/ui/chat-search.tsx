@@ -20,6 +20,8 @@ const ChatSearchRender = (
     onChangeText,
     placeholder = "Search chats",
     value,
+    onFocus,
+    onBlur,
     ...props
   }: ChatSearchProps,
   ref: React.ForwardedRef<TextInputInstance>
@@ -27,6 +29,8 @@ const ChatSearchRender = (
   const [uncontrolledValue, setUncontrolledValue] = React.useState(
     defaultValue ?? ""
   );
+
+  const [focused, setFocused] = React.useState(false);
 
   const isControlled = value !== undefined;
   const currentValue = isControlled ? value : uncontrolledValue;
@@ -51,7 +55,8 @@ const ChatSearchRender = (
   return (
     <View
       className={cn(
-        "bg-background-element border-continuous h-11 flex-row items-center gap-2 rounded-xl px-3",
+        "bg-input border-continuous min-h-11 flex-row items-center gap-2 rounded-md border border-transparent px-3 py-2",
+        focused && "border-ring",
         className
       )}
     >
@@ -61,9 +66,17 @@ const ChatSearchRender = (
         accessibilityLabel="Search chats"
         autoCapitalize="none"
         autoCorrect={false}
-        className="text-foreground min-w-0 flex-1 py-0 text-base leading-5"
+        className="text-foreground min-w-0 flex-1 py-0 font-sans text-base leading-5"
         clearButtonMode="never"
         onChangeText={handleChangeText}
+        onFocus={(event) => {
+          setFocused(true);
+          onFocus?.(event);
+        }}
+        onBlur={(event) => {
+          setFocused(false);
+          onBlur?.(event);
+        }}
         placeholder={placeholder}
         placeholderTextColorClassName="accent-muted-foreground"
         returnKeyType="search"

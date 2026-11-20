@@ -19,8 +19,8 @@ import {
   WaitCaption,
 } from "@/components/onboarding/chrome";
 import type { LogState } from "@/components/onboarding/chrome";
-import { Notch } from "@/components/pixel/notch";
 import { PixelButton } from "@/components/pixel/pixel-button";
+import { RoundedSurface } from "@/components/ui/rounded-surface";
 import { Text } from "@/components/ui/text";
 import { primaryHaptic, successHaptic } from "@/lib/haptics";
 import { selectIdentity, useIdentityStore } from "@/lib/identity-store";
@@ -221,7 +221,7 @@ const useRegistration = (handle: string) => {
   };
 };
 
-// Six notched boxes over one invisible input, so typing, paste and autofill
+// Six code cells over one invisible input, so typing, paste and autofill
 // all go through a single TextInput. Tapping the row refocuses it, since a
 // near-invisible view doesn’t receive touches on iOS.
 const CodeBoxes = ({
@@ -238,15 +238,16 @@ const CodeBoxes = ({
   const active = focused ? Math.min(value.length, CODE_LENGTH - 1) : -1;
 
   const box = (index: number) => (
-    <Notch
-      className="h-16 flex-1 items-center justify-center"
-      corner="sm"
-      fillClassName="accent-background-element"
+    <RoundedSurface
+      className="min-h-16 flex-1 justify-center"
+      variant="cell"
       key={index}
-      strokeClassName={index === active ? "accent-primary" : "accent-border"}
+      focused={index === active}
     >
-      <Text variant="glyph">{value[index] ?? ""}</Text>
-    </Notch>
+      <Text maxFontSizeMultiplier={2} variant="glyph">
+        {value[index] ?? ""}
+      </Text>
+    </RoundedSurface>
   );
 
   return (
@@ -262,7 +263,7 @@ const CodeBoxes = ({
         importantForAccessibility="no-hide-descendants"
       >
         {[0, 1, 2].map(box)}
-        <Text tone="secondary" variant="glyph">
+        <Text maxFontSizeMultiplier={2} tone="secondary" variant="glyph">
           –
         </Text>
         {[3, 4, 5].map(box)}
@@ -312,7 +313,7 @@ const RegistrationLog = ({
 
   return (
     <View accessibilityLiveRegion="polite" className="gap-4">
-      <Notch className="gap-2 p-4" fillClassName="accent-background-element">
+      <RoundedSurface variant="panel">
         <LogRow
           label="keys made on this phone"
           state={hasKeys ? "done" : "active"}
@@ -322,7 +323,7 @@ const RegistrationLog = ({
           label={`registering @${handle}`}
           state={submitted ? "active" : "waiting"}
         />
-      </Notch>
+      </RoundedSurface>
       <WaitCaption />
     </View>
   );

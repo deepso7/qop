@@ -31,14 +31,14 @@ const toggleVariants = cva(
     },
     variants: {
       size: {
-        default: "h-11 min-w-11 px-2.5",
-        lg: "h-12 min-w-12 px-3",
-        sm: "h-8 min-w-8 px-2",
+        default: "min-h-11 min-w-11 px-2.5 py-2",
+        lg: "min-h-12 min-w-12 px-3 py-2",
+        sm: "min-h-11 min-w-11 px-2 py-2",
       },
       variant: {
         default: "bg-transparent",
         outline: cn(
-          "border-input active:bg-accent border bg-transparent",
+          "border-faint active:bg-accent border bg-transparent",
           Platform.select({
             web: "hover:bg-accent hover:text-accent-foreground",
           })
@@ -57,10 +57,10 @@ const Toggle = ({
 }: React.ComponentProps<typeof TogglePrimitive.Root> &
   VariantProps<typeof toggleVariants>) => {
   const textClassName = cn(
-    "text-foreground font-medium",
+    "text-foreground font-sans-medium",
     toggleTextSizes[size ?? "default"],
     props.pressed
-      ? "text-accent-foreground"
+      ? "text-primary-foreground"
       : Platform.select({ web: "group-hover:text-muted-foreground" }),
     className
   );
@@ -71,7 +71,11 @@ const Toggle = ({
         className={cn(
           toggleVariants({ size, variant }),
           props.disabled && "opacity-50",
-          props.pressed && "bg-accent",
+          props.pressed &&
+            cn(
+              "bg-primary active:bg-primary",
+              Platform.select({ web: "hover:bg-primary" })
+            ),
           className
         )}
         hitSlop={hitSlop ?? toggleHitSlop[size ?? "default"]}

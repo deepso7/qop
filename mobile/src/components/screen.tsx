@@ -28,6 +28,7 @@ export const Screen = ({
   ...props
 }: ScreenProps) => (
   <ScrollView
+    automaticallyAdjustKeyboardInsets
     className={cn("bg-background flex-1", className)}
     contentContainerClassName={cn("web:pb-8 pb-24", contentContainerClassName)}
     contentInsetAdjustmentBehavior={contentInsetAdjustmentBehavior}

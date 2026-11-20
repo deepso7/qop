@@ -247,7 +247,7 @@ const ContextMenuLabel = ({
 }) => (
   <ContextMenuPrimitive.Label
     className={cn(
-      "text-foreground px-2 py-2 text-sm font-medium",
+      "text-foreground font-sans-medium px-2 py-2 text-sm",
       inset && "pl-8",
       className
     )}

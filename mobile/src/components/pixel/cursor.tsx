@@ -54,7 +54,7 @@ export const Cursor = ({ className }: { className?: string }) => {
   );
 };
 
-// A square pixel, used as a list bullet and status light (the web footer's dot).
+// Round status light.
 export const PixelDot = ({ className }: { className?: string }) => (
-  <View className={cn("bg-foreground size-2", className)} />
+  <View className={cn("bg-foreground size-2 rounded-full", className)} />
 );

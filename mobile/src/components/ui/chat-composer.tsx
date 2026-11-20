@@ -18,7 +18,7 @@ const chatComposerVariants = cva(
       variant: {
         // Embedded in a screen or catalog that frames it already.
         bare: "",
-        default: "border-border border p-2",
+        default: "p-2",
       },
     },
   }
@@ -85,21 +85,37 @@ const ChatComposerButton = ({
 
 const ChatComposerInput = ({
   className,
+  onFocus,
+  onBlur,
   ...props
-}: React.ComponentProps<typeof TextInput>) => (
-  <TextInput
-    className={cn(
-      "bg-background-element text-foreground rounded-panel border-continuous max-h-40 min-h-11 flex-1 px-4 py-2.5 text-base leading-5",
-      className
-    )}
-    multiline
-    placeholder="Message"
-    placeholderTextColorClassName="accent-muted-foreground"
-    selectionColorClassName="accent-primary"
-    textAlignVertical="center"
-    {...props}
-  />
-);
+}: React.ComponentProps<typeof TextInput>) => {
+  const [focused, setFocused] = React.useState(false);
+
+  return (
+    <TextInput
+      accessibilityLabel="Message"
+      className={cn(
+        "bg-input text-foreground border-continuous max-h-40 min-h-11 flex-1 rounded-md border border-transparent px-4 py-2.5 font-sans text-base leading-5",
+        focused && "border-ring",
+        className
+      )}
+      multiline
+      onFocus={(event) => {
+        setFocused(true);
+        onFocus?.(event);
+      }}
+      onBlur={(event) => {
+        setFocused(false);
+        onBlur?.(event);
+      }}
+      placeholder="Message"
+      placeholderTextColorClassName="accent-muted-foreground"
+      selectionColorClassName="accent-primary"
+      textAlignVertical="center"
+      {...props}
+    />
+  );
+};
 
 // A static waveform: bar heights from 10 to 25pt.
 const WAVEFORM = [
@@ -127,7 +143,7 @@ const ChatRecording = ({
 }: ChatRecordingProps) => (
   <View
     className={cn(
-      "bg-background-element h-11 flex-1 flex-row items-center gap-3 rounded-full px-4",
+      "bg-background-element min-h-11 flex-1 flex-row items-center gap-3 rounded-full px-4 py-2",
       className
     )}
     {...props}

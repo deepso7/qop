@@ -105,7 +105,7 @@ const ChatCatalog = () => {
     <View className="gap-7">
       <View className="gap-3">
         <SectionLabel>Message bubbles</SectionLabel>
-        <View className="border-border rounded-bubble gap-3 border p-4">
+        <View className="bg-background-element border-continuous rounded-panel gap-3 p-4">
           <MessageDate>Today</MessageDate>
 
           <MessageGroup>
@@ -200,7 +200,7 @@ const ChatCatalog = () => {
 
       <View className="gap-3">
         <SectionLabel>Reactions</SectionLabel>
-        <View className="border-border rounded-bubble gap-5 border p-4">
+        <View className="bg-background-element border-continuous rounded-panel gap-5 p-4">
           <Message>
             <MessageContent>
               <MessageLongPressMenu actions={messageActions} align="start">
@@ -232,7 +232,7 @@ const ChatCatalog = () => {
           </Message>
 
           <View className="gap-2">
-            <Text tone="secondary" variant="caption">
+            <Text tone="secondary" variant="helper">
               Picker · touch and hold the outgoing bubble
             </Text>
             <MessageReactionPicker>
@@ -263,7 +263,7 @@ const ChatCatalog = () => {
 
       <View className="gap-3">
         <SectionLabel>Message scroller</SectionLabel>
-        <View className="border-border rounded-bubble h-64 overflow-hidden border">
+        <View className="bg-background-element border-continuous rounded-panel h-64 overflow-hidden">
           <MessageScroller
             data={scrollerMessages}
             followOutput
@@ -326,7 +326,7 @@ const ChatCatalog = () => {
 
       <View className="gap-3">
         <SectionLabel>Composer</SectionLabel>
-        <View className="border-border rounded-bubble gap-3 border p-4">
+        <View className="bg-background-element border-continuous rounded-panel gap-3 p-4">
           <ChatComposer variant="bare">
             <ChatComposerButton kind="add" />
             <ChatComposerInput multiline={false} />

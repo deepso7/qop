@@ -4,24 +4,26 @@ import {
 } from "@expo/ui/jetpack-compose";
 import { useMemo } from "react";
 import type { ReactNode } from "react";
-import { useColorScheme } from "react-native";
+import { processColor } from "react-native";
 
-/**
- * Android FieldGroup sections paint rows with the Material `surfaceContainer`
- * color, which the orange seed tints. Use iOS's grouped-cell colors instead so
- * settings cards look the same on both platforms. Render inside `<Host>`.
- */
+import { useTheme } from "@/constants/theme";
+
+/** Match grouped Material rows to the app’s element surface. Render inside <Host>. */
 export const SettingsPalette = ({ children }: { children: ReactNode }) => {
   const palette = useMaterialColors();
-  const dark = useColorScheme() === "dark";
+  const colors = useTheme();
 
-  const value = useMemo(
-    () => ({
+  const value = useMemo(() => {
+    // SAFETY: CSS tokens are static colors, not native dynamic color objects.
+    const color = processColor(colors.backgroundElement) as number;
+
+    const argb = ((color + 2 ** 32) % 2 ** 32).toString(16).padStart(8, "0");
+
+    return {
       ...palette,
-      surfaceContainer: dark ? ("#1C1C1EFF" as const) : ("#FFFFFFFF" as const),
-    }),
-    [dark, palette]
-  );
+      surfaceContainer: `#${argb.slice(2)}${argb.slice(0, 2)}` as const,
+    };
+  }, [colors.backgroundElement, palette]);
 
   return (
     <HostPaletteContext.Provider value={value}>

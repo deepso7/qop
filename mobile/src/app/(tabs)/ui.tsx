@@ -11,7 +11,7 @@ import {
   Text as ExpoText,
 } from "@expo/ui";
 import { useState } from "react";
-import { View } from "react-native";
+import { useWindowDimensions, View } from "react-native";
 import type { LayoutChangeEvent } from "react-native";
 import { ScopedVariables, withUniwind } from "uniwind";
 
@@ -54,16 +54,18 @@ const ComponentSection = ({
 );
 
 /**
- * Hosts an Expo UI tree at a fixed height (`className`, e.g. `h-46`). Children
- * render once the width is measured and can size to it with `w-(--preview-width)`.
+ * Matches content height unless a height is supplied for a bounded scrolling
+ * preview. Children render once the width is measured (`w-(--preview-width)`).
  */
 const ExpoNativePreview = ({
   children,
   className,
+  height,
   inset = false,
   seedColor,
 }: React.PropsWithChildren<{
-  className: string;
+  className?: string;
+  height?: number;
   inset?: boolean;
   seedColor?: string;
 }>) => {
@@ -81,16 +83,26 @@ const ExpoNativePreview = ({
     <View className="bg-background-element/50 overflow-hidden rounded-xl">
       <View className={inset ? "px-4 py-3" : undefined}>
         <View onLayout={handleLayout}>
-          <Host
-            className={cn("w-full", className)}
-            colorScheme={colorScheme}
-            ignoreSafeArea="all"
-            seedColor={seedColor}
+          <ScopedVariables
+            variables={{
+              "--preview-width": contentWidth,
+              "--preview-height": height ?? 0,
+            }}
           >
-            <ScopedVariables variables={{ "--preview-width": contentWidth }}>
+            <Host
+              className={cn(
+                "w-full",
+                className,
+                height !== undefined && "h-(--preview-height)"
+              )}
+              colorScheme={colorScheme}
+              ignoreSafeArea="all"
+              matchContents={{ vertical: height === undefined }}
+              seedColor={seedColor}
+            >
               {contentWidth > 0 && children}
-            </ScopedVariables>
-          </Host>
+            </Host>
+          </ScopedVariables>
         </View>
       </View>
     </View>
@@ -100,34 +112,29 @@ const ExpoNativePreview = ({
 const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
   const [isSwitchedOn, setIsSwitchedOn] = useState(true);
   const [sliderValue, setSliderValue] = useState(60);
+  const { fontScale } = useWindowDimensions();
   const theme = useTheme();
 
   return (
     <View className="gap-5">
       <View className="gap-2">
         <Text variant="label">Platform controls</Text>
-        <Text tone="secondary" variant="caption">
+        <Text tone="secondary" variant="helper">
           Native rendering is intentional for settings and system preferences.
         </Text>
         <ExpoNativePreview className="h-46" inset seedColor={theme.primary}>
           <Column className="w-(--preview-width)" spacing={16}>
             <Row alignment="center" className="w-(--preview-width)">
-              <ExpoText textStyle={{ color: theme.text }}>
-                Native controls
-              </ExpoText>
-              <ExpoSpacer flexible />
               <ExpoSwitch
+                label="Native controls"
                 onValueChange={setIsSwitchedOn}
                 value={isSwitchedOn}
               />
             </Row>
             <Row alignment="center" className="w-(--preview-width)">
-              <ExpoText textStyle={{ color: theme.textSecondary }}>
-                Disabled switch
-              </ExpoText>
-              <ExpoSpacer flexible />
               <ExpoSwitch
                 disabled
+                label="Disabled switch"
                 onValueChange={setIsSwitchedOn}
                 value={false}
               />
@@ -148,7 +155,12 @@ const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
 
       <View className="gap-2">
         <Text variant="label">Native settings group</Text>
-        <ExpoNativePreview className="android:h-46 h-42">
+        <ExpoNativePreview
+          height={
+            (process.env.EXPO_OS === "android" ? 184 : 168) *
+            Math.max(1, fontScale)
+          }
+        >
           <ExpoFieldGroup>
             <ExpoFieldGroup.Section title="Preferences">
               <ExpoRow alignment="center">
@@ -184,13 +196,13 @@ const UIScreen = () => {
       <Screen variant="catalog">
         <View className="gap-1 px-1 pb-1">
           <Text variant="title">UI</Text>
-          <Text tone="secondary" variant="caption">
+          <Text tone="secondary" variant="helper">
             Shared product primitives and their current states.
           </Text>
         </View>
 
         <ComponentSection title="QOP · branded primitives">
-          <Text tone="secondary" variant="caption">
+          <Text tone="secondary" variant="helper">
             Source-owned RNR components styled with Uniwind. Use these for
             product UI and branded interactions.
           </Text>
@@ -198,7 +210,7 @@ const UIScreen = () => {
         </ComponentSection>
 
         <ComponentSection title="QOP · chat primitives">
-          <Text tone="secondary" variant="caption">
+          <Text tone="secondary" variant="helper">
             Composable message, delivery, attachment, reply, typing, and
             composer states for peer conversations.
           </Text>
@@ -206,7 +218,7 @@ const UIScreen = () => {
         </ComponentSection>
 
         <ComponentSection title="QOP · native platform primitives">
-          <Text tone="secondary" variant="caption">
+          <Text tone="secondary" variant="helper">
             Expo UI controls reserved for settings and system-native
             presentation on SwiftUI and Jetpack Compose.
           </Text>
@@ -264,7 +276,7 @@ const UIScreen = () => {
             </Surface>
             <View className="flex-1 gap-1">
               <Text variant="label">Expo Image</Text>
-              <Text tone="secondary" variant="caption">
+              <Text tone="secondary" variant="helper">
                 Wrapped for Uniwind class names.
               </Text>
             </View>

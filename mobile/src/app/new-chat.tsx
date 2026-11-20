@@ -165,10 +165,13 @@ const NewChatRoute = () => {
         className="bg-background flex-1"
         contentContainerClassName="gap-6 p-5"
         contentInsetAdjustmentBehavior="automatic"
+        automaticallyAdjustKeyboardInsets
         keyboardShouldPersistTaps="handled"
       >
         <View className="gap-3">
-          <Text variant="label">Handle</Text>
+          <Text tone="secondary" variant="label">
+            Handle
+          </Text>
           <Input
             accessibilityHint="Lowercase letters, numbers, and underscores"
             accessibilityLabel="qop handle"
@@ -176,7 +179,7 @@ const NewChatRoute = () => {
             autoCapitalize="none"
             autoComplete="off"
             autoCorrect={false}
-            className="h-14"
+            className="min-h-14"
             size="lg"
             variant="filled"
             // Locked while opening too: editing would drop the card mid-save.
@@ -196,7 +199,7 @@ const NewChatRoute = () => {
           <Text
             selectable
             tone={handle.length > 0 && !isValid ? "destructive" : "secondary"}
-            variant="caption"
+            variant="helper"
           >
             {isValid ? `Look up @${handle}.` : getHandleHint(handle)}
           </Text>

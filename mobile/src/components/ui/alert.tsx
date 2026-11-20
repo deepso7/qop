@@ -57,7 +57,7 @@ const AlertTitle = ({
 }: React.ComponentProps<typeof Text>) => (
   <Text
     className={cn(
-      "mb-1 ml-0.5 min-h-4 pl-6 leading-none font-medium tracking-tight",
+      "font-sans-medium mb-1 ml-0.5 min-h-4 pl-6 leading-none tracking-tight",
       className
     )}
     {...props}

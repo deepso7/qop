@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { ComponentProps, ReactNode } from "react";
-import { Pressable, ScrollView, View } from "react-native";
+import { Pressable, ScrollView, useWindowDimensions, View } from "react-native";
 import Animated, {
   FadeIn,
   FadeOut,
@@ -16,7 +16,7 @@ export const STEP_COUNT = 3;
 const enter = FadeIn.duration(180).reduceMotion(ReduceMotion.System);
 const exit = FadeOut.duration(100).reduceMotion(ReduceMotion.System);
 
-// Small uppercase mono label, the web's section label ("ABOUT", "GET QOP").
+// Small mono section label.
 export const Eyebrow = ({
   children,
   tone = "secondary",
@@ -29,9 +29,11 @@ export const Eyebrow = ({
   </Text>
 );
 
-// The step headline: big, tight Paper Mono at normal weight, as on the web hero.
+// The display scale shared with desktop onboarding.
 export const Title = ({ children }: { children: ReactNode }) => (
-  <Text variant="heading">{children}</Text>
+  <Text maxFontSizeMultiplier={2} variant="display">
+    {children}
+  </Text>
 );
 
 export const Lede = ({ children }: { children: ReactNode }) => (
@@ -40,7 +42,7 @@ export const Lede = ({ children }: { children: ReactNode }) => (
   </Text>
 );
 
-// "← back" on the left, "01 / 03" with one pixel per step on the right.
+// "← back" on the left, "01 / 03" with one dot per step on the right.
 const StepHeader = ({
   onBack,
   step,
@@ -48,12 +50,12 @@ const StepHeader = ({
   onBack?: () => void;
   step: number;
 }) => (
-  <View className="h-11 flex-row items-center justify-between">
+  <View className="min-h-11 flex-row items-center justify-between">
     {onBack ? (
       <Pressable
         accessibilityLabel="Back"
         accessibilityRole="button"
-        className="-ml-2 h-11 justify-center px-2"
+        className="-ml-2 min-h-11 justify-center px-2"
         hitSlop={8}
         onPress={onBack}
       >
@@ -74,12 +76,15 @@ const StepHeader = ({
       <View className="flex-row gap-1">
         {Array.from({ length: STEP_COUNT }, (_, i) => (
           <View
-            className={cn("size-2", i < step ? "bg-primary" : "bg-border")}
+            className={cn(
+              "size-2 rounded-full",
+              i < step ? "bg-primary" : "bg-border"
+            )}
             key={i}
           />
         ))}
       </View>
-      <Text tone="secondary" variant="tag">
+      <Text maxFontSizeMultiplier={2} tone="secondary" variant="tag">
         {String(step).padStart(2, "0")} / {String(STEP_COUNT).padStart(2, "0")}
       </Text>
     </View>
@@ -88,48 +93,59 @@ const StepHeader = ({
 
 export interface StepFrameProps {
   children: ReactNode;
-  // Pinned under the scrolling body, above the keyboard.
+  // Pinned below the body at standard text sizes; scrolls at accessibility sizes.
   footer?: ReactNode;
   onBack?: () => void;
   // Omit for screens outside the numbered steps (welcome, errors).
   step?: number;
 }
 
-// Layout for every onboarding screen: header, scrolling body, pinned footer.
-// The route wraps it in a KeyboardAvoidingView so the footer rides the keyboard.
+// Shared onboarding header, scrolling body and responsive footer.
 export const StepFrame = ({
   children,
   footer,
   onBack,
   step,
-}: StepFrameProps) => (
-  <Animated.View
-    className="pt-safe-or-4 flex-1"
-    entering={enter}
-    exiting={exit}
-  >
-    {step === undefined ? null : (
-      <View className="px-6">
-        <StepHeader onBack={onBack} step={step} />
-      </View>
-    )}
-    <ScrollView
-      className="flex-1"
-      contentContainerClassName="grow gap-8 px-6 pt-8 pb-6"
-      keyboardDismissMode={
-        process.env.EXPO_OS === "ios" ? "interactive" : "on-drag"
-      }
-      keyboardShouldPersistTaps="handled"
-    >
-      {children}
-    </ScrollView>
-    {footer ? (
-      <View className="pb-safe-offset-10 gap-3 px-6 pt-3">{footer}</View>
-    ) : null}
-  </Animated.View>
-);
+}: StepFrameProps) => {
+  const { fontScale } = useWindowDimensions();
+  const scrollFooter = fontScale >= 2;
 
-// One-line mono status under a field or action: a pixel light plus text.
+  return (
+    <Animated.View
+      className="pt-safe-or-4 flex-1"
+      entering={enter}
+      exiting={exit}
+    >
+      {step === undefined ? null : (
+        <View className="px-6">
+          <StepHeader onBack={onBack} step={step} />
+        </View>
+      )}
+      <ScrollView
+        automaticallyAdjustKeyboardInsets={scrollFooter}
+        className="flex-1"
+        contentContainerClassName={cn(
+          "grow gap-8 px-6 pt-8 pb-6",
+          scrollFooter && "pb-safe-offset-10"
+        )}
+        keyboardDismissMode={
+          process.env.EXPO_OS === "ios" ? "interactive" : "on-drag"
+        }
+        keyboardShouldPersistTaps="handled"
+      >
+        {children}
+        {scrollFooter && footer ? (
+          <View className="gap-3 pt-3">{footer}</View>
+        ) : null}
+      </ScrollView>
+      {!scrollFooter && footer ? (
+        <View className="pb-safe-offset-10 gap-3 px-6 pt-3">{footer}</View>
+      ) : null}
+    </Animated.View>
+  );
+};
+
+// Field feedback pairs a status light with supporting copy.
 export const StatusLine = ({
   children,
   tone = "muted",
@@ -140,7 +156,7 @@ export const StatusLine = ({
   <View className="flex-row items-center gap-2">
     <View
       className={cn(
-        "size-2",
+        "size-2 rounded-full",
         tone === "error" && "bg-destructive",
         tone === "muted" && "bg-border",
         tone === "ok" && "bg-online"
@@ -150,7 +166,7 @@ export const StatusLine = ({
       className="flex-1"
       selectable
       tone={tone === "error" ? "destructive" : "secondary"}
-      variant="terminal"
+      variant="helper"
     >
       {children}
     </Text>
@@ -160,7 +176,7 @@ export const StatusLine = ({
 export type LogState = "active" | "done" | "failed" | "waiting";
 
 // One line of a terminal-style progress log: a blinking cursor while active,
-// otherwise a pixel coloured by state.
+// otherwise a dot coloured by state.
 export const LogRow = ({
   label,
   state,
@@ -168,7 +184,7 @@ export const LogRow = ({
   label: string;
   state: LogState;
 }) => (
-  <View className="h-6 flex-row items-center gap-3">
+  <View className="min-h-6 flex-row items-center gap-3">
     <View className="w-2 items-center">
       {state === "active" ? (
         <Cursor className="bg-primary" />
@@ -206,7 +222,7 @@ export const WaitCaption = () => {
   }, []);
 
   return (
-    <Text tone="secondary" variant="caption">
+    <Text tone="secondary" variant="helper">
       {slow
         ? "Still working. The registry can be slow, and it’s safe to wait."
         : "Keep qop open. This takes a few seconds."}

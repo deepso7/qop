@@ -73,10 +73,10 @@ const ToggleGroupItem = ({
   const resolvedSize = context.size || size || "default";
 
   const textClassName = cn(
-    "text-foreground font-medium",
+    "text-foreground font-sans-medium",
     toggleTextSizes[resolvedSize],
     ToggleGroupPrimitive.utils.getIsSelected(value, props.value)
-      ? "text-accent-foreground"
+      ? "text-primary-foreground"
       : Platform.select({ web: "group-hover:text-muted-foreground" })
   );
 
@@ -90,7 +90,10 @@ const ToggleGroupItem = ({
           }),
           props.disabled && "opacity-50",
           ToggleGroupPrimitive.utils.getIsSelected(value, props.value) &&
-            "bg-accent",
+            cn(
+              "bg-primary active:bg-primary",
+              Platform.select({ web: "hover:bg-primary" })
+            ),
           "min-w-0 shrink-0 rounded-none shadow-none",
           isFirst && "rounded-l-md",
           isLast && "rounded-r-md",

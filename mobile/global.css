@@ -3,23 +3,33 @@
 @import "tw-animate-css";
 
 @theme {
-  --radius: 10px;
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  /* Chat surfaces, from small to large: avatar tiles, menus and fields, bubbles. */
-  --radius-tile: 18px;
-  --radius-panel: 20px;
-  --radius-bubble: 22px;
+  /* Radius scale: panels 24px, cards/rows/bubbles 16px, controls 12px. */
+  --radius: 12px;
+  --radius-sm: 12px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-tile: 16px;
+  --radius-panel: 24px;
+  --radius-bubble: 16px;
   /* The app icon's corner, for the animated splash tile. */
   --radius-icon: 40px;
-  /* iOS text styles the chat list and header follow (subheadline, headline). */
+  --tracking-display: -0.9px;
+  /* iOS subheadline/headline sizes for chat lists and conversation headers. */
   --text-subhead: 15px;
+  --text-label: 13px;
   --text-headline: 17px;
   --spacing-hairline: hairlineWidth();
-  /* Paper Mono (OFL, assets/fonts/PaperMono-OFL.txt), the web's typeface, as
-     static faces loaded in app/_layout.tsx. RN takes one family per weight. */
+  /* Inter for reading; Paper Mono for small labels, timestamps and codes.
+     OFL licenses: assets/fonts/Inter-OFL.txt and PaperMono-OFL.txt.
+     RN takes a single family, not a fallback stack; each weight is a static
+     face loaded in app/_layout.tsx. */
+  --font-sans: "Inter-Regular";
+  --font-sans-medium: "Inter-Medium";
+  --font-sans-semibold: "Inter-SemiBold";
+  --text-large-title: 34px;
+  --tracking-large-title: -0.68px;
+  --font-mono: "PaperMono-Regular";
   --font-paper: "PaperMono-Regular";
   --font-paper-medium: "PaperMono-Medium";
   --font-paper-semibold: "PaperMono-SemiBold";
@@ -27,95 +37,84 @@
 
 @theme static {
   --qop-orange: oklch(0.61 0.112 47);
-  --qop-orange-light: oklch(0.68 0.112 47);
-  --qop-orange-dark: oklch(0.53 0.112 47);
-  --qop-black: oklch(0.17 0.008 250);
-  --qop-white: oklch(0.95 0.006 60);
+  --qop-orange-light: oklch(0.7 0.12 48);
+  --qop-orange-dark: oklch(0.5 0.11 45);
+  --qop-black: oklch(0.2 0.008 30);
+  --qop-white: oklch(0.985 0.004 80);
 }
 
 @layer theme {
   :root {
-    /* React Native takes a single font family, not a CSS fallback stack. */
-    @variant ios {
-      --font-mono: "Menlo";
-    }
-    @variant android {
-      --font-mono: "monospace";
-    }
-
+    /* Secondary/muted and faint text are ink at partial opacity for AA contrast. */
     @variant light {
-      --color-background: var(--qop-white);
-      --color-background-element: oklch(0.911 0.0061 51.5);
-      --color-background-selected: oklch(0.833 0.0063 34.5);
-      --color-border: oklch(0.833 0.0063 34.5);
-      --color-card: var(--qop-white);
-      --color-card-foreground: var(--qop-black);
-      --color-code-background: oklch(0.9266 0.00606 54.9);
-      --color-destructive: oklch(0.5059 0.1425 27.1);
-      --color-foreground: var(--qop-black);
-      --color-foreground-secondary: oklch(0.4508 0.00728 311.2);
-      --color-input: oklch(0.833 0.0063 34.5);
-      --color-muted: oklch(0.911 0.0061 51.5);
-      --color-muted-foreground: oklch(0.4508 0.00728 311.2);
-      --color-accent: oklch(0.911 0.0061 51.5);
-      --color-accent-foreground: var(--qop-black);
-      --color-online: oklch(0.723 0.219 149.6);
+      --color-background: oklch(0.985 0.004 80);
+      --color-background-element: oklch(0.955 0.006 70);
+      --color-background-selected: oklch(0.2 0.008 30 / 0.06);
+      --color-border: oklch(0.2 0.008 30 / 0.1);
+      --color-card: oklch(0.955 0.006 70);
+      --color-card-foreground: oklch(0.2 0.008 30);
+      --color-code-background: oklch(0.2 0.008 30 / 0.06);
+      /* Mobile danger is red; desktop/web intentionally use terracotta. */
+      --color-destructive: oklch(0.52 0.2 27);
+      --color-destructive-foreground: oklch(0.985 0.004 80);
+      --color-foreground: oklch(0.2 0.008 30);
+      --color-foreground-secondary: oklch(0.2 0.008 30 / 0.66);
+      --color-faint: oklch(0.2 0.008 30 / 0.66);
+      --color-input: oklch(0.2 0.008 30 / 0.06);
+      --color-muted: oklch(0.955 0.006 70);
+      --color-muted-foreground: oklch(0.2 0.008 30 / 0.66);
+      --color-accent: oklch(0.2 0.008 30 / 0.04);
+      --color-accent-foreground: oklch(0.2 0.008 30);
+      --color-online: oklch(0.63 0.17 149.6);
       --color-link: oklch(0.5 0.11 45);
-      --color-action: var(--qop-orange);
-      --color-action-foreground: var(--qop-black);
-      --color-popover: var(--qop-white);
-      --color-popover-foreground: var(--qop-black);
-      /* Pale tile that sits on the tide in both themes (the web's --qp-foam). */
+      --color-brand: oklch(0.61 0.112 47);
+      /* Brand at 10% over paper, composited in sRGB. */
+      --color-sent: #f5ece5;
+      --color-action: oklch(0.5 0.11 45);
+      --color-action-foreground: oklch(0.985 0.004 80);
+      --color-popover: oklch(0.955 0.006 70);
+      --color-popover-foreground: oklch(0.2 0.008 30);
+      /* App mark tile, matching desktop's light/dark mark surfaces. */
       --color-foam: oklch(0.944 0.02 62.9);
-      --color-primary: var(--qop-orange);
-      --color-primary-foreground: var(--qop-black);
-      --color-ring: var(--qop-orange);
-      --color-secondary: oklch(0.911 0.0061 51.5);
-      --color-secondary-foreground: var(--qop-black);
+      --color-primary: oklch(0.5 0.11 45);
+      --color-primary-foreground: oklch(0.985 0.004 80);
+      --color-ring: oklch(0.61 0.112 47);
+      --color-secondary: oklch(0.2 0.008 30 / 0.06);
+      --color-secondary-foreground: oklch(0.2 0.008 30);
     }
-
     @variant dark {
-      --color-background: var(--qop-black);
-      --color-background-element: oklch(0.2168 0.00788 260.2);
-      --color-background-selected: oklch(0.2948 0.00768 277.2);
-      --color-border: oklch(0.2948 0.00768 277.2);
-      --color-card: var(--qop-black);
-      --color-card-foreground: var(--qop-white);
-      --color-code-background: oklch(0.2012 0.00792 256.8);
-      --color-destructive: oklch(0.586 0.1051 27.46);
-      --color-foreground: var(--qop-white);
-      --color-foreground-secondary: oklch(0.6692 0.00672 358.8);
-      --color-input: oklch(0.2948 0.00768 277.2);
-      --color-muted: oklch(0.2168 0.00788 260.2);
-      --color-muted-foreground: oklch(0.6692 0.00672 358.8);
-      --color-accent: oklch(0.2168 0.00788 260.2);
-      --color-accent-foreground: var(--qop-white);
-      --color-online: oklch(0.723 0.219 149.6);
-      --color-link: oklch(0.74 0.12 50);
-      --color-action: var(--qop-orange);
-      --color-action-foreground: var(--qop-black);
-      --color-popover: var(--qop-black);
-      --color-popover-foreground: var(--qop-white);
-      /* Pale tile that sits on the tide in both themes (the web's --qp-foam). */
-      --color-foam: oklch(0.944 0.02 62.9);
-      --color-primary: var(--qop-orange);
-      --color-primary-foreground: var(--qop-black);
-      --color-ring: var(--qop-orange);
-      --color-secondary: oklch(0.2168 0.00788 260.2);
-      --color-secondary-foreground: var(--qop-white);
+      --color-background: oklch(0.165 0.008 40);
+      --color-background-element: oklch(0.205 0.01 40);
+      --color-background-selected: oklch(0.95 0.008 70 / 0.06);
+      --color-border: oklch(0.95 0.008 70 / 0.1);
+      --color-card: oklch(0.205 0.01 40);
+      --color-card-foreground: oklch(0.95 0.008 70);
+      --color-code-background: oklch(0.95 0.008 70 / 0.06);
+      --color-destructive: oklch(0.7 0.18 25);
+      --color-destructive-foreground: oklch(0.165 0.008 40);
+      --color-foreground: oklch(0.95 0.008 70);
+      --color-foreground-secondary: oklch(0.95 0.008 70 / 0.6);
+      --color-faint: oklch(0.95 0.008 70 / 0.6);
+      --color-input: oklch(0.95 0.008 70 / 0.06);
+      --color-muted: oklch(0.205 0.01 40);
+      --color-muted-foreground: oklch(0.95 0.008 70 / 0.6);
+      --color-accent: oklch(0.95 0.008 70 / 0.04);
+      --color-accent-foreground: oklch(0.95 0.008 70);
+      --color-online: oklch(0.65 0.17 149.6);
+      --color-link: oklch(0.76 0.12 52);
+      --color-brand: oklch(0.7 0.12 48);
+      --color-sent: #261913;
+      --color-action: oklch(0.76 0.12 52);
+      --color-action-foreground: oklch(0.165 0.008 40);
+      --color-popover: oklch(0.205 0.01 40);
+      --color-popover-foreground: oklch(0.95 0.008 70);
+      /* App mark tile, matching desktop's light/dark mark surfaces. */
+      --color-foam: oklch(0.171 0.006 237);
+      --color-primary: oklch(0.76 0.12 52);
+      --color-primary-foreground: oklch(0.165 0.008 40);
+      --color-ring: oklch(0.7 0.12 48);
+      --color-secondary: oklch(0.95 0.008 70 / 0.06);
+      --color-secondary-foreground: oklch(0.95 0.008 70);
     }
   }
-}
-
-:root {
-  --font-display:
-    Spline Sans, Inter, ui-sans-serif, system-ui, sans-serif, Apple Color Emoji,
-    Segoe UI Emoji, Segoe UI Symbol, Noto Color Emoji;
-  --font-mono:
-    ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono,
-    Courier New, monospace;
-  --font-rounded:
-    "SF Pro Rounded", "Hiragino Maru Gothic ProN", Meiryo, "MS PGothic",
-    sans-serif;
-  --font-serif: Georgia, "Times New Roman", serif;
 }

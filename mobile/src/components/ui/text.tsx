@@ -11,7 +11,7 @@ import { cn } from "@/lib/utils";
 // their own colour (lead, muted, linkPrimary) keep it unless a tone is set.
 const textVariants = cva(
   cn(
-    "text-foreground text-base",
+    "text-foreground font-sans text-base",
     Platform.select({
       web: "select-text",
     })
@@ -22,58 +22,61 @@ const textVariants = cva(
     },
     variants: {
       variant: {
-        // Paper Mono (the web's face): action, eyebrow, glyph, heading, hero,
-        // readout, tag, terminal. The rest use the system font.
-        action: "font-paper-medium text-base",
+        // Inter for reading and actions; Paper Mono for compact metadata and codes.
+        action: "font-sans-medium text-base",
         blockquote: "mt-4 border-l-2 pl-3 italic sm:mt-6 sm:pl-6",
-        body: "leading-6 font-normal",
-        caption: "text-sm leading-5 font-normal",
+        body: "text-subhead font-sans leading-5",
+        caption: "font-paper text-faint text-xs leading-4 tabular-nums",
         code: cn(
-          "bg-muted relative rounded px-1.5 py-0.5 font-mono text-sm font-semibold"
+          "bg-muted font-paper-semibold relative rounded px-1.5 py-0.5 text-sm"
         ),
         default: "",
-        display: "text-5xl leading-14 font-semibold tracking-tight",
-        eyebrow: "font-paper text-xs tracking-widest uppercase",
+        display: "tracking-display font-sans-semibold text-3xl leading-9",
+        eyebrow: "font-paper text-faint text-xs leading-4",
         // A key fingerprint or code to compare by eye.
-        fingerprint: "font-mono text-lg font-semibold",
+        fingerprint: "font-paper-semibold text-lg",
         footnote: "text-xs leading-4",
         glyph: "font-paper text-2xl",
         h1: cn(
-          "text-center text-4xl font-extrabold tracking-tight",
+          "font-sans-semibold text-center text-4xl tracking-tight",
           Platform.select({ web: "scroll-m-20 text-balance" })
         ),
         h2: cn(
-          "border-border border-b pb-2 text-3xl font-semibold tracking-tight",
+          "border-border font-sans-semibold border-b pb-2 text-3xl tracking-tight",
           Platform.select({ web: "scroll-m-20 first:mt-0" })
         ),
         h3: cn(
-          "text-2xl font-semibold tracking-tight",
+          "font-sans-semibold text-2xl tracking-tight",
           Platform.select({ web: "scroll-m-20" })
         ),
         h4: cn(
-          "text-xl font-semibold tracking-tight",
+          "font-sans-semibold text-xl tracking-tight",
           Platform.select({ web: "scroll-m-20" })
         ),
         // iOS headline: conversation titles and chat names.
-        headline: "text-headline font-semibold",
-        heading: "font-paper text-4xl leading-11 tracking-tighter",
-        hero: "font-paper text-5xl leading-12 tracking-tighter",
-        label: "text-sm leading-5 font-semibold",
-        large: "text-lg font-semibold",
-        lead: "text-foreground-secondary text-lg leading-7",
-        link: "text-sm leading-5 font-medium",
-        linkPrimary: "text-primary text-sm leading-5 font-medium",
-        mono: "font-mono text-xs leading-4 font-medium",
+        headline: "text-headline font-sans-semibold",
+        helper: "text-foreground-secondary text-label font-sans leading-4.5",
+        inputPrefix: "font-sans text-2xl leading-8",
+        largeTitle:
+          "font-sans-semibold tracking-large-title text-large-title leading-10",
+        heading: "font-sans-semibold text-sm leading-5",
+        hero: "tracking-display font-sans-semibold text-3xl leading-9",
+        label: "text-label font-sans-medium leading-4.5",
+        large: "font-sans-semibold text-lg",
+        lead: "text-foreground-secondary text-base leading-6",
+        link: "font-sans-medium text-sm leading-5",
+        linkPrimary: "text-primary font-sans-medium text-sm leading-5",
+        mono: "font-paper-medium text-xs leading-4",
         // Body-size system monospace: commands, peer ids, inline literals.
         monospace: "font-mono",
         muted: "text-muted-foreground text-sm",
         p: "mt-3 leading-7 sm:mt-6",
         readout: "font-paper text-base",
-        small: "text-sm leading-none font-medium",
-        strong: "font-medium",
+        small: "font-sans-medium text-sm leading-none",
+        strong: "font-sans-medium",
         tag: "font-paper text-xs",
-        terminal: "font-paper text-sm",
-        title: "text-3xl leading-10 font-semibold tracking-tight",
+        terminal: "font-paper text-xs leading-4",
+        title: "font-sans-semibold text-xl leading-6.5 tracking-tight",
       },
     },
   }
@@ -118,6 +121,7 @@ const ROLE = {
   h4: "heading",
   heading: "heading",
   hero: "heading",
+  largeTitle: "heading",
   title: "heading",
 } satisfies Partial<Record<TextVariant, Role>>;
 
@@ -129,6 +133,7 @@ const ARIA_LEVEL = {
   h4: "4",
   heading: "1",
   hero: "1",
+  largeTitle: "1",
   title: "2",
 } satisfies Partial<Record<TextVariant, string>>;
 

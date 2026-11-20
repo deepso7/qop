@@ -10,9 +10,9 @@ import {
   Title,
 } from "@/components/onboarding/chrome";
 import { Cursor } from "@/components/pixel/cursor";
-import { Notch } from "@/components/pixel/notch";
 import { PixelButton } from "@/components/pixel/pixel-button";
 import { NativeAlert } from "@/components/ui/native-alert";
+import { RoundedSurface } from "@/components/ui/rounded-surface";
 import { Text } from "@/components/ui/text";
 import { successHaptic } from "@/lib/haptics";
 import { useIdentityStore } from "@/lib/identity-store";
@@ -95,12 +95,9 @@ const KeyTile = ({ read }: { read: KeyRead }) => {
 
   if (read.kind === "loading") {
     return (
-      <Notch
-        className="h-32 justify-center p-4"
-        fillClassName="accent-code-background"
-      >
+      <RoundedSurface className="h-32 justify-center" variant="code">
         <Cursor className="bg-foreground-secondary" />
-      </Notch>
+      </RoundedSurface>
     );
   }
 
@@ -111,7 +108,7 @@ const KeyTile = ({ read }: { read: KeyRead }) => {
       accessibilityRole="button"
       onPress={() => setRevealed((value) => !value)}
     >
-      <Notch className="gap-4 p-4" fillClassName="accent-code-background">
+      <RoundedSurface variant="code">
         <View className="flex-row flex-wrap gap-x-3 gap-y-2">
           {/* The fixed prefix is the same for every key, so it stays dim. */}
           <Text tone="secondary" variant="readout">
@@ -131,7 +128,7 @@ const KeyTile = ({ read }: { read: KeyRead }) => {
         <Text tone="link" variant="tag">
           {revealed ? "tap to hide" : "tap to reveal"}
         </Text>
-      </Notch>
+      </RoundedSurface>
     </Pressable>
   );
 };
@@ -251,13 +248,13 @@ export const RecoveryStep = ({ handle }: { handle: string }) => {
       <View>
         {RULES.map((rule) => (
           <View
-            className="flex-row items-baseline gap-4 py-1.5"
+            className="flex-row flex-wrap items-baseline gap-x-4 gap-y-1 py-1.5"
             key={rule.label}
           >
-            <Text className="w-24" tone="secondary" variant="eyebrow">
+            <Text className="min-w-24" tone="secondary" variant="eyebrow">
               {rule.label}
             </Text>
-            <Text className="flex-1">{rule.value}</Text>
+            <Text className="min-w-48 flex-1">{rule.value}</Text>
           </View>
         ))}
       </View>

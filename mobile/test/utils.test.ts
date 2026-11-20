@@ -15,4 +15,16 @@ describe("cn", () => {
       "text-foreground text-headline"
     );
   });
+
+  it.each(["label", "large-title"])(
+    "preserves the text colour beside the %s size",
+    (size) => {
+      expect(cn("text-foreground text-base", `text-${size}`)).toBe(
+        `text-foreground text-${size}`
+      );
+      expect(cn(`text-${size}`, "text-muted-foreground")).toBe(
+        `text-${size} text-muted-foreground`
+      );
+    }
+  );
 });

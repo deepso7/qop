@@ -134,7 +134,7 @@ const EmptyConversation = () => (
   </Empty>
 );
 
-/** Header title: handle plus an "online" line while the contact is connected. */
+/** Fixed-height native title: handle plus an online line while connected. */
 const ConversationTitle = ({
   handle,
   online,
@@ -143,9 +143,11 @@ const ConversationTitle = ({
   online: boolean;
 }) => (
   <View className="items-center">
-    <Text variant="headline">@{handle}</Text>
+    <Text maxFontSizeMultiplier={1} numberOfLines={1} variant="headline">
+      @{handle}
+    </Text>
     {online ? (
-      <Text tone="secondary" variant="footnote">
+      <Text maxFontSizeMultiplier={1} tone="secondary" variant="footnote">
         online
       </Text>
     ) : null}
@@ -408,10 +410,7 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
         renderItem={renderItem}
         variant="grouped"
       />
-      <Animated.View
-        className="border-border bg-background border-t px-3 pt-2"
-        style={animatedStyle}
-      >
+      <Animated.View className="bg-background px-3 pt-2" style={animatedStyle}>
         <ChatComposer variant="bare">
           <ChatComposerInput
             accessibilityLabel="Message"

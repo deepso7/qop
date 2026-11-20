@@ -1,4 +1,21 @@
 import type { ExpoConfig } from "expo/config";
+import { AndroidConfig, withAndroidManifest } from "expo/config-plugins";
+
+const withAndroidConfigurationChanges = (config: ExpoConfig) =>
+  withAndroidManifest(config, (mod) => {
+    const activity = AndroidConfig.Manifest.getMainActivityOrThrow(
+      mod.modResults
+    );
+
+    const changes = new Set(
+      activity.$["android:configChanges"]?.split("|").filter(Boolean)
+    );
+
+    changes.add("fontScale");
+    activity.$["android:configChanges"] = [...changes].join("|");
+
+    return mod;
+  });
 
 // Single source of app config. Pick a variant with APP_VARIANT (defaults to production).
 type AppVariant = "development" | "preview" | "production";
@@ -12,19 +29,19 @@ interface AppVariantConfig {
 
 const VARIANTS = {
   development: {
-    backgroundColor: "#F2EEEA",
+    backgroundColor: "#F7EADF",
     identifier: "sh.qop.dev",
     name: "qop dev",
     scheme: "qop-dev",
   },
   preview: {
-    backgroundColor: "#F2EEEA",
+    backgroundColor: "#F7EADF",
     identifier: "sh.qop.preview",
     name: "qop preview",
     scheme: "qop-preview",
   },
   production: {
-    backgroundColor: "#B96C45",
+    backgroundColor: "#F7EADF",
     identifier: "sh.qop",
     name: "qop",
     scheme: "qop",
@@ -50,7 +67,7 @@ const appVariant = getAppVariant();
 const variant = VARIANTS[appVariant];
 const iconRoot = `./assets/icons/${appVariant}`;
 
-export default {
+export default withAndroidConfigurationChanges({
   android: {
     adaptiveIcon: {
       backgroundColor: variant.backgroundColor,
@@ -129,4 +146,4 @@ export default {
   slug: "qop",
   userInterfaceStyle: "automatic",
   version: "0.0.1",
-} satisfies ExpoConfig;
+} satisfies ExpoConfig);

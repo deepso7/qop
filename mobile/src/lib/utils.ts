@@ -14,7 +14,7 @@ const twMerge = extendTailwindMerge<"border-curve">({
     },
     theme: {
       radius: ["bubble", "icon", "panel", "tile"],
-      text: ["headline", "subhead"],
+      text: ["headline", "subhead", "label", "large-title"],
     },
   },
 });

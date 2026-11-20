@@ -14,13 +14,21 @@ import { Result } from "effect";
 import * as Clipboard from "expo-clipboard";
 import { useRouter } from "expo-router";
 import * as React from "react";
-import { Alert, Platform, Share, useColorScheme, View } from "react-native";
+import {
+  Alert,
+  Platform,
+  Share,
+  useColorScheme,
+  useWindowDimensions,
+  View,
+} from "react-native";
 import { ScopedVariables, withUniwind } from "uniwind";
 
 import { NativeAlert } from "@/components/ui/native-alert";
 import {
   accessibleButtonModifiers,
   settingsFormModifiers,
+  settingsSectionModifiers,
 } from "@/components/ui/native-modifiers";
 import { SettingsPalette } from "@/components/ui/settings-palette";
 import { NativeSpinner } from "@/components/ui/spinner";
@@ -30,6 +38,8 @@ import { useDeviceRoster } from "@/hooks/use-device-roster";
 import { selectionHaptic } from "@/lib/haptics";
 import { selectAccount, useIdentityStore } from "@/lib/identity-store";
 import type { Account } from "@/lib/identity-store";
+
+const readingFont = "Inter-Regular";
 
 // @expo/ui views take a plain style object (mapped to SwiftUI/Compose
 // modifiers), so resolve classes into `style` directly rather than an array.
@@ -79,18 +89,31 @@ const showQrCode = () => {
 const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
   const colors = useTheme();
   const [tint, ink] = avatarTint(handle);
+  const { fontScale } = useWindowDimensions();
+  const Layout = fontScale >= 2 ? StyledColumn : StyledRow;
 
   return (
     // No row-wide spacing: it would also pad around the flexible spacer and
     // squeeze the QR circle when the handle is long.
-    <StyledRow alignment="center" className="py-3.5">
-      <ScopedVariables variables={{ "--avatar-tint": tint }}>
+    <Layout alignment="center" className="py-3.5">
+      <ScopedVariables
+        variables={{
+          "--avatar-tint": tint,
+          "--avatar-size": 72 * Math.max(1, fontScale / 1.5),
+        }}
+      >
         <StyledColumn
           alignment="center"
-          className="size-18 rounded-full bg-(--avatar-tint)"
+          className="size-(--avatar-size) rounded-full bg-(--avatar-tint)"
         >
           <Spacer flexible />
-          <UIText textStyle={{ color: ink, fontSize: 28, fontWeight: "600" }}>
+          <UIText
+            textStyle={{
+              fontFamily: "Inter-SemiBold",
+              color: ink,
+              fontSize: 28,
+            }}
+          >
             {handle.slice(0, 2).toUpperCase()}
           </UIText>
           <Spacer flexible />
@@ -99,12 +122,21 @@ const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
       <Spacer size={16} />
       <Column spacing={4}>
         <UIText
-          numberOfLines={1}
-          textStyle={{ fontSize: 24, fontWeight: "600" }}
+          numberOfLines={fontScale >= 2 ? undefined : 1}
+          textStyle={{
+            fontFamily: "Inter-SemiBold",
+            fontSize: 24,
+          }}
         >
           {`@${handle}`}
         </UIText>
-        <UIText textStyle={{ color: colors.textSecondary, fontSize: 17 }}>
+        <UIText
+          textStyle={{
+            fontFamily: "PaperMono-Regular",
+            color: colors.textSecondary,
+            fontSize: 12,
+          }}
+        >
           {`QID ${qid}`}
         </UIText>
       </Column>
@@ -125,7 +157,7 @@ const ProfileCard = ({ handle, qid }: ProfileCardProps) => {
         />
         <Spacer flexible />
       </StyledColumn>
-    </StyledRow>
+    </Layout>
   );
 };
 
@@ -177,7 +209,15 @@ const Secondary = ({ children }: { children: string }) => {
   const colors = useTheme();
 
   return (
-    <UIText textStyle={{ color: colors.textSecondary }}>{children}</UIText>
+    <UIText
+      textStyle={{
+        fontFamily: readingFont,
+        fontSize: 14,
+        color: colors.textSecondary,
+      }}
+    >
+      {children}
+    </UIText>
   );
 };
 
@@ -344,7 +384,13 @@ const ProfileScreen = ({ account }: { account: Account }) => {
 
   return (
     <View className="bg-background pt-safe flex-1">
-      <Text className="mx-5 mt-10 mb-2" variant="title">
+      <Text
+        adjustsFontSizeToFit
+        minimumFontScale={0.5}
+        numberOfLines={1}
+        className="mx-5 mt-10 mb-2"
+        variant="largeTitle"
+      >
         Profile
       </Text>
       <StyledHost
@@ -357,25 +403,43 @@ const ProfileScreen = ({ account }: { account: Account }) => {
             className="bg-background"
             modifiers={settingsFormModifiers}
           >
-            <FieldGroup.Section>
+            <FieldGroup.Section
+              modifiers={settingsSectionModifiers(colors.backgroundElement)}
+            >
               <ProfileCard handle={identity.handle} qid={qid} />
             </FieldGroup.Section>
 
-            <FieldGroup.Section title="Recovery key">
+            <FieldGroup.Section
+              modifiers={settingsSectionModifiers(colors.backgroundElement)}
+            >
+              <FieldGroup.SectionHeader>
+                <Secondary>Recovery key</Secondary>
+              </FieldGroup.SectionHeader>
               <SettingsRow trailing={<Secondary>{recovery.status}</Secondary>}>
-                <UIText>Status</UIText>
+                <UIText
+                  textStyle={{ fontFamily: readingFont, color: colors.text }}
+                >
+                  Status
+                </UIText>
               </SettingsRow>
               <SettingsRow
                 onPress={submitRecoveryExport}
                 trailing={exportingRecoveryKey ? <NativeSpinner /> : undefined}
               >
-                <UIText textStyle={{ color: colors.primary }}>
+                <UIText
+                  textStyle={{ fontFamily: readingFont, color: colors.primary }}
+                >
                   {recovery.buttonLabel}
                 </UIText>
               </SettingsRow>
               {awaitingBackupConfirmation ? (
                 <SettingsRow onPress={confirmRecoveryBackup}>
-                  <UIText textStyle={{ color: colors.primary }}>
+                  <UIText
+                    textStyle={{
+                      fontFamily: readingFont,
+                      color: colors.primary,
+                    }}
+                  >
                     I saved the recovery key
                   </UIText>
                 </SettingsRow>
@@ -388,7 +452,12 @@ const ProfileScreen = ({ account }: { account: Account }) => {
               </FieldGroup.SectionFooter>
             </FieldGroup.Section>
 
-            <FieldGroup.Section title="Devices">
+            <FieldGroup.Section
+              modifiers={settingsSectionModifiers(colors.backgroundElement)}
+            >
+              <FieldGroup.SectionHeader>
+                <Secondary>Devices</Secondary>
+              </FieldGroup.SectionHeader>
               {/* From the local identity, so it (and peer ID copy) never waits
                   on the on-chain roster lookup. */}
               <SettingsRow
@@ -401,7 +470,11 @@ const ProfileScreen = ({ account }: { account: Account }) => {
                   </Secondary>
                 }
               >
-                <UIText>This device</UIText>
+                <UIText
+                  textStyle={{ fontFamily: readingFont, color: colors.text }}
+                >
+                  This device
+                </UIText>
               </SettingsRow>
               {roster.status === "loading" ? (
                 <SettingsRow>
@@ -412,10 +485,21 @@ const ProfileScreen = ({ account }: { account: Account }) => {
                 <SettingsRow
                   onPress={retryRoster}
                   trailing={
-                    <UIText textStyle={{ color: colors.primary }}>Retry</UIText>
+                    <UIText
+                      textStyle={{
+                        fontFamily: readingFont,
+                        color: colors.primary,
+                      }}
+                    >
+                      Retry
+                    </UIText>
                   }
                 >
-                  <UIText>Could not load devices</UIText>
+                  <UIText
+                    textStyle={{ fontFamily: readingFont, color: colors.text }}
+                  >
+                    Could not load devices
+                  </UIText>
                 </SettingsRow>
               ) : null}
               {roster.status === "ready"
@@ -435,17 +519,31 @@ const ProfileScreen = ({ account }: { account: Account }) => {
                           <Secondary>{`…${device.peerId.slice(-8)}`}</Secondary>
                         }
                         trailing={
-                          <UIText textStyle={{ color: colors.destructive }}>
+                          <UIText
+                            textStyle={{
+                              fontFamily: readingFont,
+                              color: colors.destructive,
+                            }}
+                          >
                             Remove
                           </UIText>
                         }
                       >
-                        <UIText>{pairingFingerprint(device.deviceKey)}</UIText>
+                        <UIText
+                          textStyle={{
+                            fontFamily: "PaperMono-Regular",
+                            color: colors.text,
+                          }}
+                        >
+                          {pairingFingerprint(device.deviceKey)}
+                        </UIText>
                       </SettingsRow>
                     ))
                 : null}
               <SettingsRow onPress={() => push("/link-device")}>
-                <UIText textStyle={{ color: colors.primary }}>
+                <UIText
+                  textStyle={{ fontFamily: readingFont, color: colors.primary }}
+                >
                   Link a device
                 </UIText>
               </SettingsRow>
@@ -457,9 +555,16 @@ const ProfileScreen = ({ account }: { account: Account }) => {
               </FieldGroup.SectionFooter>
             </FieldGroup.Section>
 
-            <FieldGroup.Section>
+            <FieldGroup.Section
+              modifiers={settingsSectionModifiers(colors.backgroundElement)}
+            >
               <SettingsRow onPress={openLogoutAlert}>
-                <UIText textStyle={{ color: colors.destructive }}>
+                <UIText
+                  textStyle={{
+                    fontFamily: readingFont,
+                    color: colors.destructive,
+                  }}
+                >
                   Log out
                 </UIText>
               </SettingsRow>

@@ -1,6 +1,6 @@
 import { Result } from "effect";
 import * as React from "react";
-import { Keyboard, View } from "react-native";
+import { Keyboard, Platform, useWindowDimensions, View } from "react-native";
 import { KeyboardAvoidingView } from "react-native-keyboard-controller";
 
 import { HandleStep } from "@/components/onboarding/handle-step";
@@ -19,6 +19,7 @@ type Stage = "handle" | "invite" | "restore" | "welcome";
 // Onboarding from welcome, either creating an account (handle → invite code →
 // recovery key) or restoring one (recovery key → add this phone).
 const OnboardingRoute = () => {
+  const { fontScale } = useWindowDimensions();
   const state = useIdentityStore();
   const identity = selectIdentity(state);
   const [stage, setStage] = React.useState<Stage>("welcome");
@@ -120,7 +121,11 @@ const OnboardingRoute = () => {
 
   return (
     <View className="bg-background flex-1">
-      <KeyboardAvoidingView behavior="padding" className="flex-1">
+      <KeyboardAvoidingView
+        behavior="padding"
+        className="flex-1"
+        enabled={Platform.OS !== "ios" || fontScale < 2}
+      >
         {content}
       </KeyboardAvoidingView>
     </View>

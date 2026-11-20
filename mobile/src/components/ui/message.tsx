@@ -128,10 +128,10 @@ const messageBubbleVariants = cva(
     defaultVariants: { tone: "incoming" },
     variants: {
       tone: {
-        failed: "border-destructive bg-primary border-2",
+        failed: "border-destructive bg-sent border-2",
         incoming: "bg-background-element",
-        outgoing: "bg-primary",
-        pending: "bg-primary",
+        outgoing: "bg-sent",
+        pending: "bg-sent",
       },
     },
   }
@@ -154,7 +154,7 @@ const MessageBubble = ({
 
   const textClassName =
     tone === "outgoing" || tone === "failed" || tone === "pending"
-      ? "text-primary-foreground"
+      ? "text-foreground"
       : undefined;
 
   return (
@@ -203,7 +203,7 @@ const MessageStatus = ({
     <Text
       className={cn(
         "text-foreground-secondary text-xs leading-4",
-        tone === "failed" && "text-destructive font-semibold"
+        tone === "failed" && "text-destructive font-sans-semibold"
       )}
       selectable
     >
@@ -240,7 +240,7 @@ const MessageReply = ({
   <View className={cn("mb-2 flex-row gap-2", className)} {...props}>
     <View className="bg-primary w-0.5 rounded-full" />
     <View className="min-w-0 flex-1">
-      <Text className="text-primary text-xs font-semibold" selectable>
+      <Text className="text-primary font-sans-semibold text-xs" selectable>
         {author}
       </Text>
       <Text
@@ -282,15 +282,16 @@ const MessageMeta = ({
   return (
     <View
       accessibilityLabel={`${time}${status ? `, ${status}` : ""}`}
-      className={cn(
-        "mt-1 flex-row items-center gap-1 self-end opacity-65",
-        className
-      )}
+      className={cn("mt-1 flex-row items-center gap-1 self-end", className)}
       {...props}
     >
-      <Text className="text-xs leading-4 tabular-nums">{time}</Text>
+      <Text variant="caption">{time}</Text>
       {status ? (
-        <Icon as={StatusIcon} className="size-3.5" strokeWidth={2.25} />
+        <Icon
+          as={StatusIcon}
+          className="text-faint size-3.5"
+          strokeWidth={2.25}
+        />
       ) : null}
     </View>
   );
@@ -332,7 +333,7 @@ const MessageReaction = ({
     accessibilityLabel={`${emoji} reaction${selected ? ", you reacted" : ""}`}
     accessibilityState={{ selected }}
     className={cn(
-      "border-border h-8 min-w-8 rounded-full border px-2",
+      "border-faint min-h-11 min-w-11 rounded-full border px-2 py-2",
       selected && "bg-primary border-primary",
       className
     )}
@@ -359,7 +360,7 @@ const MessageReactionAdd = ({
   <Button
     accessibilityLabel="Add reaction"
     className={cn(
-      "size-8 rounded-full",
+      "size-11 rounded-full",
       variant === "filled"
         ? "bg-background-selected dark:bg-background-selected border-0"
         : "border-border border",
@@ -530,7 +531,7 @@ const MessageActionRows = ({
         <Pressable
           accessibilityRole="menuitem"
           accessibilityState={{ disabled: action.disabled }}
-          className="active:bg-background-selected h-11.5 flex-row items-center gap-3.5 px-4"
+          className="active:bg-background-selected min-h-11.5 flex-row items-center gap-3.5 px-4 py-2"
           disabled={action.disabled}
           onPress={() => onRunAction(action)}
           ref={index === 0 ? firstActionRef : undefined}
@@ -638,7 +639,7 @@ const MessageLongPressOverlay = ({
                 : FadeInDown.springify().damping(18).stiffness(260)
             }
           >
-            <MessageReactionPicker className="bg-background border-border shadow-lg">
+            <MessageReactionPicker className="bg-background-element">
               {reactions.map((emoji) => (
                 <MessageReactionPickerItem
                   emoji={emoji}
@@ -844,7 +845,7 @@ const MessageReactors = ({
 }: React.ComponentProps<typeof View>) => (
   <View
     className={cn(
-      "bg-background-element border-border border-continuous rounded-tile overflow-hidden border",
+      "bg-background-element border-continuous rounded-tile overflow-hidden",
       className
     )}
     {...props}
@@ -879,12 +880,12 @@ const MessageReactor = ({
     {...props}
   >
     <Text className="text-lg">{emoji}</Text>
-    <Text className="min-w-0 flex-1 font-medium" selectable>
+    <Text className="font-sans-medium min-w-0 flex-1" selectable>
       {name}
     </Text>
     {actionLabel ? (
       <Pressable accessibilityRole="button" hitSlop={8} onPress={onAction}>
-        <Text className="text-primary text-sm font-semibold">
+        <Text className="text-primary font-sans-semibold text-sm">
           {actionLabel}
         </Text>
       </Pressable>
@@ -911,25 +912,36 @@ const MessageAttachment = ({
   preview,
   size,
   ...props
-}: MessageAttachmentProps) => (
-  <Pressable
-    accessibilityLabel={`${name}${size ? `, ${size}` : ""}`}
-    accessibilityRole="button"
-    className={cn(
-      "bg-background-element border-continuous rounded-panel w-56 overflow-hidden",
-      className
-    )}
-    {...props}
-  >
-    {preview ? <View className="h-36">{preview}</View> : null}
-    <View className="px-4 py-2.5">
-      <Text className="text-sm" numberOfLines={1} selectable>
-        {name}
-        {size ? ` · ${size}` : ""}
-      </Text>
-    </View>
-  </Pressable>
-);
+}: MessageAttachmentProps) => {
+  const { fontScale } = useWindowDimensions();
+  const largeText = fontScale >= 2;
+
+  return (
+    <Pressable
+      accessibilityLabel={`${name}${size ? `, ${size}` : ""}`}
+      accessibilityRole="button"
+      className={cn(
+        "bg-background-element border-continuous rounded-panel w-56 overflow-hidden",
+        largeText && "w-full",
+        className
+      )}
+      {...props}
+    >
+      {preview ? <View className="h-36">{preview}</View> : null}
+      <View className="px-4 py-2.5">
+        <Text className="text-sm" numberOfLines={largeText ? 3 : 1} selectable>
+          {name}
+          {!largeText && size ? ` · ${size}` : ""}
+        </Text>
+        {largeText && size ? (
+          <Text className="text-sm" selectable tone="secondary">
+            {size}
+          </Text>
+        ) : null}
+      </View>
+    </Pressable>
+  );
+};
 
 const MessageTypingDot = ({ index }: { index: number }) => {
   const reduceMotion = useReducedMotion();

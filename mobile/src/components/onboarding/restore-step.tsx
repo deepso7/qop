@@ -20,8 +20,8 @@ import {
   Title,
   WaitCaption,
 } from "@/components/onboarding/chrome";
-import { Notch } from "@/components/pixel/notch";
 import { PixelButton } from "@/components/pixel/pixel-button";
+import { RoundedSurface } from "@/components/ui/rounded-surface";
 import { Text } from "@/components/ui/text";
 import { primaryHaptic, successHaptic } from "@/lib/haptics";
 import { selectIdentity, useIdentityStore } from "@/lib/identity-store";
@@ -108,11 +108,7 @@ const KeyField = ({
   const [focused, setFocused] = React.useState(false);
 
   return (
-    <Notch
-      className="min-h-32 px-4 py-3"
-      fillClassName="accent-background-element"
-      strokeClassName={focused ? "accent-primary" : "accent-border"}
-    >
+    <RoundedSurface className="min-h-24" variant="restore" focused={focused}>
       <TextInput
         accessibilityHint="Paste the key that starts with qop1_"
         accessibilityLabel="Recovery key"
@@ -120,7 +116,7 @@ const KeyField = ({
         autoComplete="off"
         autoCorrect={false}
         autoFocus
-        className="font-paper text-foreground min-h-26 text-lg leading-7"
+        className="font-paper text-foreground min-h-14 text-lg leading-7"
         enterKeyHint="go"
         importantForAutofill="no"
         multiline
@@ -140,7 +136,7 @@ const KeyField = ({
         accessibilityHint="Pastes the key from your clipboard"
         accessibilityLabel="Paste"
         accessibilityRole="button"
-        className="self-end"
+        className="min-h-11 min-w-11 items-center justify-center self-end"
         hitSlop={12}
         onPress={onPaste}
       >
@@ -150,7 +146,7 @@ const KeyField = ({
           </Text>
         )}
       </Pressable>
-    </Notch>
+    </RoundedSurface>
   );
 };
 
@@ -395,17 +391,14 @@ const AddingPhone = ({
 
       <View className="gap-3">
         <View accessibilityLiveRegion="polite" className="gap-4">
-          <Notch
-            className="gap-2 p-4"
-            fillClassName="accent-background-element"
-          >
+          <RoundedSurface variant="panel">
             <LogRow label="key verified" state="done" />
             <LogRow label="this phone’s device key made" state="done" />
             <LogRow
               label={`adding this phone to @${handle}`}
               state={stopped ? "failed" : "active"}
             />
-          </Notch>
+          </RoundedSurface>
           {stopped ? null : <WaitCaption />}
         </View>
         {phase.message ? (

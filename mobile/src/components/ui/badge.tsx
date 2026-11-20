@@ -40,14 +40,14 @@ const badgeVariants = cva(
   }
 );
 
-const badgeTextVariants = cva("text-xs font-medium", {
+const badgeTextVariants = cva("font-sans-medium text-xs", {
   defaultVariants: {
     variant: "default",
   },
   variants: {
     variant: {
       default: "text-primary-foreground",
-      destructive: "text-white",
+      destructive: "text-destructive-foreground",
       outline: "text-foreground",
       secondary: "text-secondary-foreground",
     },
