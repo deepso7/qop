@@ -839,6 +839,35 @@ mod tests {
         assert!(stream.read_to_end(1024).await.is_err());
     }
 
+    /// A write behind one the endpoint still holds is refused, and the held one still completes.
+    #[tokio::test]
+    async fn refuses_a_second_write_while_one_is_held() {
+        let (server, mut server_events) = node_holding(8, 8_000_000);
+        let (client, _client_events) = node(9);
+        let serve = tokio::spawn(async move {
+            let mut stream = next_stream(&mut server_events).await;
+            stream.read_to_end(8_000_000).await.map(|body| body.len())
+        });
+        let peer = client
+            .handle()
+            .connect(server.listen_addrs().to_vec())
+            .await
+            .expect("connect");
+        let mut stream = client
+            .handle()
+            .open_stream(&peer, ECHO)
+            .await
+            .expect("open");
+
+        // Larger than a stream window, so the first write is held while the second arrives.
+        let (first, second) = tokio::join!(stream.write(vec![1; 3_000_000]), stream.write(vec![2]));
+
+        assert_eq!(first, Ok(()));
+        assert!(matches!(second, Err(NodeError::Stream(_))));
+        stream.close_write().await.expect("close");
+        assert_eq!(serve.await.expect("server task"), Ok(3_000_000));
+    }
+
     #[tokio::test]
     async fn fails_pending_calls_once_shut_down() {
         let (node, _events) = node(5);
