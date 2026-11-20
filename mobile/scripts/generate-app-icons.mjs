@@ -184,18 +184,24 @@ function drawMark(image, markColor, badgeCount, badgeColor, adaptive = false) {
   let centerX = LOGICAL_GRID_SIZE / 2;
   let centerY = LOGICAL_GRID_SIZE / 2;
   if (adaptive) {
-    // Use every variant's accents so all adaptive marks share the same placement.
-    const rectangles = [...MARK_RECTS, ...BADGE_RECTS];
-    const left = Math.min(...rectangles.map(({ x }) => x));
-    const top = Math.min(...rectangles.map(({ y }) => y));
-    const right = Math.max(...rectangles.map(({ x, width }) => x + width));
-    const bottom = Math.max(...rectangles.map(({ y, height }) => y + height));
+    const left = Math.min(...MARK_RECTS.map(({ x }) => x));
+    const top = Math.min(...MARK_RECTS.map(({ y }) => y));
+    const right = Math.max(...MARK_RECTS.map(({ x, width }) => x + width));
+    const bottom = Math.max(...MARK_RECTS.map(({ y, height }) => y + height));
     centerX = (left + right) / 2;
     centerY = (top + bottom) / 2;
+    // Share a scale that keeps every variant's accents inside the safe circle.
+    const radius = Math.max(
+      ...[...MARK_RECTS, ...BADGE_RECTS].flatMap(({ x, y, width, height }) =>
+        [x, x + width].flatMap((cornerX) =>
+          [y, y + height].map((cornerY) =>
+            Math.hypot(cornerX - centerX, cornerY - centerY)
+          )
+        )
+      )
+    );
     // Reserve one pixel for rounding inside Android's 66dp circle on 108dp.
-    pixelSize =
-      (image.width * (33 / 108) - 1) /
-      Math.hypot((right - left) / 2, (bottom - top) / 2);
+    pixelSize = (image.width * (33 / 108) - 1) / radius;
   }
   const drawGridRect = ({ height, width, x, y }, color) => {
     const left = Math.round((x - centerX) * pixelSize + image.width / 2);

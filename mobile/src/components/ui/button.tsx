@@ -104,7 +104,7 @@ const buttonTextVariants = cva(
       },
       variant: {
         default: "text-primary-foreground",
-        destructive: "text-link",
+        destructive: "text-destructive",
         ghost: "text-foreground-secondary group-active:text-accent-foreground",
         link: cn(
           "text-primary group-active:underline",

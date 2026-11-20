@@ -54,7 +54,9 @@
       --color-card: oklch(0.955 0.006 70);
       --color-card-foreground: oklch(0.2 0.008 30);
       --color-code-background: oklch(0.2 0.008 30 / 0.06);
-      --color-destructive: oklch(0.5 0.11 45);
+      /* Mobile danger is red; desktop/web intentionally use terracotta. */
+      --color-destructive: oklch(0.54 0.2 27);
+      --color-destructive-foreground: oklch(0.985 0.004 80);
       --color-foreground: oklch(0.2 0.008 30);
       --color-foreground-secondary: oklch(0.2 0.008 30 / 0.66);
       --color-faint: oklch(0.2 0.008 30 / 0.66);
@@ -88,7 +90,8 @@
       --color-card: oklch(0.205 0.01 40);
       --color-card-foreground: oklch(0.95 0.008 70);
       --color-code-background: oklch(0.95 0.008 70 / 0.06);
-      --color-destructive: oklch(0.76 0.12 52);
+      --color-destructive: oklch(0.7 0.18 25);
+      --color-destructive-foreground: oklch(0.165 0.008 40);
       --color-foreground: oklch(0.95 0.008 70);
       --color-foreground-secondary: oklch(0.95 0.008 70 / 0.6);
       --color-faint: oklch(0.95 0.008 70 / 0.6);
