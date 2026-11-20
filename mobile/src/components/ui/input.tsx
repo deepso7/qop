@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 const inputVariants = cva(
   cn(
-    "border-continuous border-faint bg-input text-foreground min-h-12 w-full min-w-0 rounded-md border px-3 py-3 font-sans text-base",
+    "border-continuous bg-input text-foreground min-h-12 w-full min-w-0 rounded-md border border-transparent px-3 py-3 font-sans text-base",
     Platform.select({
       web: cn(
         "placeholder:text-muted-foreground selection:bg-primary selection:text-primary-foreground transition outline-none md:text-sm",

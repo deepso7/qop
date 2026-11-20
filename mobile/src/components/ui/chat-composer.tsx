@@ -85,22 +85,37 @@ const ChatComposerButton = ({
 
 const ChatComposerInput = ({
   className,
+  onFocus,
+  onBlur,
   ...props
-}: React.ComponentProps<typeof TextInput>) => (
-  <TextInput
-    accessibilityLabel="Message"
-    className={cn(
-      "border-faint bg-background-element text-foreground border-continuous max-h-40 min-h-11 flex-1 rounded-md border px-4 py-2.5 font-sans text-base leading-5",
-      className
-    )}
-    multiline
-    placeholder="Message"
-    placeholderTextColorClassName="accent-muted-foreground"
-    selectionColorClassName="accent-primary"
-    textAlignVertical="center"
-    {...props}
-  />
-);
+}: React.ComponentProps<typeof TextInput>) => {
+  const [focused, setFocused] = React.useState(false);
+
+  return (
+    <TextInput
+      accessibilityLabel="Message"
+      className={cn(
+        "bg-input text-foreground border-continuous max-h-40 min-h-11 flex-1 rounded-md border border-transparent px-4 py-2.5 font-sans text-base leading-5",
+        focused && "border-ring",
+        className
+      )}
+      multiline
+      onFocus={(event) => {
+        setFocused(true);
+        onFocus?.(event);
+      }}
+      onBlur={(event) => {
+        setFocused(false);
+        onBlur?.(event);
+      }}
+      placeholder="Message"
+      placeholderTextColorClassName="accent-muted-foreground"
+      selectionColorClassName="accent-primary"
+      textAlignVertical="center"
+      {...props}
+    />
+  );
+};
 
 // A static waveform: bar heights from 10 to 25pt.
 const WAVEFORM = [

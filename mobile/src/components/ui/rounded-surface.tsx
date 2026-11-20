@@ -11,9 +11,9 @@ const roundedSurfaceVariants = cva("border-continuous", {
       panel: "bg-background-element rounded-panel gap-2 p-4",
       code: "bg-code-background gap-4 rounded-md p-4",
       field:
-        "border-faint bg-input flex-row items-center gap-1 rounded-md border px-4",
-      restore: "border-faint bg-input rounded-md border px-4 py-3",
-      cell: "border-faint bg-input items-center justify-center rounded-md border py-2",
+        "bg-input flex-row items-center gap-1 rounded-md border border-transparent px-4",
+      restore: "bg-input rounded-md border border-transparent px-4 py-3",
+      cell: "bg-input items-center justify-center rounded-md border border-transparent py-2",
       primary:
         "bg-primary flex-row items-center justify-center gap-3 rounded-md px-5 py-3",
       quiet:
