@@ -102,6 +102,7 @@ pub fn link<S: 'static>(t: &Theme, key: &str, label: &str, on: impl Fn(&mut S, &
         .on_press_tx(on)
 }
 
+/// A destructive text action (Use another handle) in danger red.
 pub fn danger_link<S: 'static>(t: &Theme, key: &str, label: &str, on: impl Fn(&mut S, &mut Tx) + 'static) -> El {
     link(t, key, label, on).color(t.danger).group_color(t.danger).focus_ring(2.0, 2.0, t.danger)
 }

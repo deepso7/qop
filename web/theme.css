@@ -83,7 +83,6 @@ html {
   /* brand is for fills and art; link is the AA text shade of it. */
   --color-brand: var(--qp-orange);
   --color-link: var(--qp-link);
-  --color-danger: var(--qp-danger);
   --color-mark: var(--qp-mark);
   --color-mark-tile: var(--qp-mark-tile);
 }
