@@ -276,7 +276,7 @@ fn message(ui: &Ui, t: &Theme, m: &Message, run_ends: bool, last_delivered: bool
             Some(
                 status_word("failed", kit::dot(t.link, false), "Not delivered", t.link)
                     .child(text("·").font(type_::CAPTION).color(t.faint))
-                    .child(kit::link(t, &format!("retry-{}", m.id.0), "Retry", move |ui: &mut Ui, _| ui.send(Command::Retry(id.clone()))).font(type_::CAPTION)),
+                    .child(kit::link(t, &format!("retry-{}", m.id.0), "Retry", type_::CAPTION, move |ui: &mut Ui, _| ui.send(Command::Retry(id.clone())))),
             )
         }
         _ => None,
@@ -418,7 +418,7 @@ fn settings(ui: &Ui, t: &Theme, l: &Linked) -> El {
                         .gap(space::M)
                         .items_center()
                         .child(value(a.peer_id.clone()))
-                        .child(kit::link(t, "copy-peer", "Copy", move |_: &mut Ui, tx| tx.copy(peer.clone()))),
+                        .child(kit::link(t, "copy-peer", "Copy", type_::SMALL, move |_: &mut Ui, tx| tx.copy(peer.clone()))),
                 ),
                 ("Fingerprint", row().child(kit::chip(t, kit::group(&a.fingerprint)))),
                 ("Relay", relay_line(t, l.relay)),

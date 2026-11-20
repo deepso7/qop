@@ -87,24 +87,27 @@ pub fn gear(color: Color, size: f32) -> El {
     canvas(shape.view_box(24.0, 24.0)).size(size, size)
 }
 
-/// A text action in terracotta, underlined on hover like site links.
-pub fn link<S: 'static>(t: &Theme, key: &str, label: &str, on: impl Fn(&mut S, &mut Tx) + 'static) -> El {
-    text(label)
+/// A text action in terracotta that turns ink on hover.
+pub fn link<S: 'static>(t: &Theme, key: &str, label: &str, style: rune::TextStyle, on: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+    text_link(t, key, label, style, t.link, t.brand, on)
+}
+
+fn text_link<S: 'static>(t: &Theme, key: &str, label: &str, style: rune::TextStyle, color: Color, focus: Color, on: impl Fn(&mut S, &mut Tx) + 'static) -> El {
+    row()
         .key(key)
         .role("button")
-        .font(type_::SMALL)
-        .color(t.link)
-        .group_color(t.ink)
+        .label(label)
+        .child(text(label).font(style).color(color).group_color(t.ink).a11y_hidden())
         .hover_group()
         .focusable(true)
-        .focus_ring(2.0, 2.0, t.brand)
+        .focus_ring(2.0, 2.0, focus)
         .cursor(Cursor::Pointer)
         .on_press_tx(on)
 }
 
-/// A destructive text action (Use another handle) in danger red.
+/// A destructive text action in danger red that turns ink on hover.
 pub fn danger_link<S: 'static>(t: &Theme, key: &str, label: &str, on: impl Fn(&mut S, &mut Tx) + 'static) -> El {
-    link(t, key, label, on).color(t.danger).group_color(t.danger).focus_ring(2.0, 2.0, t.danger)
+    text_link(t, key, label, type_::SMALL, t.danger, t.danger, on)
 }
 
 /// A single-line input on a soft chip, ringed in terracotta while focused. `prefix` (such as `@`)
