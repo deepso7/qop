@@ -511,6 +511,11 @@ impl Driver {
                     let _ = reply.send(Err(NodeError::Stream(error.to_string())));
                 }
             },
+            // One write per stream at a time: the endpoint would append a second one behind the
+            // first, but `writes` holds a single reply per stream.
+            Command::Write { reply, key, .. } if self.writes.contains_key(&key) => {
+                let _ = reply.send(Err(NodeError::Stream("a write is already pending".into())));
+            }
             Command::Write { key, data, reply } => match endpoint.send_stream(key, data) {
                 Ok(()) if endpoint.is_write_pending(key) => {
                     self.writes.insert(key, reply);
