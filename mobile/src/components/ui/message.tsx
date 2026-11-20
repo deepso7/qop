@@ -922,6 +922,7 @@ const MessageAttachment = ({
       accessibilityRole="button"
       className={cn(
         "bg-background-element border-continuous rounded-panel w-56 overflow-hidden",
+        largeText && "w-full",
         className
       )}
       {...props}
