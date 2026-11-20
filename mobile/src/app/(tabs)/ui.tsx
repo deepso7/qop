@@ -54,17 +54,20 @@ const ComponentSection = ({
 );
 
 /**
- * Hosts an Expo UI tree at a fixed height (`className`, e.g. `h-46`). Children
- * render once the width is measured and can size to it with `w-(--preview-width)`.
+ * Matches content height unless vertical matching is disabled for a bounded
+ * scrolling preview. Children render once the width is measured and can size
+ * to it with `w-(--preview-width)`.
  */
 const ExpoNativePreview = ({
   children,
   className,
   inset = false,
+  matchContentsVertical = true,
   seedColor,
 }: React.PropsWithChildren<{
   className: string;
   inset?: boolean;
+  matchContentsVertical?: boolean;
   seedColor?: string;
 }>) => {
   const [contentWidth, setContentWidth] = useState(0);
@@ -85,7 +88,7 @@ const ExpoNativePreview = ({
             className={cn("w-full", className)}
             colorScheme={colorScheme}
             ignoreSafeArea="all"
-            matchContents={{ vertical: true }}
+            matchContents={{ vertical: matchContentsVertical }}
             seedColor={seedColor}
           >
             <ScopedVariables variables={{ "--preview-width": contentWidth }}>
@@ -143,7 +146,10 @@ const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
 
       <View className="gap-2">
         <Text variant="label">Native settings group</Text>
-        <ExpoNativePreview className="android:h-46 h-42">
+        <ExpoNativePreview
+          className="android:h-46 h-42"
+          matchContentsVertical={false}
+        >
           <ExpoFieldGroup>
             <ExpoFieldGroup.Section title="Preferences">
               <ExpoRow alignment="center">
