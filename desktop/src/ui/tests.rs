@@ -9,6 +9,34 @@ use super::theme::Theme;
 use crate::model::{Command, ConversationId, MessageId, NewChat, Phase};
 
 #[test]
+fn text_links_draw_ink_on_hover() {
+    fn link(&(danger, dark): &(bool, bool), _: &mut rune::Cx<(bool, bool)>) -> rune::El {
+        let t = Theme::new(dark);
+        if danger {
+            super::kit::danger_link(&t, "link", "Use another handle", |_: &mut (bool, bool), _| {})
+        } else {
+            super::kit::link(&t, "link", "Copy", super::theme::type_::SMALL, |_: &mut (bool, bool), _| {})
+        }
+    }
+    for dark in [false, true] {
+        for danger in [false, true] {
+            let mut rt = Runtime::new((danger, dark), link, (300.0, 60.0), Env::new(dark, 2.0));
+            rt.frame(0.0);
+            let (x, y) = rt.find("link").unwrap();
+            rt.pointer_move(x, y);
+            for _ in 0..120 { rt.frame(1.0 / 60.0); }
+            let glyphs: Vec<_> = rt.instances.iter().filter(|i| i.params[1] == rune::render::KIND_GLYPH).collect();
+            assert!(!glyphs.is_empty());
+            let t = Theme::new(dark);
+            for glyph in glyphs {
+                let ink = [t.ink.r, t.ink.g, t.ink.b, t.ink.a];
+                assert!(glyph.fill.iter().zip(ink).all(|(a, b)| (a - b).abs() < 1e-6), "danger={danger} dark={dark}: drawn {:?}, expected ink {ink:?}", glyph.fill);
+            }
+        }
+    }
+}
+
+#[test]
 fn text_links_keep_interaction_on_the_hover_group() {
     fn links(_: &usize, _: &mut rune::Cx<usize>) -> rune::El {
         let t = Theme::new(false);
