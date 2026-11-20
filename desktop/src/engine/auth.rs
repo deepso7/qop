@@ -140,7 +140,7 @@ impl Auth {
         }
         inner.serial += 1;
         let session = Session {
-            peer: peer.clone(),
+            peer: *peer,
             serial: inner.serial,
             authorization: None,
             last_block: None,
@@ -313,7 +313,7 @@ impl Auth {
         let mut peers: Vec<PeerId> = Vec::new();
         let mut push = |peer: &PeerId| {
             if !peers.contains(peer) {
-                peers.push(peer.clone());
+                peers.push(*peer);
             }
         };
         for session in inner.sessions.values() {

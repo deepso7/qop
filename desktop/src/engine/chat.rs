@@ -92,7 +92,7 @@ async fn receive<C: Chain>(
     if !ctx.auth.allowed() {
         return Err(InboundError::Paused);
     }
-    let (conn, peer) = (stream.conn(), stream.peer.clone());
+    let (conn, peer) = (stream.conn(), stream.peer);
     ctx.auth.opened(conn, &peer);
     let contact = ctx
         .auth
@@ -249,7 +249,7 @@ async fn dial<C: Chain>(
     peer: &minip2p::PeerId,
 ) -> Result<Stream, DeliverError> {
     let stream = open(&ctx.node, peer).await?;
-    let (conn, peer) = (stream.conn(), stream.peer.clone());
+    let (conn, peer) = (stream.conn(), stream.peer);
     ctx.auth.opened(conn, &peer);
     let contact = ctx
         .auth
