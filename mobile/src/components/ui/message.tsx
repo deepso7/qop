@@ -3,6 +3,7 @@ import { cva } from "class-variance-authority";
 import type { VariantProps } from "class-variance-authority";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
+import { useFocusEffect } from "expo-router";
 import type { LucideIcon } from "lucide-react-native";
 import { Check, CheckCheck, Clock3, Plus } from "lucide-react-native";
 import * as React from "react";
@@ -947,35 +948,37 @@ const MessageTypingDot = ({ index }: { index: number }) => {
   const reduceMotion = useReducedMotion();
   const progress = useSharedValue(0);
 
-  React.useEffect(() => {
-    if (reduceMotion) {
+  useFocusEffect(
+    React.useCallback(() => {
       progress.set(0);
 
-      return;
-    }
+      if (reduceMotion) {
+        return;
+      }
 
-    progress.set(
-      withDelay(
-        index * 110,
-        withRepeat(
-          withSequence(
-            withTiming(1, {
-              duration: 180,
-              easing: Easing.out(Easing.cubic),
-            }),
-            withTiming(0, {
-              duration: 240,
-              easing: Easing.inOut(Easing.cubic),
-            }),
-            withDelay(360, withTiming(0, { duration: 0 }))
-          ),
-          -1
+      progress.set(
+        withDelay(
+          index * 110,
+          withRepeat(
+            withSequence(
+              withTiming(1, {
+                duration: 180,
+                easing: Easing.out(Easing.cubic),
+              }),
+              withTiming(0, {
+                duration: 240,
+                easing: Easing.inOut(Easing.cubic),
+              }),
+              withDelay(360, withTiming(0, { duration: 0 }))
+            ),
+            -1
+          )
         )
-      )
-    );
+      );
 
-    return () => cancelAnimation(progress);
-  }, [index, progress, reduceMotion]);
+      return () => cancelAnimation(progress);
+    }, [index, progress, reduceMotion])
+  );
 
   const animatedStyle = useAnimatedStyle(() => {
     const value = progress.get();

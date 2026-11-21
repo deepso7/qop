@@ -10,6 +10,7 @@ import {
   Switch as ExpoSwitch,
   Text as ExpoText,
 } from "@expo/ui";
+import { Redirect } from "expo-router";
 import { useState } from "react";
 import { useWindowDimensions, View } from "react-native";
 import type { LayoutChangeEvent } from "react-native";
@@ -30,6 +31,7 @@ import { Text } from "@/components/ui/text";
 import { WebBadge } from "@/components/web-badge";
 import { useTheme } from "@/constants/theme";
 import { useColorScheme } from "@/hooks/use-color-scheme";
+import { isDevelopmentVariant } from "@/lib/app-variant";
 import { cn } from "@/lib/utils";
 
 const Host = withUniwind(ExpoHost);
@@ -324,4 +326,7 @@ const UIScreen = () => {
   );
 };
 
-export default UIScreen;
+const UIRoute = () =>
+  isDevelopmentVariant ? <UIScreen /> : <Redirect href="/chats" />;
+
+export default UIRoute;

@@ -1,9 +1,12 @@
 import { cva } from "class-variance-authority";
 import type { VariantProps } from "class-variance-authority";
+import { useFocusEffect } from "expo-router";
 import * as React from "react";
 import type { View } from "react-native";
 import Animated, {
+  cancelAnimation,
   useAnimatedStyle,
+  useReducedMotion,
   useSharedValue,
   withRepeat,
   withTiming,
@@ -32,10 +35,21 @@ const Skeleton = ({
   React.RefAttributes<View> &
   VariantProps<typeof skeletonVariants>) => {
   const sv = useSharedValue(1);
+  const reduceMotion = useReducedMotion();
 
-  React.useEffect(() => {
-    sv.set(withRepeat(withTiming(0.5, { duration }), -1, true));
-  }, [sv]);
+  useFocusEffect(
+    React.useCallback(() => {
+      sv.set(1);
+
+      if (reduceMotion) {
+        return;
+      }
+
+      sv.set(withRepeat(withTiming(0.5, { duration }), -1, true));
+
+      return () => cancelAnimation(sv);
+    }, [reduceMotion, sv])
+  );
 
   const animatedStyle = useAnimatedStyle(
     () => ({

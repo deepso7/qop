@@ -1,7 +1,32 @@
 import type { AndroidConfig, ExportedConfig } from "expo/config-plugins";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import appConfig from "../app.config";
+
+describe("app variant", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  it.each(["development", "preview", "production", undefined])(
+    "exposes the selected variant to the app: %s",
+    async (variant) => {
+      vi.stubEnv("APP_VARIANT", variant);
+      vi.resetModules();
+
+      const { default: config } = await import("../app.config");
+
+      expect(config.extra?.appVariant).toBe(variant ?? "production");
+    }
+  );
+
+  it("rejects unknown variants", async () => {
+    vi.stubEnv("APP_VARIANT", "unknown");
+    vi.resetModules();
+
+    await expect(import("../app.config")).rejects.toThrow(
+      "Unknown APP_VARIANT: unknown"
+    );
+  });
+});
 
 const applyManifest = async (
   modResults: AndroidConfig.Manifest.AndroidManifest
