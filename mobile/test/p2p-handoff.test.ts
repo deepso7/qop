@@ -290,6 +290,42 @@ describe("phone to CLI handoff", () => {
     deferred.resolve(true);
   });
 
+  it("holds the send permit until the background handoff finishes", async () => {
+    send.mockResolvedValue();
+    const deferred = Promise.withResolvers<true>();
+    handoff.mockImplementationOnce(async () => {
+      await deferred.promise;
+    });
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+
+    const { revision } = useP2pStore.getState();
+    const first = useP2pStore.getState().sendMessage(contact, "first");
+
+    try {
+      await vi.waitFor(async () =>
+        expect(await getMessageById(first)).toMatchObject({ status: "sent" })
+      );
+      expect(useP2pStore.getState().revision).toBeGreaterThan(revision + 1);
+      const second = useP2pStore.getState().sendMessage(contact, "second");
+      await vi.waitFor(async () =>
+        expect(await getMessageById(second)).toMatchObject({
+          status: "sending",
+        })
+      );
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(handoff).toHaveBeenCalledTimes(1);
+    } finally {
+      deferred.resolve(true);
+    }
+
+    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+  });
+
   it("applies a CLI receipt onto a held message", async () => {
     await insertMessage({
       contactQid: "1",

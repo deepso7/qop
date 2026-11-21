@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CHAT_PROTOCOL, encodeAck, encodeFrame } from "@/lib/chat-wire";
+import * as db from "@/lib/db";
 import {
   deleteAll,
   getContactByQid,
@@ -243,7 +244,7 @@ const beginSend = async () => {
   const id = useP2pStore.getState().sendMessage(contact, "hello");
   await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
 
-  return { id, pending };
+  return { contact, id, pending };
 };
 
 const runningConnection = () => {
@@ -286,6 +287,169 @@ const makeInboundStream = (
 const resolvedUndefined = async (): Promise<undefined> => {
   await Promise.resolve();
 };
+
+describe("send backpressure", () => {
+  it("reserves FIFO order before asynchronous persistence finishes", async () => {
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+
+    const persisted = Promise.withResolvers<undefined>();
+    const insert = db.insertMessage;
+
+    const spy = vi
+      .spyOn(db, "insertMessage")
+      .mockImplementationOnce(async (message) => {
+        await persisted.promise;
+
+        return await insert(message);
+      });
+
+    const first = useP2pStore.getState().sendMessage(contact, "first");
+    const second = useP2pStore.getState().sendMessage(contact, "second");
+
+    try {
+      await vi.waitFor(async () =>
+        expect(await getMessageById(second)).toMatchObject({
+          status: "sending",
+        })
+      );
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      persisted.resolve(await resolvedUndefined());
+      spy.mockRestore();
+    }
+
+    await vi.waitFor(async () =>
+      expect(await getMessageById(second)).toMatchObject({ status: "sent" })
+    );
+    expect(send.mock.calls.map(([input]) => input.frame.id)).toEqual([
+      first,
+      second,
+    ]);
+  });
+
+  it("keeps a peer's burst pending and sends it in FIFO order", async () => {
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+
+    const first = Promise.withResolvers<undefined>();
+    send.mockReturnValueOnce(first.promise);
+
+    const ids = Array.from({ length: 20 }, (_, index) =>
+      useP2pStore.getState().sendMessage(contact, `burst ${index}`)
+    );
+
+    try {
+      await vi.waitFor(async () => {
+        expect(await getMessageById(ids[19])).toMatchObject({
+          status: "sending",
+        });
+        expect(send).toHaveBeenCalled();
+      });
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      first.resolve(await resolvedUndefined());
+    }
+
+    await vi.waitFor(async () => {
+      const messages = await Promise.all(ids.map((id) => getMessageById(id)));
+      expect(messages.map((message) => message?.status)).toEqual(
+        ids.map(() => "sent")
+      );
+    });
+    expect(send.mock.calls.map(([input]) => input.frame.id)).toEqual(ids);
+  });
+
+  it("does not block a different peer", async () => {
+    const { contact, pending } = await beginSend();
+
+    const other = {
+      ...contact,
+      handle: "carol",
+      peerId: "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz",
+      qid: "3",
+    };
+
+    await upsertContact(other);
+
+    try {
+      const id = useP2pStore.getState().sendMessage(other, "independent");
+      await vi.waitFor(async () =>
+        expect(await getMessageById(id, other.qid)).toMatchObject({
+          status: "sent",
+        })
+      );
+      expect(send).toHaveBeenCalledTimes(2);
+    } finally {
+      pending.resolve(await resolvedUndefined());
+    }
+  });
+
+  it("shares the queue with explicit retry and releases it on failure", async () => {
+    const { contact, id, pending } = await beginSend();
+    await insertMessage({
+      contactQid: contact.qid,
+      direction: "out",
+      id: "retry-queued",
+      sentAt: 1,
+      status: "failed",
+      text: "retry me",
+    });
+    const next = useP2pStore.getState().sendMessage(contact, "next");
+    const retry = useP2pStore.getState().retryMessage("retry-queued");
+
+    try {
+      await vi.waitFor(async () =>
+        expect(await getMessageById("retry-queued")).toMatchObject({
+          status: "sending",
+        })
+      );
+      expect(send).toHaveBeenCalledTimes(1);
+    } finally {
+      pending.reject(new Error("stream reset"));
+    }
+
+    await retry;
+    expect(await getMessageById(id)).toMatchObject({ status: "failed" });
+    expect(await getMessageById(next)).toMatchObject({ status: "sent" });
+    expect(await getMessageById("retry-queued")).toMatchObject({
+      status: "sent",
+    });
+    expect(send.mock.calls.map(([input]) => input.frame.id)).toEqual([
+      id,
+      next,
+      "retry-queued",
+    ]);
+  });
+
+  it("discards queued sends from a stopped generation", async () => {
+    const { contact, pending } = await beginSend();
+    const next = useP2pStore.getState().sendMessage(contact, "queued");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(next)).toMatchObject({ status: "sending" })
+    );
+
+    const stopped = useP2pStore.getState().stop();
+    pending.reject(new Error("endpoint closed"));
+    await stopped;
+    expect(await getMessageById(next)).toMatchObject({ status: "failed" });
+    expect(send).toHaveBeenCalledTimes(1);
+    await useP2pStore.getState().start();
+    const fresh = useP2pStore.getState().sendMessage(contact, "fresh");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(fresh)).toMatchObject({ status: "sent" })
+    );
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+});
 
 describe("interrupted sends", () => {
   it("recovers a persisted send before starting a new endpoint", async () => {

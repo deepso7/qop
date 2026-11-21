@@ -7,7 +7,7 @@ import type {
 } from "@minip2p/react-native";
 import { PAIR_PROTOCOL, SYNC_PROTOCOL } from "@qop/protocol";
 import type { SyncInboxItem } from "@qop/protocol";
-import { Effect } from "effect";
+import { Effect, Semaphore } from "effect";
 import { create } from "zustand";
 import type { StoreApi } from "zustand";
 
@@ -174,6 +174,7 @@ export const createP2pStore = ({
   let generation = 0;
   let recoveryOperation: Promise<void> = Promise.resolve();
   const inFlightJobs = new Set<Promise<void>>();
+  const sendQueues = new Map<string, Semaphore.Semaphore>();
 
   const retryJobs = new Map<
     string,
@@ -248,6 +249,7 @@ export const createP2pStore = ({
 
     if (endpoint === activeEndpoint) {
       endpoint = undefined;
+      sendQueues.clear();
     }
   };
 
@@ -1065,12 +1067,14 @@ export const createP2pStore = ({
     return trackJob(job);
   };
 
-  const sendStoredMessage = async (
+  const dispatchStoredMessage = async (
     message: MessageInput,
     contact: Contact,
     jobGeneration: number,
     signal?: AbortSignal
   ): Promise<void> => {
+    let handedOff: Promise<string | undefined> | undefined;
+
     try {
       if (signal?.aborted || !isCurrentGeneration(jobGeneration)) {
         return;
@@ -1114,7 +1118,7 @@ export const createP2pStore = ({
         }
       })();
 
-      const handedOff = (async () => {
+      handedOff = (async () => {
         try {
           return await handoffToHolder(message, contact, jobGeneration, signal);
         } catch {
@@ -1129,9 +1133,8 @@ export const createP2pStore = ({
       }
 
       if (bobAcked) {
-        // Prefer sent as soon as Bob ACKs. Do not wait for CLI dial/timeout.
+        // Publish sent as soon as Bob ACKs, before CLI dial/timeout finishes.
         await advanceMessageStatus(message.id, "sent", message.contactQid);
-        void handedOff;
 
         return;
       }
@@ -1159,7 +1162,37 @@ export const createP2pStore = ({
       if (isCurrentGeneration(jobGeneration)) {
         storeBridge.setState((state) => ({ revision: state.revision + 1 }));
       }
+
+      await handedOff;
     }
+  };
+
+  const sendStoredMessage = (
+    message: MessageInput,
+    contact: Contact,
+    jobGeneration: number,
+    signal?: AbortSignal,
+    persisted?: Promise<boolean>
+  ): Promise<void> => {
+    let queue = sendQueues.get(contact.qid);
+
+    if (!queue) {
+      // FIFO per account stays below desktop/CLI's eight inbound chat/sync slots.
+      queue = Semaphore.makeUnsafe(1);
+      sendQueues.set(contact.qid, queue);
+    }
+
+    return Effect.runPromise(
+      queue.withPermit(
+        Effect.promise(async () => {
+          if (persisted && !(await persisted)) {
+            return;
+          }
+
+          await dispatchStoredMessage(message, contact, jobGeneration, signal);
+        })
+      )
+    );
   };
 
   // Starts a failed/stopped node and waits (up to 15s) for it to be running.
@@ -1395,29 +1428,30 @@ export const createP2pStore = ({
         text: text.trim(),
       };
 
-      const persistAndSend = async () => {
+      const persist = async () => {
         try {
           if (!isCurrentGeneration(jobGeneration)) {
-            return;
+            return false;
           }
 
           await insertMessage(message);
 
           if (!isCurrentGeneration(jobGeneration)) {
-            return;
+            return false;
           }
 
           set((state) => ({ revision: state.revision + 1 }));
 
-          if (message.status === "sending") {
-            await sendStoredMessage(message, contact, jobGeneration);
-          }
+          return message.status === "sending";
         } catch {
           // Storage failed; the conversation shows only what was saved.
+          return false;
         }
       };
 
-      void trackJob(persistAndSend());
+      void trackJob(
+        sendStoredMessage(message, contact, jobGeneration, undefined, persist())
+      );
 
       return id;
     },
