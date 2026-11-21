@@ -22,9 +22,6 @@ allowBuilds:
   esbuild: true
   msgpackr-extract: false
   protobufjs: true
-patchedDependencies:
-  drizzle-orm@1.0.0-rc.5-5935859: patches/drizzle-orm@1.0.0-rc.5-5935859.patch
-
 minimumReleaseAgeExclude:
   - "@minip2p/core@0.12.0"
   - "@minip2p/node-darwin-arm64@0.12.0"
@@ -36,6 +33,8 @@ minimumReleaseAgeExclude:
   - "@minip2p/node-win32-x64-msvc@0.12.0"
   - "@minip2p/node@0.12.0"
   - "@minip2p/react-native@0.12.0"
+  - drizzle-kit@1.0.0-rc.6
+  - drizzle-orm@1.0.0-rc.6
 
 permissions:
   blume:
