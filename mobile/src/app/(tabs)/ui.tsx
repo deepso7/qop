@@ -10,6 +10,7 @@ import {
   Switch as ExpoSwitch,
   Text as ExpoText,
 } from "@expo/ui";
+import { useIsFocused } from "expo-router";
 import { useState } from "react";
 import { useWindowDimensions, View } from "react-native";
 import type { LayoutChangeEvent } from "react-native";
@@ -188,7 +189,7 @@ const ExpoUICatalog = ({ onOpenSheet }: { onOpenSheet: () => void }) => {
   );
 };
 
-const UIScreen = () => {
+const UICatalog = () => {
   const [isSheetPresented, setIsSheetPresented] = useState(false);
 
   return (
@@ -322,6 +323,12 @@ const UIScreen = () => {
       </ExpoBottomSheet>
     </View>
   );
+};
+
+const UIScreen = () => {
+  const isFocused = useIsFocused();
+
+  return isFocused ? <UICatalog /> : null;
 };
 
 export default UIScreen;
