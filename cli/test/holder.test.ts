@@ -71,11 +71,11 @@ const makeLifecycle = () => ({
   },
 });
 
-const makeSessions = (registryAccount = account) =>
+const makeSessions = () =>
   createPeerSessions({
     getContactByQid: () => Promise.resolve(null),
-    lookupDeviceKey: () => Effect.succeed(registryAccount),
-    lookupHandle: () => Effect.succeed(registryAccount),
+    lookupDeviceKey: () => Effect.succeed(account),
+    lookupHandle: () => Effect.succeed(account),
     ownQid: () => identity.qid,
     upsertContact: () => Promise.resolve(),
   });
