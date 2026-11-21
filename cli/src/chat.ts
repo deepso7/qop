@@ -21,7 +21,7 @@ import type {
   SessionContact,
   SessionContactInput,
 } from "@qop/protocol";
-import { Effect, FiberSet, Schema } from "effect";
+import { Effect, FiberSet, Schema, Semaphore } from "effect";
 
 import { CliConfigError, cliRelays, configuredRegistry } from "./config.ts";
 import type { createCliIdentityStore } from "./identity-store.ts";
@@ -46,6 +46,7 @@ import { handleInboundSyncStream } from "./sync.ts";
 import type { CliSyncIdentity, CliSyncStore } from "./sync.ts";
 
 export const MAX_INBOUND_STREAMS = 8;
+const MAX_INBOUND_SYNC_STREAMS = 8;
 export const UNREADABLE_INBOUND_CHAT = "Inbound chat frame was unreadable";
 const INBOUND_READ_TIMEOUT_MS = 15_000;
 export const OUTBOUND_ACK_TIMEOUT_MS = 15_000;
@@ -441,7 +442,8 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
   };
 
   const runHandler = yield* FiberSet.makeRuntime();
-  let inbound = 0;
+  const chatInbound = Semaphore.makeUnsafe(MAX_INBOUND_STREAMS);
+  let syncInbound = 0;
 
   const outbox = yield* createOutboxRuntime({
     deliver: (record, account) => {
@@ -500,13 +502,18 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
       return;
     }
 
-    if (inbound >= MAX_INBOUND_STREAMS) {
+    if (
+      stream.protocolId === SYNC_PROTOCOL &&
+      syncInbound >= MAX_INBOUND_SYNC_STREAMS
+    ) {
       stream.reset();
 
       return;
     }
 
-    inbound += 1;
+    if (stream.protocolId === SYNC_PROTOCOL) {
+      syncInbound += 1;
+    }
 
     const inboundProgram =
       stream.protocolId === SYNC_PROTOCOL
@@ -573,34 +580,40 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
             }
           });
 
-    runHandler(
-      inboundProgram.pipe(
-        Effect.tapError((error: CliOutboxStoreError | Error) =>
-          Effect.sync(() => {
-            if (error instanceof CliOutboxStoreError) {
-              out.error(describeCliOutboxStoreError(error));
+    const handleInbound = inboundProgram.pipe(
+      Effect.tapError((error: CliOutboxStoreError | Error) =>
+        Effect.sync(() => {
+          if (error instanceof CliOutboxStoreError) {
+            out.error(describeCliOutboxStoreError(error));
 
-              return;
-            }
+            return;
+          }
 
-            if (error.message.startsWith("Inbound ")) {
-              out.error(error.message);
-            }
-          })
-        ),
-        Effect.onExit((exit) =>
-          exit._tag === "Success"
-            ? Effect.void
-            : Effect.sync(() => {
-                stream.reset();
-              })
-        ),
-        Effect.ensuring(
-          Effect.sync(() => {
-            inbound -= 1;
-          })
-        )
+          if (error.message.startsWith("Inbound ")) {
+            out.error(error.message);
+          }
+        })
+      ),
+      Effect.onExit((exit) =>
+        exit._tag === "Success"
+          ? Effect.void
+          : Effect.sync(() => {
+              stream.reset();
+            })
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (stream.protocolId === SYNC_PROTOCOL) {
+            syncInbound -= 1;
+          }
+        })
       )
+    );
+
+    runHandler(
+      stream.protocolId === CHAT_PROTOCOL
+        ? chatInbound.withPermits(1)(handleInbound)
+        : handleInbound
     );
   });
 
@@ -703,6 +716,7 @@ export const runStart = Effect.fn("qop.start")(function* (
 
         const chatConfig = {
           agentVersion: "qop-cli/0.1.0",
+          inboundStreamLimits: { [CHAT_PROTOCOL]: MAX_INBOUND_STREAMS },
           protocols: [CHAT_PROTOCOL, SYNC_PROTOCOL],
           secretKey,
         };

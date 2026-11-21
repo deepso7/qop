@@ -13,7 +13,7 @@ use tokio::task::JoinHandle;
 
 use super::auth::Auth;
 use super::testing::{CHAIN_ID, FakeApi, FakeChain, QID, REGISTRY, approval_for};
-use super::{Engine, Publish};
+use super::{Engine, Publish, chat};
 use crate::config::Config;
 use crate::keys::KeyStore;
 use crate::model::{
@@ -140,6 +140,7 @@ impl Phone {
             secret: PHONE_SECRET,
             agent_version: "phone".into(),
             protocols: vec![PAIR_PROTOCOL.into()],
+            inbound_stream_limits: vec![],
             relays: vec![],
             listen: vec!["/ip4/127.0.0.1/udp/0/quic-v1".into()],
             max_unread: MAX_SYNC_PAYLOAD_BYTES,
@@ -593,6 +594,7 @@ async fn dial_desktop(
         secret,
         agent_version: "peer".into(),
         protocols: vec![protocol.into()],
+        inbound_stream_limits: vec![],
         relays: vec![],
         listen: vec!["/ip4/127.0.0.1/udp/0/quic-v1".into()],
         max_unread: MAX_SYNC_PAYLOAD_BYTES,
@@ -661,6 +663,152 @@ impl Bob {
 }
 
 const BOB_MESSAGE: &str = "0b0b0b0b-0000-4000-8000-000000000001";
+
+#[tokio::test(flavor = "multi_thread")]
+async fn chat_streams_past_eight_wait_then_are_saved_and_acked() {
+    let (dir, listen) = linked_dir("inbound-chat-queue");
+    let (chain, api) = (chat_chain(), FakeApi::down());
+    let mut desktop = Desktop::start_on(&dir, &chain, &api, &listen);
+    desktop.wait_for("ready", ready).await;
+    let bob = Bob::connect(&listen).await;
+
+    tokio::time::timeout(Duration::from_secs(15), async {
+        let mut held = Vec::new();
+        for _ in 0..chat::MAX_INBOUND_STREAMS {
+            held.push(
+                bob.node
+                    .handle()
+                    .open_stream(&bob.desktop, CHAT_PROTOCOL)
+                    .await
+                    .unwrap(),
+            );
+        }
+        let mut queued = bob
+            .node
+            .handle()
+            .open_stream(&bob.desktop, CHAT_PROTOCOL)
+            .await
+            .unwrap();
+        let frame = ChatFrame {
+            from_handle: "bob".into(),
+            id: BOB_MESSAGE.into(),
+            sent_at: 1_700_000_000_000,
+            text: "queued behind eight open streams".into(),
+        };
+        queued.send_message(frame.encode().unwrap()).await.unwrap();
+        assert!(
+            tokio::time::timeout(
+                Duration::from_millis(100),
+                queued.read_to_end(MAX_CHAT_PAYLOAD_BYTES),
+            )
+            .await
+            .is_err(),
+            "the ninth stream must wait, not be handled or reset"
+        );
+
+        for (i, mut stream) in held.into_iter().enumerate() {
+            let frame = ChatFrame {
+                id: format!("0b0b0b0b-0000-4000-8000-{:012x}", i + 2),
+                text: format!("held message {i}"),
+                ..frame.clone()
+            };
+            stream.send_message(frame.encode().unwrap()).await.unwrap();
+            let ack = stream.read_to_end(MAX_CHAT_PAYLOAD_BYTES).await.unwrap();
+            assert_eq!(ChatAck::decode(&ack).unwrap().ack, frame.id);
+        }
+        let ack = queued.read_to_end(MAX_CHAT_PAYLOAD_BYTES).await.unwrap();
+        assert_eq!(ChatAck::decode(&ack).unwrap().ack, BOB_MESSAGE);
+    })
+    .await
+    .expect("all nine messages delivered without a retry");
+
+    desktop.stop().await;
+    let store = Store::open(&dir).unwrap();
+    assert_eq!(
+        store.inbox_all().unwrap().len(),
+        chat::MAX_INBOUND_STREAMS + 1
+    );
+    drop(store);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reset_during_verification_keeps_the_chat_handler_slot() {
+    let (dir, listen) = linked_dir("reset-chat-handler");
+    let (chain, api) = (chat_chain(), FakeApi::down());
+    let other_secret = [0x78; 32];
+    chain.add_account(super::testing::account_with(
+        BOB_QID,
+        "bob",
+        vec![device_key_from_secret(other_secret)],
+    ));
+    let mut desktop = Desktop::start_on(&dir, &chain, &api, &listen);
+    desktop.wait_for("ready", ready).await;
+    let bob = Bob::connect(&listen).await;
+    let hold = chain.hold_lookups();
+    let frame = ChatFrame {
+        from_handle: "bob".into(),
+        id: BOB_MESSAGE.into(),
+        sent_at: 1_700_000_000_000,
+        text: "verification outlives the reset".into(),
+    };
+    let mut first = bob
+        .node
+        .handle()
+        .open_stream(&bob.desktop, CHAT_PROTOCOL)
+        .await
+        .unwrap();
+    first.send_message(frame.encode().unwrap()).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), hold.entered())
+        .await
+        .unwrap();
+    let mut held = Vec::new();
+    for _ in 1..chat::MAX_INBOUND_STREAMS {
+        held.push(
+            bob.node
+                .handle()
+                .open_stream(&bob.desktop, CHAT_PROTOCOL)
+                .await
+                .unwrap(),
+        );
+    }
+    first.reset();
+
+    let (other, _events, peer) = dial_desktop(other_secret, CHAT_PROTOCOL, &listen).await;
+    let mut ninth = other
+        .handle()
+        .open_stream(&peer, CHAT_PROTOCOL)
+        .await
+        .unwrap();
+    let frame = ChatFrame {
+        id: "0b0b0b0b-0000-4000-8000-000000000009".into(),
+        ..frame
+    };
+    ninth.send_message(frame.encode().unwrap()).await.unwrap();
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(200),
+            ninth.read_to_end(MAX_CHAT_PAYLOAD_BYTES)
+        )
+        .await
+        .is_err(),
+        "the ninth handler must wait for verification of the reset stream to finish"
+    );
+    hold.release();
+    let ack = tokio::time::timeout(
+        Duration::from_secs(5),
+        ninth.read_to_end(MAX_CHAT_PAYLOAD_BYTES),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(ChatAck::decode(&ack).unwrap().ack, frame.id);
+    for mut stream in held {
+        stream.reset();
+    }
+    desktop.stop().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_saved_message_shows_even_when_its_ack_cannot_be_written() {

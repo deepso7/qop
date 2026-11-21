@@ -21,7 +21,7 @@ use crate::rpc::Account;
 use crate::store::{Store, StoreError};
 use crate::wire::{CHAT_PROTOCOL, ChatAck, ChatFrame, InboxRecord, MAX_CHAT_PAYLOAD_BYTES};
 
-/// Inbound chat streams handled at once; more are reset (`MAX_INBOUND_STREAMS`).
+/// Inbound chat streams and handlers served at once, including verification after a reset.
 pub const MAX_INBOUND_STREAMS: usize = 8;
 const INBOUND_READ_TIMEOUT: Duration = Duration::from_secs(15);
 const ACK_TIMEOUT: Duration = Duration::from_secs(15);

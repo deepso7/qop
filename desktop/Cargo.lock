@@ -302,7 +302,7 @@ dependencies = [
  "objc2-foundation 0.3.2",
  "parking_lot",
  "percent-encoding",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
  "wl-clipboard-rs",
  "x11rb",
 ]
@@ -1875,7 +1875,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e35d6e78f4cebb90e51d543db8fe41528851d6deeef6ef21ebd4bfdc1e784776"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -3127,18 +3127,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "minip2p-autonat"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
-dependencies = [
- "minip2p-core",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "minip2p-circuit"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "minip2p-core",
  "minip2p-identity",
@@ -3149,8 +3140,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-core"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "base64ct",
  "bytes",
@@ -3160,18 +3151,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "minip2p-dcutr"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
-dependencies = [
- "minip2p-core",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "minip2p-discovery"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "minip2p-core",
  "minip2p-identity",
@@ -3180,8 +3162,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-identify"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "minip2p-core",
  "minip2p-transport",
@@ -3190,8 +3172,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-identity"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "ed25519-dalek",
  "getrandom 0.4.3",
@@ -3203,8 +3185,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-mdns"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "if-addrs",
  "minip2p-core",
@@ -3216,8 +3198,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-multistream-select"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "minip2p-core",
  "thiserror 2.0.21",
@@ -3225,12 +3207,10 @@ dependencies = [
 
 [[package]]
 name = "minip2p-nat"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
- "minip2p-autonat",
  "minip2p-core",
- "minip2p-dcutr",
  "minip2p-relay",
  "minip2p-swarm",
  "minip2p-transport",
@@ -3239,8 +3219,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-ping"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "minip2p-core",
  "minip2p-transport",
@@ -3249,8 +3229,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-pubsub"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "minip2p-core",
  "minip2p-identity",
@@ -3261,8 +3241,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-quic"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "bytes",
  "minip2p-core",
@@ -3281,8 +3261,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-relay"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "minip2p-core",
  "thiserror 2.0.21",
@@ -3290,8 +3270,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-relay-server"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "minip2p-core",
  "minip2p-identity",
@@ -3303,8 +3283,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-rs"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "bytes",
  "minip2p-circuit",
@@ -3326,8 +3306,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-secure-mux"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "chacha20poly1305",
  "hmac 0.13.0",
@@ -3342,8 +3322,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-swarm"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "minip2p-core",
  "minip2p-identify",
@@ -3356,8 +3336,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-tcp"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "minip2p-core",
  "minip2p-identity",
@@ -3370,8 +3350,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-tls"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "const-oid 0.10.3",
  "der 0.8.3",
@@ -3390,8 +3370,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-transport"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "minip2p-core",
  "mio",
@@ -3400,8 +3380,8 @@ dependencies = [
 
 [[package]]
 name = "minip2p-webtransport"
-version = "0.12.0"
-source = "git+https://github.com/deepso7/minip2p?tag=v0.12.0#afaf2bd5262963dadc29c3a80a839ed88d7930b3"
+version = "0.13.1"
+source = "git+https://github.com/deepso7/minip2p?tag=v0.13.1#651bd5e97ee3a518643824251a477217f636998a"
 dependencies = [
  "minip2p-core",
  "minip2p-identity",
@@ -4037,7 +4017,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d8fae84b431384b68627d0f9b3b1245fcf9f46f6c0e3dc902e9dce64edd1967"
 dependencies = [
  "libc",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -4629,7 +4609,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "socket2",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5175,7 +5155,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -5975,10 +5955,10 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix 1.1.6",
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]
@@ -6853,7 +6833,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

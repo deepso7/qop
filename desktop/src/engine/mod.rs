@@ -38,11 +38,13 @@ mod tests;
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::future::Future;
+use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy_primitives::{B256, U256};
+use tokio::sync::Semaphore;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::api::ApiClient;
@@ -348,8 +350,10 @@ pub struct Engine<C: Chain, A: Api> {
     new_chat: NewChat,
     /// Recipients (QIDs) with a delivery task running.
     delivering: HashSet<String>,
-    /// Inbound chat and sync streams being served.
-    inbound: Arc<AtomicUsize>,
+    /// Chat handlers, including verification that outlives a reset stream.
+    chat_inbound: Arc<Semaphore>,
+    /// Inbound sync streams being served.
+    sync_inbound: Arc<AtomicUsize>,
     /// Inbound pairing streams being served.
     pairing: Arc<AtomicUsize>,
 }
@@ -400,7 +404,8 @@ impl<C: Chain, A: Api> Engine<C, A> {
             active: None,
             new_chat: NewChat::Lookup(HandleLookup::Idle),
             delivering: HashSet::new(),
-            inbound: Arc::default(),
+            chat_inbound: Arc::new(Semaphore::new(chat::MAX_INBOUND_STREAMS)),
+            sync_inbound: Arc::default(),
             pairing: Arc::default(),
         }
     }
@@ -528,6 +533,10 @@ impl<C: Chain, A: Api> Engine<C, A> {
                 CHAT_PROTOCOL.into(),
                 SYNC_PROTOCOL.into(),
             ],
+            inbound_stream_limits: vec![(
+                CHAT_PROTOCOL.into(),
+                NonZeroUsize::new(chat::MAX_INBOUND_STREAMS).expect("positive chat limit"),
+            )],
             relays: self.config.relays.clone(),
             listen: self.config.listen.clone(),
             // Sync's frame cap is the largest of the three protocols'.
@@ -1179,23 +1188,21 @@ impl<C: Chain, A: Api> Engine<C, A> {
         })
     }
 
-    /// A context for one more inbound stream, while messaging is ready and under the limit
-    /// chat and sync share; `None` drops the stream, which resets it, and the sender retries.
-    fn inbound_slot(&self) -> Option<(ChatContext<C>, InboundSlot)> {
-        let ctx = self
-            .chat_context()
-            .filter(|_| self.messaging == Messaging::Ready)?;
-        Some((ctx, InboundSlot::take(&self.inbound, chat::MAX_INBOUND_STREAMS)?))
+    /// A context for an inbound stream while messaging is ready.
+    fn inbound_context(&self) -> Option<ChatContext<C>> {
+        self.chat_context()
+            .filter(|_| self.messaging == Messaging::Ready)
     }
 
     /// Serves an inbound chat stream.
     fn inbound_chat(&mut self, stream: crate::node::Stream) {
-        let Some((ctx, slot)) = self.inbound_slot() else {
+        let Some(ctx) = self.inbound_context() else {
             return;
         };
         let internal = self.internal.clone();
+        let inbound = self.chat_inbound.clone();
         tokio::spawn(async move {
-            let _slot = slot;
+            let _permit = inbound.acquire_owned().await.expect("chat semaphore open");
             match chat::serve_inbound(stream, &ctx, now_ms).await {
                 Ok(received) => {
                     let _ = internal.send(Internal::Received(received));
@@ -1218,7 +1225,10 @@ impl<C: Chain, A: Api> Engine<C, A> {
             handle: identity.handle.clone(),
             qid: identity.qid,
         };
-        let Some((ctx, slot)) = self.inbound_slot() else {
+        let Some(ctx) = self.inbound_context() else {
+            return;
+        };
+        let Some(slot) = InboundSlot::take(&self.sync_inbound, sync::MAX_INBOUND_STREAMS) else {
             return;
         };
         let internal = self.internal.clone();
@@ -1561,8 +1571,7 @@ fn sort_conversations(conversations: &mut [model::Conversation]) {
     conversations.sort_by_key(|c| std::cmp::Reverse(c.last().map_or(now, |m| m.at)));
 }
 
-/// Holds one of a limited number of inbound stream slots (chat and sync share one count,
-/// pairing has its own); dropping it frees the slot.
+/// Holds an inbound sync or pairing slot; dropping it frees the slot.
 struct InboundSlot(Arc<AtomicUsize>);
 
 impl InboundSlot {

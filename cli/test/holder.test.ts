@@ -9,10 +9,11 @@ import {
   createLifecycleAdapter,
   createPeerSessions,
   encodeAck,
+  encodeFrame,
   encodeSyncRequestV1,
   SYNC_PROTOCOL,
 } from "@qop/protocol";
-import type { OutboxRecordV1, RegistryAccount } from "@qop/protocol";
+import type { ChatFrame, OutboxRecordV1, RegistryAccount } from "@qop/protocol";
 import { Deferred, Effect, Schema } from "effect";
 import { vi } from "vitest";
 
@@ -229,7 +230,7 @@ describe("createHolder", () => {
     })
   );
 
-  it.live("resets inbound streams beyond the cap", () =>
+  it.live("waits for a reset stream's verification", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
       yield* Effect.tryPromise(() => chmod(root, 0o700));
@@ -238,6 +239,30 @@ describe("createHolder", () => {
       const started = yield* Deferred.make<boolean>();
       const { out } = makeOut(ready);
       const hangSlot = yield* Deferred.make<Uint8Array>();
+      const acked = yield* Deferred.make<boolean>();
+      const verifying = yield* Deferred.make<boolean>();
+      const verified = yield* Deferred.make<boolean>();
+
+      const deviceKey = yield* Schema.decodeUnknownEffect(PeerId)(
+        PEER_BOB
+      ).pipe(
+        Effect.flatMap(deviceKeyFromPeerId),
+        Effect.flatMap((key) => Schema.encodeEffect(Hex32)(key))
+      );
+
+      const sender = {
+        ...account,
+        deviceKey,
+        devices: [{ deviceKey, peerId: PEER_BOB }],
+      };
+
+      const frame: ChatFrame = {
+        fromHandle: "bob",
+        id: "0b0b0b0b-0000-4000-8000-000000000009",
+        sentAt: 1_700_000_000_000,
+        text: "delivered after eight open handlers",
+        v: 1,
+      };
 
       const hang = () => {
         Effect.runSync(Deferred.succeed(started, true));
@@ -245,11 +270,50 @@ describe("createHolder", () => {
         return Effect.runPromise(Deferred.await(hangSlot));
       };
 
-      const hanging = Array.from({ length: MAX_INBOUND_STREAMS }, () =>
+      const hanging = Array.from({ length: MAX_INBOUND_STREAMS - 1 }, () =>
         makeStream(CHAT_PROTOCOL, hang)
       );
 
-      const extra = makeStream(CHAT_PROTOCOL);
+      const firstBytes: (Uint8Array | undefined)[] = [
+        encodeFrame({ ...frame, id: "0b0b0b0b-0000-4000-8000-000000000001" }),
+      ];
+
+      const first = makeStream(CHAT_PROTOCOL, () =>
+        Promise.resolve(firstBytes.shift())
+      );
+
+      first.write.mockResolvedValue(undefined);
+      let held = false;
+
+      const sessions = createPeerSessions({
+        getContactByQid: () => Promise.resolve(null),
+        lookupDeviceKey: () =>
+          Effect.gen(function* () {
+            if (!held) {
+              held = true;
+              yield* Deferred.succeed(verifying, true);
+              yield* Deferred.await(verified);
+            }
+
+            return sender;
+          }),
+        lookupHandle: () => Effect.succeed(sender),
+        ownQid: () => identity.qid,
+        upsertContact: () => Promise.resolve(),
+      });
+
+      const unread: (Uint8Array | undefined)[] = [encodeFrame(frame)];
+
+      const extra = makeStream(CHAT_PROTOCOL, () =>
+        Promise.resolve(unread.shift())
+      );
+
+      extra.connId = 4;
+
+      extra.write.mockResolvedValue(undefined);
+      extra.closeWrite.mockImplementation(() => {
+        Effect.runSync(Deferred.succeed(acked, true));
+      });
 
       yield* Effect.scoped(
         Effect.gen(function* () {
@@ -262,25 +326,36 @@ describe("createHolder", () => {
               messages,
               out,
               reader: {
-                lookupDeviceKey: () => Effect.succeed(account),
-                lookupHandle: () => Effect.succeed(account),
+                lookupDeviceKey: () => Effect.succeed(sender),
+                lookupHandle: () => Effect.succeed(sender),
               },
-              sessions: makeSessions(),
+              sessions,
             })
           );
           yield* Deferred.await(ready);
+          endpoint.emit("stream", first);
+          yield* Deferred.await(verifying);
 
           for (const stream of hanging) {
             endpoint.emit("stream", stream);
           }
 
           yield* Deferred.await(started);
+          first.reset();
           endpoint.emit("stream", extra);
+          yield* Effect.sleep(100);
+          expect(extra.read).not.toHaveBeenCalled();
+          expect(extra.reset).not.toHaveBeenCalled();
+          yield* Deferred.succeed(verified, true);
+          yield* Deferred.await(acked);
+          expect(extra.reset).not.toHaveBeenCalled();
+          expect(extra.write).toHaveBeenCalledWith(
+            encodeAck({ ack: frame.id, v: 1 })
+          );
+          const inbox = yield* messages.loadInbox();
+          expect(inbox.map((record) => record.frame.id)).toContain(frame.id);
         })
       );
-
-      expect(extra.reset).toHaveBeenCalledOnce();
-      expect(extra.read).not.toHaveBeenCalled();
     })
   );
 
