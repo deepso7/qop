@@ -1094,7 +1094,42 @@ export const createP2pStore = ({
     return trackJob(job);
   };
 
-  // oxlint-disable-next-line complexity -- Keep dispatch and recovery in the same lifecycle.
+  const handoffAfterMissedConnection = async (
+    message: MessageInput,
+    contact: Contact,
+    jobGeneration: number,
+    signal: AbortSignal | undefined,
+    observedConnection: number
+  ): Promise<string | null> => {
+    if (
+      holderConnectionSeq === observedConnection ||
+      signal?.aborted ||
+      !isCurrentGeneration(jobGeneration)
+    ) {
+      return null;
+    }
+
+    const nextConnection = holderConnectionSeq;
+
+    const holderPeerId = await handoffToHolder(
+      message,
+      contact,
+      jobGeneration,
+      signal
+    );
+
+    return (
+      holderPeerId ||
+      handoffAfterMissedConnection(
+        message,
+        contact,
+        jobGeneration,
+        signal,
+        nextConnection
+      )
+    );
+  };
+
   const dispatchStoredMessage = async (
     queuedMessage: MessageInput,
     contact: Contact,
@@ -1184,23 +1219,15 @@ export const createP2pStore = ({
       }
 
       // A holder connection skipped by reconcile still gets a handoff attempt.
-      let holderPeerId = await handedOff;
-      let observedConnection = observedHolderConnection;
-
-      while (
-        !holderPeerId &&
-        holderConnectionSeq !== observedConnection &&
-        isActive()
-      ) {
-        observedConnection = holderConnectionSeq;
-        // oxlint-disable-next-line no-await-in-loop -- Handoffs must remain sequential.
-        holderPeerId = await handoffToHolder(
+      const holderPeerId =
+        (await handedOff) ||
+        (await handoffAfterMissedConnection(
           message,
           contact,
           jobGeneration,
-          signal
-        );
-      }
+          signal,
+          observedHolderConnection
+        ));
 
       if (!isCurrentGeneration(jobGeneration)) {
         return;
