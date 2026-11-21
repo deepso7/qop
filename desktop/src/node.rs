@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::num::NonZeroUsize;
 use std::str::FromStr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -36,6 +37,8 @@ pub struct NodeConfig {
     pub agent_version: String,
     /// Application protocols accepted inbound (and dialable outbound).
     pub protocols: Vec<String>,
+    /// Per-protocol inbound concurrency caps, enforced before stream dispatch.
+    pub inbound_stream_limits: Vec<(String, NonZeroUsize)>,
     /// Relay peer addresses; a reservation is held on them while not known to be public.
     pub relays: Vec<String>,
     /// Listen multiaddrs; empty means dual-stack QUIC on ephemeral ports.
@@ -192,6 +195,9 @@ impl Node {
             .write_budget(WRITE_BUDGET);
         for protocol in &config.protocols {
             builder = builder.protocol(protocol.clone());
+        }
+        for (protocol, limit) in &config.inbound_stream_limits {
+            builder = builder.protocol_with_inbound_limit(protocol.clone(), *limit);
         }
         for relay in &relays {
             builder = builder.relay(relay.clone());
@@ -725,6 +731,7 @@ mod tests {
             secret: [seed; 32],
             agent_version: "qop-desktop-test".into(),
             protocols: vec![ECHO.into()],
+            inbound_stream_limits: vec![],
             relays: vec![],
             listen: vec!["/ip4/127.0.0.1/udp/0/quic-v1".into()],
             max_unread,

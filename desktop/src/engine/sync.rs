@@ -27,6 +27,8 @@ use crate::wire::{
     SyncInboxItem, SyncReceipt, SyncRequest, SyncResponse, device_key_from_peer_id,
 };
 
+/// Inbound sync streams handled at once; excess streams are reset.
+pub const MAX_INBOUND_STREAMS: usize = 8;
 /// Rows read for one catch-up page before packing trims it (`INBOX_CATCHUP_ROW_LIMIT`).
 pub const CATCHUP_ROW_LIMIT: usize = 64;
 /// The whole exchange, verification included (the CLI's `INBOUND_READ_TIMEOUT_MS`).

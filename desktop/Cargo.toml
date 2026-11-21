@@ -22,8 +22,8 @@ if-addrs = "0.15.0"
 keyring = { version = "3", default-features = false, features = [
   "apple-native",
 ] }
-# Git tag, not crates.io: the QUIC transport crates of 0.12.0 are unpublished. Bump together with `@minip2p/node`.
-minip2p-rs = { git = "https://github.com/deepso7/minip2p", tag = "v0.12.0", default-features = false, features = [
+# Keep the Rust transport and JS bindings on the same release.
+minip2p-rs = { git = "https://github.com/deepso7/minip2p", tag = "v0.13.1", default-features = false, features = [
   "quic",
   "relay",
   "std",

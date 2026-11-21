@@ -9,10 +9,11 @@ import {
   createLifecycleAdapter,
   createPeerSessions,
   encodeAck,
+  encodeFrame,
   encodeSyncRequestV1,
   SYNC_PROTOCOL,
 } from "@qop/protocol";
-import type { OutboxRecordV1, RegistryAccount } from "@qop/protocol";
+import type { ChatFrame, OutboxRecordV1, RegistryAccount } from "@qop/protocol";
 import { Deferred, Effect, Schema } from "effect";
 import { vi } from "vitest";
 
@@ -70,11 +71,11 @@ const makeLifecycle = () => ({
   },
 });
 
-const makeSessions = () =>
+const makeSessions = (registryAccount = account) =>
   createPeerSessions({
     getContactByQid: () => Promise.resolve(null),
-    lookupDeviceKey: () => Effect.succeed(account),
-    lookupHandle: () => Effect.succeed(account),
+    lookupDeviceKey: () => Effect.succeed(registryAccount),
+    lookupHandle: () => Effect.succeed(registryAccount),
     ownQid: () => identity.qid,
     upsertContact: () => Promise.resolve(),
   });
@@ -229,7 +230,7 @@ describe("createHolder", () => {
     })
   );
 
-  it.live("resets inbound streams beyond the cap", () =>
+  it.live("saves and ACKs chat beyond eight open handlers", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
       yield* Effect.tryPromise(() => chmod(root, 0o700));
@@ -238,6 +239,28 @@ describe("createHolder", () => {
       const started = yield* Deferred.make<boolean>();
       const { out } = makeOut(ready);
       const hangSlot = yield* Deferred.make<Uint8Array>();
+      const acked = yield* Deferred.make<boolean>();
+
+      const deviceKey = yield* Schema.decodeUnknownEffect(PeerId)(
+        PEER_BOB
+      ).pipe(
+        Effect.flatMap(deviceKeyFromPeerId),
+        Effect.flatMap((key) => Schema.encodeEffect(Hex32)(key))
+      );
+
+      const sender = {
+        ...account,
+        deviceKey,
+        devices: [{ deviceKey, peerId: PEER_BOB }],
+      };
+
+      const frame: ChatFrame = {
+        fromHandle: "bob",
+        id: "0b0b0b0b-0000-4000-8000-000000000009",
+        sentAt: 1_700_000_000_000,
+        text: "delivered after eight open handlers",
+        v: 1,
+      };
 
       const hang = () => {
         Effect.runSync(Deferred.succeed(started, true));
@@ -249,7 +272,16 @@ describe("createHolder", () => {
         makeStream(CHAT_PROTOCOL, hang)
       );
 
-      const extra = makeStream(CHAT_PROTOCOL);
+      const unread: (Uint8Array | undefined)[] = [encodeFrame(frame)];
+
+      const extra = makeStream(CHAT_PROTOCOL, () =>
+        Promise.resolve(unread.shift())
+      );
+
+      extra.write.mockResolvedValue(undefined);
+      extra.closeWrite.mockImplementation(() => {
+        Effect.runSync(Deferred.succeed(acked, true));
+      });
 
       yield* Effect.scoped(
         Effect.gen(function* () {
@@ -262,10 +294,10 @@ describe("createHolder", () => {
               messages,
               out,
               reader: {
-                lookupDeviceKey: () => Effect.succeed(account),
-                lookupHandle: () => Effect.succeed(account),
+                lookupDeviceKey: () => Effect.succeed(sender),
+                lookupHandle: () => Effect.succeed(sender),
               },
-              sessions: makeSessions(),
+              sessions: makeSessions(sender),
             })
           );
           yield* Deferred.await(ready);
@@ -276,11 +308,15 @@ describe("createHolder", () => {
 
           yield* Deferred.await(started);
           endpoint.emit("stream", extra);
+          yield* Deferred.await(acked);
+          expect(extra.reset).not.toHaveBeenCalled();
+          expect(extra.write).toHaveBeenCalledWith(
+            encodeAck({ ack: frame.id, v: 1 })
+          );
+          const inbox = yield* messages.loadInbox();
+          expect(inbox.map((record) => record.frame.id)).toEqual([frame.id]);
         })
       );
-
-      expect(extra.reset).toHaveBeenCalledOnce();
-      expect(extra.read).not.toHaveBeenCalled();
     })
   );
 

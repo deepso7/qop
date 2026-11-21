@@ -46,6 +46,7 @@ import { handleInboundSyncStream } from "./sync.ts";
 import type { CliSyncIdentity, CliSyncStore } from "./sync.ts";
 
 export const MAX_INBOUND_STREAMS = 8;
+const MAX_INBOUND_SYNC_STREAMS = 8;
 export const UNREADABLE_INBOUND_CHAT = "Inbound chat frame was unreadable";
 const INBOUND_READ_TIMEOUT_MS = 15_000;
 export const OUTBOUND_ACK_TIMEOUT_MS = 15_000;
@@ -441,7 +442,7 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
   };
 
   const runHandler = yield* FiberSet.makeRuntime();
-  let inbound = 0;
+  let syncInbound = 0;
 
   const outbox = yield* createOutboxRuntime({
     deliver: (record, account) => {
@@ -500,13 +501,18 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
       return;
     }
 
-    if (inbound >= MAX_INBOUND_STREAMS) {
+    if (
+      stream.protocolId === SYNC_PROTOCOL &&
+      syncInbound >= MAX_INBOUND_SYNC_STREAMS
+    ) {
       stream.reset();
 
       return;
     }
 
-    inbound += 1;
+    if (stream.protocolId === SYNC_PROTOCOL) {
+      syncInbound += 1;
+    }
 
     const inboundProgram =
       stream.protocolId === SYNC_PROTOCOL
@@ -597,7 +603,9 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
         ),
         Effect.ensuring(
           Effect.sync(() => {
-            inbound -= 1;
+            if (stream.protocolId === SYNC_PROTOCOL) {
+              syncInbound -= 1;
+            }
           })
         )
       )
@@ -703,6 +711,7 @@ export const runStart = Effect.fn("qop.start")(function* (
 
         const chatConfig = {
           agentVersion: "qop-cli/0.1.0",
+          inboundStreamLimits: { [CHAT_PROTOCOL]: MAX_INBOUND_STREAMS },
           protocols: [CHAT_PROTOCOL, SYNC_PROTOCOL],
           secretKey,
         };
