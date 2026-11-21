@@ -7,7 +7,6 @@ import type { ViewInstance } from "react-native";
 import { withUniwind } from "uniwind";
 
 import { useTheme } from "@/constants/theme";
-import { isDevelopmentVariant } from "@/lib/app-variant";
 
 import { ExternalLink } from "./external-link";
 import { Surface } from "./ui/surface";
@@ -81,11 +80,9 @@ const AppTabs = () => (
         <TabTrigger name="chats" href="/chats" asChild>
           <TabButton>Chats</TabButton>
         </TabTrigger>
-        {isDevelopmentVariant ? (
-          <TabTrigger name="ui" href="/ui" asChild>
-            <TabButton>UI</TabButton>
-          </TabTrigger>
-        ) : null}
+        <TabTrigger name="ui" href="/ui" asChild>
+          <TabButton>UI</TabButton>
+        </TabTrigger>
         <TabTrigger name="profile" href="/profile" asChild>
           <TabButton>Profile</TabButton>
         </TabTrigger>

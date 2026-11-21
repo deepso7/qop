@@ -1,7 +1,6 @@
 import { NativeTabs } from "expo-router/unstable-native-tabs";
 
 import { useTheme } from "@/constants/theme";
-import { isDevelopmentVariant } from "@/lib/app-variant";
 
 const AppTabs = () => {
   const colors = useTheme();
@@ -25,7 +24,7 @@ const AppTabs = () => {
         />
       </NativeTabs.Trigger>
 
-      <NativeTabs.Trigger hidden={!isDevelopmentVariant} name="ui">
+      <NativeTabs.Trigger name="ui">
         <NativeTabs.Trigger.Label>UI</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
           md="grid_view"

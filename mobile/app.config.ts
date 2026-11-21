@@ -87,7 +87,6 @@ export default withAndroidConfigurationChanges({
     typedRoutes: true,
   },
   extra: {
-    appVariant,
     eas: {
       projectId: "64318cc0-3870-4d04-a70a-93a49a0e78d7",
     },
