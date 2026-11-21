@@ -258,6 +258,51 @@ describe("phone to CLI handoff", () => {
     expect(await getMessageById(id)).toMatchObject({ status: "held" });
   });
 
+  it("hands off after a holder connects during a failed direct dispatch", async () => {
+    const pending = Promise.withResolvers<true>();
+    send.mockImplementationOnce(async () => {
+      await pending.promise;
+    });
+    connectedPeers.mockReturnValue([]);
+    lookupHandle.mockImplementation((handle) =>
+      Effect.succeed(
+        handle === "alice"
+          ? { ...aliceAccount, devices: [aliceAccount.devices[0]] }
+          : bobAccount
+      )
+    );
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+
+    const id = useP2pStore.getState().sendMessage(contact, "hello");
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    expect(handoff).not.toHaveBeenCalled();
+    lookupHandle.mockImplementation((handle) =>
+      Effect.succeed(handle === "alice" ? aliceAccount : bobAccount)
+    );
+    connectedPeers.mockReturnValue([PEER_CLI]);
+
+    try {
+      connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
+      await vi.waitFor(() => expect(catchup).toHaveBeenCalled());
+      expect(handoff).not.toHaveBeenCalled();
+    } finally {
+      pending.reject(new Error("bob offline"));
+    }
+
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({
+        holderPeerId: PEER_CLI,
+        status: "held",
+      })
+    );
+    expect(handoff).toHaveBeenCalledOnce();
+  });
+
   it("leaves queued handoffs to their dispatch instead of reconciliation", async () => {
     const pending = Promise.withResolvers<true>();
     send.mockResolvedValue().mockImplementationOnce(async () => {

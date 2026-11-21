@@ -201,6 +201,7 @@ export const createP2pStore = ({
   let scheduledReconcile: Promise<void> | undefined;
   let queuedReconcile = false;
   let reconcileSeq = 0;
+  let holderConnectionSeq = 0;
 
   const sessions = createPeerSessions({
     getContactByQid,
@@ -1094,13 +1095,29 @@ export const createP2pStore = ({
   };
 
   const dispatchStoredMessage = async (
-    message: MessageInput,
+    queuedMessage: MessageInput,
     contact: Contact,
     jobGeneration: number,
     signal?: AbortSignal
   ): Promise<void> => {
+    const isActive = () =>
+      !signal?.aborted && isCurrentGeneration(jobGeneration);
+
     try {
-      if (signal?.aborted || !isCurrentGeneration(jobGeneration)) {
+      if (!isActive()) {
+        return;
+      }
+
+      const message = await getMessageById(
+        queuedMessage.id,
+        queuedMessage.contactQid
+      );
+
+      if (
+        message?.direction !== "out" ||
+        message.status !== "sending" ||
+        !isActive()
+      ) {
         return;
       }
 
@@ -1124,6 +1141,8 @@ export const createP2pStore = ({
         text: message.text,
         v: 1,
       };
+
+      const observedHolderConnection = holderConnectionSeq;
 
       const delivered = (async () => {
         try {
@@ -1163,7 +1182,26 @@ export const createP2pStore = ({
         return;
       }
 
-      const holderPeerId = await handedOff;
+      // A holder connection skipped by reconcile still gets a handoff attempt.
+      const holderPeerId = await Effect.runPromise(
+        Effect.gen(function* () {
+          let holder = yield* Effect.promise(() => handedOff);
+          let observedConnection = observedHolderConnection;
+
+          while (
+            !holder &&
+            holderConnectionSeq !== observedConnection &&
+            isActive()
+          ) {
+            observedConnection = holderConnectionSeq;
+            holder = yield* Effect.promise(() =>
+              handoffToHolder(message, contact, jobGeneration, signal)
+            );
+          }
+
+          return holder;
+        })
+      );
 
       if (!isCurrentGeneration(jobGeneration)) {
         return;
@@ -1178,7 +1216,11 @@ export const createP2pStore = ({
           return;
         }
 
-        await advanceMessageStatus(message.id, "failed", message.contactQid);
+        await advanceMessageStatus(
+          queuedMessage.id,
+          "failed",
+          queuedMessage.contactQid
+        );
       } catch {
         // A storage failure is reflected in the store without leaking a rejection.
       }
@@ -1214,13 +1256,7 @@ export const createP2pStore = ({
             return;
           }
 
-          const current = await getMessageById(message.id, message.contactQid);
-
-          if (current?.direction !== "out" || current.status !== "sending") {
-            return;
-          }
-
-          await dispatchStoredMessage(current, contact, jobGeneration, signal);
+          await dispatchStoredMessage(message, contact, jobGeneration, signal);
         })
       )
     );
@@ -1651,7 +1687,11 @@ export const createP2pStore = ({
               sessions.opened(connection);
               void trackJob(
                 (async () => {
-                  if (await isOwnHolderPeer(connection.peerId)) {
+                  if (
+                    (await isOwnHolderPeer(connection.peerId)) &&
+                    isCurrentGeneration(startGeneration)
+                  ) {
+                    holderConnectionSeq += 1;
                     await scheduleReconcile(startGeneration);
                   }
                 })()

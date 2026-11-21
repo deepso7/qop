@@ -410,7 +410,7 @@ describe("send backpressure", () => {
     }
   );
 
-  it("releases the queue when refreshing a queued row fails", async () => {
+  it("makes a saved message retryable when refreshing its queued row fails", async () => {
     const { contact, pending } = await beginSend();
     const queued = useP2pStore.getState().sendMessage(contact, "queued");
     await vi.waitFor(async () =>
@@ -439,6 +439,10 @@ describe("send backpressure", () => {
       pending.resolve(await resolvedUndefined());
       spy.mockRestore();
     }
+
+    expect(await getMessageById(queued)).toMatchObject({ status: "failed" });
+    await useP2pStore.getState().retryMessage(queued, contact.qid);
+    expect(await getMessageById(queued)).toMatchObject({ status: "sent" });
   });
 
   it("does not block a different peer", async () => {
