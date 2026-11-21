@@ -1094,6 +1094,7 @@ export const createP2pStore = ({
     return trackJob(job);
   };
 
+  // oxlint-disable-next-line complexity -- Keep dispatch and recovery in the same lifecycle.
   const dispatchStoredMessage = async (
     queuedMessage: MessageInput,
     contact: Contact,
@@ -1183,25 +1184,23 @@ export const createP2pStore = ({
       }
 
       // A holder connection skipped by reconcile still gets a handoff attempt.
-      const holderPeerId = await Effect.runPromise(
-        Effect.gen(function* () {
-          let holder = yield* Effect.promise(() => handedOff);
-          let observedConnection = observedHolderConnection;
+      let holderPeerId = await handedOff;
+      let observedConnection = observedHolderConnection;
 
-          while (
-            !holder &&
-            holderConnectionSeq !== observedConnection &&
-            isActive()
-          ) {
-            observedConnection = holderConnectionSeq;
-            holder = yield* Effect.promise(() =>
-              handoffToHolder(message, contact, jobGeneration, signal)
-            );
-          }
-
-          return holder;
-        })
-      );
+      while (
+        !holderPeerId &&
+        holderConnectionSeq !== observedConnection &&
+        isActive()
+      ) {
+        observedConnection = holderConnectionSeq;
+        // oxlint-disable-next-line no-await-in-loop -- Handoffs must remain sequential.
+        holderPeerId = await handoffToHolder(
+          message,
+          contact,
+          jobGeneration,
+          signal
+        );
+      }
 
       if (!isCurrentGeneration(jobGeneration)) {
         return;
