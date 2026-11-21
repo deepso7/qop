@@ -3,6 +3,7 @@ import type { VariantProps } from "class-variance-authority";
 import * as React from "react";
 import type { View } from "react-native";
 import Animated, {
+  cancelAnimation,
   useAnimatedStyle,
   useSharedValue,
   withRepeat,
@@ -35,6 +36,8 @@ const Skeleton = ({
 
   React.useEffect(() => {
     sv.set(withRepeat(withTiming(0.5, { duration }), -1, true));
+
+    return () => cancelAnimation(sv);
   }, [sv]);
 
   const animatedStyle = useAnimatedStyle(
