@@ -368,6 +368,79 @@ describe("send backpressure", () => {
     expect(send.mock.calls.map(([input]) => input.frame.id)).toEqual(ids);
   });
 
+  it.each(["held", "sent", "failed", "deleted"] as const)(
+    "skips a queued message that became %s",
+    async (status) => {
+      const { contact, pending } = await beginSend();
+      const queued = useP2pStore.getState().sendMessage(contact, "queued");
+
+      try {
+        await vi.waitFor(async () =>
+          expect(await getMessageById(queued)).toMatchObject({
+            status: "sending",
+          })
+        );
+
+        if (status === "deleted") {
+          await deleteAll();
+          await upsertContact(contact);
+        } else if (status === "held") {
+          await db.markMessageHeld(queued, PEER_BOB, contact.qid);
+        } else {
+          await db.advanceMessageStatus(queued, status, contact.qid);
+        }
+      } finally {
+        pending.resolve(await resolvedUndefined());
+      }
+
+      const last = useP2pStore.getState().sendMessage(contact, "last");
+      await vi.waitFor(async () =>
+        expect(await getMessageById(last)).toMatchObject({ status: "sent" })
+      );
+      expect(send.mock.calls.map(([input]) => input.frame.id)).not.toContain(
+        queued
+      );
+      const row = await getMessageById(queued);
+
+      if (status === "deleted") {
+        expect(row).toBeNull();
+      } else {
+        expect(row).toMatchObject({ status });
+      }
+    }
+  );
+
+  it("releases the queue when refreshing a queued row fails", async () => {
+    const { contact, pending } = await beginSend();
+    const queued = useP2pStore.getState().sendMessage(contact, "queued");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(queued)).toMatchObject({ status: "sending" })
+    );
+    const read = db.getMessageById;
+
+    const spy = vi
+      .spyOn(db, "getMessageById")
+      .mockImplementation((id, qid) =>
+        id === queued
+          ? Promise.reject(new Error("storage unavailable"))
+          : read(id, qid)
+      );
+
+    try {
+      const last = useP2pStore.getState().sendMessage(contact, "last");
+      pending.resolve(await resolvedUndefined());
+      await vi.waitFor(async () =>
+        expect(await getMessageById(last)).toMatchObject({ status: "sent" })
+      );
+      expect(send.mock.calls.map(([input]) => input.frame.id)).not.toContain(
+        queued
+      );
+    } finally {
+      pending.resolve(await resolvedUndefined());
+      spy.mockRestore();
+    }
+  });
+
   it("does not block a different peer", async () => {
     const { contact, pending } = await beginSend();
 

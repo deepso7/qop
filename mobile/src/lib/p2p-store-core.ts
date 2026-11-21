@@ -176,6 +176,7 @@ export const createP2pStore = ({
   const inFlightJobs = new Set<Promise<unknown>>();
   const sendQueues = new Map<string, Semaphore.Semaphore>();
   const holderSendQueue = Semaphore.makeUnsafe(1);
+  const pendingDispatches = new Map<string, Promise<void>>();
 
   const retryJobs = new Map<
     string,
@@ -211,6 +212,16 @@ export const createP2pStore = ({
 
   const isCurrentGeneration = (jobGeneration: number) =>
     generation === jobGeneration;
+
+  const isDispatching = (message: Pick<MessageInput, "contactQid" | "id">) => {
+    const key = `${message.contactQid}:${message.id}`;
+
+    return (
+      pendingDispatches.has(key) ||
+      retryJobs.has(key) ||
+      retryJobs.has(message.id)
+    );
+  };
 
   const trackJob = <A>(job: Promise<A>) => {
     inFlightJobs.add(job);
@@ -973,61 +984,72 @@ export const createP2pStore = ({
       );
 
       const connected = new Set(activeEndpoint?.connectedPeers());
+
+      const shouldReconcile = (message: StoredMessage) => {
+        if (isDispatching(message)) {
+          return false;
+        }
+
+        if (message.status === "sending") {
+          return true;
+        }
+
+        if (message.status !== "held") {
+          return false;
+        }
+
+        // Re-home when the accepting CLI left the roster. Re-confirm with
+        // a connected holder: a held after a lost reply is optimistic, and
+        // the same-id handoff is idempotent on the CLI.
+        return (
+          message.holderPeerId === null ||
+          !roster.has(message.holderPeerId) ||
+          connected.has(message.holderPeerId)
+        );
+      };
+
       await Promise.all(
-        remaining
-          .filter((message) => {
-            if (message.status === "sending") {
-              return true;
-            }
+        remaining.filter(shouldReconcile).map(async (message) => {
+          if (!isCurrentGeneration(jobGeneration)) {
+            return;
+          }
 
-            if (message.status !== "held") {
-              return false;
-            }
+          const contact = await getContactByQid(message.contactQid);
+          const current = await getMessageById(message.id, message.contactQid);
 
-            // Re-home when the accepting CLI left the roster. Re-confirm with
-            // a connected holder: a held after a lost reply is optimistic, and
-            // the same-id handoff is idempotent on the CLI.
-            return (
-              message.holderPeerId === null ||
-              !roster.has(message.holderPeerId) ||
-              connected.has(message.holderPeerId)
+          if (
+            !contact ||
+            !current ||
+            !isCurrentGeneration(jobGeneration) ||
+            !shouldReconcile(current)
+          ) {
+            return;
+          }
+
+          try {
+            const holderPeerId = await handoffToHolder(
+              current,
+              contact,
+              jobGeneration
             );
-          })
-          .map(async (message) => {
-            if (!isCurrentGeneration(jobGeneration)) {
-              return;
-            }
 
-            const contact = await getContactByQid(message.contactQid);
-
-            if (!contact) {
-              return;
-            }
-
-            try {
-              const holderPeerId = await handoffToHolder(
-                message,
-                contact,
-                jobGeneration
+            if (holderPeerId) {
+              await markMessageHeld(
+                message.id,
+                holderPeerId,
+                message.contactQid
               );
-
-              if (holderPeerId) {
-                await markMessageHeld(
-                  message.id,
-                  holderPeerId,
-                  message.contactQid
-                );
-              }
-            } catch (error) {
-              if (
-                error instanceof Error &&
-                error.message === HANDOFF_REJECTED_MESSAGE
-              ) {
-                await failRejectedHandoff(message.id, message.contactQid);
-              }
-              // Dial/timeout is opportunistic; local status stays pending.
             }
-          })
+          } catch (error) {
+            if (
+              error instanceof Error &&
+              error.message === HANDOFF_REJECTED_MESSAGE
+            ) {
+              await failRejectedHandoff(message.id, message.contactQid);
+            }
+            // Dial/timeout is opportunistic; local status stays pending.
+          }
+        })
       );
       await catchUpInboxes(jobGeneration);
 
@@ -1167,7 +1189,7 @@ export const createP2pStore = ({
     }
   };
 
-  const sendStoredMessage = (
+  const sendStoredMessage = async (
     message: MessageInput,
     contact: Contact,
     jobGeneration: number,
@@ -1182,17 +1204,36 @@ export const createP2pStore = ({
       sendQueues.set(contact.qid, queue);
     }
 
-    return Effect.runPromise(
+    const jobKey = `${message.contactQid}:${message.id}`;
+
+    // Reconcile must not race a queued or active dispatch's holder handoff.
+    const job = Effect.runPromise(
       queue.withPermit(
         Effect.promise(async () => {
           if (persisted && !(await persisted)) {
             return;
           }
 
-          await dispatchStoredMessage(message, contact, jobGeneration, signal);
+          const current = await getMessageById(message.id, message.contactQid);
+
+          if (current?.direction !== "out" || current.status !== "sending") {
+            return;
+          }
+
+          await dispatchStoredMessage(current, contact, jobGeneration, signal);
         })
       )
     );
+
+    pendingDispatches.set(jobKey, job);
+
+    try {
+      await job;
+    } finally {
+      if (pendingDispatches.get(jobKey) === job) {
+        pendingDispatches.delete(jobKey);
+      }
+    }
   };
 
   // Starts a failed/stopped node and waits (up to 15s) for it to be running.

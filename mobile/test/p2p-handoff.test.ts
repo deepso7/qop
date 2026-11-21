@@ -226,7 +226,7 @@ describe("phone to CLI handoff", () => {
     );
   });
 
-  it("keeps a reconciled hold when the original send later fails", async () => {
+  it("does not reconcile a handoff while direct dispatch is in flight", async () => {
     const pendingSend = Promise.withResolvers<true>();
     send.mockImplementation(async () => {
       await pendingSend.promise;
@@ -241,16 +241,66 @@ describe("phone to CLI handoff", () => {
 
     const id = useP2pStore.getState().sendMessage(contact, "hello");
     await vi.waitFor(() => expect(handoff).toHaveBeenCalledOnce());
-    connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
+
+    try {
+      catchup.mockClear();
+      connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
+      await vi.waitFor(() => expect(catchup).toHaveBeenCalled());
+      expect(handoff).toHaveBeenCalledOnce();
+      expect(await getMessageById(id)).toMatchObject({ status: "sending" });
+    } finally {
+      pendingSend.reject(new Error("bob offline"));
+    }
+
     await vi.waitFor(async () =>
       expect(await getMessageById(id)).toMatchObject({ status: "held" })
     );
-    const { revision } = useP2pStore.getState();
-    pendingSend.reject(new Error("bob offline"));
-    await vi.waitFor(() =>
-      expect(useP2pStore.getState().revision).toBeGreaterThan(revision)
-    );
     expect(await getMessageById(id)).toMatchObject({ status: "held" });
+  });
+
+  it("leaves queued handoffs to their dispatch instead of reconciliation", async () => {
+    const pending = Promise.withResolvers<true>();
+    send.mockResolvedValue().mockImplementationOnce(async () => {
+      await pending.promise;
+    });
+    await useP2pStore.getState().start();
+    await vi.waitFor(() => expect(catchup).toHaveBeenCalled());
+    const contact = await getContactByQid("1");
+
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+
+    const first = useP2pStore.getState().sendMessage(contact, "first");
+    await vi.waitFor(() => expect(handoff).toHaveBeenCalledOnce());
+    const second = useP2pStore.getState().sendMessage(contact, "second");
+
+    try {
+      await vi.waitFor(async () =>
+        expect(await getMessageById(second)).toMatchObject({
+          status: "sending",
+        })
+      );
+      catchup.mockClear();
+      connectionEstablished?.({ connId: 2, peerId: PEER_CLI });
+      await vi.waitFor(() => expect(catchup).toHaveBeenCalled());
+      expect(handoff).toHaveBeenCalledOnce();
+      expect(await getMessageById(second)).toMatchObject({ status: "sending" });
+    } finally {
+      pending.resolve(true);
+    }
+
+    await vi.waitFor(async () =>
+      expect(await getMessageById(second)).toMatchObject({ status: "sent" })
+    );
+    expect(send.mock.calls.map(([input]) => input.frame.id)).toEqual([
+      first,
+      second,
+    ]);
+    expect(handoff.mock.calls.map(([input]) => input.record.frame.id)).toEqual([
+      first,
+      second,
+    ]);
   });
 
   it("prefers Bob's ack over held", async () => {
