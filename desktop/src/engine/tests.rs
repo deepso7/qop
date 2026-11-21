@@ -733,6 +733,84 @@ async fn chat_streams_past_eight_wait_then_are_saved_and_acked() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn reset_during_verification_keeps_the_chat_handler_slot() {
+    let (dir, listen) = linked_dir("reset-chat-handler");
+    let (chain, api) = (chat_chain(), FakeApi::down());
+    let other_secret = [0x78; 32];
+    chain.add_account(super::testing::account_with(
+        BOB_QID,
+        "bob",
+        vec![device_key_from_secret(other_secret)],
+    ));
+    let mut desktop = Desktop::start_on(&dir, &chain, &api, &listen);
+    desktop.wait_for("ready", ready).await;
+    let bob = Bob::connect(&listen).await;
+    let hold = chain.hold_lookups();
+    let frame = ChatFrame {
+        from_handle: "bob".into(),
+        id: BOB_MESSAGE.into(),
+        sent_at: 1_700_000_000_000,
+        text: "verification outlives the reset".into(),
+    };
+    let mut first = bob
+        .node
+        .handle()
+        .open_stream(&bob.desktop, CHAT_PROTOCOL)
+        .await
+        .unwrap();
+    first.send_message(frame.encode().unwrap()).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(5), hold.entered())
+        .await
+        .unwrap();
+    let mut held = Vec::new();
+    for _ in 1..chat::MAX_INBOUND_STREAMS {
+        held.push(
+            bob.node
+                .handle()
+                .open_stream(&bob.desktop, CHAT_PROTOCOL)
+                .await
+                .unwrap(),
+        );
+    }
+    first.reset();
+
+    let (other, _events, peer) = dial_desktop(other_secret, CHAT_PROTOCOL, &listen).await;
+    let mut ninth = other
+        .handle()
+        .open_stream(&peer, CHAT_PROTOCOL)
+        .await
+        .unwrap();
+    let frame = ChatFrame {
+        id: "0b0b0b0b-0000-4000-8000-000000000009".into(),
+        ..frame
+    };
+    ninth.send_message(frame.encode().unwrap()).await.unwrap();
+    assert!(
+        tokio::time::timeout(
+            Duration::from_millis(200),
+            ninth.read_to_end(MAX_CHAT_PAYLOAD_BYTES)
+        )
+        .await
+        .is_err(),
+        "the ninth handler must wait for verification of the reset stream to finish"
+    );
+    hold.release();
+    let ack = tokio::time::timeout(
+        Duration::from_secs(5),
+        ninth.read_to_end(MAX_CHAT_PAYLOAD_BYTES),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(ChatAck::decode(&ack).unwrap().ack, frame.id);
+    for mut stream in held {
+        stream.reset();
+    }
+    desktop.stop().await;
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_saved_message_shows_even_when_its_ack_cannot_be_written() {
     let (dir, listen) = linked_dir("lost-ack");
     let (chain, api) = (chat_chain(), FakeApi::down());

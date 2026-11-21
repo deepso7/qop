@@ -44,6 +44,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use alloy_primitives::{B256, U256};
+use tokio::sync::Semaphore;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
 use crate::api::ApiClient;
@@ -349,6 +350,8 @@ pub struct Engine<C: Chain, A: Api> {
     new_chat: NewChat,
     /// Recipients (QIDs) with a delivery task running.
     delivering: HashSet<String>,
+    /// Chat handlers, including verification that outlives a reset stream.
+    chat_inbound: Arc<Semaphore>,
     /// Inbound sync streams being served.
     sync_inbound: Arc<AtomicUsize>,
     /// Inbound pairing streams being served.
@@ -401,6 +404,7 @@ impl<C: Chain, A: Api> Engine<C, A> {
             active: None,
             new_chat: NewChat::Lookup(HandleLookup::Idle),
             delivering: HashSet::new(),
+            chat_inbound: Arc::new(Semaphore::new(chat::MAX_INBOUND_STREAMS)),
             sync_inbound: Arc::default(),
             pairing: Arc::default(),
         }
@@ -1196,7 +1200,9 @@ impl<C: Chain, A: Api> Engine<C, A> {
             return;
         };
         let internal = self.internal.clone();
+        let inbound = self.chat_inbound.clone();
         tokio::spawn(async move {
+            let _permit = inbound.acquire_owned().await.expect("chat semaphore open");
             match chat::serve_inbound(stream, &ctx, now_ms).await {
                 Ok(received) => {
                     let _ = internal.send(Internal::Received(received));

@@ -21,7 +21,7 @@ import type {
   SessionContact,
   SessionContactInput,
 } from "@qop/protocol";
-import { Effect, FiberSet, Schema } from "effect";
+import { Effect, FiberSet, Schema, Semaphore } from "effect";
 
 import { CliConfigError, cliRelays, configuredRegistry } from "./config.ts";
 import type { createCliIdentityStore } from "./identity-store.ts";
@@ -442,6 +442,7 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
   };
 
   const runHandler = yield* FiberSet.makeRuntime();
+  const chatInbound = Semaphore.makeUnsafe(MAX_INBOUND_STREAMS);
   let syncInbound = 0;
 
   const outbox = yield* createOutboxRuntime({
@@ -579,36 +580,40 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
             }
           });
 
-    runHandler(
-      inboundProgram.pipe(
-        Effect.tapError((error: CliOutboxStoreError | Error) =>
-          Effect.sync(() => {
-            if (error instanceof CliOutboxStoreError) {
-              out.error(describeCliOutboxStoreError(error));
+    const handleInbound = inboundProgram.pipe(
+      Effect.tapError((error: CliOutboxStoreError | Error) =>
+        Effect.sync(() => {
+          if (error instanceof CliOutboxStoreError) {
+            out.error(describeCliOutboxStoreError(error));
 
-              return;
-            }
+            return;
+          }
 
-            if (error.message.startsWith("Inbound ")) {
-              out.error(error.message);
-            }
-          })
-        ),
-        Effect.onExit((exit) =>
-          exit._tag === "Success"
-            ? Effect.void
-            : Effect.sync(() => {
-                stream.reset();
-              })
-        ),
-        Effect.ensuring(
-          Effect.sync(() => {
-            if (stream.protocolId === SYNC_PROTOCOL) {
-              syncInbound -= 1;
-            }
-          })
-        )
+          if (error.message.startsWith("Inbound ")) {
+            out.error(error.message);
+          }
+        })
+      ),
+      Effect.onExit((exit) =>
+        exit._tag === "Success"
+          ? Effect.void
+          : Effect.sync(() => {
+              stream.reset();
+            })
+      ),
+      Effect.ensuring(
+        Effect.sync(() => {
+          if (stream.protocolId === SYNC_PROTOCOL) {
+            syncInbound -= 1;
+          }
+        })
       )
+    );
+
+    runHandler(
+      stream.protocolId === CHAT_PROTOCOL
+        ? chatInbound.withPermits(1)(handleInbound)
+        : handleInbound
     );
   });
 

@@ -230,7 +230,7 @@ describe("createHolder", () => {
     })
   );
 
-  it.live("saves and ACKs chat beyond eight open handlers", () =>
+  it.live("waits for a reset stream's verification", () =>
     Effect.gen(function* () {
       const root = yield* withTempRoot;
       yield* Effect.tryPromise(() => chmod(root, 0o700));
@@ -240,6 +240,8 @@ describe("createHolder", () => {
       const { out } = makeOut(ready);
       const hangSlot = yield* Deferred.make<Uint8Array>();
       const acked = yield* Deferred.make<boolean>();
+      const verifying = yield* Deferred.make<boolean>();
+      const verified = yield* Deferred.make<boolean>();
 
       const deviceKey = yield* Schema.decodeUnknownEffect(PeerId)(
         PEER_BOB
@@ -268,15 +270,45 @@ describe("createHolder", () => {
         return Effect.runPromise(Deferred.await(hangSlot));
       };
 
-      const hanging = Array.from({ length: MAX_INBOUND_STREAMS }, () =>
+      const hanging = Array.from({ length: MAX_INBOUND_STREAMS - 1 }, () =>
         makeStream(CHAT_PROTOCOL, hang)
       );
+
+      const firstBytes: (Uint8Array | undefined)[] = [
+        encodeFrame({ ...frame, id: "0b0b0b0b-0000-4000-8000-000000000001" }),
+      ];
+
+      const first = makeStream(CHAT_PROTOCOL, () =>
+        Promise.resolve(firstBytes.shift())
+      );
+
+      first.write.mockResolvedValue(undefined);
+      let held = false;
+
+      const sessions = createPeerSessions({
+        getContactByQid: () => Promise.resolve(null),
+        lookupDeviceKey: () =>
+          Effect.gen(function* () {
+            if (!held) {
+              held = true;
+              yield* Deferred.succeed(verifying, true);
+              yield* Deferred.await(verified);
+            }
+
+            return sender;
+          }),
+        lookupHandle: () => Effect.succeed(sender),
+        ownQid: () => identity.qid,
+        upsertContact: () => Promise.resolve(),
+      });
 
       const unread: (Uint8Array | undefined)[] = [encodeFrame(frame)];
 
       const extra = makeStream(CHAT_PROTOCOL, () =>
         Promise.resolve(unread.shift())
       );
+
+      extra.connId = 4;
 
       extra.write.mockResolvedValue(undefined);
       extra.closeWrite.mockImplementation(() => {
@@ -297,24 +329,31 @@ describe("createHolder", () => {
                 lookupDeviceKey: () => Effect.succeed(sender),
                 lookupHandle: () => Effect.succeed(sender),
               },
-              sessions: makeSessions(sender),
+              sessions,
             })
           );
           yield* Deferred.await(ready);
+          endpoint.emit("stream", first);
+          yield* Deferred.await(verifying);
 
           for (const stream of hanging) {
             endpoint.emit("stream", stream);
           }
 
           yield* Deferred.await(started);
+          first.reset();
           endpoint.emit("stream", extra);
+          yield* Effect.sleep(100);
+          expect(extra.read).not.toHaveBeenCalled();
+          expect(extra.reset).not.toHaveBeenCalled();
+          yield* Deferred.succeed(verified, true);
           yield* Deferred.await(acked);
           expect(extra.reset).not.toHaveBeenCalled();
           expect(extra.write).toHaveBeenCalledWith(
             encodeAck({ ack: frame.id, v: 1 })
           );
           const inbox = yield* messages.loadInbox();
-          expect(inbox.map((record) => record.frame.id)).toEqual([frame.id]);
+          expect(inbox.map((record) => record.frame.id)).toContain(frame.id);
         })
       );
     })
