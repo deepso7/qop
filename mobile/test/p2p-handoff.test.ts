@@ -290,7 +290,7 @@ describe("phone to CLI handoff", () => {
     deferred.resolve(true);
   });
 
-  it("holds the send permit until the background handoff finishes", async () => {
+  it("ACKs the next send while a separately bounded handoff is pending", async () => {
     send.mockResolvedValue();
     const deferred = Promise.withResolvers<true>();
     handoff.mockImplementationOnce(async () => {
@@ -314,16 +314,31 @@ describe("phone to CLI handoff", () => {
       const second = useP2pStore.getState().sendMessage(contact, "second");
       await vi.waitFor(async () =>
         expect(await getMessageById(second)).toMatchObject({
-          status: "sending",
+          status: "sent",
         })
       );
-      expect(send).toHaveBeenCalledTimes(1);
+
+      const other = {
+        ...contact,
+        handle: "carol",
+        peerId: PEER_CLI_OTHER,
+        qid: "3",
+      };
+
+      await upsertContact(other);
+      const third = useP2pStore.getState().sendMessage(other, "independent");
+      await vi.waitFor(async () =>
+        expect(await getMessageById(third, other.qid)).toMatchObject({
+          status: "sent",
+        })
+      );
+      expect(send).toHaveBeenCalledTimes(3);
       expect(handoff).toHaveBeenCalledTimes(1);
     } finally {
       deferred.resolve(true);
     }
 
-    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(handoff).toHaveBeenCalledTimes(3));
   });
 
   it("applies a CLI receipt onto a held message", async () => {

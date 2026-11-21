@@ -173,8 +173,9 @@ export const createP2pStore = ({
   let unsubscribe: Unsubscribe[] = [];
   let generation = 0;
   let recoveryOperation: Promise<void> = Promise.resolve();
-  const inFlightJobs = new Set<Promise<void>>();
+  const inFlightJobs = new Set<Promise<unknown>>();
   const sendQueues = new Map<string, Semaphore.Semaphore>();
+  const holderSendQueue = Semaphore.makeUnsafe(1);
 
   const retryJobs = new Map<
     string,
@@ -211,7 +212,7 @@ export const createP2pStore = ({
   const isCurrentGeneration = (jobGeneration: number) =>
     generation === jobGeneration;
 
-  const trackJob = (job: Promise<void>) => {
+  const trackJob = <A>(job: Promise<A>) => {
     inFlightJobs.add(job);
 
     const removeWhenDone = async () => {
@@ -642,7 +643,10 @@ export const createP2pStore = ({
         }
       };
 
-      return tryHolder(0);
+      // Handoffs share CLI's eight inbound slots across all recipients.
+      return Effect.runPromise(
+        holderSendQueue.withPermit(Effect.promise(() => tryHolder(0)))
+      );
     })();
 
     handoffJobs.set(jobKey, job);
@@ -657,7 +661,7 @@ export const createP2pStore = ({
 
     void removeWhenDone();
 
-    return job;
+    return trackJob(job);
   };
 
   const applyReceipts = async (
@@ -1073,8 +1077,6 @@ export const createP2pStore = ({
     jobGeneration: number,
     signal?: AbortSignal
   ): Promise<void> => {
-    let handedOff: Promise<string | undefined> | undefined;
-
     try {
       if (signal?.aborted || !isCurrentGeneration(jobGeneration)) {
         return;
@@ -1118,7 +1120,7 @@ export const createP2pStore = ({
         }
       })();
 
-      handedOff = (async () => {
+      const handedOff = (async () => {
         try {
           return await handoffToHolder(message, contact, jobGeneration, signal);
         } catch {
@@ -1162,8 +1164,6 @@ export const createP2pStore = ({
       if (isCurrentGeneration(jobGeneration)) {
         storeBridge.setState((state) => ({ revision: state.revision + 1 }));
       }
-
-      await handedOff;
     }
   };
 
