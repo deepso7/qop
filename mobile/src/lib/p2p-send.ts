@@ -211,7 +211,7 @@ export const performSend = async ({
           return { mark, program };
         };
 
-        for (const peerId of peerIds) {
+        for (const [index, peerId] of peerIds.entries()) {
           const budget = remainingMs();
 
           if (budget <= 0) {
@@ -220,7 +220,8 @@ export const performSend = async ({
             );
           }
 
-          const { mark, program } = sendToPeer(peerId, budget);
+          const devicesLeft = peerIds.length - index;
+          const { mark, program } = sendToPeer(peerId, budget / devicesLeft);
           const result = yield* program.pipe(Effect.result);
 
           if (result._tag === "Success") {
