@@ -23,7 +23,7 @@ keyring = { version = "3", default-features = false, features = [
   "apple-native",
 ] }
 # Keep the Rust transport and JS bindings on the same release.
-minip2p-rs = { git = "https://github.com/deepso7/minip2p", tag = "v0.13.1", default-features = false, features = [
+minip2p-rs = { git = "https://github.com/deepso7/minip2p", tag = "v0.14.0", default-features = false, features = [
   "quic",
   "relay",
   "std",
