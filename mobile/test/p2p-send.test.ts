@@ -492,6 +492,59 @@ describe("performSend", () => {
     expect(stream.write).toHaveBeenCalledOnce();
   });
 
+  it("delivers through the next device when the first stream open stalls", async () => {
+    vi.useFakeTimers();
+
+    try {
+      const peerCli = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
+
+      const { endpoint, lookupDeviceKey, lookupHandle, sessions, stream } =
+        makeEndpoint(ackReader(id));
+
+      const multiAccount: RegistryAccount = {
+        ...account,
+        devices: [
+          { deviceKey: `0x${"22".repeat(32)}`, peerId: PEER_BOB },
+          { deviceKey: `0x${"33".repeat(32)}`, peerId: peerCli },
+        ],
+      };
+
+      lookupDeviceKey.mockReturnValue(Effect.succeed(multiAccount));
+      lookupHandle.mockReturnValue(Effect.succeed(multiAccount));
+      sessions.closed(stream);
+      stream.peerId = peerCli;
+      const hung = Promise.withResolvers<typeof stream>();
+
+      endpoint.openStream.mockImplementation((peerId: string) =>
+        peerId === PEER_BOB ? hung.promise : Promise.resolve(stream)
+      );
+
+      const startedAt = Date.now();
+
+      const sending = performSend({
+        contact,
+        endpoint,
+        frame,
+        sessions,
+        timeoutMs: 1000,
+      })
+        .then(() => Date.now() - startedAt)
+        .catch(() => Number.POSITIVE_INFINITY);
+
+      await vi.advanceTimersByTimeAsync(1000);
+      await expect(sending).resolves.toBeLessThan(1000);
+
+      expect(endpoint.openStream.mock.calls.map(([peerId]) => peerId)).toEqual([
+        PEER_BOB,
+        peerCli,
+      ]);
+      expect(stream.write).toHaveBeenCalledOnce();
+      expect(stream.reset).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("passes remaining send budget to the next roster candidate", async () => {
     const peerCli = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
     const cliDeviceKey = `0x${"33".repeat(32)}`;
