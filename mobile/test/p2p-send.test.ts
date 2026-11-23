@@ -545,6 +545,49 @@ describe("performSend", () => {
     }
   });
 
+  it("uses integer SDK timeouts when sharing an odd budget across devices", async () => {
+    const { endpoint, lookupDeviceKey, lookupHandle, sessions, stream } =
+      makeEndpoint(ackReader(id));
+
+    const peers = ["peer-first", "peer-second", PEER_BOB];
+    sessions.closed(stream);
+
+    const multiAccount: RegistryAccount = {
+      ...account,
+      devices: peers.map((peerId) => ({
+        deviceKey: `0x${"22".repeat(32)}`,
+        peerId,
+      })),
+    };
+
+    lookupDeviceKey.mockReturnValue(Effect.succeed(multiAccount));
+    lookupHandle.mockReturnValue(Effect.succeed(multiAccount));
+    endpoint.openStream.mockImplementation((peerId: string) =>
+      peerId === PEER_BOB
+        ? Promise.resolve(stream)
+        : Promise.reject(new Error("device unavailable"))
+    );
+
+    await performSend({ contact, endpoint, frame, sessions, timeoutMs: 1000 });
+
+    const timeouts = [
+      ...endpoint.connect.mock.calls.map(([, options]) => options?.timeoutMs),
+      ...endpoint.waitPeerReady.mock.calls.map(
+        ([, options]) => options?.timeoutMs
+      ),
+      ...endpoint.openStream.mock.calls.map((call) => call[2]?.timeoutMs),
+    ];
+
+    expect(timeouts).toHaveLength(9);
+
+    for (const timeout of timeouts) {
+      expect(Number.isSafeInteger(timeout)).toBe(true);
+      expect(timeout).toBeGreaterThanOrEqual(1);
+    }
+
+    expect(stream.write).toHaveBeenCalledOnce();
+  });
+
   it("passes remaining send budget to the next roster candidate", async () => {
     const peerCli = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
     const cliDeviceKey = `0x${"33".repeat(32)}`;
