@@ -571,7 +571,13 @@ describe("performSend", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
 
     try {
-      await performSend({ contact, endpoint, frame, sessions, timeoutMs: 1000 });
+      await performSend({
+        contact,
+        endpoint,
+        frame,
+        sessions,
+        timeoutMs: 1000,
+      });
     } finally {
       vi.useRealTimers();
     }
