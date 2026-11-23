@@ -568,7 +568,13 @@ describe("performSend", () => {
         : Promise.reject(new Error("device unavailable"))
     );
 
-    await performSend({ contact, endpoint, frame, sessions, timeoutMs: 1000 });
+    vi.useFakeTimers({ toFake: ["Date"] });
+
+    try {
+      await performSend({ contact, endpoint, frame, sessions, timeoutMs: 1000 });
+    } finally {
+      vi.useRealTimers();
+    }
 
     const timeouts = [
       ...endpoint.connect.mock.calls.map(([, options]) => options?.timeoutMs),
