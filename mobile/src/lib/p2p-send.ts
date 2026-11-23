@@ -126,7 +126,7 @@ export const performSend = async ({
         const startedAt = Date.now();
 
         const remainingMs = () =>
-          Math.max(0, timeoutMs - (Date.now() - startedAt));
+          Math.max(0, Math.floor(timeoutMs - (Date.now() - startedAt)));
 
         const peerIds = yield* sessions.recipientPeerIds(contact).pipe(
           Effect.timeoutOrElse({
@@ -221,7 +221,8 @@ export const performSend = async ({
           }
 
           const devicesLeft = peerIds.length - index;
-          const { mark, program } = sendToPeer(peerId, budget / devicesLeft);
+          const attemptTimeout = Math.max(1, Math.floor(budget / devicesLeft));
+          const { mark, program } = sendToPeer(peerId, attemptTimeout);
           const result = yield* program.pipe(Effect.result);
 
           if (result._tag === "Success") {
