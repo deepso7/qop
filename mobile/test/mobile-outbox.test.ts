@@ -1,3 +1,5 @@
+import { setTimeout as sleep } from "node:timers/promises";
+
 import { afterEach, expect, it, vi } from "vitest";
 
 import type { StoredMessage } from "@/lib/db";
@@ -17,6 +19,139 @@ const message = (id: string, contactQid = "1"): StoredMessage => ({
 });
 
 afterEach(() => vi.useRealTimers());
+
+it.each(["new message", "periodic reconciliation"])(
+  "admits %s while earlier sends remain in flight",
+  async (work) => {
+    vi.useFakeTimers();
+    const gate = Promise.withResolvers<true>();
+
+    let rows = [
+      message("old"),
+      { ...message("held"), status: "held" as const },
+    ];
+
+    const reconcile = vi.fn(() => Promise.resolve());
+
+    const deliver = vi.fn(async (row: StoredMessage) => {
+      if (row.id === "old") {
+        await gate.promise;
+      }
+
+      rows = rows.filter((item) => item.id !== row.id);
+
+      return { ...row, status: "sent" as const };
+    });
+
+    const worker = createMobileOutbox({
+      list: () => Promise.resolve(rows),
+      deliver,
+      reconcile,
+      expedite: () => Promise.resolve(),
+    });
+
+    try {
+      await worker.wake();
+      await vi.waitFor(() => expect(deliver).toHaveBeenCalledOnce());
+
+      if (work === "new message") {
+        rows.push(message("new", "2"));
+        await worker.wake();
+        await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(2));
+        expect(deliver.mock.calls.map(([row]) => row.id)).toEqual([
+          "old",
+          "new",
+        ]);
+        await worker.wake();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(deliver).toHaveBeenCalledTimes(2);
+      } else {
+        await vi.advanceTimersByTimeAsync(30_100);
+        await vi.waitFor(() => expect(reconcile).toHaveBeenCalledOnce());
+        expect(deliver).toHaveBeenCalledOnce();
+      }
+    } finally {
+      worker.close();
+      gate.resolve(true);
+    }
+  }
+);
+
+it("isolates a delivery rejection without aborting its sibling", async () => {
+  const gate = Promise.withResolvers<true>();
+  let siblingSignal: AbortSignal | undefined;
+
+  const worker = createMobileOutbox({
+    list: () => Promise.resolve([message("sibling"), message("fault")]),
+    expedite: () => Promise.resolve(),
+    reconcile: () => Promise.resolve(),
+    deliver: async (row, signal) => {
+      if (row.id === "fault") {
+        throw new Error("one storage read failed");
+      }
+
+      siblingSignal = signal;
+      await gate.promise;
+
+      return { ...row, status: "sent" };
+    },
+  });
+
+  try {
+    await worker.wake();
+    await vi.waitFor(() => expect(siblingSignal).toBeDefined());
+    await sleep(30);
+    expect(siblingSignal?.aborted).toBe(false);
+  } finally {
+    worker.close();
+    gate.resolve(true);
+  }
+});
+
+it("gives new work the next free slot without draining an old snapshot", async () => {
+  const first = Promise.withResolvers<true>();
+  const rest = Promise.withResolvers<true>();
+  const fresh = Promise.withResolvers<true>();
+  let rows = Array.from({ length: 300 }, (_, index) => message(String(index)));
+
+  const deliver = vi.fn(async (row: StoredMessage) => {
+    if (row.id === "new") {
+      await fresh.promise;
+    } else {
+      await (row.id === "0" ? first.promise : rest.promise);
+    }
+
+    rows = rows.filter((item) => item.id !== row.id);
+
+    return { ...row, status: "sent" as const };
+  });
+
+  const worker = createMobileOutbox({
+    list: () => Promise.resolve(rows),
+    deliver,
+    reconcile: () => Promise.resolve(),
+    expedite: () => Promise.resolve(),
+  });
+
+  try {
+    await worker.wake();
+    await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(64));
+    rows.push(message("new", "2"));
+    await worker.wake();
+    first.resolve(true);
+    await vi.waitFor(() =>
+      expect(deliver.mock.calls.some(([row]) => row.id === "new")).toBe(true)
+    );
+    expect(deliver.mock.calls.filter(([row]) => row.id !== "new")).toHaveLength(
+      64
+    );
+  } finally {
+    worker.close();
+    first.resolve(true);
+    rest.resolve(true);
+    fresh.resolve(true);
+  }
+});
 
 it("runs a same-contact burst and retries concurrently, bounded at 64 without per-message scans", async () => {
   vi.useFakeTimers();
@@ -66,7 +201,7 @@ it("runs a same-contact burst and retries concurrently, bounded at 64 without pe
     await vi.advanceTimersByTimeAsync(2100);
     await vi.waitFor(() => expect(ids).toHaveLength(600));
     expect(rows).toEqual([]);
-    expect(list).toHaveBeenCalledTimes(2);
+    expect(list).toHaveBeenCalledOnce();
     expect(vi.getTimerCount()).toBe(0);
   } finally {
     worker.close();

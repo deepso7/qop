@@ -5,12 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CHAT_PROTOCOL, encodeAck, encodeFrame } from "@/lib/chat-wire";
 import {
+  advanceMessageStatus,
   deleteAll,
   getContactByQid,
   getMessageById,
   insertMessage,
+  queueMessageRetry,
   upsertContact,
 } from "@/lib/db";
+import { createMobileOutbox } from "@/lib/mobile-outbox";
 import type { performSend } from "@/lib/p2p-send";
 import { performSend as sendToPeer } from "@/lib/p2p-send";
 import { createP2pStore } from "@/lib/p2p-store-core";
@@ -21,7 +24,9 @@ import type {
 } from "@/lib/registry";
 import type { RegistryAccount } from "@/lib/registry-core";
 
-import { failNextRun } from "./support/sqlite";
+import { failNextRun, pauseNextRun } from "./support/sqlite";
+
+let deliverySignal: AbortSignal | undefined;
 
 const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
 
@@ -82,7 +87,7 @@ const lookupDeviceKey = vi.fn((): ReturnType<typeof LookupDeviceKey> =>
   Effect.succeed(bobAccount)
 );
 
-const lookupHandle = vi.fn((): ReturnType<typeof LookupHandle> =>
+const lookupHandle = vi.fn<typeof LookupHandle>(() =>
   Effect.succeed(bobAccount)
 );
 
@@ -150,6 +155,12 @@ const captureEndpointEvent: P2pEndpoint["on"] = (
 let appResumeHandler: (() => void) | undefined;
 
 const useP2pStore = createP2pStore({
+  createOutbox: (dependencies) =>
+    createMobileOutbox({
+      ...dependencies,
+      deliver: (message, signal) =>
+        dependencies.deliver(message, deliverySignal ?? signal),
+    }),
   createEndpoint: () => ({
     bindAppState: () => () => {},
     endpoint: {
@@ -189,6 +200,7 @@ const useP2pStore = createP2pStore({
 });
 
 beforeEach(async () => {
+  deliverySignal = undefined;
   vi.stubEnv("EXPO_PUBLIC_RELAY_ADDRS", "/test-relay");
   send.mockReset().mockResolvedValue();
   lookupDeviceKey.mockReset().mockReturnValue(Effect.succeed(bobAccount));
@@ -290,6 +302,93 @@ const resolvedUndefined = async (): Promise<undefined> => {
 };
 
 describe("automatic outbox", () => {
+  it("wakes a connected contact after unrelated roster failures", async () => {
+    const backoff = async (
+      id: string,
+      qid: string,
+      attempts: number
+    ): Promise<void> => {
+      await queueMessageRetry(id, qid);
+
+      if (attempts > 1) {
+        await advanceMessageStatus(id, "sending", qid);
+        await backoff(id, qid, attempts - 1);
+      }
+    };
+
+    const seed = async (qid: string) => {
+      if (qid !== "1") {
+        await upsertContact({
+          createdAt: 1,
+          deviceKey: bobAccount.deviceKey ?? "",
+          handle: `contact${qid}`,
+          owner: bobAccount.owner,
+          peerId: PEER_BOB,
+          qid,
+        });
+      }
+
+      const id = `queued-${qid}`;
+      await insertMessage({
+        id,
+        contactQid: qid,
+        direction: "out",
+        status: "sending",
+        text: "waiting",
+        sentAt: 1,
+      });
+
+      await backoff(id, qid, 6);
+    };
+
+    await Promise.all(["2", "3", "4", "5", "6", "7", "8", "9"].map(seed));
+    await seed("1");
+
+    lookupHandle.mockImplementation((handle) =>
+      Effect.succeed(handle === "bob" ? bobAccount : null)
+    );
+    await useP2pStore.getState().start();
+    connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
+    await vi.waitFor(async () =>
+      expect(await getMessageById("queued-1", "1")).toMatchObject({
+        status: "sent",
+      })
+    );
+    expect(send).toHaveBeenCalledOnce();
+  });
+  it("requeues a delivery aborted while its sending claim is pending", async () => {
+    const controller = new AbortController();
+    deliverySignal = controller.signal;
+    const id = crypto.randomUUID();
+    await insertMessage({
+      id,
+      contactQid: "1",
+      direction: "out",
+      status: "queued",
+      text: "abort after claim",
+      sentAt: 1,
+    });
+
+    const claim = pauseNextRun((sql) =>
+      sql.includes("UPDATE messages SET status = ?")
+    );
+
+    try {
+      await useP2pStore.getState().start();
+      await claim.started;
+      controller.abort();
+      claim.resume();
+      await vi.waitFor(async () =>
+        expect(await getMessageById(id)).toMatchObject({
+          status: "queued",
+          attempts: 1,
+        })
+      );
+      expect(send).not.toHaveBeenCalled();
+    } finally {
+      claim.resume();
+    }
+  });
   it("delivers after failure when an authorized peer comes online without manual retry", async () => {
     send.mockRejectedValue(new Error("recipient offline"));
     await useP2pStore.getState().start();

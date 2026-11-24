@@ -123,6 +123,7 @@ export type P2pEndpoint = Pick<
 >;
 
 interface P2pDependencies {
+  readonly createOutbox?: typeof createMobileOutbox;
   readonly createEndpoint: (options: Parameters<typeof Minip2p.create>[0]) => {
     readonly endpoint: P2pEndpoint;
     readonly bindAppState: () => Unsubscribe;
@@ -159,6 +160,7 @@ const uninitializedSetState: StoreApi<P2pStore>["setState"] = () => {
 
 export const createP2pStore = ({
   createEndpoint,
+  createOutbox = createMobileOutbox,
   getIdentityHandle,
   getOwnDevice,
   loadDeviceSecretKey,
@@ -1244,7 +1246,7 @@ export const createP2pStore = ({
                   await outbox?.wake(qid);
                 }
               }
-            }),
+            }).pipe(Effect.catchCause(() => Effect.void)),
           { concurrency: 8 }
         )
       );
@@ -1702,43 +1704,60 @@ export const createP2pStore = ({
             status: "running",
           },
         });
-        outbox = createMobileOutbox({
+        outbox = createOutbox({
           list: listOutgoingPending,
           expedite: expediteMessageRetries,
           deliver: (message, signal) =>
             trackJob(
               (async () => {
-                if (!isCurrentGeneration(startGeneration) || signal.aborted) {
-                  return null;
-                }
+                let claimed = false;
+                let settled = false;
 
-                const contact = await getContactByQid(message.contactQid);
+                try {
+                  if (!isCurrentGeneration(startGeneration) || signal.aborted) {
+                    return null;
+                  }
 
-                if (
-                  !contact ||
-                  signal.aborted ||
-                  !isCurrentGeneration(startGeneration)
-                ) {
-                  return null;
-                }
+                  const contact = await getContactByQid(message.contactQid);
 
-                if (
-                  !(await advanceMessageStatus(
+                  if (
+                    !contact ||
+                    signal.aborted ||
+                    !isCurrentGeneration(startGeneration)
+                  ) {
+                    return null;
+                  }
+
+                  claimed = await advanceMessageStatus(
                     message.id,
                     "sending",
                     message.contactQid
-                  ))
-                ) {
-                  return null;
-                }
+                  );
 
-                set((state) => ({ revision: state.revision + 1 }));
-                await sendStoredMessage(
-                  message,
-                  contact,
-                  startGeneration,
-                  signal
-                );
+                  if (!claimed) {
+                    await queueMessageRetry(message.id, message.contactQid);
+
+                    return getMessageById(message.id, message.contactQid);
+                  }
+
+                  set((state) => ({ revision: state.revision + 1 }));
+                  await sendStoredMessage(
+                    message,
+                    contact,
+                    startGeneration,
+                    signal
+                  );
+                  settled = true;
+                } finally {
+                  if (
+                    claimed &&
+                    (!settled || signal.aborted) &&
+                    isCurrentGeneration(startGeneration)
+                  ) {
+                    await queueMessageRetry(message.id, message.contactQid);
+                    set((state) => ({ revision: state.revision + 1 }));
+                  }
+                }
 
                 return getMessageById(message.id, message.contactQid);
               })()
