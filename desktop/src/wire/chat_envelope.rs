@@ -130,14 +130,19 @@ mod tests {
     use alloy_primitives::hex;
     use serde_json::Value;
 
-    #[test]
-    fn matches_the_typescript_envelope_in_both_directions() {
+    fn typescript_vector() -> (Vec<u8>, ChatFrame) {
         let vector: Value =
             serde_json::from_str(include_str!("../../tests/vectors/chat-envelope.json")).unwrap();
+        let bytes = hex::decode(vector["envelope"].as_str().unwrap()).unwrap();
+        let frame = ChatFrame::from_json(&vector["frame"], false).unwrap();
+        (bytes, frame)
+    }
+
+    #[test]
+    fn matches_the_typescript_envelope_in_both_directions() {
+        let (bytes, expected) = typescript_vector();
         let alice = ChatCipher::new(&[0; 32]);
         let bob = ChatCipher::new(&[1; 32]);
-        let bytes = hex::decode(vector["envelope"].as_str().unwrap()).unwrap();
-        let expected = ChatFrame::from_json(&vector["frame"], false).unwrap();
 
         assert_eq!(
             bob.open(&bytes, alice.0.verifying_key().as_bytes())
@@ -154,5 +159,63 @@ mod tests {
                 .unwrap(),
             bytes
         );
+    }
+
+    #[test]
+    fn rejects_the_wrong_sender_or_recipient() {
+        let (bytes, _) = typescript_vector();
+        let alice = ChatCipher::new(&[0; 32]);
+        let bob = ChatCipher::new(&[1; 32]);
+        let other = ChatCipher::new(&[2; 32]);
+
+        assert!(
+            bob.open(&bytes, other.0.verifying_key().as_bytes())
+                .is_err()
+        );
+        assert!(
+            other
+                .open(&bytes, alice.0.verifying_key().as_bytes())
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn rejects_altered_envelope_fields() {
+        let (bytes, _) = typescript_vector();
+        let alice = ChatCipher::new(&[0; 32]);
+        let bob = ChatCipher::new(&[1; 32]);
+        let sender = alice.0.verifying_key();
+
+        for (field, offset) in [
+            ("version", 0),
+            ("sender", 1),
+            ("recipient", 1 + KEY_BYTES),
+            ("encapsulated key", HEADER_BYTES),
+            ("ciphertext", HEADER_BYTES + KEY_BYTES),
+            ("signature", bytes.len() - SIGNATURE_BYTES),
+        ] {
+            let mut altered = bytes.clone();
+            altered[offset] ^= 1;
+            assert!(bob.open(&altered, sender.as_bytes()).is_err(), "{field}");
+        }
+    }
+
+    #[test]
+    fn rejects_plaintext_and_invalid_lengths() {
+        let (mut bytes, frame) = typescript_vector();
+        let alice = ChatCipher::new(&[0; 32]);
+        let bob = ChatCipher::new(&[1; 32]);
+        let sender = alice.0.verifying_key();
+        let mut plaintext_frame = frame;
+        plaintext_frame.text = "valid chat without an envelope ".repeat(8);
+        let plaintext = plaintext_frame.encode().unwrap();
+        assert!(plaintext.len() > OVERHEAD_BYTES);
+
+        assert!(bob.open(&plaintext, sender.as_bytes()).is_err());
+        for len in [0, OVERHEAD_BYTES, bytes.len() - 1] {
+            assert!(bob.open(&bytes[..len], sender.as_bytes()).is_err(), "{len}");
+        }
+        bytes.resize(MAX_CHAT_ENVELOPE_BYTES + 1, 0);
+        assert!(bob.open(&bytes, sender.as_bytes()).is_err());
     }
 }
