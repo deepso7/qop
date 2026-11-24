@@ -30,7 +30,11 @@ pub fn device_key_from_peer_id(peer_id: &str) -> Option<B256> {
         return None;
     }
 
-    let bytes = PeerId::from_base58(peer_id).ok()?.to_bytes();
+    device_key_from_peer(&PeerId::from_base58(peer_id).ok()?)
+}
+
+pub fn device_key_from_peer(peer: &PeerId) -> Option<B256> {
+    let bytes = peer.to_bytes();
     let device_key = bytes.strip_prefix(ED25519_PEER_ID_PREFIX.as_slice())?;
 
     (device_key.len() == 32).then(|| B256::from_slice(device_key))

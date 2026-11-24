@@ -58,6 +58,7 @@ use crate::model::{
 use crate::node::{Node, NodeConfig, NodeEvent};
 use crate::rpc::{Account, ReadError, RegistryReader};
 use crate::store::{Identity, Store};
+use crate::wire::chat_envelope::ChatCipher;
 use crate::wire::{
     CHAT_PROTOCOL, ChatFrame, DeviceActionApproval, DeviceActionStatus, DeviceActionStatusError,
     MAX_SYNC_PAYLOAD_BYTES, OutboxStatus, PAIR_PROTOCOL, SYNC_PROTOCOL, device_key_from_peer_id,
@@ -293,6 +294,7 @@ enum Internal {
 /// The node while a device key exists, and what pairing shows through it.
 struct Net {
     node: Node,
+    chat_cipher: Arc<ChatCipher>,
     events: UnboundedReceiver<NodeEvent>,
     generation: u64,
     relay: RelayStatus,
@@ -556,6 +558,7 @@ impl<C: Chain, A: Api> Engine<C, A> {
                 }
                 self.net = Some(Net {
                     node,
+                    chat_cipher: Arc::new(ChatCipher::new(&secret)),
                     events,
                     generation,
                     relay: if relays {
@@ -1182,6 +1185,7 @@ impl<C: Chain, A: Api> Engine<C, A> {
         let net = self.net.as_ref()?;
         matches!(self.state, State::Linked(_)).then(|| ChatContext {
             node: net.node.handle(),
+            cipher: net.chat_cipher.clone(),
             auth: self.auth.clone(),
             chain: self.chain.clone(),
             store: self.store.clone(),

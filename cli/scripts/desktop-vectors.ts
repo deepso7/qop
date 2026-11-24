@@ -52,6 +52,7 @@ import type {
   SyncRequest,
   SyncResponse,
 } from "@qop/protocol";
+import { createChatCipher } from "@qop/protocol/chat-envelope";
 import { Effect, Result, Schema } from "effect";
 import {
   bytesToHex,
@@ -1789,6 +1790,24 @@ export const VECTORS_DIR = new URL(
 export const buildDesktopVectors = async () => {
   const files = {
     "approval.json": await approvalVectors(),
+    "chat-envelope.json": {
+      envelope: bytesToHex(
+        await createChatCipher(
+          new Uint8Array(32),
+          // First 32 ChaCha20 output bytes from the Rust vector's zero RNG seed.
+          () =>
+            hexToBytes(
+              "0x76b8e0ada0f13d90405d6ae55386bd28bdd219b8a08ded1aa836efcc8b770dc7"
+            )
+        ).seal(
+          FRAME,
+          await Effect.runPromise(
+            deviceKeyFromEd25519SecretKey(new Uint8Array(32).fill(1))
+          )
+        )
+      ),
+      frame: FRAME,
+    },
     "chat.json": chatVectors(),
     "device-action-status.json": await statusVectors(),
     "eip712.json": await eip712Vectors(),

@@ -1,13 +1,26 @@
+import { deviceKeyBytesFromPeerId } from "@qop/identity";
+import { createChatCipher } from "@qop/protocol/chat-envelope";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
-import { encodeAck, MAX_CHAT_PAYLOAD_BYTES } from "@/lib/chat-wire";
-import { performSend, withTimeout } from "@/lib/p2p-send";
+import {
+  CHAT_PROTOCOL,
+  encodeAck,
+  MAX_CHAT_PAYLOAD_BYTES,
+} from "@/lib/chat-wire";
+import { performSend as sendEncryptedChat, withTimeout } from "@/lib/p2p-send";
+import type { PerformSendInput } from "@/lib/p2p-send";
 import { createPeerSessions, PeerVerificationError } from "@/lib/p2p-sessions";
 import { RegistryReaderError } from "@/lib/registry-core";
 import type { RegistryAccount } from "@/lib/registry-core";
 
 const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
+
+const performSend = (input: Omit<PerformSendInput, "cipher">) =>
+  sendEncryptedChat({
+    ...input,
+    cipher: { seal: () => Promise.resolve(new Uint8Array([1])) },
+  });
 
 const id = "c56a4180-65aa-42ec-a945-5fd21dec0538";
 
@@ -40,15 +53,18 @@ const account: RegistryAccount = {
   registeredAt: 1n,
 };
 
-const makeEndpoint = (read: () => Promise<Uint8Array | undefined>) => {
+const makeEndpoint = (
+  read: () => Promise<Uint8Array | undefined>,
+  target = account
+) => {
   const lookupDeviceKey = vi.fn(
     (): Effect.Effect<RegistryAccount | null, RegistryReaderError> =>
-      Effect.succeed(account)
+      Effect.succeed(target)
   );
 
   const lookupHandle = vi.fn(
     (): Effect.Effect<RegistryAccount | null, RegistryReaderError> =>
-      Effect.succeed(account)
+      Effect.succeed(target)
   );
 
   const sessions = createPeerSessions({
@@ -61,10 +77,10 @@ const makeEndpoint = (read: () => Promise<Uint8Array | undefined>) => {
   const stream = {
     closeWrite: vi.fn(),
     connId: 1,
-    peerId: PEER_BOB,
+    peerId: target.peerId ?? PEER_BOB,
     read: vi.fn(read),
     reset: vi.fn(),
-    write: vi.fn(async () => {}),
+    write: vi.fn(async (_bytes: Uint8Array) => {}),
   };
 
   sessions.opened(stream);
@@ -102,25 +118,58 @@ const expectRemainingTimeout = (timeoutMs: number, overall: number) => {
 };
 
 describe("performSend", () => {
-  it("writes a frame and accepts a matching ack", async () => {
-    const { endpoint, stream, sessions } = makeEndpoint(ackReader(id));
+  it("sends a signed envelope to the authorized device and accepts its ack", async () => {
+    const peerId = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
+
+    const deviceKey =
+      "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c";
+
+    const timeoutMs = 500;
+
+    const { endpoint, stream, sessions } = makeEndpoint(ackReader(id), {
+      ...account,
+      deviceKey,
+      devices: [{ deviceKey, peerId }],
+      peerId,
+    });
 
     await expect(
-      performSend({ contact, endpoint, frame, sessions, timeoutMs: 50 })
+      sendEncryptedChat({
+        cipher: createChatCipher(new Uint8Array(32)),
+        contact,
+        endpoint,
+        frame,
+        sessions,
+        timeoutMs,
+      })
     ).resolves.toBeUndefined();
 
-    expect(endpoint.connect.mock.calls[0]?.[0]).toBe(PEER_BOB);
+    expect(endpoint.connect.mock.calls[0]?.[0]).toBe(peerId);
     expectRemainingTimeout(
       endpoint.connect.mock.calls[0]?.[1]?.timeoutMs ?? 0,
-      50
+      timeoutMs
     );
-    expect(endpoint.openStream.mock.calls[0]?.[0]).toBe(PEER_BOB);
-    expect(endpoint.openStream.mock.calls[0]?.[1]).toBe("/qop/chat/1");
+    expect(endpoint.openStream.mock.calls[0]?.[0]).toBe(peerId);
+    expect(endpoint.openStream.mock.calls[0]?.[1]).toBe(CHAT_PROTOCOL);
     expectRemainingTimeout(
       endpoint.openStream.mock.calls[0]?.[2]?.timeoutMs ?? 0,
-      50
+      timeoutMs
     );
     expect(stream.write).toHaveBeenCalledOnce();
+    const envelope = stream.write.mock.calls[0]?.[0];
+
+    if (!envelope) {
+      throw new Error("No envelope was written");
+    }
+
+    await expect(
+      createChatCipher(new Uint8Array(32).fill(1)).open(
+        envelope,
+        deviceKeyBytesFromPeerId(
+          "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
+        )
+      )
+    ).resolves.toEqual(frame);
     expect(stream.closeWrite).toHaveBeenCalledOnce();
     expect(stream.reset).not.toHaveBeenCalled();
   });

@@ -15,7 +15,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ackInboundChatFrame,
   CHAT_DIAL_BUDGET_MS,
-  deliverChatFrame,
+  deliverChatFrame as deliverEncryptedChatFrame,
   OUTBOUND_ACK_TIMEOUT_MS,
   openAuthorizedChatStream,
 } from "../src/chat.ts";
@@ -67,6 +67,22 @@ const makeStream = () => {
 
 const bobRecipient = { handle: "bob", qid: "1" } as const;
 
+const deliverChatFrame = (
+  transport: Parameters<typeof deliverEncryptedChatFrame>[0],
+  sessions: ReturnType<typeof createPeerSessions>,
+  recipient: typeof bobRecipient,
+  frame: ChatFrame,
+  accountHint?: RegistryAccount
+) =>
+  deliverEncryptedChatFrame(
+    transport,
+    sessions,
+    recipient,
+    frame,
+    { seal: () => Promise.resolve(new Uint8Array([1])) },
+    accountHint
+  );
+
 describe("openAuthorizedChatStream", () => {
   it("reopens and authorizes chat after a connection is replaced during setup", async () => {
     const sessions = makeSessions();
@@ -117,7 +133,7 @@ describe("openAuthorizedChatStream", () => {
     expect(transport.openStream).toHaveBeenCalledTimes(2);
   });
 
-  it("waits for Identify before opening /qop/chat/1", async () => {
+  it("waits for Identify before opening the chat stream", async () => {
     const sessions = makeSessions();
     const stream = makeStream();
     const order: string[] = [];

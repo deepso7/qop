@@ -1,14 +1,25 @@
+import { deviceKeyBytesFromPeerId } from "@qop/identity";
+import {
+  createChatCipher,
+  MAX_CHAT_ENVELOPE_BYTES,
+} from "@qop/protocol/chat-envelope";
 import { expect, it, vi } from "vitest";
 
-import {
-  CHAT_PROTOCOL,
-  encodeFrame,
-  MAX_CHAT_PAYLOAD_BYTES,
-} from "@/lib/chat-wire";
+import { CHAT_PROTOCOL } from "@/lib/chat-wire";
 import type { Contact } from "@/lib/db";
-import { readVerifiedChat } from "@/lib/p2p-receive";
+import { readVerifiedChat as readEncryptedChat } from "@/lib/p2p-receive";
 
 const id = "c56a4180-65aa-42ec-a945-5fd21dec0538";
+const peerAlice = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
+const peerBob = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+const alice = createChatCipher(new Uint8Array(32).fill(1));
+const bob = createChatCipher(new Uint8Array(32));
+
+const readVerifiedChat = (
+  stream: Parameters<typeof readEncryptedChat>[0],
+  verify: Parameters<typeof readEncryptedChat>[1],
+  timeoutMs: number
+) => readEncryptedChat(stream, verify, timeoutMs, bob);
 
 const frame = {
   fromHandle: "alice",
@@ -25,7 +36,7 @@ const contact: Contact = {
   keyChanged: false,
   lastReadAt: 0,
   owner: "owner",
-  peerId: "peer-alice",
+  peerId: peerAlice,
   qid: "1",
 };
 
@@ -45,20 +56,26 @@ const makeStream = (
   protocolId = CHAT_PROTOCOL
 ) => ({
   connId: 1,
-  peerId: "peer-alice",
+  peerId: peerAlice,
   protocolId,
   read,
 });
 
 it("passes the actual transport connection to sender verification", async () => {
-  const stream = makeStream(frameChunks(encodeFrame(frame)));
+  const stream = makeStream(
+    frameChunks(await alice.seal(frame, deviceKeyBytesFromPeerId(peerBob)))
+  );
+
   const verify = vi.fn(() => Promise.resolve(null));
   expect(await readVerifiedChat(stream, verify, 100)).toBeNull();
   expect(verify).toHaveBeenCalledWith(stream, "alice");
 });
 
 it("returns the verified frame and contact", async () => {
-  const stream = makeStream(frameChunks(encodeFrame(frame)));
+  const stream = makeStream(
+    frameChunks(await alice.seal(frame, deviceKeyBytesFromPeerId(peerBob)))
+  );
+
   await expect(
     readVerifiedChat(stream, () => Promise.resolve(contact), 100)
   ).resolves.toEqual({ contact, frame });
@@ -87,14 +104,14 @@ it("rejects an empty EOF frame payload", async () => {
 });
 
 it("rejects a streaming frame that exceeds the payload limit", async () => {
-  const oversized = new Uint8Array(MAX_CHAT_PAYLOAD_BYTES + 1);
+  const oversized = new Uint8Array(MAX_CHAT_ENVELOPE_BYTES + 1);
   await expect(
     readVerifiedChat(
       makeStream(frameChunks(oversized)),
       () => Promise.resolve(null),
       100
     )
-  ).rejects.toThrow("Chat frame exceeds 16 KB");
+  ).rejects.toThrow("Chat envelope exceeds its size limit");
 });
 
 it("rejects a malformed frame payload", async () => {

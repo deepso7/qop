@@ -1,7 +1,7 @@
-//! `/qop/chat/1` in and out (`cli/src/chat.ts`). One stream carries one exchange: the sender
-//! writes a `ChatFrameV1` and half-closes, the recipient saves it and answers a `ChatAckV1`.
+//! `/qop/chat/2` in and out (`cli/src/chat.ts`). One stream carries one signed, device-sealed
+//! envelope; the recipient saves the decrypted chat frame and answers with a `ChatAckV1`.
 //!
-//! - Inbound: read to EOF (16 KiB, 15 s), decode, authorize the sender on the stream's own
+//! - Inbound: read to EOF, open the envelope, authorize the sender on the stream's own
 //!   connection for the handle the frame claims, save to the inbox, and only then ACK.
 //! - Outbound: dial the recipient's devices concurrently; the first stream whose peer verifies
 //!   as the account the user chose (QID included) wins and the rest are reset. Authorization is
@@ -19,6 +19,8 @@ use super::auth::{Auth, Contact, VerifyError};
 use crate::node::{NodeError, NodeHandle, Stream};
 use crate::rpc::Account;
 use crate::store::{Store, StoreError};
+use crate::wire::chat_envelope::{ChatCipher, MAX_CHAT_ENVELOPE_BYTES};
+use crate::wire::identity::device_key_from_peer;
 use crate::wire::{CHAT_PROTOCOL, ChatAck, ChatFrame, InboxRecord, MAX_CHAT_PAYLOAD_BYTES};
 
 /// Inbound chat streams and handlers served at once, including verification after a reset.
@@ -33,6 +35,7 @@ const DIAL_BUDGET: Duration = Duration::from_secs(30);
 #[derive(Clone)]
 pub struct ChatContext<C> {
     pub node: NodeHandle,
+    pub cipher: Arc<ChatCipher>,
     pub auth: Arc<Auth>,
     pub chain: C,
     pub store: Arc<Mutex<Store>>,
@@ -63,7 +66,7 @@ pub struct Received {
     pub inserted: bool,
 }
 
-/// Serves one inbound `/qop/chat/1` stream.
+/// Serves one inbound chat stream.
 pub async fn serve_inbound<C: Chain>(
     mut stream: Stream,
     ctx: &ChatContext<C>,
@@ -83,16 +86,20 @@ async fn receive<C: Chain>(
 ) -> Result<Received, InboundError> {
     let bytes = timeout(
         INBOUND_READ_TIMEOUT,
-        stream.read_to_end(MAX_CHAT_PAYLOAD_BYTES),
+        stream.read_to_end(MAX_CHAT_ENVELOPE_BYTES),
     )
     .await
     .map_err(|_| InboundError::Timeout)?
     .map_err(InboundError::Read)?;
-    let frame = ChatFrame::decode(&bytes).map_err(|_| InboundError::Frame)?;
     if !ctx.auth.allowed() {
         return Err(InboundError::Paused);
     }
     let (conn, peer) = (stream.conn(), stream.peer);
+    let sender = device_key_from_peer(&peer).ok_or(InboundError::Frame)?;
+    let frame = ctx
+        .cipher
+        .open(&bytes, &sender.0)
+        .map_err(|_| InboundError::Frame)?;
     ctx.auth.opened(conn, &peer);
     let contact = ctx
         .auth
@@ -177,11 +184,16 @@ pub async fn deliver<C: Chain>(
     frame: &ChatFrame,
     account: &Account,
 ) -> Result<(), DeliverError> {
-    let bytes = frame.encode().map_err(|_| DeliverError::Transport)?;
     let peers = ctx.auth.recipient_peers(recipient, account);
     let mut stream = timeout(DIAL_BUDGET, first_authorized(ctx, recipient, peers))
         .await
         .map_err(|_| DeliverError::Timeout)??;
+    let sealed = device_key_from_peer(&stream.peer)
+        .and_then(|device| ctx.cipher.seal(frame, &device.0).ok());
+    let Some(envelope) = sealed else {
+        stream.reset();
+        return Err(DeliverError::Transport);
+    };
     // Recheck immediately before writing: a sleep or stall may have invalidated it.
     if !ctx.auth.allowed()
         || !ctx
@@ -191,7 +203,7 @@ pub async fn deliver<C: Chain>(
         stream.reset();
         return Err(DeliverError::Unauthorized);
     }
-    let result = exchange(&mut stream, bytes, &frame.id).await;
+    let result = exchange(&mut stream, envelope, &frame.id).await;
     if result.is_err() {
         stream.reset();
     }

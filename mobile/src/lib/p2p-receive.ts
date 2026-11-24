@@ -1,8 +1,8 @@
-import {
-  CHAT_PROTOCOL,
-  decodeFrame,
-  MAX_CHAT_PAYLOAD_BYTES,
-} from "./chat-wire";
+import { deviceKeyBytesFromPeerId } from "@qop/identity";
+import { MAX_CHAT_ENVELOPE_BYTES } from "@qop/protocol/chat-envelope";
+import type { ChatCipher } from "@qop/protocol/chat-envelope";
+
+import { CHAT_PROTOCOL } from "./chat-wire";
 import type { ChatFrame } from "./chat-wire";
 import type { Contact } from "./db";
 import { withTimeout } from "./p2p-send";
@@ -27,8 +27,8 @@ const readStreamChunks = async (
 
   const nextLength = byteLength + chunk.byteLength;
 
-  if (nextLength > MAX_CHAT_PAYLOAD_BYTES) {
-    throw new Error("Chat frame exceeds 16 KB");
+  if (nextLength > MAX_CHAT_ENVELOPE_BYTES) {
+    throw new Error("Chat envelope exceeds its size limit");
   }
 
   chunks.push(chunk);
@@ -55,7 +55,8 @@ export const readVerifiedChat = (
     connection: PeerConnection,
     fromHandle: string
   ) => Promise<Contact | null>,
-  timeoutMs: number
+  timeoutMs: number,
+  cipher: Pick<ChatCipher, "open">
 ): Promise<{ readonly contact: Contact; readonly frame: ChatFrame } | null> =>
   withTimeout(
     (async () => {
@@ -63,7 +64,11 @@ export const readVerifiedChat = (
         return null;
       }
 
-      const frame = decodeFrame(await readStream(stream));
+      const frame = await cipher.open(
+        await readStream(stream),
+        deviceKeyBytesFromPeerId(stream.peerId)
+      );
+
       const contact = await resolveSender(stream, frame.fromHandle);
 
       return contact ? { contact, frame } : null;
