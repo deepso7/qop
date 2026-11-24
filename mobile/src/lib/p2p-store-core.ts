@@ -11,7 +11,7 @@ import { Effect } from "effect";
 import { create } from "zustand";
 import type { StoreApi } from "zustand";
 
-import { CHAT_PROTOCOL, encodeAck } from "./chat-wire";
+import { CHAT_PROTOCOL, encodeAck, encodeFrame } from "./chat-wire";
 import type { ChatFrame } from "./chat-wire";
 import {
   advanceMessageStatus,
@@ -24,12 +24,14 @@ import {
   insertMessage,
   listOutgoingPending,
   markMessageHeld,
+  queueMessageRetry,
   resetHolderInboxCursor,
   setHolderInboxCursor,
   upsertContact,
 } from "./db";
 import type { Contact, MessageInput, StoredMessage } from "./db";
 import type { loadDeviceSecretKey } from "./identity-vault";
+import { createMobileOutbox } from "./mobile-outbox";
 import { readVerifiedChat } from "./p2p-receive";
 import { withTimeout } from "./p2p-send";
 import type { performSend } from "./p2p-send";
@@ -174,6 +176,7 @@ export const createP2pStore = ({
   let generation = 0;
   let recoveryOperation: Promise<void> = Promise.resolve();
   const inFlightJobs = new Set<Promise<void>>();
+  let outbox: ReturnType<typeof createMobileOutbox> | undefined;
 
   const retryJobs = new Map<
     string,
@@ -224,6 +227,9 @@ export const createP2pStore = ({
   };
 
   const cleanupEndpoint = (activeEndpoint: P2pEndpoint | undefined) => {
+    outbox?.close();
+    outbox = undefined;
+
     for (const { controller } of retryJobs.values()) {
       controller.abort();
     }
@@ -1065,6 +1071,25 @@ export const createP2pStore = ({
     return trackJob(job);
   };
 
+  const validRecipient = async (frame: ChatFrame, contact: Contact) => {
+    try {
+      encodeFrame(frame);
+    } catch {
+      return false;
+    }
+
+    const recipient = await Effect.runPromise(
+      lookupHandle(contact.handle).pipe(Effect.timeout(10_000))
+    );
+
+    return (
+      recipient !== null &&
+      recipient.handle === contact.handle &&
+      recipient.qid.toString() === contact.qid &&
+      recipient.devices.length > 0
+    );
+  };
+
   const sendStoredMessage = async (
     message: MessageInput,
     contact: Contact,
@@ -1084,7 +1109,7 @@ export const createP2pStore = ({
           return;
         }
 
-        await advanceMessageStatus(message.id, "failed", message.contactQid);
+        await queueMessageRetry(message.id, message.contactQid);
 
         return;
       }
@@ -1096,6 +1121,18 @@ export const createP2pStore = ({
         text: message.text,
         v: 1,
       };
+
+      const valid = await validRecipient(frame, contact);
+
+      if (!isCurrentGeneration(jobGeneration) || signal?.aborted) {
+        return;
+      }
+
+      if (!valid) {
+        await advanceMessageStatus(message.id, "failed", message.contactQid);
+
+        return;
+      }
 
       const delivered = (async () => {
         try {
@@ -1114,11 +1151,15 @@ export const createP2pStore = ({
         }
       })();
 
+      let handoffRejected = false;
+
       const handedOff = (async () => {
         try {
           return await handoffToHolder(message, contact, jobGeneration, signal);
-        } catch {
-          // Dial/timeout; the phone keeps sending/failed locally.
+        } catch (error) {
+          handoffRejected =
+            error instanceof Error &&
+            error.message === HANDOFF_REJECTED_MESSAGE;
         }
       })();
 
@@ -1142,16 +1183,20 @@ export const createP2pStore = ({
         return;
       }
 
-      await (holderPeerId
-        ? markMessageHeld(message.id, holderPeerId, message.contactQid)
-        : advanceMessageStatus(message.id, "failed", message.contactQid));
+      if (holderPeerId) {
+        await markMessageHeld(message.id, holderPeerId, message.contactQid);
+      } else if (handoffRejected) {
+        await advanceMessageStatus(message.id, "failed", message.contactQid);
+      } else {
+        await queueMessageRetry(message.id, message.contactQid);
+      }
     } catch {
       try {
         if (!isCurrentGeneration(jobGeneration)) {
           return;
         }
 
-        await advanceMessageStatus(message.id, "failed", message.contactQid);
+        await queueMessageRetry(message.id, message.contactQid);
       } catch {
         // A storage failure is reflected in the store without leaking a rejection.
       }
@@ -1159,6 +1204,71 @@ export const createP2pStore = ({
       if (isCurrentGeneration(jobGeneration)) {
         storeBridge.setState((state) => ({ revision: state.revision + 1 }));
       }
+    }
+  };
+
+  const wakeForPeer = async (
+    connection: Parameters<typeof sessions.opened>[0],
+    jobGeneration: number
+  ) => {
+    try {
+      const own = getOwnDevice?.();
+
+      if (own && (await isOwnHolderPeer(connection.peerId))) {
+        const verified = await Effect.runPromise(
+          sessions.verify(connection, own.handle).pipe(Effect.timeout(10_000))
+        );
+
+        if (verified.qid === own.qid && isCurrentGeneration(jobGeneration)) {
+          await outbox?.wake(undefined, true);
+        }
+
+        return;
+      }
+
+      const pending = await listOutgoingPending();
+
+      const qids = new Set(
+        pending
+          .filter((message) => message.status === "queued")
+          .map((message) => message.contactQid)
+      );
+
+      await Effect.runPromise(
+        Effect.forEach(
+          qids,
+          (qid) =>
+            Effect.promise(async () => {
+              const contact = await getContactByQid(qid);
+
+              if (!contact || !isCurrentGeneration(jobGeneration)) {
+                return;
+              }
+
+              const candidates = await Effect.runPromise(
+                sessions.recipientPeerIds(contact).pipe(Effect.timeout(10_000))
+              );
+
+              if (candidates.includes(connection.peerId)) {
+                const verified = await Effect.runPromise(
+                  sessions
+                    .verify(connection, contact.handle)
+                    .pipe(Effect.timeout(10_000))
+                );
+
+                if (
+                  verified.qid === qid &&
+                  isCurrentGeneration(jobGeneration)
+                ) {
+                  await outbox?.wake(qid);
+                }
+              }
+            }),
+          { concurrency: 8 }
+        )
+      );
+    } catch {
+      // Discovery hints cannot bypass backoff until membership is verified.
     }
   };
 
@@ -1335,29 +1445,13 @@ export const createP2pStore = ({
               return;
             }
 
-            const contact = await getContactByQid(message.contactQid);
-
-            if (!contact || !isCurrentGeneration(jobGeneration)) {
-              return;
-            }
-
             if (
-              !(await advanceMessageStatus(id, "sending", message.contactQid))
+              isCurrentGeneration(jobGeneration) &&
+              !controller.signal.aborted
             ) {
-              return;
+              await advanceMessageStatus(id, "queued", message.contactQid);
+              await outbox?.wake(message.contactQid);
             }
-
-            if (!isCurrentGeneration(jobGeneration)) {
-              return;
-            }
-
-            set((state) => ({ revision: state.revision + 1 }));
-            await sendStoredMessage(
-              { ...message, status: "sending" },
-              contact,
-              jobGeneration,
-              controller.signal
-            );
           } catch {
             // The message keeps its stored status; the user can retry again.
           }
@@ -1391,7 +1485,7 @@ export const createP2pStore = ({
         direction: "out",
         id,
         sentAt: Date.now(),
-        status: get().connection.status === "running" ? "sending" : "failed",
+        status: "queued",
         text: text.trim(),
       };
 
@@ -1409,9 +1503,7 @@ export const createP2pStore = ({
 
           set((state) => ({ revision: state.revision + 1 }));
 
-          if (message.status === "sending") {
-            await sendStoredMessage(message, contact, jobGeneration);
-          }
+          await outbox?.wake(message.contactQid);
         } catch {
           // Storage failed; the conversation shows only what was saved.
         }
@@ -1552,6 +1644,8 @@ export const createP2pStore = ({
                   if (generation === startGeneration) {
                     sessions.invalidateAuthorization();
                     invalidateOwnHolderPeerIds();
+                    void scheduleReconcile(startGeneration);
+                    void outbox?.wake(undefined, true);
                   }
                 }),
               ]
@@ -1579,6 +1673,8 @@ export const createP2pStore = ({
                   if (await isOwnHolderPeer(connection.peerId)) {
                     await scheduleReconcile(startGeneration);
                   }
+
+                  await wakeForPeer(connection, startGeneration);
                 })()
               );
             }
@@ -1625,6 +1721,47 @@ export const createP2pStore = ({
             status: "running",
           },
         });
+        outbox = createMobileOutbox({
+          list: listOutgoingPending,
+          deliver: (message, signal) =>
+            trackJob(
+              (async () => {
+                if (!isCurrentGeneration(startGeneration) || signal.aborted) {
+                  return;
+                }
+
+                const contact = await getContactByQid(message.contactQid);
+
+                if (
+                  !contact ||
+                  signal.aborted ||
+                  !isCurrentGeneration(startGeneration)
+                ) {
+                  return;
+                }
+
+                if (
+                  !(await advanceMessageStatus(
+                    message.id,
+                    "sending",
+                    message.contactQid
+                  ))
+                ) {
+                  return;
+                }
+
+                set((state) => ({ revision: state.revision + 1 }));
+                await sendStoredMessage(
+                  message,
+                  contact,
+                  startGeneration,
+                  signal
+                );
+              })()
+            ),
+          reconcile: () => scheduleReconcile(startGeneration),
+        });
+        void outbox.wake();
         void scheduleReconcile(startGeneration);
       } catch (error) {
         if (generation === startGeneration) {

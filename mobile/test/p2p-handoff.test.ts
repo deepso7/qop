@@ -188,6 +188,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   await useP2pStore.getState().stop();
   vi.unstubAllEnvs();
 });
@@ -196,6 +197,27 @@ const aliceLookups = () =>
   lookupHandle.mock.calls.filter(([handle]) => handle === "alice");
 
 describe("phone to CLI handoff", () => {
+  it("periodic held reconciliation applies receipts without reconnecting", async () => {
+    vi.useFakeTimers();
+    const id = "c56a4180-65aa-42ec-a945-5fd21dec0571";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      holderPeerId: PEER_CLI,
+      id,
+      sentAt: 1,
+      status: "held",
+      text: "waiting",
+    });
+    await useP2pStore.getState().start();
+    await vi.waitFor(() => expect(poll).toHaveBeenCalled());
+    poll.mockResolvedValue([{ deliveredAt: 9, id, toQid: "1" }]);
+    await vi.advanceTimersByTimeAsync(30_100);
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({ status: "sent" })
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
   it("marks a send held when the CLI accepts and Bob does not", async () => {
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
@@ -483,7 +505,7 @@ describe("phone to CLI handoff", () => {
 
     const first = useP2pStore.getState().sendMessage(contact, "one");
     await vi.waitFor(async () =>
-      expect(await getMessageById(first)).toMatchObject({ status: "failed" })
+      expect(await getMessageById(first)).toMatchObject({ status: "queued" })
     );
     expect(handoff).not.toHaveBeenCalled();
 

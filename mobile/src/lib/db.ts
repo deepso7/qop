@@ -22,13 +22,21 @@ export interface ContactInput {
 
 export type MessageDirection = "in" | "out";
 
-export type MessageStatus = "failed" | "held" | "received" | "sending" | "sent";
+export type MessageStatus =
+  | "failed"
+  | "held"
+  | "queued"
+  | "received"
+  | "sending"
+  | "sent";
 
 export interface StoredMessage {
+  readonly attempts: number;
   readonly contactQid: string;
   readonly direction: MessageDirection;
   readonly holderPeerId: string | null;
   readonly id: string;
+  readonly nextAttemptAt: number;
   readonly receivedAt: number;
   readonly sentAt: number;
   readonly status: MessageStatus;
@@ -37,7 +45,7 @@ export interface StoredMessage {
 
 export type MessageInput = Omit<
   StoredMessage,
-  "holderPeerId" | "receivedAt"
+  "attempts" | "holderPeerId" | "nextAttemptAt" | "receivedAt"
 > & {
   readonly holderPeerId?: string | null;
 };
@@ -60,10 +68,12 @@ interface ContactRow {
 }
 
 interface MessageRow {
+  attempts: number;
   contactQid: string;
   direction: MessageDirection;
   holderPeerId: string | null;
   id: string;
+  nextAttemptAt: number;
   receivedAt: number;
   sentAt: number;
   status: MessageStatus;
@@ -78,13 +88,13 @@ interface ConversationRow extends ContactRow {
 
 let databasePromise: Promise<SQLite.SQLiteDatabase> | undefined;
 
-const failInterruptedMessagesSql = `UPDATE messages SET status = 'failed'
+const failInterruptedMessagesSql = `UPDATE messages SET status = 'queued'
   WHERE direction = 'out' AND status = 'sending'`;
 
-const MESSAGES_SCHEMA_VERSION = 5;
+const MESSAGES_SCHEMA_VERSION = 6;
 
 const messagesStatusCheck =
-  "status IN ('sending','sent','failed','received','held')";
+  "status IN ('sending','sent','failed','received','held','queued')";
 
 const migrateMessagesSchema = async (database: SQLite.SQLiteDatabase) => {
   const rows = await database.getAllAsync<{ user_version: number }>(
@@ -158,6 +168,41 @@ const migrateMessagesSchema = async (database: SQLite.SQLiteDatabase) => {
       );
       PRAGMA user_version = 5;
     `);
+  }
+
+  if (version < 6) {
+    try {
+      await database.execAsync(`
+      BEGIN;
+      CREATE TABLE messages_v6 (
+        contact_qid TEXT NOT NULL REFERENCES contacts(qid) ON DELETE CASCADE,
+        id TEXT NOT NULL,
+        direction TEXT NOT NULL CHECK (direction IN ('in','out')),
+        text TEXT NOT NULL,
+        sent_at INTEGER NOT NULL,
+        received_at INTEGER NOT NULL,
+        status TEXT NOT NULL CHECK (${messagesStatusCheck}),
+        holder_peer_id TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (contact_qid, id)
+      );
+      INSERT INTO messages_v6(rowid, contact_qid, id, direction, text, sent_at,
+        received_at, status, holder_peer_id)
+        SELECT rowid, contact_qid, id, direction, text, sent_at,
+          received_at, status, holder_peer_id FROM messages;
+      DROP TABLE messages;
+      ALTER TABLE messages_v6 RENAME TO messages;
+      CREATE INDEX messages_contact_received_idx ON messages(contact_qid, received_at);
+      PRAGMA user_version = 6;
+      COMMIT;
+    `);
+    } catch (error) {
+      await database.execAsync("ROLLBACK").catch(() => {
+        // Preserve the migration error if rollback also fails.
+      });
+      throw error;
+    }
   }
 };
 
@@ -389,8 +434,9 @@ export const insertMessage = async (
 const ADVANCE_FROM: Record<MessageStatus, readonly MessageStatus[]> = {
   failed: ["sending"],
   held: ["failed", "sending"],
+  queued: ["failed"],
   received: [],
-  sending: ["failed"],
+  sending: ["failed", "queued"],
   sent: ["failed", "held", "sending"],
 };
 
@@ -456,14 +502,32 @@ export const failRejectedHandoff = async (
   );
 };
 
-// Endpoint shutdown and app startup make interrupted sends manually retryable.
+export const queueMessageRetry = async (
+  id: string,
+  contactQid: string
+): Promise<void> => {
+  const database = await getDatabase();
+  await database.runAsync(
+    `UPDATE messages SET status = 'queued', holder_peer_id = NULL,
+      next_attempt_at = ? + MIN(60000, 2000 * (1 << MIN(attempts, 5))),
+      attempts = attempts + 1
+     WHERE id = ? AND contact_qid = ? AND status = 'sending'`,
+    Date.now(),
+    id,
+    contactQid
+  );
+};
+
+// Endpoint shutdown and app startup return interrupted sends to the durable queue.
 export const failInterruptedMessages = async (): Promise<void> => {
   const database = await getDatabase();
   await database.runAsync(failInterruptedMessagesSql);
 };
 
 const messageSelect = `SELECT
+  attempts,
   id,
+  next_attempt_at AS nextAttemptAt,
   contact_qid AS contactQid,
   direction,
   holder_peer_id AS holderPeerId,
@@ -516,7 +580,7 @@ export const listOutgoingPending = async (): Promise<StoredMessage[]> => {
   const database = await getDatabase();
 
   const rows = await database.getAllAsync<MessageRow>(
-    `${messageSelect} WHERE direction = 'out' AND status IN ('failed','held','sending')
+    `${messageSelect} WHERE direction = 'out' AND status IN ('failed','held','sending','queued')
      ORDER BY received_at, rowid`
   );
 

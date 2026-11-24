@@ -1,3 +1,4 @@
+import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -12,6 +13,7 @@ import {
   listMessages,
   markConversationRead,
   markMessageHeld,
+  queueMessageRetry,
   setHolderInboxCursor,
   upsertContact,
   advanceMessageStatus,
@@ -210,12 +212,12 @@ describe("interrupted sends", () => {
     const after = await listMessages("1");
     expect(after).toEqual(
       before.map((message) =>
-        message.id === "sending" ? { ...message, status: "failed" } : message
+        message.id === "sending" ? { ...message, status: "queued" } : message
       )
     );
     expect(await getMessageById("sending")).toEqual({
       ...before[0],
-      status: "failed",
+      status: "queued",
     });
     await failInterruptedMessages();
     expect(await listMessages("1")).toEqual(after);
@@ -236,6 +238,44 @@ describe("interrupted sends", () => {
 });
 
 describe("delivery status transitions", () => {
+  it("persists capped exponential backoff and never requeues a delivered message", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "retry",
+      sentAt: 1,
+      status: "queued",
+      text: "hello",
+    });
+    vi.setSystemTime(1000);
+
+    await Effect.runPromise(
+      Effect.forEach(
+        [2000, 4000, 8000, 16_000, 32_000, 60_000, 60_000],
+        (delay, index) =>
+          Effect.promise(async () => {
+            expect(await advanceMessageStatus("retry", "sending", "1")).toBe(
+              true
+            );
+            await queueMessageRetry("retry", "1");
+            expect(await getMessageById("retry")).toMatchObject({
+              attempts: index + 1,
+              nextAttemptAt: 1000 + delay,
+              status: "queued",
+            });
+          }),
+        { concurrency: 1 }
+      )
+    );
+
+    await advanceMessageStatus("retry", "sending", "1");
+    await advanceMessageStatus("retry", "sent", "1");
+    await queueMessageRetry("retry", "1");
+    expect(await getMessageById("retry")).toMatchObject({
+      status: "sent",
+      attempts: 7,
+    });
+  });
   it("does not let a late held clobber sent", async () => {
     await insertMessage({
       contactQid: "1",

@@ -64,7 +64,7 @@ const getMessagePresentation = (item: StoredMessage) => {
     return { metaStatus: undefined, outgoing, tone: "failed" as const };
   }
 
-  if (item.status === "sending") {
+  if (item.status === "sending" || item.status === "queued") {
     return {
       metaStatus: "sending" as const,
       outgoing,
@@ -114,7 +114,10 @@ const ConversationMessageRow = ({
           />
         ) : null}
         {item.status === "held" ? (
-          <MessageStatus disabled label="Waiting on your CLI" />
+          <MessageStatus disabled label="Waiting on your other device" />
+        ) : null}
+        {item.status === "queued" ? (
+          <MessageStatus disabled label="Waiting to send" />
         ) : null}
       </MessageContent>
     </Message>
