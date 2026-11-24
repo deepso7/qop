@@ -20,6 +20,84 @@ const message = (id: string, contactQid = "1"): StoredMessage => ({
 
 afterEach(() => vi.useRealTimers());
 
+it.each([false, true])(
+  "keeps the stored deadline when wake and delivery share a batch (expedited: %s)",
+  async (expedited) => {
+    vi.useFakeTimers();
+    const delivery = Promise.withResolvers<true>();
+    const poll = Promise.withResolvers<true>();
+
+    const retry = {
+      ...message("retry"),
+      attempts: 1,
+      nextAttemptAt: Date.now() + 60_000,
+    };
+
+    let rows = [
+      message("retry"),
+      { ...message("held"), status: "held" as const },
+    ];
+
+    const reconcile = vi.fn(async () => {
+      await poll.promise;
+    });
+
+    const deliver = vi.fn(async (row: StoredMessage) => {
+      if (row.attempts === 0) {
+        rows = rows.map((item) => (item.id === row.id ? retry : item));
+        await delivery.promise;
+
+        return retry;
+      }
+
+      rows = rows.filter((item) => item.id !== row.id);
+
+      return { ...row, status: "sent" as const };
+    });
+
+    const worker = createMobileOutbox({
+      list: () => Promise.resolve(rows),
+      deliver,
+      reconcile,
+      expedite: () => {
+        rows = rows.map((row) => ({ ...row, nextAttemptAt: 0 }));
+
+        return Promise.resolve();
+      },
+    });
+
+    try {
+      await worker.wake();
+      await vi.waitFor(() => expect(deliver).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(reconcile).toHaveBeenCalledOnce();
+      delivery.resolve(true);
+
+      if (expedited) {
+        await worker.wake("1");
+      }
+
+      await vi.advanceTimersByTimeAsync(0);
+      poll.resolve(true);
+
+      if (!expedited) {
+        await vi.advanceTimersByTimeAsync(0);
+        expect(deliver).toHaveBeenCalledOnce();
+        await vi.advanceTimersByTimeAsync(30_000);
+      }
+
+      await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(2));
+      expect(deliver.mock.calls[1]?.[0].nextAttemptAt).toBe(
+        expedited ? 0 : retry.nextAttemptAt
+      );
+    } finally {
+      worker.close();
+      delivery.resolve(true);
+      poll.resolve(true);
+    }
+  }
+);
+
 it.each(["new message", "periodic reconciliation"])(
   "admits %s while earlier sends remain in flight",
   async (work) => {

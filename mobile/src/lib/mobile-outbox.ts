@@ -136,21 +136,17 @@ export const createMobileOutbox = ({
     const batch = yield* Queue.takeAll(events);
     clearTimeout(timer);
 
-    yield* (
-      batch.some((event) => event._tag === "Wake") ? refresh : Effect.void
-    ).pipe(
-      Effect.ensuring(
-        Effect.sync(() => {
-          for (const event of batch) {
-            if (event._tag === "Delivered") {
-              const key = messageKey(event.message);
-              inFlight.delete(key);
-              remember(key, event.result);
-            }
-          }
-        })
-      )
-    );
+    for (const event of batch) {
+      if (event._tag === "Delivered") {
+        const key = messageKey(event.message);
+        inFlight.delete(key);
+        remember(key, event.result);
+      }
+    }
+
+    if (batch.some((event) => event._tag === "Wake")) {
+      yield* refresh;
+    }
 
     const now = Date.now();
 
