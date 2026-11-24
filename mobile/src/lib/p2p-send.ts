@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 
 import {
   CHAT_PROTOCOL,
@@ -10,6 +10,7 @@ import {
 import type { ChatFrame } from "./chat-wire";
 import type { Contact } from "./db";
 import type { createPeerSessions, PeerConnection } from "./p2p-sessions";
+import { PeerVerificationError } from "./p2p-sessions";
 
 interface SendStream extends PeerConnection {
   readonly closeWrite: () => void;
@@ -110,6 +111,16 @@ export const withTimeout = <A>(
 const asSendError = (cause: unknown) =>
   cause instanceof Error ? cause : new Error(String(cause));
 
+export class InvalidMessageError extends Data.TaggedError(
+  "InvalidMessageError"
+)<{ readonly message: string }> {}
+
+export const isTerminalSendError = (error: Error) =>
+  error instanceof InvalidMessageError ||
+  (error instanceof PeerVerificationError &&
+    (error.operation === "reassigned" ||
+      error.operation === "invalid-recipient"));
+
 export const performSend = async ({
   contact,
   endpoint,
@@ -121,6 +132,14 @@ export const performSend = async ({
   let stream: SendStream | undefined;
 
   try {
+    let encoded: Uint8Array;
+
+    try {
+      encoded = encodeFrame(frame);
+    } catch {
+      throw new InvalidMessageError({ message: "Invalid chat message" });
+    }
+
     await Effect.runPromise(
       Effect.gen(function* () {
         const startedAt = Date.now();
@@ -190,7 +209,7 @@ export const performSend = async ({
 
             yield* Effect.tryPromise({
               catch: asSendError,
-              try: () => opened.write(encodeFrame(frame)),
+              try: () => opened.write(encoded),
             });
             opened.closeWrite();
 

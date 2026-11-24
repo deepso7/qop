@@ -11,10 +11,11 @@ import { Effect } from "effect";
 import { create } from "zustand";
 import type { StoreApi } from "zustand";
 
-import { CHAT_PROTOCOL, encodeAck, encodeFrame } from "./chat-wire";
+import { CHAT_PROTOCOL, encodeAck } from "./chat-wire";
 import type { ChatFrame } from "./chat-wire";
 import {
   advanceMessageStatus,
+  expediteMessageRetries,
   failInterruptedMessages,
   failRejectedHandoff,
   getContactByHandle,
@@ -33,7 +34,7 @@ import type { Contact, MessageInput, StoredMessage } from "./db";
 import type { loadDeviceSecretKey } from "./identity-vault";
 import { createMobileOutbox } from "./mobile-outbox";
 import { readVerifiedChat } from "./p2p-receive";
-import { withTimeout } from "./p2p-send";
+import { isTerminalSendError, withTimeout } from "./p2p-send";
 import type { performSend } from "./p2p-send";
 import { createPeerSessions } from "./p2p-sessions";
 import {
@@ -175,7 +176,7 @@ export const createP2pStore = ({
   let unsubscribe: Unsubscribe[] = [];
   let generation = 0;
   let recoveryOperation: Promise<void> = Promise.resolve();
-  const inFlightJobs = new Set<Promise<void>>();
+  const inFlightJobs = new Set<Promise<unknown>>();
   let outbox: ReturnType<typeof createMobileOutbox> | undefined;
 
   const retryJobs = new Map<
@@ -213,7 +214,7 @@ export const createP2pStore = ({
   const isCurrentGeneration = (jobGeneration: number) =>
     generation === jobGeneration;
 
-  const trackJob = (job: Promise<void>) => {
+  const trackJob = <A>(job: Promise<A>) => {
     inFlightJobs.add(job);
 
     const removeWhenDone = async () => {
@@ -1071,25 +1072,6 @@ export const createP2pStore = ({
     return trackJob(job);
   };
 
-  const validRecipient = async (frame: ChatFrame, contact: Contact) => {
-    try {
-      encodeFrame(frame);
-    } catch {
-      return false;
-    }
-
-    const recipient = await Effect.runPromise(
-      lookupHandle(contact.handle).pipe(Effect.timeout(10_000))
-    );
-
-    return (
-      recipient !== null &&
-      recipient.handle === contact.handle &&
-      recipient.qid.toString() === contact.qid &&
-      recipient.devices.length > 0
-    );
-  };
-
   const sendStoredMessage = async (
     message: MessageInput,
     contact: Contact,
@@ -1122,17 +1104,7 @@ export const createP2pStore = ({
         v: 1,
       };
 
-      const valid = await validRecipient(frame, contact);
-
-      if (!isCurrentGeneration(jobGeneration) || signal?.aborted) {
-        return;
-      }
-
-      if (!valid) {
-        await advanceMessageStatus(message.id, "failed", message.contactQid);
-
-        return;
-      }
+      let terminal = false;
 
       const delivered = (async () => {
         try {
@@ -1146,7 +1118,9 @@ export const createP2pStore = ({
           });
 
           return true;
-        } catch {
+        } catch (error) {
+          terminal = error instanceof Error && isTerminalSendError(error);
+
           return false;
         }
       })();
@@ -1172,6 +1146,13 @@ export const createP2pStore = ({
       if (bobAcked) {
         // Prefer sent as soon as Bob ACKs. Do not wait for CLI dial/timeout.
         await advanceMessageStatus(message.id, "sent", message.contactQid);
+        void handedOff;
+
+        return;
+      }
+
+      if (terminal) {
+        await advanceMessageStatus(message.id, "failed", message.contactQid);
         void handedOff;
 
         return;
@@ -1503,7 +1484,7 @@ export const createP2pStore = ({
 
           set((state) => ({ revision: state.revision + 1 }));
 
-          await outbox?.wake(message.contactQid);
+          await outbox?.wake();
         } catch {
           // Storage failed; the conversation shows only what was saved.
         }
@@ -1723,11 +1704,12 @@ export const createP2pStore = ({
         });
         outbox = createMobileOutbox({
           list: listOutgoingPending,
+          expedite: expediteMessageRetries,
           deliver: (message, signal) =>
             trackJob(
               (async () => {
                 if (!isCurrentGeneration(startGeneration) || signal.aborted) {
-                  return;
+                  return null;
                 }
 
                 const contact = await getContactByQid(message.contactQid);
@@ -1737,7 +1719,7 @@ export const createP2pStore = ({
                   signal.aborted ||
                   !isCurrentGeneration(startGeneration)
                 ) {
-                  return;
+                  return null;
                 }
 
                 if (
@@ -1747,7 +1729,7 @@ export const createP2pStore = ({
                     message.contactQid
                   ))
                 ) {
-                  return;
+                  return null;
                 }
 
                 set((state) => ({ revision: state.revision + 1 }));
@@ -1757,6 +1739,8 @@ export const createP2pStore = ({
                   startGeneration,
                   signal
                 );
+
+                return getMessageById(message.id, message.contactQid);
               })()
             ),
           reconcile: () => scheduleReconcile(startGeneration),

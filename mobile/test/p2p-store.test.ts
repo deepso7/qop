@@ -12,6 +12,7 @@ import {
   upsertContact,
 } from "@/lib/db";
 import type { performSend } from "@/lib/p2p-send";
+import { performSend as sendToPeer } from "@/lib/p2p-send";
 import { createP2pStore } from "@/lib/p2p-store-core";
 import type { P2pEndpoint } from "@/lib/p2p-store-core";
 import type {
@@ -342,6 +343,7 @@ describe("automatic outbox", () => {
   });
 
   it("keeps terminal handle reassignment failed and does not send to its new owner", async () => {
+    send.mockImplementation(sendToPeer);
     lookupHandle.mockReturnValue(Effect.succeed({ ...bobAccount, qid: 99n }));
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
@@ -360,7 +362,7 @@ describe("automatic outbox", () => {
     appResumeHandler?.();
     await sleep(20);
     expect(await getMessageById(id)).toMatchObject({ status: "failed" });
-    expect(send).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledOnce();
   });
 });
 

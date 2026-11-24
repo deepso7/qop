@@ -48,7 +48,7 @@ describe("recipientPeerIds account hints", () => {
     expect(lookupHandle).not.toHaveBeenCalled();
   });
 
-  it("fails identity when the passed account handle or qid does not match", async () => {
+  it("reports reassignment when a fresh account handle or qid does not match", async () => {
     const lookupHandle = vi.fn(() => Effect.succeed(account()));
 
     const sessions = createPeerSessions({
@@ -68,7 +68,7 @@ describe("recipientPeerIds account hints", () => {
 
     if (result._tag === "Failure") {
       expect(result.failure).toBeInstanceOf(PeerVerificationError);
-      expect(result.failure.operation).toBe("identity");
+      expect(result.failure.operation).toBe("reassigned");
     }
 
     expect(lookupHandle).not.toHaveBeenCalled();

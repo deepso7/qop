@@ -502,6 +502,16 @@ export const failRejectedHandoff = async (
   );
 };
 
+export const expediteMessageRetries = async (
+  contactQid?: string
+): Promise<void> => {
+  const database = await getDatabase();
+  await database.runAsync(
+    `UPDATE messages SET next_attempt_at = 0 WHERE direction = 'out' AND status = 'queued'${contactQid ? " AND contact_qid = ?" : ""}`,
+    ...(contactQid ? [contactQid] : [])
+  );
+};
+
 export const queueMessageRetry = async (
   id: string,
   contactQid: string

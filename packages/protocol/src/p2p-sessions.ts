@@ -15,7 +15,13 @@ export interface PeerConnection {
 export class PeerVerificationError extends Data.TaggedError(
   "PeerVerificationError"
 )<{
-  readonly operation: "closed" | "identity" | "rpc" | "storage";
+  readonly operation:
+    | "closed"
+    | "identity"
+    | "invalid-recipient"
+    | "reassigned"
+    | "rpc"
+    | "storage";
 }> {}
 
 /** Max authorization age while running (monotonic elapsed ms). */
@@ -52,10 +58,15 @@ interface PeerSessionDependencies {
   readonly upsertContact: (contact: SessionContactInput) => Promise<void>;
 }
 
-const mapLookupError = (error: RegistryReaderError) =>
-  new PeerVerificationError({
+const mapLookupError = (error: RegistryReaderError) => {
+  if (error.operation === "invalid-handle") {
+    return new PeerVerificationError({ operation: "invalid-recipient" });
+  }
+
+  return new PeerVerificationError({
     operation: error.operation === "rpc" ? "rpc" : "identity",
   });
+};
 
 // Authorization belongs to one live transport connection, never to a persisted contact.
 export const createPeerSessions = ({
@@ -361,6 +372,14 @@ export const createPeerSessions = ({
       }
 
       const account = lookedUp.success;
+
+      if (
+        account?.freshness === "fresh" &&
+        (account.handle !== contact.handle ||
+          account.qid.toString() !== contact.qid)
+      ) {
+        return yield* new PeerVerificationError({ operation: "reassigned" });
+      }
 
       if (
         !account ||
