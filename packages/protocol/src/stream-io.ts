@@ -10,51 +10,59 @@ export interface HalfCloseStream extends PeerConnection {
   readonly write: (data: Uint8Array) => Promise<void>;
 }
 
-const concatChunks = (chunks: readonly Uint8Array[], byteLength: number) => {
-  const bytes = new Uint8Array(byteLength);
-  let offset = 0;
-
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  return bytes;
-};
-
-/** Read chunks until EOF, failing fast if total bytes exceed `maxBytes`. */
+/** Read chunks iteratively into one bounded buffer until EOF, failing fast if total bytes exceed `maxBytes`. */
 export const readBoundedChunks = <E>(
   read: () => Promise<Uint8Array | undefined>,
   maxBytes: number,
   onError: (kind: "frame" | "oversized") => E
-): Effect.Effect<Uint8Array, E> => {
-  const loop = (
-    chunks: Uint8Array[],
-    byteLength: number
-  ): Effect.Effect<Uint8Array, E> =>
-    Effect.gen(function* () {
-      const chunk = yield* Effect.tryPromise({
+): Effect.Effect<Uint8Array, E> =>
+  Effect.gen(function* () {
+    let buffer = new Uint8Array(0);
+    let offset = 0;
+    let emptyReads = 0;
+
+    let chunk = yield* Effect.tryPromise({
+      catch: () => onError("frame"),
+      try: () => read(),
+    });
+
+    while (chunk) {
+      if (chunk.byteLength === 0) {
+        emptyReads += 1;
+
+        if (emptyReads > 64) {
+          return yield* Effect.fail(onError("frame"));
+        }
+      } else {
+        const nextOffset = offset + chunk.byteLength;
+
+        if (nextOffset > maxBytes) {
+          return yield* Effect.fail(onError("oversized"));
+        }
+
+        if (nextOffset > buffer.byteLength) {
+          const nextCapacity = Math.min(
+            maxBytes,
+            Math.max(nextOffset, Math.max(buffer.byteLength * 2, 1024))
+          );
+
+          const grown = new Uint8Array(nextCapacity);
+          grown.set(buffer.subarray(0, offset), 0);
+          buffer = grown;
+        }
+
+        buffer.set(chunk, offset);
+        offset = nextOffset;
+      }
+
+      chunk = yield* Effect.tryPromise({
         catch: () => onError("frame"),
         try: () => read(),
       });
+    }
 
-      if (!chunk) {
-        return concatChunks(chunks, byteLength);
-      }
-
-      const nextLength = byteLength + chunk.byteLength;
-
-      if (nextLength > maxBytes) {
-        return yield* Effect.fail(onError("oversized"));
-      }
-
-      chunks.push(chunk);
-
-      return yield* loop(chunks, nextLength);
-    });
-
-  return loop([], 0);
-};
+    return buffer.subarray(0, offset);
+  });
 
 /** Write a complete frame and half-close the write side. */
 export const writeFramedBytes = <E>(
