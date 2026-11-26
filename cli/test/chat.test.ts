@@ -3,13 +3,13 @@ import { PeerDisconnectedError } from "@minip2p/node";
 import { deviceKeyBytesFromPeerId } from "@qop/identity";
 import {
   CHAT_PROTOCOL,
+  createChatCipher,
   createPeerSessions,
   encodeAck,
   PeerVerificationError,
   RegistryReaderError,
 } from "@qop/protocol";
 import type { ChatFrame, InboxRecordV1, RegistryAccount } from "@qop/protocol";
-import { createChatCipher } from "@qop/protocol/chat-envelope";
 import { Deferred, Duration, Effect, Fiber } from "effect";
 import { TestClock } from "effect/testing";
 import { describe, expect, it, vi } from "vitest";

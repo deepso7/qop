@@ -1,9 +1,7 @@
 import { deviceKeyBytesFromPeerId } from "@qop/identity";
-import { MAX_CHAT_ENVELOPE_BYTES } from "@qop/protocol/chat-envelope";
-import type { ChatCipher } from "@qop/protocol/chat-envelope";
 
-import { CHAT_PROTOCOL } from "./chat-wire";
-import type { ChatFrame } from "./chat-wire";
+import { CHAT_PROTOCOL, MAX_CHAT_ENVELOPE_BYTES } from "./chat-wire";
+import type { ChatCipher, ChatFrame } from "./chat-wire";
 import type { Contact } from "./db";
 import { withTimeout } from "./p2p-send";
 import type { PeerConnection } from "./p2p-sessions";

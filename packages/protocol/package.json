@@ -5,8 +5,7 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
-    ".": "./src/index.ts",
-    "./chat-envelope": "./src/chat-envelope.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "test": "vitest run",

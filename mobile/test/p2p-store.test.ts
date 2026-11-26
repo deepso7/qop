@@ -1,11 +1,10 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
 import { deviceKeyBytesFromPeerId } from "@qop/identity";
-import { createChatCipher } from "@qop/protocol/chat-envelope";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CHAT_PROTOCOL, encodeAck } from "@/lib/chat-wire";
+import { CHAT_PROTOCOL, createChatCipher, encodeAck } from "@/lib/chat-wire";
 import {
   deleteAll,
   getContactByQid,

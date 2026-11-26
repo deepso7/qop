@@ -4731,7 +4731,6 @@ dependencies = [
  "keyring",
  "minip2p-rs",
  "qrcode",
- "rand_chacha 0.9.0",
  "rune",
  "rune-kit",
  "rusqlite",

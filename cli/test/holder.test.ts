@@ -11,6 +11,7 @@ import {
 } from "@qop/identity";
 import {
   CHAT_PROTOCOL,
+  createChatCipher,
   createLifecycleAdapter,
   createPeerSessions,
   encodeAck,
@@ -18,7 +19,6 @@ import {
   SYNC_PROTOCOL,
 } from "@qop/protocol";
 import type { ChatFrame, OutboxRecordV1, RegistryAccount } from "@qop/protocol";
-import { createChatCipher } from "@qop/protocol/chat-envelope";
 import { Deferred, Effect, Schema } from "effect";
 import { vi } from "vitest";
 

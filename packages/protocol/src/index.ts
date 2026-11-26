@@ -31,6 +31,10 @@ export {
 
 export type { ChatFrame, ChatAck } from "./chat-wire.ts";
 
+export { createChatCipher, MAX_CHAT_ENVELOPE_BYTES } from "./chat-envelope.ts";
+
+export type { ChatCipher } from "./chat-envelope.ts";
+
 export type { SessionContact, SessionContactInput } from "./contacts.ts";
 
 export {

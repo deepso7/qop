@@ -29,13 +29,9 @@ const aliceLaptop = device(4);
 it("seals independent copies for the recipient and the sender's other devices", async () => {
   const targets = [bob, bobLaptop, aliceLaptop];
 
-  const copies = await alice.cipher.sealForDevices(frame, [
-    alice.key,
-    ...targets.map(({ key }) => key),
-    new Uint8Array(bob.key),
-  ]);
-
-  expect(copies).toHaveLength(targets.length);
+  const copies = await Promise.all(
+    targets.map(({ key }) => alice.cipher.seal(frame, key))
+  );
 
   await Promise.all(
     targets.map(async (target, index) => {
@@ -57,7 +53,7 @@ it("seals independent copies for the recipient and the sender's other devices", 
   );
 });
 
-it("rejects wrong signers, tampering, plaintext and malformed envelopes", async () => {
+it("rejects wrong signers, tampering, plaintext, invalid keys, and malformed envelopes", async () => {
   const envelope = await alice.cipher.seal(frame, bob.key);
   await expect(bob.cipher.open(envelope, bob.key)).rejects.toThrow();
 
@@ -86,7 +82,15 @@ it("rejects wrong signers, tampering, plaintext and malformed envelopes", async 
     )
   );
 
-  await expect(alice.cipher.seal(frame, new Uint8Array(32))).rejects.toThrow();
+  await expect(alice.cipher.seal(frame, new Uint8Array(32))).rejects.toThrow(
+    "Invalid recipient device key"
+  );
+  await expect(alice.cipher.seal(frame, new Uint8Array(16))).rejects.toThrow(
+    "Invalid recipient device key"
+  );
+  await expect(bob.cipher.open(envelope, new Uint8Array(16))).rejects.toThrow(
+    "Chat envelope does not authenticate these devices"
+  );
 });
 
 it("does not require Web Crypto beyond secure random bytes", async () => {
@@ -95,8 +99,12 @@ it("does not require Web Crypto beyond secure random bytes", async () => {
   });
 
   try {
-    const envelope = await alice.cipher.seal(frame, bob.key);
-    await expect(bob.cipher.open(envelope, alice.key)).resolves.toEqual(frame);
+    const freshAlice = device(11);
+    const freshBob = device(12);
+    const envelope = await freshAlice.cipher.seal(frame, freshBob.key);
+    await expect(
+      freshBob.cipher.open(envelope, freshAlice.key)
+    ).resolves.toEqual(frame);
   } finally {
     vi.unstubAllGlobals();
   }

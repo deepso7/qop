@@ -1,5 +1,4 @@
 import { deviceKeyBytesFromPeerId } from "@qop/identity";
-import type { ChatCipher } from "@qop/protocol/chat-envelope";
 import { Effect } from "effect";
 
 import {
@@ -8,7 +7,7 @@ import {
   decodeAck,
   MAX_CHAT_PAYLOAD_BYTES,
 } from "./chat-wire";
-import type { ChatFrame } from "./chat-wire";
+import type { ChatCipher, ChatFrame } from "./chat-wire";
 import type { Contact } from "./db";
 import type { createPeerSessions, PeerConnection } from "./p2p-sessions";
 
@@ -183,7 +182,6 @@ export const performSend = async ({
             stream = opened;
             sessions.opened(opened);
             yield* sessions.verify(opened, contact.handle);
-            mark.committed = true;
 
             const envelope = yield* Effect.tryPromise({
               catch: asSendError,
@@ -196,6 +194,8 @@ export const performSend = async ({
                 new Error("Chat connection is no longer authorized")
               );
             }
+
+            mark.committed = true;
 
             yield* Effect.tryPromise({
               catch: asSendError,

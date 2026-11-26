@@ -7,14 +7,12 @@ import type {
 } from "@minip2p/react-native";
 import { PAIR_PROTOCOL, SYNC_PROTOCOL } from "@qop/protocol";
 import type { SyncInboxItem } from "@qop/protocol";
-import { createChatCipher } from "@qop/protocol/chat-envelope";
-import type { ChatCipher } from "@qop/protocol/chat-envelope";
 import { Effect } from "effect";
 import { create } from "zustand";
 import type { StoreApi } from "zustand";
 
-import { CHAT_PROTOCOL, encodeAck } from "./chat-wire";
-import type { ChatFrame } from "./chat-wire";
+import { CHAT_PROTOCOL, createChatCipher, encodeAck } from "./chat-wire";
+import type { ChatCipher, ChatFrame } from "./chat-wire";
 import {
   advanceMessageStatus,
   failInterruptedMessages,

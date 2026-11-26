@@ -43,9 +43,13 @@ const equalKeys = (a: Uint8Array, b: Uint8Array) =>
   a.length === b.length && a.every((byte, index) => byte === b[index]);
 
 const isDeviceKey = (key: Uint8Array) => {
-  const point = ed25519.Point.fromBytes(key);
+  try {
+    const point = ed25519.Point.fromBytes(key);
 
-  return !point.isSmallOrder() && point.isTorsionFree();
+    return !point.isSmallOrder() && point.isTorsionFree();
+  } catch {
+    return false;
+  }
 };
 
 const read = (bytes: Uint8Array) => {
@@ -76,8 +80,9 @@ export const createChatCipher = (
   randomBytes: (length: number) => Uint8Array = (length) =>
     globalThis.crypto.getRandomValues(new Uint8Array(length))
 ) => {
-  const senderKey = new Uint8Array(secretKey);
-  const ownKey = ed25519.getPublicKey(senderKey);
+  const deviceSecretKey = new Uint8Array(secretKey);
+  const ownKey = ed25519.getPublicKey(deviceSecretKey);
+  const x25519SecretKey = ed25519.utils.toMontgomerySecret(deviceSecretKey);
 
   const suite = new CipherSuite(
     () => ({
@@ -89,6 +94,10 @@ export const createChatCipher = (
     KDF_HKDF_SHA256,
     AEAD_ChaCha20Poly1305
   );
+
+  let privateKeyPromise:
+    | ReturnType<typeof suite.DeserializePrivateKey>
+    | undefined;
 
   const seal = async (frame: ChatFrame, recipientDeviceKey: Uint8Array) => {
     const plaintext = encodeFrame(frame);
@@ -113,7 +122,11 @@ export const createChatCipher = (
     );
 
     const signed = concat(header, encapsulatedSecret, ciphertext);
-    const signature = ed25519.sign(concat(SIGNATURE_DOMAIN, signed), senderKey);
+
+    const signature = ed25519.sign(
+      concat(SIGNATURE_DOMAIN, signed),
+      deviceSecretKey
+    );
 
     return concat(signed, signature);
   };
@@ -137,9 +150,8 @@ export const createChatCipher = (
         throw new Error("Chat envelope does not authenticate these devices");
       }
 
-      const privateKey = await suite.DeserializePrivateKey(
-        ed25519.utils.toMontgomerySecret(senderKey)
-      );
+      privateKeyPromise ??= suite.DeserializePrivateKey(x25519SecretKey);
+      const privateKey = await privateKeyPromise;
 
       return decodeFrame(
         await suite.Open(privateKey, enc, ciphertext, {
@@ -149,24 +161,6 @@ export const createChatCipher = (
       );
     },
     seal,
-    /** Uses the same message ID for each independently sealed device copy. */
-    sealForDevices(
-      frame: ChatFrame,
-      devices: readonly Uint8Array[]
-    ): Promise<Uint8Array[]> {
-      const targets: Uint8Array[] = [];
-
-      for (const device of devices) {
-        if (
-          !equalKeys(device, ownKey) &&
-          !targets.some((target) => equalKeys(target, device))
-        ) {
-          targets.push(device);
-        }
-      }
-
-      return Promise.all(targets.map((device) => seal(frame, device)));
-    },
   };
 };
 

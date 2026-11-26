@@ -4,9 +4,8 @@ use hpke::{
     aead::ChaCha20Poly1305,
     kdf::HkdfSha256,
     kem::X25519HkdfSha256,
-    rand_core::{CryptoRng, RngCore, SeedableRng},
+    rand_core::{CryptoRng, RngCore},
 };
-use rand_chacha::ChaCha20Rng;
 
 use super::chat::{ChatFrame, MAX_CHAT_PAYLOAD_BYTES};
 
@@ -40,6 +39,25 @@ fn device_key(key: &[u8; KEY_BYTES]) -> Result<VerifyingKey, ChatEnvelopeError> 
     Ok(verified)
 }
 
+struct OneShotIkm(Option<[u8; KEY_BYTES]>);
+
+impl RngCore for OneShotIkm {
+    fn next_u32(&mut self) -> u32 {
+        unreachable!("HPKE X25519 keygen uses fill_bytes")
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        unreachable!("HPKE X25519 keygen uses fill_bytes")
+    }
+
+    fn fill_bytes(&mut self, dest: &mut [u8]) {
+        let ikm = self.0.take().expect("single HPKE keygen");
+        dest.copy_from_slice(&ikm);
+    }
+}
+
+impl CryptoRng for OneShotIkm {}
+
 impl ChatCipher {
     pub fn new(secret: &[u8; KEY_BYTES]) -> Self {
         Self(SigningKey::from_bytes(secret))
@@ -50,16 +68,16 @@ impl ChatCipher {
         frame: &ChatFrame,
         recipient: &[u8; KEY_BYTES],
     ) -> Result<Vec<u8>, ChatEnvelopeError> {
-        let mut seed = [0; KEY_BYTES];
-        getrandom::fill(&mut seed).map_err(|_| ChatEnvelopeError)?;
-        self.seal_with_rng(frame, recipient, &mut ChaCha20Rng::from_seed(seed))
+        let mut ikm = [0; KEY_BYTES];
+        getrandom::fill(&mut ikm).map_err(|_| ChatEnvelopeError)?;
+        self.seal_with_ikm(frame, recipient, ikm)
     }
 
-    fn seal_with_rng(
+    fn seal_with_ikm(
         &self,
         frame: &ChatFrame,
         recipient: &[u8; KEY_BYTES],
-        rng: &mut (impl RngCore + CryptoRng),
+        ikm: [u8; KEY_BYTES],
     ) -> Result<Vec<u8>, ChatEnvelopeError> {
         let plaintext = frame.encode().map_err(|_| ChatEnvelopeError)?;
         let key = device_key(recipient)?;
@@ -76,7 +94,7 @@ impl ChatCipher {
                 INFO,
                 &plaintext,
                 &envelope,
-                rng,
+                &mut OneShotIkm(Some(ikm)),
             )
             .map_err(|_| ChatEnvelopeError)?;
         envelope.extend_from_slice(&enc.to_bytes());
@@ -151,14 +169,18 @@ mod tests {
         );
         assert_eq!(
             alice
-                .seal_with_rng(
-                    &expected,
-                    bob.0.verifying_key().as_bytes(),
-                    &mut ChaCha20Rng::from_seed([0; 32]),
-                )
+                .seal_with_ikm(&expected, bob.0.verifying_key().as_bytes(), [2; KEY_BYTES])
                 .unwrap(),
             bytes
         );
+    }
+
+    #[test]
+    fn rejects_invalid_recipient_key_on_seal() {
+        let (_, frame) = typescript_vector();
+        let alice = ChatCipher::new(&[0; 32]);
+
+        assert!(alice.seal(&frame, &[0; KEY_BYTES]).is_err());
     }
 
     #[test]

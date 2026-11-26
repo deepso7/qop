@@ -1,11 +1,11 @@
 import { deviceKeyBytesFromPeerId } from "@qop/identity";
-import {
-  createChatCipher,
-  MAX_CHAT_ENVELOPE_BYTES,
-} from "@qop/protocol/chat-envelope";
 import { expect, it, vi } from "vitest";
 
-import { CHAT_PROTOCOL } from "@/lib/chat-wire";
+import {
+  CHAT_PROTOCOL,
+  createChatCipher,
+  MAX_CHAT_ENVELOPE_BYTES,
+} from "@/lib/chat-wire";
 import type { Contact } from "@/lib/db";
 import { readVerifiedChat as readEncryptedChat } from "@/lib/p2p-receive";
 

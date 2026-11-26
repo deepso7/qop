@@ -8,14 +8,17 @@ import {
 import {
   assertAckMatches,
   CHAT_PROTOCOL,
+  createChatCipher,
   createPeerSessions,
   decodeAck,
   encodeAck,
+  MAX_CHAT_ENVELOPE_BYTES,
   MAX_CHAT_PAYLOAD_BYTES,
   PeerVerificationError,
   SYNC_PROTOCOL,
 } from "@qop/protocol";
 import type {
+  ChatCipher,
   ChatFrame,
   InboxRecordV1,
   PeerConnection,
@@ -24,11 +27,6 @@ import type {
   SessionContact,
   SessionContactInput,
 } from "@qop/protocol";
-import {
-  createChatCipher,
-  MAX_CHAT_ENVELOPE_BYTES,
-} from "@qop/protocol/chat-envelope";
-import type { ChatCipher } from "@qop/protocol/chat-envelope";
 import { Effect, FiberSet, Schema, Semaphore } from "effect";
 
 import { CliConfigError, cliRelays, configuredRegistry } from "./config.ts";

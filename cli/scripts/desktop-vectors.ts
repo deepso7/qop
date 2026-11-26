@@ -40,6 +40,7 @@ import {
   encodePairingOfferV1,
   encodeSyncRequestV1,
   encodeSyncResponseV1,
+  createChatCipher,
   pairingFingerprint,
   registryAbi,
   verifyApprovalDigest,
@@ -52,7 +53,6 @@ import type {
   SyncRequest,
   SyncResponse,
 } from "@qop/protocol";
-import { createChatCipher } from "@qop/protocol/chat-envelope";
 import { Effect, Result, Schema } from "effect";
 import {
   bytesToHex,
@@ -1792,13 +1792,8 @@ export const buildDesktopVectors = async () => {
     "approval.json": await approvalVectors(),
     "chat-envelope.json": {
       envelope: bytesToHex(
-        await createChatCipher(
-          new Uint8Array(32),
-          // First 32 ChaCha20 output bytes from the Rust vector's zero RNG seed.
-          () =>
-            hexToBytes(
-              "0x76b8e0ada0f13d90405d6ae55386bd28bdd219b8a08ded1aa836efcc8b770dc7"
-            )
+        await createChatCipher(new Uint8Array(32), () =>
+          new Uint8Array(32).fill(2)
         ).seal(
           FRAME,
           await Effect.runPromise(

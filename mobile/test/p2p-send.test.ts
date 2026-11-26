@@ -1,10 +1,10 @@
 import { deviceKeyBytesFromPeerId } from "@qop/identity";
-import { createChatCipher } from "@qop/protocol/chat-envelope";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
 
 import {
   CHAT_PROTOCOL,
+  createChatCipher,
   encodeAck,
   MAX_CHAT_PAYLOAD_BYTES,
 } from "@/lib/chat-wire";
@@ -747,6 +747,58 @@ describe("performSend", () => {
       PEER_BOB,
     ]);
     expect(stream.write).toHaveBeenCalledOnce();
+  });
+
+  it("falls back to the next authorized device if sealing fails before writing", async () => {
+    const validPeerId = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
+
+    const validDeviceKey =
+      "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c";
+
+    const multiAccount: RegistryAccount = {
+      ...account,
+      devices: [
+        { deviceKey: `0x${"22".repeat(32)}`, peerId: PEER_BOB },
+        { deviceKey: validDeviceKey, peerId: validPeerId },
+      ],
+    };
+
+    const { endpoint, sessions, stream } = makeEndpoint(
+      ackReader(id),
+      multiAccount
+    );
+
+    sessions.closed(stream);
+
+    const firstStream = {
+      closeWrite: vi.fn(),
+      connId: 2,
+      peerId: PEER_BOB,
+      read: vi.fn(ackReader(id)),
+      reset: vi.fn(),
+      write: vi.fn(async (_bytes: Uint8Array) => {}),
+    };
+
+    stream.peerId = validPeerId;
+    endpoint.openStream.mockImplementation((peerId: string) =>
+      Promise.resolve(peerId === PEER_BOB ? firstStream : stream)
+    );
+
+    await expect(
+      sendEncryptedChat({
+        cipher: createChatCipher(new Uint8Array(32)),
+        contact,
+        endpoint,
+        frame,
+        sessions,
+        timeoutMs: 500,
+      })
+    ).resolves.toBeUndefined();
+
+    expect(firstStream.write).not.toHaveBeenCalled();
+    expect(firstStream.reset).toHaveBeenCalledOnce();
+    expect(stream.write).toHaveBeenCalledOnce();
+    expect(stream.reset).not.toHaveBeenCalled();
   });
 });
 
