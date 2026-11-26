@@ -14,6 +14,7 @@ import {
   deleteLocalRegistration,
   loadLocalRegistration,
 } from "./local-registration";
+import { deleteMailboxPushKey } from "./mailbox-push-key";
 
 export {
   createIdentityStore,
@@ -44,5 +45,6 @@ export const useIdentityStore = createIdentityStore({
   stopP2p: async () => {
     const { useP2pStore } = await import("./p2p-store");
     await useP2pStore.getState().stop();
+    await deleteMailboxPushKey();
   },
 });

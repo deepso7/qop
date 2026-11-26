@@ -19,7 +19,11 @@ import type { Hex } from "viem";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { loadOrCreateKey } from "../src/main.ts";
-import { createDeviceAuthorizer, startMailboxServer } from "../src/server.ts";
+import {
+  createDeviceAuthorizer,
+  createMailboxHandler,
+  startMailboxServer,
+} from "../src/server.ts";
 import type { MailboxRegistry } from "../src/server.ts";
 import { openMailboxStore } from "../src/store.ts";
 
@@ -55,6 +59,90 @@ const makeMockRegistry = (
 });
 
 describe("mailbox server hardening and transport", () => {
+  it("wakes the registered recipient once for a committed encrypted deposit", async () => {
+    const store = await Effect.runPromise(
+      openMailboxStore(await makeTempDir())
+    );
+
+    const sender = makeIdentity();
+    const recipient = makeIdentity();
+
+    const registry = makeMockRegistry(
+      new Map([
+        [sender.deviceKeyHex, 1n],
+        [recipient.deviceKeyHex, 2n],
+      ])
+    );
+
+    const token = { platform: "fcm", token: "test-recipient-token" } as const;
+    const wakeups: unknown[] = [];
+
+    const handler = createMailboxHandler({
+      registry,
+      store,
+      wake: {
+        fcm: async (targetToken) => {
+          const pending = await Effect.runPromise(
+            store.fetch(recipient.deviceKeyHex, 1, 128 * 1024, Date.now())
+          );
+
+          wakeups.push({ pending: pending.items.length, token: targetToken });
+          throw new Error("provider unavailable");
+        },
+      },
+    });
+
+    try {
+      expect(
+        await Effect.runPromise(
+          handler.handleAuthorized(recipient.deviceKeyHex, "2", {
+            ...token,
+            type: "register-push",
+            v: 1,
+          })
+        )
+      ).toEqual({ type: "push-registered", v: 1 });
+
+      const id = "c56a4180-65aa-42ec-a945-5fd21dec0538";
+
+      const sealed = await createChatCipher(sender.secret).seal(
+        { fromHandle: "alice", id, sentAt: Date.now(), text: "private", v: 1 },
+        recipient.publicKey
+      );
+
+      const deposit = {
+        items: [
+          {
+            envelope: encodeBase64(sealed),
+            id,
+            recipientDeviceKey: recipient.deviceKeyHex,
+          },
+        ],
+        type: "deposit",
+        v: 1,
+      } as const;
+
+      const sendDeposit = () =>
+        Effect.runPromise(
+          handler.handleAuthorized(sender.deviceKeyHex, "1", deposit)
+        );
+
+      const deposited = {
+        items: [{ id, recipientDeviceKey: recipient.deviceKeyHex }],
+        type: "deposited",
+        v: 1,
+      };
+
+      expect(await sendDeposit()).toEqual(deposited);
+      expect(await sendDeposit()).toEqual(deposited);
+
+      await delay(0);
+      expect(wakeups).toEqual([{ pending: 1, token: token.token }]);
+    } finally {
+      store.close();
+    }
+  });
+
   it("coalesces concurrent auth lookups and never caches transient RPC errors", async () => {
     let calls = 0;
     let shouldFail = true;

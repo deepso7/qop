@@ -8,6 +8,11 @@ import {
   useIdentityStore,
 } from "./identity-store";
 import { loadDeviceSecretKey } from "./identity-vault";
+import {
+  mailboxPushEnabled,
+  notifyMailboxDelivered,
+} from "./mailbox-notification";
+import { loadMailboxPushKey, saveMailboxPushKey } from "./mailbox-push-key";
 import { performSend } from "./p2p-send";
 import { createP2pStore } from "./p2p-store-core";
 import { performCatchup, performHandoff, performPoll } from "./p2p-sync";
@@ -48,6 +53,16 @@ export const useP2pStore = createP2pStore({
   lookupDeviceKey,
   lookupHandle,
   lookupQid,
+  mailboxPush: {
+    canWake: () => {
+      const { status } = useIdentityStore.getState();
+
+      return mailboxPushEnabled && (status === "loading" || status === "ready");
+    },
+    loadKey: loadMailboxPushKey,
+    notifyDelivered: notifyMailboxDelivered,
+    saveKey: saveMailboxPushKey,
+  },
   performCatchup,
   performHandoff,
   performPoll,

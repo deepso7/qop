@@ -42,3 +42,16 @@ qop-mailbox addr=/ip4/0.0.0.0/udp/19877/quic-v1/p2p/12D3KooW...
 | `QOP_RELAY_ADDRS` | empty | Optional minip2p relay multiaddrs for NAT traversal |
 | `QOP_MAILBOX_DATA_DIR` | `~/.qop-mailbox` | Directory for `mailbox.key` and `mailbox.db` |
 | `QOP_MAILBOX_TTL_DAYS` | `30` | Envelope retention window before automatic expiry |
+
+## Optional mobile push wakeups
+
+The mailbox can send a content-free wake signal after committing an envelope. The phone fetches and decrypts the envelope itself, saves the message, then posts a generic local notification if allowed. Push providers receive the device token and wake signal, never the sender, handle, or message. The configured mailbox can associate the token with the recipient's device key.
+
+Build the native app with `EXPO_PUBLIC_QOP_MAILBOX_PUSH=1` and `EXPO_PUBLIC_QOP_MAILBOX_ADDRS` set. Open it once with an enrolled device so it can register for wakes. On iOS the device key is available after the first unlock following a reboot; the account recovery key is not used in the background.
+
+| Platform | Native app build | Mailbox server |
+| --- | --- | --- |
+| Android | Set `GOOGLE_SERVICES_JSON` to a [Firebase configuration file](https://firebase.google.com/docs/android/setup) for the selected `APP_VARIANT` package. | Set `QOP_FCM_PROJECT_ID` and configure [Application Default Credentials](https://firebase.google.com/docs/cloud-messaging/send/v1-api#authorize-http-v1-send-requests) with Cloud Messaging send permission. |
+| iOS | Enable Push Notifications on the matching Apple App ID and use a provisioning profile with the push entitlement. Set `QOP_APNS_ENVIRONMENT=development` for a sandbox build. | Set `QOP_APNS_KEY_FILE` (path to the `.p8` key), `QOP_APNS_KEY_ID`, `QOP_APNS_TEAM_ID`, and `QOP_APNS_TOPIC` (the app's bundle ID). Set `QOP_APNS_ENVIRONMENT` to match the app (defaults to `production`). |
+
+Push is best effort: providers may delay or drop wakes, and the OS can block background launches (including after iOS force-quit or Android Force stop). Envelopes remain stored for the next successful mailbox poll or wake.

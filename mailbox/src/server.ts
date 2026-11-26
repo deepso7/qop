@@ -10,6 +10,7 @@ import {
 } from "@qop/protocol";
 import type {
   MailboxError,
+  MailboxPushTarget,
   MailboxRequest,
   MailboxResponse,
   MailboxStream,
@@ -35,11 +36,20 @@ const STREAM_TIMEOUT_MS = 15_000;
 const DEFAULT_RATE_LIMIT_PER_MIN = 120;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const MAX_RATE_LIMIT_PEERS = 4096;
+const MAX_PENDING_WAKEUPS = 32;
+
+type MailboxWakeProviders = Partial<
+  Record<
+    MailboxPushTarget["platform"],
+    ((token: string) => Promise<"unregistered" | undefined>) | undefined
+  >
+>;
 
 export interface MailboxHandlerDeps {
   readonly now?: (() => number) | undefined;
   readonly registry: MailboxRegistry;
   readonly store: MailboxStore;
+  readonly wake?: MailboxWakeProviders | undefined;
 }
 
 export type DeviceAuthResult =
@@ -220,6 +230,48 @@ const peerIdToDeviceKey = (peerId: string): string | null => {
 export const createMailboxHandler = (deps: MailboxHandlerDeps) => {
   const now = deps.now ?? Date.now;
   const authorizer = createDeviceAuthorizer(deps.registry, now);
+  const { wake } = deps;
+  let pendingWakeups = 0;
+
+  const wakeRecipient = (deviceKey: string) => {
+    if ((!wake?.apns && !wake?.fcm) || pendingWakeups >= MAX_PENDING_WAKEUPS) {
+      return;
+    }
+
+    pendingWakeups += 1;
+
+    const send = async () => {
+      try {
+        const target = await Effect.runPromise(
+          deps.store.pushTarget(deviceKey, now())
+        );
+
+        if (
+          target &&
+          (await wake[target.platform]?.(target.token)) === "unregistered"
+        ) {
+          await Effect.runPromise(deps.store.removePush(deviceKey, target));
+        }
+      } catch {
+        // Provider failures must not undo a deposit or log the device token.
+      } finally {
+        pendingWakeups -= 1;
+      }
+    };
+
+    void send();
+  };
+
+  const registerPush = (deviceKey: string, target: MailboxPushTarget) =>
+    wake?.[target.platform]
+      ? deps.store.registerPush(deviceKey, target, now()).pipe(
+          Effect.as({
+            type: "push-registered",
+            v: 1,
+          } satisfies MailboxResponse),
+          Effect.orElseSucceed(() => errorResponse("unavailable"))
+        )
+      : Effect.succeed(errorResponse("unavailable"));
 
   const handleAuthorized = (
     callerDeviceKey: string,
@@ -227,6 +279,12 @@ export const createMailboxHandler = (deps: MailboxHandlerDeps) => {
     request: MailboxRequest
   ): Effect.Effect<MailboxResponse> =>
     Effect.gen(function* () {
+      if (request.type === "register-push") {
+        const { platform, token } = request;
+
+        return yield* registerPush(callerDeviceKey, { platform, token });
+      }
+
       if (request.type === "fetch") {
         const result = yield* deps.store
           .fetch(
@@ -313,7 +371,9 @@ export const createMailboxHandler = (deps: MailboxHandlerDeps) => {
         (recipientDeviceKey) =>
           authorizer
             .authorize(recipientDeviceKey)
-            .pipe(Effect.map((auth) => [recipientDeviceKey, auth.status] as const)),
+            .pipe(
+              Effect.map((auth) => [recipientDeviceKey, auth.status] as const)
+            ),
         { concurrency: "unbounded" }
       );
 
@@ -354,8 +414,12 @@ export const createMailboxHandler = (deps: MailboxHandlerDeps) => {
         return errorResponse(storeErrorToReason(deposited.failure.operation));
       }
 
+      for (const deviceKey of deposited.success.insertedRecipients) {
+        wakeRecipient(deviceKey);
+      }
+
       return {
-        items: deposited.success,
+        items: deposited.success.items,
         type: "deposited",
         v: 1,
       } satisfies MailboxResponse;
@@ -396,6 +460,7 @@ export interface MailboxServerConfig {
   readonly relayAddrs?: readonly string[] | undefined;
   readonly store: MailboxStore;
   readonly streamTimeoutMs?: number | undefined;
+  readonly wake?: MailboxWakeProviders | undefined;
 }
 
 export interface RunningMailboxServer {
@@ -417,6 +482,7 @@ export const startMailboxServer = (
   const handler = createMailboxHandler({
     registry: config.registry,
     store: config.store,
+    wake: config.wake,
   });
 
   const rateLimiter = createPeerRateLimiter(

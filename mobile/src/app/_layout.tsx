@@ -5,7 +5,7 @@ import { Stack } from "expo-router/stack";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import * as React from "react";
-import { View, useColorScheme } from "react-native";
+import { AppState, View, useColorScheme } from "react-native";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import { SafeAreaListener } from "react-native-safe-area-context";
 import { Uniwind } from "uniwind";
@@ -13,6 +13,7 @@ import { Uniwind } from "uniwind";
 import { BlurTargetProvider } from "@/components/ui/blur-target";
 import { useTheme } from "@/constants/theme";
 import { useIdentityStore } from "@/lib/identity-store";
+import { startMailboxPushRegistration } from "@/lib/mailbox-push-registration";
 import { useP2pStore } from "@/lib/p2p-store";
 
 import interMedium from "../../assets/fonts/Inter-Medium.ttf";
@@ -50,6 +51,11 @@ const AppStack = () => {
   const stopP2p = useP2pStore((state) => state.stop);
   const p2pStatus = useP2pStore((state) => state.connection.status);
   const isReady = status === "ready";
+
+  const [hasForegrounded, setHasForegrounded] = React.useState(
+    () => AppState.currentState === "active"
+  );
+
   const p2pRestartAttempts = React.useRef(0);
   // A font error falls back to system type rather than blocking the app.
   const [fontsLoaded, fontError] = useFonts(FONTS);
@@ -59,14 +65,38 @@ const AppStack = () => {
     void hydrate();
   }, [hydrate]);
 
+  React.useLayoutEffect(() => {
+    if (hasForegrounded) {
+      return;
+    }
+
+    const subscription = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        setHasForegrounded(true);
+      }
+    });
+
+    return () => subscription.remove();
+  }, [hasForegrounded]);
+
+  React.useEffect(() => {
+    if (isReady && p2pStatus === "running") {
+      return startMailboxPushRegistration();
+    }
+  }, [isReady, p2pStatus]);
+
   React.useEffect(() => {
     if (status !== "loading" && fontsSettled) {
       void SplashScreen.hideAsync();
     }
   }, [fontsSettled, status]);
 
-  // Start once identity is ready; stop when it leaves ready.
+  // Leave P2P to the mailbox task on a cold launch that is still in the background.
   React.useEffect(() => {
+    if (!hasForegrounded) {
+      return;
+    }
+
     if (status === "ready") {
       p2pRestartAttempts.current = 0;
       void startP2p();
@@ -77,7 +107,7 @@ const AppStack = () => {
     }
 
     void stopP2p();
-  }, [startP2p, status, stopP2p]);
+  }, [hasForegrounded, startP2p, status, stopP2p]);
 
   // Retry hard failures a finite number of times. Do not reset this budget on
   // "running": a synchronously-created endpoint can fail again immediately.

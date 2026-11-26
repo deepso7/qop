@@ -19,6 +19,7 @@
     "@qop/identity": "workspace:*",
     "@qop/protocol": "workspace:*",
     "effect": "catalog:",
+    "google-auth-library": "11.3.4",
     "viem": "2.58.0"
   },
   "devDependencies": {
