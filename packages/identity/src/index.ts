@@ -16,6 +16,7 @@ export {
 } from "./wire-codecs.ts";
 
 export {
+  deviceKeyBytesFromPeerId,
   deviceKeyFromEd25519SecretKey,
   deviceKeyFromPeerId,
   DeviceKeyError,

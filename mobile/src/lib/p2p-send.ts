@@ -1,3 +1,4 @@
+import { deviceKeyBytesFromPeerId } from "@qop/identity";
 import { Data, Effect } from "effect";
 
 import {
@@ -7,7 +8,7 @@ import {
   encodeFrame,
   MAX_CHAT_PAYLOAD_BYTES,
 } from "./chat-wire";
-import type { ChatFrame } from "./chat-wire";
+import type { ChatCipher, ChatFrame } from "./chat-wire";
 import type { Contact } from "./db";
 import type { createPeerSessions, PeerConnection } from "./p2p-sessions";
 import { PeerVerificationError } from "./p2p-sessions";
@@ -37,6 +38,7 @@ interface SendEndpoint {
 }
 
 export interface PerformSendInput {
+  readonly cipher: Pick<ChatCipher, "seal">;
   readonly contact: Pick<Contact, "handle" | "qid">;
   readonly sessions: ReturnType<typeof createPeerSessions>;
   readonly endpoint: SendEndpoint;
@@ -122,6 +124,7 @@ export const isTerminalSendError = (error: Error) =>
       error.operation === "invalid-recipient"));
 
 export const performSend = async ({
+  cipher,
   contact,
   endpoint,
   frame,
@@ -132,10 +135,8 @@ export const performSend = async ({
   let stream: SendStream | undefined;
 
   try {
-    let encoded: Uint8Array;
-
     try {
-      encoded = encodeFrame(frame);
+      encodeFrame(frame);
     } catch {
       throw new InvalidMessageError({ message: "Invalid chat message" });
     }
@@ -199,7 +200,12 @@ export const performSend = async ({
             stream = opened;
             sessions.opened(opened);
             yield* sessions.verify(opened, contact.handle);
-            mark.committed = true;
+
+            const envelope = yield* Effect.tryPromise({
+              catch: asSendError,
+              try: () =>
+                cipher.seal(frame, deviceKeyBytesFromPeerId(opened.peerId)),
+            });
 
             if (!sessions.isVerified(opened, contact.qid)) {
               return yield* Effect.fail(
@@ -207,9 +213,11 @@ export const performSend = async ({
               );
             }
 
+            mark.committed = true;
+
             yield* Effect.tryPromise({
               catch: asSendError,
-              try: () => opened.write(encoded),
+              try: () => opened.write(envelope),
             });
             opened.closeWrite();
 

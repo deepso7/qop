@@ -1,7 +1,9 @@
 import { it as itEffect } from "@effect/vitest";
 import { PeerDisconnectedError } from "@minip2p/node";
+import { deviceKeyBytesFromPeerId } from "@qop/identity";
 import {
   CHAT_PROTOCOL,
+  createChatCipher,
   createPeerSessions,
   encodeAck,
   PeerVerificationError,
@@ -15,15 +17,18 @@ import { describe, expect, it, vi } from "vitest";
 import {
   ackInboundChatFrame,
   CHAT_DIAL_BUDGET_MS,
-  deliverChatFrame,
+  deliverChatFrame as deliverEncryptedChatFrame,
   OUTBOUND_ACK_TIMEOUT_MS,
   openAuthorizedChatStream,
 } from "../src/chat.ts";
 import { CliOutboxStoreError } from "../src/outbox-store.ts";
 
-const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
+const PEER_BOB = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
 const PEER_CLI = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
-const bobDeviceKey = `0x${"22".repeat(32)}`;
+
+const bobDeviceKey =
+  "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c";
+
 const cliDeviceKey = `0x${"33".repeat(32)}`;
 
 const account: RegistryAccount = {
@@ -61,11 +66,27 @@ const makeStream = () => {
       return unread.shift();
     }),
     reset: vi.fn(),
-    write: vi.fn(async () => {}),
+    write: vi.fn(async (_bytes: Uint8Array) => {}),
   };
 };
 
 const bobRecipient = { handle: "bob", qid: "1" } as const;
+
+const deliverChatFrame = (
+  transport: Parameters<typeof deliverEncryptedChatFrame>[0],
+  sessions: ReturnType<typeof createPeerSessions>,
+  recipient: typeof bobRecipient,
+  frame: ChatFrame,
+  accountHint?: RegistryAccount
+) =>
+  deliverEncryptedChatFrame(
+    transport,
+    sessions,
+    recipient,
+    frame,
+    { seal: () => Promise.resolve(new Uint8Array([1])) },
+    accountHint
+  );
 
 describe("openAuthorizedChatStream", () => {
   it("reopens and authorizes chat after a connection is replaced during setup", async () => {
@@ -117,7 +138,7 @@ describe("openAuthorizedChatStream", () => {
     expect(transport.openStream).toHaveBeenCalledTimes(2);
   });
 
-  it("waits for Identify before opening /qop/chat/1", async () => {
+  it("waits for Identify before opening the chat stream", async () => {
     const sessions = makeSessions();
     const stream = makeStream();
     const order: string[] = [];
@@ -422,7 +443,7 @@ describe("deliverChatFrame", () => {
     expect(stream.reset).toHaveBeenCalledOnce();
   });
 
-  it("does not reset after a matching ack", async () => {
+  it("writes a signed envelope to the authorized device and accepts its ack", async () => {
     const sessions = makeSessions();
     const stream = makeStream();
     const unread = [encodeAck({ ack: chatFrame.id, v: 1 })];
@@ -444,9 +465,28 @@ describe("deliverChatFrame", () => {
     };
 
     await Effect.runPromise(
-      deliverChatFrame(transport, sessions, bobRecipient, chatFrame)
+      deliverEncryptedChatFrame(
+        transport,
+        sessions,
+        bobRecipient,
+        chatFrame,
+        createChatCipher(new Uint8Array(32))
+      )
     );
     expect(stream.write).toHaveBeenCalledOnce();
+    const envelope = stream.write.mock.calls[0]?.[0];
+
+    if (!envelope) {
+      throw new Error("No envelope was written");
+    }
+
+    const aliceKey = deviceKeyBytesFromPeerId(
+      "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
+    );
+
+    await expect(
+      createChatCipher(new Uint8Array(32).fill(1)).open(envelope, aliceKey)
+    ).resolves.toEqual(chatFrame);
     expect(stream.closeWrite).toHaveBeenCalledOnce();
     expect(stream.reset).not.toHaveBeenCalled();
   });

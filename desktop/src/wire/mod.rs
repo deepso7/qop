@@ -9,6 +9,7 @@
 
 pub mod approval;
 pub mod chat;
+pub mod chat_envelope;
 pub mod eip712;
 pub mod framing;
 pub mod identity;

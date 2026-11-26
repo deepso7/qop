@@ -1,5 +1,5 @@
 //! The engine end to end in-process: a real node on loopback, a scripted phone node speaking
-//! `/qop/pair/1` (or a scripted contact speaking `/qop/chat/1`), fake chain and API, and
+//! `/qop/pair/1` (or a scripted contact speaking `/qop/chat/2`), fake chain and API, and
 //! restarts over the same data directory.
 
 use std::path::{Path, PathBuf};
@@ -609,6 +609,12 @@ async fn dial_desktop(
     (node, events, desktop)
 }
 
+fn seal_to_desktop(frame: &ChatFrame, sender: &[u8; 32]) -> Vec<u8> {
+    crate::wire::chat_envelope::ChatCipher::new(sender)
+        .seal(frame, &device_key_from_secret(DESKTOP_SECRET).0)
+        .expect("an encrypted chat frame")
+}
+
 impl Bob {
     async fn connect(listen: &str) -> Bob {
         let (node, events, desktop) = dial_desktop(BOB_SECRET, CHAT_PROTOCOL, listen).await;
@@ -633,7 +639,10 @@ impl Bob {
             .open_stream(&self.desktop, CHAT_PROTOCOL)
             .await
             .expect("opens");
-        stream.send_message(frame.encode().unwrap()).await.ok()?;
+        stream
+            .send_message(seal_to_desktop(&frame, &BOB_SECRET))
+            .await
+            .ok()?;
         let ack = stream.read_to_end(MAX_CHAT_PAYLOAD_BYTES).await.ok()?;
         Some(ChatAck::decode(&ack).expect("an ack"))
     }
@@ -646,8 +655,11 @@ impl Bob {
                 _ => continue,
             }
         };
-        let frame = ChatFrame::decode(&stream.read_to_end(MAX_CHAT_PAYLOAD_BYTES).await.unwrap())
-            .expect("a chat frame");
+        use crate::wire::chat_envelope::{ChatCipher, MAX_CHAT_ENVELOPE_BYTES};
+        let bytes = stream.read_to_end(MAX_CHAT_ENVELOPE_BYTES).await.unwrap();
+        let frame = ChatCipher::new(&BOB_SECRET)
+            .open(&bytes, &device_key_from_secret(DESKTOP_SECRET).0)
+            .expect("an encrypted chat frame from desktop");
         if ack {
             let reply = ChatAck {
                 ack: frame.id.clone(),
@@ -695,7 +707,10 @@ async fn chat_streams_past_eight_wait_then_are_saved_and_acked() {
             sent_at: 1_700_000_000_000,
             text: "queued behind eight open streams".into(),
         };
-        queued.send_message(frame.encode().unwrap()).await.unwrap();
+        queued
+            .send_message(seal_to_desktop(&frame, &BOB_SECRET))
+            .await
+            .unwrap();
         assert!(
             tokio::time::timeout(
                 Duration::from_millis(100),
@@ -712,7 +727,10 @@ async fn chat_streams_past_eight_wait_then_are_saved_and_acked() {
                 text: format!("held message {i}"),
                 ..frame.clone()
             };
-            stream.send_message(frame.encode().unwrap()).await.unwrap();
+            stream
+                .send_message(seal_to_desktop(&frame, &BOB_SECRET))
+                .await
+                .unwrap();
             let ack = stream.read_to_end(MAX_CHAT_PAYLOAD_BYTES).await.unwrap();
             assert_eq!(ChatAck::decode(&ack).unwrap().ack, frame.id);
         }
@@ -758,7 +776,10 @@ async fn reset_during_verification_keeps_the_chat_handler_slot() {
         .open_stream(&bob.desktop, CHAT_PROTOCOL)
         .await
         .unwrap();
-    first.send_message(frame.encode().unwrap()).await.unwrap();
+    first
+        .send_message(seal_to_desktop(&frame, &BOB_SECRET))
+        .await
+        .unwrap();
     tokio::time::timeout(Duration::from_secs(5), hold.entered())
         .await
         .unwrap();
@@ -784,7 +805,10 @@ async fn reset_during_verification_keeps_the_chat_handler_slot() {
         id: "0b0b0b0b-0000-4000-8000-000000000009".into(),
         ..frame
     };
-    ninth.send_message(frame.encode().unwrap()).await.unwrap();
+    ninth
+        .send_message(seal_to_desktop(&frame, &other_secret))
+        .await
+        .unwrap();
     assert!(
         tokio::time::timeout(
             Duration::from_millis(200),
@@ -832,7 +856,10 @@ async fn a_saved_message_shows_even_when_its_ack_cannot_be_written() {
         .open_stream(&bob.desktop, CHAT_PROTOCOL)
         .await
         .expect("opens");
-    stream.send_message(frame.encode().unwrap()).await.unwrap();
+    stream
+        .send_message(seal_to_desktop(&frame, &BOB_SECRET))
+        .await
+        .unwrap();
     hold.entered().await;
     stream.reset();
     tokio::time::sleep(Duration::from_millis(300)).await;

@@ -3,13 +3,18 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { describe, expect, it } from "@effect/vitest";
-import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
+import {
+  deviceKeyBytesFromPeerId,
+  deviceKeyFromPeerId,
+  Hex32,
+  PeerId,
+} from "@qop/identity";
 import {
   CHAT_PROTOCOL,
+  createChatCipher,
   createLifecycleAdapter,
   createPeerSessions,
   encodeAck,
-  encodeFrame,
   encodeSyncRequestV1,
   SYNC_PROTOCOL,
 } from "@qop/protocol";
@@ -25,9 +30,18 @@ import {
 import type { ChatStream, HolderEndpoint } from "../src/chat.ts";
 import { openCliOutboxStore } from "../src/outbox-store.ts";
 
-const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
-const PEER_CAROL = "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
-const bobDeviceKey = `0x${"22".repeat(32)}`;
+const PEER_BOB = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
+const PEER_CAROL = "12D3KooWJWoaqZhDaoEFshF7Rh1bpY9ohihFhzcW6d69Lr2NASuq";
+
+const holderKey = deviceKeyBytesFromPeerId(
+  "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"
+);
+
+const bobDeviceKey =
+  "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c";
+
+const cipher = createChatCipher(new Uint8Array(32));
+const bob = createChatCipher(new Uint8Array(32).fill(1));
 
 const account: RegistryAccount = {
   blockNumber: 1n,
@@ -169,6 +183,7 @@ describe("createHolder", () => {
           const messages = yield* openCliOutboxStore(root);
           yield* Effect.forkChild(
             createHolder({
+              cipher,
               endpoint,
               identity,
               lifecycle: makeLifecycle(),
@@ -207,6 +222,7 @@ describe("createHolder", () => {
           const messages = yield* openCliOutboxStore(root);
           yield* Effect.forkChild(
             createHolder({
+              cipher,
               endpoint,
               identity,
               lifecycle: makeLifecycle(),
@@ -275,7 +291,12 @@ describe("createHolder", () => {
       );
 
       const firstBytes: (Uint8Array | undefined)[] = [
-        encodeFrame({ ...frame, id: "0b0b0b0b-0000-4000-8000-000000000001" }),
+        yield* Effect.tryPromise(() =>
+          bob.seal(
+            { ...frame, id: "0b0b0b0b-0000-4000-8000-000000000001" },
+            holderKey
+          )
+        ),
       ];
 
       const first = makeStream(CHAT_PROTOCOL, () =>
@@ -302,7 +323,9 @@ describe("createHolder", () => {
         upsertContact: () => Promise.resolve(),
       });
 
-      const unread: (Uint8Array | undefined)[] = [encodeFrame(frame)];
+      const unread: (Uint8Array | undefined)[] = [
+        yield* Effect.tryPromise(() => bob.seal(frame, holderKey)),
+      ];
 
       const extra = makeStream(CHAT_PROTOCOL, () =>
         Promise.resolve(unread.shift())
@@ -320,6 +343,7 @@ describe("createHolder", () => {
           const messages = yield* openCliOutboxStore(root);
           yield* Effect.forkChild(
             createHolder({
+              cipher,
               endpoint,
               identity,
               lifecycle: makeLifecycle(),
@@ -380,6 +404,7 @@ describe("createHolder", () => {
           const messages = yield* openCliOutboxStore(root);
           yield* Effect.forkChild(
             createHolder({
+              cipher,
               endpoint,
               identity,
               lifecycle: makeLifecycle(),
@@ -543,6 +568,7 @@ describe("createHolder", () => {
           const messages = yield* openCliOutboxStore(root);
           yield* Effect.forkChild(
             createHolder({
+              cipher,
               endpoint,
               identity,
               lifecycle: makeLifecycle(),

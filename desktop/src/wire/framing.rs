@@ -1,4 +1,4 @@
-//! Stream framing shared by `/qop/pair/1`, `/qop/chat/1` and `/qop/sync/1`.
+//! Stream framing shared by pairing, chat and sync.
 //!
 //! There is no length prefix: a sender writes one JSON message, then
 //! half-closes its write side. The receiver collects chunks until EOF, so the

@@ -1,15 +1,17 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
+import { deviceKeyBytesFromPeerId } from "@qop/identity";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { CHAT_PROTOCOL, encodeAck, encodeFrame } from "@/lib/chat-wire";
+import { CHAT_PROTOCOL, createChatCipher, encodeAck } from "@/lib/chat-wire";
 import {
   advanceMessageStatus,
   deleteAll,
   getContactByQid,
   getMessageById,
   insertMessage,
+  listMessages,
   queueMessageRetry,
   upsertContact,
 } from "@/lib/db";
@@ -28,14 +30,19 @@ import { failNextRun, pauseNextRun } from "./support/sqlite";
 
 let deliverySignal: AbortSignal | undefined;
 
-const PEER_BOB = "12D3KooWC7cDcNR4J3NC9y1gTkqafZKmnjCUvrRMxU2LMugGJGgy";
+const PEER_BOB = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
+const PEER_ALICE = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
+const bob = createChatCipher(new Uint8Array(32).fill(1));
+
+const bobDeviceKey =
+  "0x8a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c";
 
 const bobAccount: RegistryAccount = {
   blockNumber: 1n,
-  deviceKey: `0x${"22".repeat(32)}`,
+  deviceKey: bobDeviceKey,
   devices: [
     {
-      deviceKey: `0x${"22".repeat(32)}`,
+      deviceKey: bobDeviceKey,
       peerId: PEER_BOB,
     },
   ],
@@ -222,12 +229,6 @@ beforeEach(async () => {
   queueOverflow = undefined;
   pathUpgraded = undefined;
   await deleteAll();
-  const bobDeviceKey = bobAccount.deviceKey;
-
-  if (bobDeviceKey === null) {
-    throw new Error("expected bob device key");
-  }
-
   await upsertContact({
     createdAt: 1,
     deviceKey: bobDeviceKey,
@@ -271,13 +272,10 @@ const runningConnection = () => {
 };
 
 const inboundFrame = (id: string) =>
-  encodeFrame({
-    fromHandle: "bob",
-    id,
-    sentAt: 1,
-    text: "hello inbound",
-    v: 1,
-  });
+  bob.seal(
+    { fromHandle: "bob", id, sentAt: 1, text: "hello inbound", v: 1 },
+    deviceKeyBytesFromPeerId(PEER_ALICE)
+  );
 
 const makeInboundStream = (
   bytes: Uint8Array,
@@ -642,10 +640,39 @@ describe("interrupted sends", () => {
 describe("inbound chat streams", () => {
   const messageId = "c56a4180-65aa-42ec-a945-5fd21dec0538";
 
+  it("acks freshly sealed retries of the same id but stores one message", async () => {
+    await useP2pStore.getState().start();
+    const firstEnvelope = await inboundFrame(messageId);
+    const retryEnvelope = await inboundFrame(messageId);
+    expect(retryEnvelope).not.toEqual(firstEnvelope);
+
+    const receive = async (envelope: Uint8Array) => {
+      const stream = makeInboundStream(envelope);
+      onStream?.(stream);
+      await vi.waitFor(() => expect(stream.closeWrite).toHaveBeenCalledOnce());
+      expect(stream.write).toHaveBeenCalledWith(
+        encodeAck({ ack: messageId, v: 1 })
+      );
+      expect(stream.reset).not.toHaveBeenCalled();
+    };
+
+    await receive(firstEnvelope);
+    await receive(retryEnvelope);
+
+    expect(await listMessages("1")).toEqual([
+      expect.objectContaining({
+        direction: "in",
+        id: messageId,
+        status: "received",
+        text: "hello inbound",
+      }),
+    ]);
+  });
+
   it("acks a verified inbound frame and stores it", async () => {
     await useP2pStore.getState().start();
     connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
-    const stream = makeInboundStream(inboundFrame(messageId));
+    const stream = makeInboundStream(await inboundFrame(messageId));
     onStream?.(stream);
     await vi.waitFor(async () =>
       expect(await getMessageById(messageId)).toMatchObject({
@@ -664,7 +691,7 @@ describe("inbound chat streams", () => {
 
   it("acks an inbound frame even if connectionEstablished was missed", async () => {
     await useP2pStore.getState().start();
-    const stream = makeInboundStream(inboundFrame(messageId));
+    const stream = makeInboundStream(await inboundFrame(messageId));
     onStream?.(stream);
     await vi.waitFor(async () =>
       expect(await getMessageById(messageId)).toMatchObject({
@@ -684,7 +711,7 @@ describe("inbound chat streams", () => {
     await useP2pStore.getState().start();
     connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
     const firstId = "11111111-1111-4111-8111-111111111111";
-    const first = makeInboundStream(inboundFrame(firstId));
+    const first = makeInboundStream(await inboundFrame(firstId));
     onStream?.(first);
     await vi.waitFor(async () =>
       expect(await getMessageById(firstId)).not.toBeNull()
@@ -700,7 +727,7 @@ describe("inbound chat streams", () => {
       Effect.succeed({ ...bobAccount, blockNumber: 2n, freshness: "fresh" })
     );
     const secondId = "22222222-2222-4222-8222-222222222222";
-    const second = makeInboundStream(inboundFrame(secondId));
+    const second = makeInboundStream(await inboundFrame(secondId));
     onStream?.(second);
     await vi.waitFor(async () =>
       expect(await getMessageById(secondId)).not.toBeNull()
@@ -712,7 +739,7 @@ describe("inbound chat streams", () => {
     lookupDeviceKey.mockReturnValue(Effect.succeed(null));
     await useP2pStore.getState().start();
     connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
-    const stream = makeInboundStream(inboundFrame(messageId));
+    const stream = makeInboundStream(await inboundFrame(messageId));
     onStream?.(stream);
     await vi.waitFor(() => expect(stream.reset).toHaveBeenCalledOnce());
     expect(await getMessageById(messageId)).toBeNull();
@@ -723,7 +750,8 @@ describe("inbound chat streams", () => {
     const hung = Promise.withResolvers<Uint8Array | undefined>();
     await useP2pStore.getState().start();
     connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
-    const stream = makeInboundStream(inboundFrame(messageId));
+    const bytes = await inboundFrame(messageId);
+    const stream = makeInboundStream(bytes);
     let reads = 0;
     stream.read = () => {
       reads += 1;
@@ -733,7 +761,7 @@ describe("inbound chat streams", () => {
 
     onStream?.(stream);
     const stopped = useP2pStore.getState().stop();
-    hung.resolve(inboundFrame(messageId));
+    hung.resolve(bytes);
     await stopped;
     expect(stream.reset).toHaveBeenCalledOnce();
     expect(await getMessageById(messageId)).toBeNull();
