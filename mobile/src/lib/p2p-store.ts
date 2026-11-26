@@ -2,7 +2,7 @@ import { Minip2p, bindAppState } from "@minip2p/react-native";
 import { randomUUID } from "expo-crypto";
 import { registerTaskAsync } from "expo-notifications";
 import { isTaskRegisteredAsync } from "expo-task-manager";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
 
 import {
   selectAccount,
@@ -13,9 +13,8 @@ import { loadDeviceSecretKey } from "./identity-vault";
 import {
   mailboxPushEnabled,
   MAILBOX_TASK,
-  notifyMailboxDelivered,
+  notifyMailboxActivity,
 } from "./mailbox-notification";
-import { loadMailboxPushKey, saveMailboxPushKey } from "./mailbox-push-key";
 import { performSend } from "./p2p-send";
 import { createP2pStore } from "./p2p-store-core";
 import { performCatchup, performHandoff, performPoll } from "./p2p-sync";
@@ -62,12 +61,9 @@ export const useP2pStore = createP2pStore({
 
       return mailboxPushEnabled && (status === "loading" || status === "ready");
     },
-    loadKey: loadMailboxPushKey,
-    notifyDelivered: notifyMailboxDelivered,
-    prepare: async (secretKey) => {
-      // Keychain items can survive iOS reinstallation; replace the key before accepting wakes.
-      await saveMailboxPushKey(secretKey);
-
+    deferOnKeyReadError: Platform.OS === "ios",
+    notify: notifyMailboxActivity,
+    registerTask: async () => {
       if (!(await isTaskRegisteredAsync(MAILBOX_TASK))) {
         await registerTaskAsync(MAILBOX_TASK);
       }

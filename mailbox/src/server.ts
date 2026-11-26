@@ -37,6 +37,15 @@ const DEFAULT_RATE_LIMIT_PER_MIN = 120;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const MAX_RATE_LIMIT_PEERS = 4096;
 const MAX_PENDING_WAKEUPS = 32;
+const WAKE_WARNING_INTERVAL_MS = 60_000;
+
+const wakeWarnings = {
+  apns: "APNs send failed; check credentials, topic, environment, and connectivity",
+  capacity: "wake skipped: too many pending wakes",
+  cleanup: "could not remove an expired push target",
+  fcm: "FCM send failed; check project, sender permissions, and connectivity",
+  lookup: "could not load a push target",
+} as const;
 
 type MailboxWakeProviders = Partial<
   Record<
@@ -232,28 +241,52 @@ export const createMailboxHandler = (deps: MailboxHandlerDeps) => {
   const authorizer = createDeviceAuthorizer(deps.registry, now);
   const { wake } = deps;
   let pendingWakeups = 0;
+  const lastWakeWarning = new Map<keyof typeof wakeWarnings, number>();
+
+  const warnWake = (category: keyof typeof wakeWarnings) => {
+    const timestamp = now();
+    const last = lastWakeWarning.get(category);
+
+    if (last === undefined || timestamp - last >= WAKE_WARNING_INTERVAL_MS) {
+      lastWakeWarning.set(category, timestamp);
+      // Provider errors can include request bodies and credentials; log only fixed text.
+      process.stderr.write(`qop-mailbox push: ${wakeWarnings[category]}\n`);
+    }
+  };
 
   const wakeRecipient = (deviceKey: string) => {
-    if ((!wake?.apns && !wake?.fcm) || pendingWakeups >= MAX_PENDING_WAKEUPS) {
+    if (!wake?.apns && !wake?.fcm) {
+      return;
+    }
+
+    if (pendingWakeups >= MAX_PENDING_WAKEUPS) {
+      warnWake("capacity");
+
       return;
     }
 
     pendingWakeups += 1;
 
     const send = async () => {
+      let failure: keyof typeof wakeWarnings = "lookup";
+
       try {
         const target = await Effect.runPromise(
           deps.store.pushTarget(deviceKey, now())
         );
 
-        if (
-          target &&
-          (await wake[target.platform]?.(target.token)) === "unregistered"
-        ) {
+        if (!target) {
+          return;
+        }
+
+        failure = target.platform;
+
+        if ((await wake[target.platform]?.(target.token)) === "unregistered") {
+          failure = "cleanup";
           await Effect.runPromise(deps.store.removePush(deviceKey, target));
         }
       } catch {
-        // Provider failures must not undo a deposit or log the device token.
+        warnWake(failure);
       } finally {
         pendingWakeups -= 1;
       }

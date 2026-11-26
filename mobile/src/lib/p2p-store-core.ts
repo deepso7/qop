@@ -165,9 +165,9 @@ interface P2pDependencies {
   readonly loadDeviceSecretKey: typeof loadDeviceSecretKey;
   readonly mailboxPush?: {
     readonly canWake: () => boolean;
-    readonly loadKey: () => Promise<Uint8Array | undefined>;
-    readonly notifyDelivered: () => Promise<void>;
-    readonly prepare: (secretKey: Uint8Array) => Promise<void>;
+    readonly deferOnKeyReadError?: boolean;
+    readonly notify: () => Promise<void>;
+    readonly registerTask: () => Promise<void>;
   };
   readonly lookupDeviceKey: typeof lookupDeviceKey;
   readonly lookupHandle: typeof lookupHandle;
@@ -1355,37 +1355,46 @@ export const createP2pStore = ({
                   return "abort";
                 }
 
-                await upsertContact({
-                  createdAt: Number(senderAccount.registeredAt) * 1000,
-                  deviceKey: meta.senderDeviceKey,
-                  handle: senderAccount.handle,
-                  owner: senderAccount.owner,
-                  peerId: senderAccount.peerId ?? "",
-                  qid: senderQid,
-                });
+                await trackJob(
+                  upsertContact({
+                    createdAt: Number(senderAccount.registeredAt) * 1000,
+                    deviceKey: meta.senderDeviceKey,
+                    handle: senderAccount.handle,
+                    owner: senderAccount.owner,
+                    peerId: senderAccount.peerId ?? "",
+                    qid: senderQid,
+                  })
+                );
               }
 
               if (!options.isOwningSession()) {
                 return "abort";
               }
 
-              const inserted = await insertMessage({
-                contactQid: senderQid,
-                direction: "in",
-                id: frame.id,
-                sentAt: frame.sentAt,
-                status: "received",
-                text: frame.text,
-              });
+              const inserted = await trackJob(
+                insertMessage({
+                  contactQid: senderQid,
+                  direction: "in",
+                  id: frame.id,
+                  sentAt: frame.sentAt,
+                  status: "received",
+                  text: frame.text,
+                })
+              );
 
-              if (inserted && options.isOwningSession()) {
+              if (!options.isOwningSession()) {
+                return "abort";
+              }
+
+              if (inserted) {
                 options.onInserted();
               }
 
               return "ack";
             },
             openStream: () => openMailboxStream(options.endpoint, peer),
-          })
+          }),
+          options.signal ? { signal: options.signal } : undefined
         )
       )
     );
@@ -2254,13 +2263,7 @@ export const createP2pStore = ({
 
       return trackJob(
         (async () => {
-          const secretKey = await Effect.runPromise(loadDeviceSecretKey());
-
-          if (!isCurrentGeneration(startGeneration)) {
-            return [];
-          }
-
-          await mailboxPush.prepare(secretKey);
+          await mailboxPush.registerTask();
 
           if (!isCurrentGeneration(startGeneration)) {
             return [];
@@ -2455,7 +2458,7 @@ export const createP2pStore = ({
             });
 
             if (inserted && isOwningSession()) {
-              await mailboxPush?.notifyDelivered();
+              await mailboxPush?.notify();
             }
           } finally {
             mailboxPollInFlight = false;
@@ -2636,16 +2639,42 @@ export const createP2pStore = ({
 
       const wakeGeneration = generation;
 
+      const isCurrent = () =>
+        isCurrentGeneration(wakeGeneration) && mailboxPush.canWake();
+
       const runWake = async () => {
-        const secretKey = await mailboxPush.loadKey();
+        const key = await Effect.runPromise(
+          loadDeviceSecretKey().pipe(Effect.result)
+        );
 
-        const isCurrent = () =>
-          isCurrentGeneration(wakeGeneration) && mailboxPush.canWake();
-
-        if (!secretKey || !isCurrent()) {
+        if (!isCurrent()) {
           return false;
         }
 
+        if (key._tag === "Failure") {
+          const { operation } = key.failure;
+
+          if (
+            operation === "missing-identity" ||
+            operation === "stale-install"
+          ) {
+            return false;
+          }
+
+          if (
+            mailboxPush.deferOnKeyReadError &&
+            (operation === "read" || operation === "install-state")
+          ) {
+            // Locked iOS wakes can alert locally; the mailbox retains the ciphertext until we can authenticate.
+            await mailboxPush.notify();
+
+            return false;
+          }
+
+          throw key.failure;
+        }
+
+        const secretKey = key.success;
         // A cold wake starts only the mailbox transport, not the UI or outbox.
         const cipher = createChatCipher(secretKey);
 
@@ -2694,7 +2723,7 @@ export const createP2pStore = ({
             if (inserted && isCurrent()) {
               delivered = true;
               // oxlint-disable-next-line no-await-in-loop -- iOS may suspend the task as soon as it resolves.
-              await mailboxPush.notifyDelivered();
+              await mailboxPush.notify();
             }
           } while (mailboxWakeQueued && canDrain());
 

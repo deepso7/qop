@@ -13,6 +13,7 @@ import { Uniwind } from "uniwind";
 import { BlurTargetProvider } from "@/components/ui/blur-target";
 import { useTheme } from "@/constants/theme";
 import { useIdentityStore } from "@/lib/identity-store";
+import { mailboxPushEnabled } from "@/lib/mailbox-notification";
 import { startMailboxPushRegistration } from "@/lib/mailbox-push-registration";
 import { useP2pStore } from "@/lib/p2p-store";
 
@@ -62,8 +63,10 @@ const AppStack = () => {
   const fontsSettled = fontsLoaded || fontError !== null;
 
   React.useEffect(() => {
-    void hydrate();
-  }, [hydrate]);
+    if (!mailboxPushEnabled || hasForegrounded) {
+      void hydrate();
+    }
+  }, [hasForegrounded, hydrate]);
 
   React.useLayoutEffect(() => {
     if (hasForegrounded) {

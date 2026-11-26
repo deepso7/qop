@@ -16,7 +16,7 @@ import {
 import { Effect } from "effect";
 import { bytesToHex } from "viem";
 import type { Hex } from "viem";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { loadOrCreateKey } from "../src/main.ts";
 import {
@@ -76,6 +76,7 @@ describe("mailbox server hardening and transport", () => {
 
     const token = { platform: "fcm", token: "test-recipient-token" } as const;
     const wakeups: unknown[] = [];
+    const warning = vi.spyOn(process.stderr, "write").mockReturnValue(true);
 
     const handler = createMailboxHandler({
       registry,
@@ -87,7 +88,7 @@ describe("mailbox server hardening and transport", () => {
           );
 
           wakeups.push({ pending: pending.items.length, token: targetToken });
-          throw new Error("provider unavailable");
+          throw new Error(`Provider rejected token ${targetToken}`);
         },
       },
     });
@@ -138,7 +139,11 @@ describe("mailbox server hardening and transport", () => {
 
       await delay(0);
       expect(wakeups).toEqual([{ pending: 1, token: token.token }]);
+      expect(warning.mock.calls.flat()).toEqual([
+        "qop-mailbox push: FCM send failed; check project, sender permissions, and connectivity\n",
+      ]);
     } finally {
+      warning.mockRestore();
       store.close();
     }
   });

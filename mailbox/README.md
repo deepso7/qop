@@ -45,9 +45,11 @@ qop-mailbox addr=/ip4/0.0.0.0/udp/19877/quic-v1/p2p/12D3KooW...
 
 ## Optional mobile push wakeups
 
-The mailbox can send a content-free wake signal after committing an envelope. The phone fetches and decrypts the envelope itself, saves the message, then posts a generic local notification if allowed. Push providers receive the device token and wake signal, never the sender, handle, or message. The configured mailbox can associate the token with the recipient's device key.
+The mailbox can send a content-free wake signal after committing an envelope. When the device key is available, the app fetches and decrypts the envelope, saves the message, and only then acknowledges delivery. Push providers receive the device token and wake signal, never the sender, handle, or message. The configured mailbox can associate the token with the recipient's device key.
 
-Build the native app with `EXPO_PUBLIC_QOP_MAILBOX_PUSH=1` and `EXPO_PUBLIC_QOP_MAILBOX_ADDRS` set. Open it once with an enrolled device so it can register for wakes. On iOS the device key is available after the first unlock following a reboot; the account recovery key is not used in the background.
+Build the native app with `EXPO_PUBLIC_QOP_MAILBOX_PUSH=1` and `EXPO_PUBLIC_QOP_MAILBOX_ADDRS` set. Open it once with an enrolled device so it can register for wakes.
+
+The iOS device key stays accessible only while unlocked. If a wake runs while the key is unavailable, the app can show a generic local alert (if notifications are allowed) without fetching, decrypting, or acknowledging anything. The mailbox retains the ciphertext until a wake or poll runs with the key available. Unlocking the phone alone does not guarantee that iOS will run the app. The account recovery key's storage is unchanged.
 
 | Platform | Native app build | Mailbox server |
 | --- | --- | --- |

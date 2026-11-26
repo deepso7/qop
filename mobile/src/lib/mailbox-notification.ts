@@ -8,7 +8,7 @@ export const mailboxPushEnabled =
   process.env.EXPO_PUBLIC_QOP_MAILBOX_PUSH === "1" &&
   Boolean(process.env.EXPO_PUBLIC_QOP_MAILBOX_ADDRS);
 
-export const notifyMailboxDelivered = async () => {
+export const notifyMailboxActivity = async () => {
   if (!mailboxPushEnabled || AppState.currentState === "active") {
     return;
   }
@@ -31,6 +31,6 @@ export const notifyMailboxDelivered = async () => {
         Platform.OS === "android" ? { channelId: MAILBOX_CHANNEL } : null,
     });
   } catch {
-    // The decrypted message is already in the inbox.
+    // Local notifications are optional and must not affect delivery.
   }
 };

@@ -4,110 +4,87 @@ import * as Notifications from "expo-notifications";
 import { AppState, Platform } from "react-native";
 
 import { MAILBOX_CHANNEL, mailboxPushEnabled } from "./mailbox-notification";
+import { createMailboxPushRegistration } from "./mailbox-push-registration-core";
 import { useP2pStore } from "./p2p-store";
 
-const REFRESH_MS = 24 * 60 * 60 * 1000;
 const isNativeToken = Schema.is(Schema.String);
 
 /** Register device tokens while the account and its endpoint are ready. */
 export const startMailboxPushRegistration = () => {
-  if (!mailboxPushEnabled) {
+  if (
+    !mailboxPushEnabled ||
+    (Platform.OS !== "ios" && Platform.OS !== "android")
+  ) {
     return;
   }
 
-  const peers = new Set(
-    parseMailboxAddrs(process.env.EXPO_PUBLIC_QOP_MAILBOX_ADDRS).map(
-      (peer) => peer.peerId
-    )
+  const mailboxes = parseMailboxAddrs(
+    process.env.EXPO_PUBLIC_QOP_MAILBOX_ADDRS
   );
 
-  if (peers.size === 0) {
+  if (mailboxes.length === 0) {
     return;
   }
 
-  let stopped = false;
   let latestToken: Notifications.DevicePushToken | undefined;
-  let nextRefresh = 0;
-  let registration: Promise<void> | undefined;
 
-  const refresh = () => {
+  const register = async (canRegister: () => boolean) => {
+    if (Platform.OS === "android") {
+      await Notifications.setNotificationChannelAsync(MAILBOX_CHANNEL, {
+        importance: Notifications.AndroidImportance.DEFAULT,
+        name: "Messages",
+      });
+    }
+
+    const permission = await Notifications.getPermissionsAsync();
+
+    if (permission.status === "undetermined" && canRegister()) {
+      await Notifications.requestPermissionsAsync();
+    }
+
+    if (!canRegister()) {
+      return false;
+    }
+
+    const token =
+      latestToken ?? (await Notifications.getDevicePushTokenAsync());
+
     if (
-      stopped ||
-      registration ||
-      AppState.currentState !== "active" ||
-      Date.now() < nextRefresh
+      !canRegister() ||
+      !isNativeToken(token.data) ||
+      (token.type !== "ios" && token.type !== "android")
     ) {
+      return false;
+    }
+
+    const registered = await useP2pStore.getState().registerMailboxPush({
+      platform: token.type === "ios" ? "apns" : "fcm",
+      token: token.data,
+    });
+
+    return registered.length === mailboxes.length;
+  };
+
+  const registration = createMailboxPushRegistration({
+    isActive: () => AppState.currentState === "active",
+    register,
+  });
+
+  const appState = AppState.addEventListener("change", registration.refresh);
+
+  const tokens = Notifications.addPushTokenListener((token) => {
+    if (latestToken?.data === token.data) {
       return;
     }
 
-    const register = async () => {
-      if (Platform.OS === "android") {
-        await Notifications.setNotificationChannelAsync(MAILBOX_CHANNEL, {
-          importance: Notifications.AndroidImportance.DEFAULT,
-          name: "Messages",
-        });
-      }
-
-      const permission = await Notifications.getPermissionsAsync();
-
-      if (permission.status === "undetermined") {
-        await Notifications.requestPermissionsAsync();
-      }
-
-      const token =
-        latestToken ?? (await Notifications.getDevicePushTokenAsync());
-
-      if (
-        stopped ||
-        !isNativeToken(token.data) ||
-        (token.type !== "ios" && token.type !== "android")
-      ) {
-        return;
-      }
-
-      const registered = await useP2pStore.getState().registerMailboxPush({
-        platform: token.type === "ios" ? "apns" : "fcm",
-        token: token.data,
-      });
-
-      if (
-        registered.length === peers.size &&
-        (!latestToken || latestToken.data === token.data)
-      ) {
-        nextRefresh = Date.now() + REFRESH_MS;
-      }
-    };
-
-    const startedWith = latestToken?.data;
-    registration = register()
-      .catch(() => {
-        // Push is optional; the normal mailbox poll still works.
-      })
-      .finally(() => {
-        registration = undefined;
-
-        if (latestToken?.data !== startedWith) {
-          refresh();
-        }
-      });
-  };
-
-  const appState = AppState.addEventListener("change", (state) => {
-    if (state === "active") {
-      refresh();
-    }
-  });
-
-  const tokens = Notifications.addPushTokenListener((token) => {
     latestToken = token;
-    nextRefresh = 0;
-    refresh();
+    registration.reset();
   });
 
-  refresh();
+  registration.refresh();
 
   return () => {
-    stopped = true;
+    registration.stop();
     tokens.remove();
     appState.remove();
   };

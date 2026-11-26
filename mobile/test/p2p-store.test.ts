@@ -28,6 +28,7 @@ import {
   recordMessageRetry,
   upsertContact,
 } from "@/lib/db";
+import { IdentityVaultError } from "@/lib/identity-vault-core";
 import type { performSend } from "@/lib/p2p-send";
 import { performSend as sendToPeer } from "@/lib/p2p-send";
 import { createP2pStore } from "@/lib/p2p-store-core";
@@ -1058,12 +1059,16 @@ describe("connectTo", () => {
 describe("mailbox fallback and drain", () => {
   const PEER_MAILBOX = "12D3KooWMailboxTestPeerId11111111111111111111111111";
 
+  const mailbox = {
+    addr: `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/${PEER_MAILBOX}`,
+    peerId: PEER_MAILBOX,
+  };
+
   const makeMailboxStream = (
-    onRequest: (request: MailboxRequest) => Uint8Array
+    onRequest: (request: MailboxRequest) => Uint8Array | Promise<Uint8Array>
   ) => {
     const written: Uint8Array[] = [];
-    let replyChunks: Uint8Array[] = [];
-    let readIndex = 0;
+    let reply: Uint8Array | Promise<Uint8Array> | undefined;
 
     return {
       closeWrite: () => {
@@ -1077,14 +1082,14 @@ describe("mailbox fallback and drain", () => {
         }
 
         const request = Effect.runSync(decodeMailboxRequestV1(body));
-        replyChunks = [onRequest(request)];
+        reply = onRequest(request);
       },
       connId: 99,
       peerId: PEER_MAILBOX,
       protocolId: MAILBOX_PROTOCOL,
       read: () => {
-        const chunk = replyChunks[readIndex];
-        readIndex += 1;
+        const chunk = reply;
+        reply = undefined;
 
         return Promise.resolve(chunk);
       },
@@ -1096,6 +1101,69 @@ describe("mailbox fallback and drain", () => {
       },
     };
   };
+
+  it("stops a cold wake without waiting for a stalled native stream", async () => {
+    const lateStream = makeMailboxStream(() => {
+      throw new Error("cancelled stream received a request");
+    });
+
+    const stream =
+      Promise.withResolvers<Awaited<ReturnType<P2pEndpoint["openStream"]>>>();
+
+    const openStream = vi.fn(() => stream.promise);
+
+    const store = createP2pStore({
+      createEndpoint: () => ({
+        bindAppState: () => () => {},
+        endpoint: {
+          activeReservation: () => {},
+          close: () => Promise.resolve(closeReport),
+          connect,
+          connectedPeers: () => [PEER_MAILBOX],
+          disconnect,
+          isPeerReady: () => true,
+          on: () => () => {},
+          onClose: () => () => {},
+          openStream,
+          path,
+          waitPeerReady: () =>
+            Promise.resolve({
+              peerId: PEER_MAILBOX,
+              protocols: [MAILBOX_PROTOCOL],
+            }),
+        },
+      }),
+      getIdentityHandle: () => "alice",
+      loadDeviceSecretKey: () => Effect.succeed(new Uint8Array(32).fill(2)),
+      lookupDeviceKey,
+      lookupHandle,
+      mailboxPush: {
+        canWake: () => true,
+        notify: vi.fn(),
+        registerTask: vi.fn(),
+      },
+      mailboxes: [mailbox],
+      performSend: send,
+      randomUUID: () => crypto.randomUUID(),
+    });
+
+    const wake = store.getState().wakeMailbox();
+    const wakeFinished = vi.fn();
+    void wake.then(wakeFinished).catch(wakeFinished);
+
+    try {
+      await vi.waitFor(() => expect(openStream).toHaveBeenCalledOnce());
+      const stop = store.getState().stop();
+      await vi.waitFor(() => expect(wakeFinished).toHaveBeenCalledWith(false));
+      await stop;
+    } finally {
+      // SAFETY: Test double implements the Stream methods used by mailbox I/O.
+      stream.resolve(lateStream as never);
+      await wake;
+    }
+
+    await vi.waitFor(() => expect(lateStream.reset).toHaveBeenCalledOnce());
+  });
 
   it("deposits to the configured mailbox inside the outbox when direct delivery fails", async () => {
     const depositedIds: string[] = [];
@@ -1233,7 +1301,7 @@ describe("mailbox fallback and drain", () => {
     }
   });
 
-  it.each(["resume", "cold wake"] as const)(
+  it.each(["resume", "cold wake", "wake after unlock"] as const)(
     "drains mailbox on %s without clobbering existing contact peerId",
     async (trigger) => {
       const bobSecret = new Uint8Array(32).fill(7);
@@ -1272,14 +1340,21 @@ describe("mailbox fallback and drain", () => {
       let fetchCount = 0;
       let resumeHandler: (() => void) | undefined;
 
-      const notifyDelivered = vi.fn(async () => {
-        const message = await getMessageById(msgId);
-        expect(message?.text).toBe("hello from mailbox");
-      });
-
+      const notify = vi.fn(() => Promise.resolve());
       const closeEndpoint = vi.fn(() => Promise.resolve(closeReport));
-      const loadForegroundKey = vi.fn(() => Effect.succeed(aliceSecret));
-      const prepare = vi.fn(() => Promise.resolve());
+
+      const loadDeviceKey = vi.fn(
+        (): Effect.Effect<Uint8Array<ArrayBuffer>, IdentityVaultError> =>
+          Effect.succeed(aliceSecret)
+      );
+
+      if (trigger === "wake after unlock") {
+        loadDeviceKey.mockReturnValueOnce(
+          Effect.fail(new IdentityVaultError({ operation: "read" }))
+        );
+      }
+
+      const registerTask = vi.fn(() => Promise.resolve());
 
       const store = createP2pStore({
         createEndpoint: () => ({
@@ -1316,22 +1391,23 @@ describe("mailbox fallback and drain", () => {
                   }
 
                   if (request.type === "ack") {
-                    ackedSeqs.push(...request.seqs);
-                    pendingItems.length = 0;
+                    return getMessageById(msgId).then((stored) => {
+                      expect(stored?.text).toBe("hello from mailbox");
+                      ackedSeqs.push(...request.seqs);
+                      pendingItems.length = 0;
 
-                    return Effect.runSync(
-                      encodeMailboxResponseV1({
-                        count: request.seqs.length,
-                        type: "acked",
-                        v: 1,
-                      })
-                    );
+                      return Effect.runSync(
+                        encodeMailboxResponseV1({
+                          count: request.seqs.length,
+                          type: "acked",
+                          v: 1,
+                        })
+                      );
+                    });
                   }
 
                   if (request.type === "register-push") {
-                    expect(prepare).toHaveBeenCalledExactlyOnceWith(
-                      aliceSecret
-                    );
+                    expect(registerTask).toHaveBeenCalledOnce();
 
                     return Effect.runSync(
                       encodeMailboxResponseV1({ type: "push-registered", v: 1 })
@@ -1356,7 +1432,7 @@ describe("mailbox fallback and drain", () => {
           },
         }),
         getIdentityHandle: () => "alice",
-        loadDeviceSecretKey: loadForegroundKey,
+        loadDeviceSecretKey: loadDeviceKey,
         lookupDeviceKey: () =>
           Effect.succeed({
             blockNumber: 1n,
@@ -1374,9 +1450,9 @@ describe("mailbox fallback and drain", () => {
         lookupHandle,
         mailboxPush: {
           canWake: () => true,
-          loadKey: () => Promise.resolve(aliceSecret),
-          notifyDelivered,
-          prepare,
+          deferOnKeyReadError: true,
+          notify,
+          registerTask,
         },
         mailboxes: [
           {
@@ -1421,9 +1497,17 @@ describe("mailbox fallback and drain", () => {
         if (trigger === "resume") {
           resumeHandler?.();
         } else {
+          if (trigger === "wake after unlock") {
+            expect(await store.getState().wakeMailbox()).toBe(false);
+            expect(notify).toHaveBeenCalledOnce();
+            expect(fetchCount).toBe(0);
+            expect(ackedSeqs).toEqual([]);
+            expect(await getMessageById(msgId)).toBeNull();
+            notify.mockClear();
+          }
+
           expect(await store.getState().wakeMailbox()).toBe(true);
           expect(store.getState().connection.status).toBe("stopped");
-          expect(loadForegroundKey).not.toHaveBeenCalled();
           expect(closeEndpoint).toHaveBeenCalledOnce();
         }
 
@@ -1433,7 +1517,7 @@ describe("mailbox fallback and drain", () => {
         });
 
         await vi.waitFor(() => expect(ackedSeqs).toEqual([1]));
-        await vi.waitFor(() => expect(notifyDelivered).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(notify).toHaveBeenCalledOnce());
 
         // Existing contact peerId must NOT be clobbered to "".
         const contactAfter = await getContactByQid("1");
