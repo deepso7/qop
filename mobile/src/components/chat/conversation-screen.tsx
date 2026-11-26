@@ -114,7 +114,11 @@ const ConversationMessageRow = ({
           <MessageStatus disabled label="Waiting on your other device" />
         ) : null}
         {showWaitingToSend ? (
-          <MessageStatus disabled label="Waiting to send" />
+          <MessageStatus
+            accessibilityLiveRegion="polite"
+            disabled
+            label="Waiting to send"
+          />
         ) : null}
       </MessageContent>
     </Message>

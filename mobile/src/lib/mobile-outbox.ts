@@ -58,9 +58,12 @@ export const createMobileOutbox = ({
   const controller = new AbortController();
   const wakes = Effect.runSync(Queue.unbounded<true>());
   const inFlight = new Map<string, string>();
+  const expeditedInFlight = new Set<string>();
   const messageRetryUntil = new Map<string, Map<string, number>>();
   const contactCooldownUntil = new Map<string, number>();
   const healthyContacts = new Set<string>();
+  let hydrated = false;
+  let expediteGeneration = 0;
 
   const setMessageRetry = (qid: string, id: string, until: number) => {
     const byContact = messageRetryUntil.get(qid);
@@ -85,10 +88,6 @@ export const createMobileOutbox = ({
       messageRetryUntil.delete(qid);
     }
   };
-
-  let expediteSeq = 0;
-  let expeditedAllSeq = 0;
-  const expeditedContactSeq = new Map<string, number>();
 
   let retryTimer: ReturnType<typeof setTimeout> | undefined;
   let reconcileTimer: ReturnType<typeof setTimeout> | undefined;
@@ -143,9 +142,6 @@ export const createMobileOutbox = ({
     }
   };
 
-  const makeExpeditedCheck = (qid: string, startedSeq: number) => () =>
-    Math.max(expeditedAllSeq, expeditedContactSeq.get(qid) ?? 0) > startedSeq;
-
   const dispatch = Effect.fnUntraced(function* (
     groups: ReadonlyMap<string, readonly StoredMessage[]>,
     activePerContact: Map<string, number>,
@@ -181,7 +177,7 @@ export const createMobileOutbox = ({
         }
 
         const key = messageKey(qid, message.id);
-        const wasExpedited = makeExpeditedCheck(qid, expediteSeq);
+        const wasExpedited = () => expeditedInFlight.has(key);
 
         started = true;
         inFlight.set(key, qid);
@@ -201,6 +197,7 @@ export const createMobileOutbox = ({
               Effect.tap((outcome) =>
                 Effect.sync(() => {
                   inFlight.delete(key);
+                  const expeditedNow = expeditedInFlight.delete(key);
 
                   if (outcome.kind === "delivered") {
                     clearMessageRetry(qid, message.id);
@@ -211,9 +208,15 @@ export const createMobileOutbox = ({
                   } else if (outcome.kind === "retry") {
                     healthyContacts.delete(qid);
 
-                    if (!wasExpedited() && outcome.nextAttemptAt > Date.now()) {
+                    if (!expeditedNow && outcome.nextAttemptAt > Date.now()) {
                       setMessageRetry(qid, message.id, outcome.nextAttemptAt);
-                      contactCooldownUntil.set(qid, outcome.nextAttemptAt);
+                      contactCooldownUntil.set(
+                        qid,
+                        Math.max(
+                          contactCooldownUntil.get(qid) ?? 0,
+                          outcome.nextAttemptAt
+                        )
+                      );
                     } else {
                       clearMessageRetry(qid, message.id);
                     }
@@ -232,24 +235,11 @@ export const createMobileOutbox = ({
     }
   });
 
-  const sweep = Effect.gen(function* () {
-    yield* Queue.takeAll(wakes);
-    clearTimeout(retryTimer);
-    retryTimer = undefined;
-
-    // Exclude keys already in flight before reading SQLite so a row that commits
-    // `sent` during `list()` cannot be dispatched a second time from this snapshot.
-    const inFlightBeforeRead = new Set(inFlight.keys());
-    const rows = yield* Effect.promise(list);
-    const now = Date.now();
-    let hasHeld = false;
-
-    const activePerContact = new Map<string, number>();
-
-    for (const qid of inFlight.values()) {
-      activePerContact.set(qid, (activePerContact.get(qid) ?? 0) + 1);
-    }
-
+  const collectProbingContacts = (
+    rows: readonly StoredMessage[],
+    now: number,
+    canHydrate: boolean
+  ) => {
     const probingContacts = new Set<string>();
 
     for (const qid of contactCooldownUntil.keys()) {
@@ -260,13 +250,57 @@ export const createMobileOutbox = ({
 
     for (const row of rows) {
       if (
-        row.status === "queued" &&
-        row.attempts > 0 &&
-        !healthyContacts.has(row.contactQid)
+        row.status !== "queued" ||
+        row.attempts <= 0 ||
+        healthyContacts.has(row.contactQid)
       ) {
-        probingContacts.add(row.contactQid);
+        continue;
+      }
+
+      probingContacts.add(row.contactQid);
+
+      if (canHydrate && row.nextAttemptAt > now) {
+        contactCooldownUntil.set(
+          row.contactQid,
+          Math.max(
+            contactCooldownUntil.get(row.contactQid) ?? 0,
+            row.nextAttemptAt
+          )
+        );
       }
     }
+
+    if (canHydrate) {
+      hydrated = true;
+    }
+
+    return probingContacts;
+  };
+
+  const sweep = Effect.gen(function* () {
+    yield* Queue.takeAll(wakes);
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
+
+    // Exclude keys already in flight before reading SQLite so a row that commits
+    // `sent` during `list()` cannot be dispatched a second time from this snapshot.
+    const inFlightBeforeRead = new Set(inFlight.keys());
+    const sweepExpediteGen = expediteGeneration;
+    const rows = yield* Effect.promise(list);
+    const now = Date.now();
+    let hasHeld = false;
+
+    const activePerContact = new Map<string, number>();
+
+    for (const qid of inFlight.values()) {
+      activePerContact.set(qid, (activePerContact.get(qid) ?? 0) + 1);
+    }
+
+    const probingContacts = collectProbingContacts(
+      rows,
+      now,
+      !hydrated && sweepExpediteGen === expediteGeneration
+    );
 
     const groups = new Map<string, StoredMessage[]>();
     let nextWakeAt = Number.POSITIVE_INFINITY;
@@ -359,6 +393,52 @@ export const createMobileOutbox = ({
     }
   };
 
+  const markExpeditedInFlight = (
+    contactQid: string | undefined,
+    expediteAll: boolean,
+    excludeKeys?: ReadonlySet<string>
+  ) => {
+    const marked: string[] = [];
+
+    for (const [key, qid] of inFlight) {
+      if (
+        (expediteAll || qid === contactQid) &&
+        !excludeKeys?.has(key) &&
+        !expeditedInFlight.has(key)
+      ) {
+        expeditedInFlight.add(key);
+        marked.push(key);
+      }
+    }
+
+    return marked;
+  };
+
+  const clearExpeditedRetries = (
+    contactQid: string | undefined,
+    expediteAll: boolean,
+    excludeKeys?: ReadonlySet<string>
+  ) => {
+    if (expediteAll) {
+      if (!excludeKeys || excludeKeys.size === 0) {
+        messageRetryUntil.clear();
+      } else {
+        for (const qid of messageRetryUntil.keys()) {
+          clearContactRetries(qid, excludeKeys);
+        }
+      }
+
+      contactCooldownUntil.clear();
+
+      return;
+    }
+
+    if (contactQid !== undefined) {
+      clearContactRetries(contactQid, excludeKeys);
+      contactCooldownUntil.delete(contactQid);
+    }
+  };
+
   const wake = async (options?: OutboxWakeOptions): Promise<void> => {
     if (controller.signal.aborted) {
       return;
@@ -369,34 +449,20 @@ export const createMobileOutbox = ({
     const expediteAll = options?.expediteAll === true;
 
     if (contactQid !== undefined || expediteAll) {
-      if (expediteAll) {
-        if (!options?.skipInFlight) {
-          expediteSeq += 1;
-          expeditedAllSeq = expediteSeq;
-        }
+      const markedInFlight = options?.skipInFlight
+        ? []
+        : markExpeditedInFlight(contactQid, expediteAll, excludeKeys);
 
-        if (!excludeKeys || excludeKeys.size === 0) {
-          messageRetryUntil.clear();
-        } else {
-          for (const qid of messageRetryUntil.keys()) {
-            clearContactRetries(qid, excludeKeys);
-          }
+      try {
+        await expedite(contactQid, excludeKeys);
+        expediteGeneration += 1;
+        clearExpeditedRetries(contactQid, expediteAll, excludeKeys);
+      } catch {
+        // Keep persisted and in-memory retry deadlines if expediting fails.
+        for (const key of markedInFlight) {
+          expeditedInFlight.delete(key);
         }
-
-        contactCooldownUntil.clear();
-      } else if (contactQid !== undefined) {
-        if (!options?.skipInFlight) {
-          expediteSeq += 1;
-          expeditedContactSeq.set(contactQid, expediteSeq);
-        }
-
-        clearContactRetries(contactQid, excludeKeys);
-        contactCooldownUntil.delete(contactQid);
       }
-
-      await expedite(contactQid, excludeKeys).catch(() => {
-        // Keep the persisted retry deadline if expediting fails.
-      });
     }
 
     notify();

@@ -322,13 +322,39 @@ it("backs off storage errors, parks when empty, and cancels timers on close", as
     reconcile: () => Promise.resolve(),
   });
 
-  await worker.wake();
-  await vi.waitFor(() => expect(list).toHaveBeenCalledOnce());
-  await vi.advanceTimersByTimeAsync(2100);
-  await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(2));
-  expect(vi.getTimerCount()).toBe(0);
-  worker.close();
-  expect(deliver).not.toHaveBeenCalled();
+  const closingList = vi
+    .fn<() => Promise<readonly StoredMessage[]>>()
+    .mockRejectedValue(new Error("storage unavailable"));
+
+  const closingWorker = createMobileOutbox({
+    deliver,
+    expedite: () => Promise.resolve(),
+    list: closingList,
+    reconcile: () => Promise.resolve(),
+  });
+
+  try {
+    await worker.wake();
+    await vi.waitFor(() => expect(list).toHaveBeenCalledOnce());
+    await vi.advanceTimersByTimeAsync(2100);
+    await vi.waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+    expect(vi.getTimerCount()).toBe(0);
+    worker.close();
+
+    // Closing while a retry timer is armed removes the timer and prevents retrying.
+    await closingWorker.wake();
+    await vi.waitFor(() => expect(closingList).toHaveBeenCalledOnce());
+    await vi.advanceTimersByTimeAsync(0);
+    expect(vi.getTimerCount()).toBe(1);
+    closingWorker.close();
+    expect(vi.getTimerCount()).toBe(0);
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(closingList).toHaveBeenCalledOnce();
+    expect(deliver).not.toHaveBeenCalled();
+  } finally {
+    worker.close();
+    closingWorker.close();
+  }
 });
 
 it("keeps a retry scheduled if expediting fails", async () => {
@@ -445,9 +471,9 @@ it("does not re-dispatch a row that commits while a sweep read is in flight", as
 
     // Original delivery commits `sent` and clears `inFlight` before `list()` resolves.
     firstDelivery.resolve(true);
-    await sleep(10);
+    await vi.waitFor(() => expect(worker.isInFlight("1", "once")).toBe(false));
     pausedList.resolve(staleSnapshot);
-    await sleep(20);
+    await vi.waitFor(() => expect(listCalls).toBeGreaterThanOrEqual(3));
 
     expect(deliver).toHaveBeenCalledOnce();
   } finally {
@@ -572,5 +598,122 @@ it("keeps a row's unpersisted fallback pause even when a sibling succeeds", asyn
   } finally {
     worker.close();
     siblingDone.resolve(true);
+  }
+});
+
+it("honors excludeKeys for in-flight messages, keeps max contact cooldown, restores startup cooldown, and preserves fallback pauses on failed expedite", async () => {
+  vi.useFakeTimers();
+  const base = Date.now();
+
+  let rows = [
+    message("old", "1", { attempts: 1, nextAttemptAt: base + 8000 }),
+    message("fresh", "1"),
+  ];
+
+  let expediteShouldFail = false;
+
+  const deliver = vi.fn(
+    (
+      row: StoredMessage,
+      _signal: AbortSignal,
+      wasExpedited: () => boolean
+    ): Promise<DeliveryOutcome> => {
+      if (row.id === "in-flight-excluded") {
+        return Promise.resolve({
+          kind: "retry",
+          nextAttemptAt: wasExpedited() ? 0 : Date.now() + 6000,
+        });
+      }
+
+      if (row.id === "long-fail") {
+        return Promise.resolve({
+          kind: "retry",
+          nextAttemptAt: Date.now() + 10_000,
+        });
+      }
+
+      if (row.id === "short-fail") {
+        return Promise.resolve({
+          kind: "retry",
+          nextAttemptAt: Date.now() + 2000,
+        });
+      }
+
+      rows = rows.filter((item) => item.id !== row.id);
+
+      return Promise.resolve({ kind: "delivered" });
+    }
+  );
+
+  const worker = createMobileOutbox({
+    deliver,
+    expedite: (contactQid, excludeKeys) => {
+      if (expediteShouldFail) {
+        return Promise.reject(new Error("db busy"));
+      }
+
+      rows = rows.map((row) =>
+        (contactQid === undefined || row.contactQid === contactQid) &&
+        !excludeKeys?.has(`${row.contactQid}:${row.id}`)
+          ? { ...row, nextAttemptAt: 0 }
+          : row
+      );
+
+      return Promise.resolve();
+    },
+    list: () => Promise.resolve(rows),
+    reconcile: () => Promise.resolve(),
+  });
+
+  try {
+    // Startup restores persisted contact cooldown so fresh row waits with old row.
+    await worker.wake();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(deliver).not.toHaveBeenCalled();
+
+    // Verified peer wake clears restored cooldown.
+    await worker.wake({ contactQid: "1" });
+    await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(2));
+
+    // Sibling retry with shorter backoff must not shorten active 10s contact cooldown,
+    // and a failed expedite must keep the in-memory fallback pause.
+    rows = [message("long-fail", "2"), message("short-fail", "2")];
+    await worker.wake();
+    await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(4));
+
+    rows = [...rows, message("waiting", "2")];
+    expediteShouldFail = true;
+    await worker.wake({ contactQid: "2" });
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(deliver).toHaveBeenCalledTimes(4);
+
+    // Exclude an in-flight key from a wake without skipInFlight.
+    const gate = Promise.withResolvers<undefined>();
+    let excludedWasExpedited = true;
+
+    deliver.mockImplementationOnce(async (_row, _signal, wasExpedited) => {
+      await gate.promise;
+      excludedWasExpedited = wasExpedited();
+
+      return { kind: "retry", nextAttemptAt: Date.now() + 5000 };
+    });
+
+    expediteShouldFail = false;
+    rows = [message("in-flight-excluded", "3")];
+    await worker.wake();
+    await vi.waitFor(() =>
+      expect(worker.isInFlight("3", "in-flight-excluded")).toBe(true)
+    );
+    await worker.wake({
+      contactQid: "3",
+      excludeKeys: new Set(["3:in-flight-excluded"]),
+    });
+    gate.resolve(undefined);
+    await vi.waitFor(() =>
+      expect(worker.isInFlight("3", "in-flight-excluded")).toBe(false)
+    );
+    expect(excludedWasExpedited).toBe(false);
+  } finally {
+    worker.close();
   }
 });

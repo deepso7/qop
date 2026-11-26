@@ -29,6 +29,7 @@ import {
   getContactByQid,
   getHolderInboxCursor,
   getMessageById,
+  hasQueuedMessages,
   insertMessage,
   listOutgoingPending,
   markMessageHeld,
@@ -185,7 +186,11 @@ const recordRetryOutcome = async (
   );
 
   if (retryAt === null) {
-    return { kind: "delivered" };
+    const current = await getMessageById(message.id, message.contactQid);
+
+    return current?.status === "sent" || current?.status === "held"
+      ? { kind: "delivered" }
+      : { kind: "failed" };
   }
 
   // Re-check after the DB write: a peer wake arriving mid-write may have been overwritten.
@@ -1170,7 +1175,10 @@ export const createP2pStore = ({
     signal: AbortSignal,
     wasExpedited: () => boolean
   ): Promise<DeliveryOutcome> => {
-    if (signal.aborted || !isCurrentGeneration(jobGeneration)) {
+    const isAborted = () =>
+      signal.aborted || !isCurrentGeneration(jobGeneration);
+
+    if (isAborted()) {
       return { kind: "aborted" };
     }
 
@@ -1270,15 +1278,11 @@ export const createP2pStore = ({
 
       if (terminal) {
         handoffController.abort();
-        await advanceMessageStatus(message.id, "failed", message.contactQid);
-        void handedOff;
-
-        return { kind: "failed" };
       }
 
       const holderPeerId = await handedOff;
 
-      if (signal.aborted || !isCurrentGeneration(jobGeneration)) {
+      if (isAborted()) {
         return { kind: "aborted" };
       }
 
@@ -1288,7 +1292,7 @@ export const createP2pStore = ({
         return { kind: "delivered" };
       }
 
-      if (handoffRejected) {
+      if (terminal || handoffRejected) {
         await advanceMessageStatus(message.id, "failed", message.contactQid);
 
         return { kind: "failed" };
@@ -1296,7 +1300,7 @@ export const createP2pStore = ({
 
       return await recordRetryOutcome(message, wasExpedited);
     } catch {
-      if (signal.aborted || !isCurrentGeneration(jobGeneration)) {
+      if (isAborted()) {
         return { kind: "aborted" };
       }
 
@@ -1327,13 +1331,12 @@ export const createP2pStore = ({
 
   const findQueuedContactForPeer = async (
     peerId: string,
-    queuedQids: ReadonlySet<string>,
     jobGeneration: number
   ): Promise<Contact | null> => {
     // Fast path: match the peer's last-seen contact locally so verify is the only RPC.
     const local = await getContactByPeerId(peerId);
 
-    if (local && queuedQids.has(local.qid)) {
+    if (local && (await hasQueuedMessages(local.qid))) {
       return local;
     }
 
@@ -1352,7 +1355,7 @@ export const createP2pStore = ({
 
     const qid = lookedUp.success.qid.toString();
 
-    if (!queuedQids.has(qid)) {
+    if (!(await hasQueuedMessages(qid))) {
       return null;
     }
 
@@ -1389,21 +1392,12 @@ export const createP2pStore = ({
         return;
       }
 
-      const pending = await listOutgoingPending();
-
-      const queuedQids = new Set(
-        pending
-          .filter((message) => message.status === "queued")
-          .map((message) => message.contactQid)
-      );
-
-      if (queuedQids.size === 0 || !isCurrentGeneration(jobGeneration)) {
+      if (!(await hasQueuedMessages()) || !isCurrentGeneration(jobGeneration)) {
         return;
       }
 
       const contact = await findQueuedContactForPeer(
         connection.peerId,
-        queuedQids,
         jobGeneration
       );
 
@@ -1835,13 +1829,6 @@ export const createP2pStore = ({
           return;
         }
 
-        set({
-          connection: {
-            ...readPeers(),
-            relayReserved: created.activeReservation() !== undefined,
-            status: "running",
-          },
-        });
         outbox = createMobileOutbox({
           deliver: (message, signal, wasExpedited) =>
             trackJob(
@@ -1873,8 +1860,18 @@ export const createP2pStore = ({
           list: listOutgoingPending,
           reconcile: () => scheduleReconcile(startGeneration),
         });
-        void outbox.wake();
-        void scheduleReconcile(startGeneration);
+        set({
+          connection: {
+            ...readPeers(),
+            relayReserved: created.activeReservation() !== undefined,
+            status: "running",
+          },
+        });
+
+        if (generation === startGeneration) {
+          void outbox.wake();
+          void scheduleReconcile(startGeneration);
+        }
       } catch (error) {
         if (generation === startGeneration) {
           set({

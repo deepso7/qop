@@ -194,7 +194,7 @@ const migrateMessagesSchema = async (database: SQLite.SQLiteDatabase) => {
           ON messages(contact_qid, received_at);
         CREATE INDEX messages_outgoing_pending_idx
           ON messages(received_at)
-          WHERE direction = 'out' AND status IN ('queued','held','failed');
+          WHERE direction = 'out' AND status IN ('queued','held');
         PRAGMA user_version = 6;
         COMMIT;
       `);
@@ -666,11 +666,34 @@ export const listOutgoingPending = async (): Promise<StoredMessage[]> => {
   const database = await getDatabase();
 
   const rows = await database.getAllAsync<MessageRow>(
-    `${messageSelect} WHERE direction = 'out' AND status IN ('queued','held','failed')
+    `${messageSelect} WHERE direction = 'out' AND status IN ('queued','held')
      ORDER BY received_at, rowid`
   );
 
   return rows.map(messageFromRow);
+};
+
+/** Fast existence check for queued outgoing messages (globally or for one contact). */
+export const hasQueuedMessages = async (
+  contactQid?: string
+): Promise<boolean> => {
+  const database = await getDatabase();
+
+  const row =
+    contactQid === undefined
+      ? await database.getFirstAsync<{ found: number }>(
+          `SELECT 1 AS found FROM messages
+           WHERE direction = 'out' AND status = 'queued'
+           LIMIT 1`
+        )
+      : await database.getFirstAsync<{ found: number }>(
+          `SELECT 1 AS found FROM messages
+           WHERE direction = 'out' AND status = 'queued' AND contact_qid = ?
+           LIMIT 1`,
+          contactQid
+        );
+
+  return row !== null;
 };
 
 export const deleteAll = async (): Promise<void> => {

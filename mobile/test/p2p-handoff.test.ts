@@ -1,4 +1,4 @@
-import { RegistryReaderError } from "@qop/protocol";
+import { PeerVerificationError, RegistryReaderError } from "@qop/protocol";
 import type { SyncInboxItem } from "@qop/protocol";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -389,6 +389,71 @@ describe("phone to CLI handoff", () => {
     } finally {
       lateHandoffGate.resolve(undefined);
       secondSendGate.resolve(undefined);
+    }
+  });
+
+  it("adopts an accepted holder handoff when direct send fails with a terminal error", async () => {
+    const handoffAccepted = Promise.withResolvers<undefined>();
+    const sendGate = Promise.withResolvers<undefined>();
+
+    try {
+      handoff.mockImplementationOnce(() => {
+        handoffAccepted.resolve(undefined);
+
+        return Promise.resolve();
+      });
+
+      send.mockImplementationOnce(async () => {
+        await sendGate.promise;
+        throw new PeerVerificationError({ operation: "reassigned" });
+      });
+
+      await useP2pStore.getState().start();
+      const contact = await getContactByQid("1");
+
+      if (!contact) {
+        throw new Error("Missing contact fixture");
+      }
+
+      const id = useP2pStore.getState().sendMessage(contact, "already held");
+      await handoffAccepted.promise;
+      sendGate.resolve(undefined);
+
+      await vi.waitFor(async () =>
+        expect(await getMessageById(id, "1")).toMatchObject({
+          holderPeerId: PEER_CLI,
+          status: "held",
+        })
+      );
+    } finally {
+      sendGate.resolve(undefined);
+    }
+  });
+
+  it("closes the outbox if a synchronous subscriber calls stop when status becomes running", async () => {
+    const queuedId = "c56a4180-65aa-42ec-a945-5fd21dec0588";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: queuedId,
+      sentAt: 1,
+      status: "queued",
+      text: "do not dispatch after stop",
+    });
+
+    const unsubscribe = useP2pStore.subscribe((state) => {
+      if (state.connection.status === "running") {
+        void useP2pStore.getState().stop();
+      }
+    });
+
+    try {
+      await useP2pStore.getState().start();
+      await Effect.runPromise(Effect.sleep(30));
+      expect(send).not.toHaveBeenCalled();
+      expect(useP2pStore.getState().connection.status).toBe("stopped");
+    } finally {
+      unsubscribe();
     }
   });
 
