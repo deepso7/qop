@@ -37,11 +37,13 @@ const DEFAULT_RATE_LIMIT_PER_MIN = 120;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const MAX_RATE_LIMIT_PEERS = 4096;
 const MAX_PENDING_WAKEUPS = 32;
+const MAX_WAKE_RECIPIENTS = 4096;
+const RECIPIENT_WAKE_INTERVAL_MS = 60_000;
 const WAKE_WARNING_INTERVAL_MS = 60_000;
 
 const wakeWarnings = {
   apns: "APNs send failed; check credentials, topic, environment, and connectivity",
-  capacity: "wake skipped: too many pending wakes",
+  capacity: "wake skipped: push capacity reached",
   cleanup: "could not remove an expired push target",
   fcm: "FCM send failed; check project, sender permissions, and connectivity",
   lookup: "could not load a push target",
@@ -240,8 +242,14 @@ export const createMailboxHandler = (deps: MailboxHandlerDeps) => {
   const now = deps.now ?? Date.now;
   const authorizer = createDeviceAuthorizer(deps.registry, now);
   const { wake } = deps;
+  let closed = false;
   let pendingWakeups = 0;
   const lastWakeWarning = new Map<keyof typeof wakeWarnings, number>();
+
+  const coolingDown = new Map<
+    string,
+    { queued: boolean; timer: ReturnType<typeof setTimeout> }
+  >();
 
   const warnWake = (category: keyof typeof wakeWarnings) => {
     const timestamp = now();
@@ -254,7 +262,7 @@ export const createMailboxHandler = (deps: MailboxHandlerDeps) => {
     }
   };
 
-  const wakeRecipient = (deviceKey: string) => {
+  const sendWake = (deviceKey: string) => {
     if (!wake?.apns && !wake?.fcm) {
       return;
     }
@@ -293,6 +301,41 @@ export const createMailboxHandler = (deps: MailboxHandlerDeps) => {
     };
 
     void send();
+  };
+
+  const wakeRecipient = (deviceKey: string) => {
+    if (closed || (!wake?.apns && !wake?.fcm)) {
+      return;
+    }
+
+    const cooldown = coolingDown.get(deviceKey);
+
+    if (cooldown) {
+      cooldown.queued = true;
+
+      return;
+    }
+
+    if (coolingDown.size >= MAX_WAKE_RECIPIENTS) {
+      warnWake("capacity");
+
+      return;
+    }
+
+    const window = {
+      queued: false,
+      timer: setTimeout(() => {
+        coolingDown.delete(deviceKey);
+
+        if (window.queued) {
+          wakeRecipient(deviceKey);
+        }
+      }, RECIPIENT_WAKE_INTERVAL_MS),
+    };
+
+    window.timer.unref();
+    coolingDown.set(deviceKey, window);
+    sendWake(deviceKey);
   };
 
   const registerPush = (deviceKey: string, target: MailboxPushTarget) =>
@@ -480,6 +523,15 @@ export const createMailboxHandler = (deps: MailboxHandlerDeps) => {
 
   return {
     authorizeCaller: authorizer.authorize,
+    close: () => {
+      closed = true;
+
+      for (const { timer } of coolingDown.values()) {
+        clearTimeout(timer);
+      }
+
+      coolingDown.clear();
+    },
     handle,
     handleAuthorized,
   };
@@ -615,6 +667,7 @@ export const startMailboxServer = (
   return {
     close: () => {
       clearInterval(pruneTimer);
+      handler.close();
       endpoint.close();
     },
     listenAddrs: () => endpoint.listenAddrs(),

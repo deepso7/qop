@@ -59,7 +59,7 @@ const makeMockRegistry = (
 });
 
 describe("mailbox server hardening and transport", () => {
-  it("wakes the registered recipient once for a committed encrypted deposit", async () => {
+  it("wakes after commit, deduplicates retries, and coalesces a burst per recipient", async () => {
     const store = await Effect.runPromise(
       openMailboxStore(await makeTempDir())
     );
@@ -84,7 +84,7 @@ describe("mailbox server hardening and transport", () => {
       wake: {
         fcm: async (targetToken) => {
           const pending = await Effect.runPromise(
-            store.fetch(recipient.deviceKeyHex, 1, 128 * 1024, Date.now())
+            store.fetch(recipient.deviceKeyHex, 32, 128 * 1024, Date.now())
           );
 
           wakeups.push({ pending: pending.items.length, token: targetToken });
@@ -94,6 +94,7 @@ describe("mailbox server hardening and transport", () => {
     });
 
     try {
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
       expect(
         await Effect.runPromise(
           handler.handleAuthorized(recipient.deviceKeyHex, "2", {
@@ -104,45 +105,70 @@ describe("mailbox server hardening and transport", () => {
         )
       ).toEqual({ type: "push-registered", v: 1 });
 
-      const id = "c56a4180-65aa-42ec-a945-5fd21dec0538";
-
-      const sealed = await createChatCipher(sender.secret).seal(
-        { fromHandle: "alice", id, sentAt: Date.now(), text: "private", v: 1 },
-        recipient.publicKey
-      );
-
-      const deposit = {
-        items: [
+      const sendDeposit = async (id: string) => {
+        const sealed = await createChatCipher(sender.secret).seal(
           {
-            envelope: encodeBase64(sealed),
+            fromHandle: "alice",
             id,
-            recipientDeviceKey: recipient.deviceKeyHex,
+            sentAt: Date.now(),
+            text: "private",
+            v: 1,
           },
-        ],
-        type: "deposit",
-        v: 1,
-      } as const;
-
-      const sendDeposit = () =>
-        Effect.runPromise(
-          handler.handleAuthorized(sender.deviceKeyHex, "1", deposit)
+          recipient.publicKey
         );
 
-      const deposited = {
-        items: [{ id, recipientDeviceKey: recipient.deviceKeyHex }],
-        type: "deposited",
-        v: 1,
+        return Effect.runPromise(
+          handler.handleAuthorized(sender.deviceKeyHex, "1", {
+            items: [
+              {
+                envelope: encodeBase64(sealed),
+                id,
+                recipientDeviceKey: recipient.deviceKeyHex,
+              },
+            ],
+            type: "deposit",
+            v: 1,
+          })
+        );
       };
 
-      expect(await sendDeposit()).toEqual(deposited);
-      expect(await sendDeposit()).toEqual(deposited);
+      const id = "c56a4180-65aa-42ec-a945-5fd21dec0538";
 
-      await delay(0);
+      const deposited = (messageId: string) => ({
+        items: [{ id: messageId, recipientDeviceKey: recipient.deviceKeyHex }],
+        type: "deposited",
+        v: 1,
+      });
+
+      expect(await sendDeposit(id)).toEqual(deposited(id));
+      await vi.advanceTimersByTimeAsync(0);
       expect(wakeups).toEqual([{ pending: 1, token: token.token }]);
       expect(warning.mock.calls.flat()).toEqual([
         "qop-mailbox push: FCM send failed; check project, sender permissions, and connectivity\n",
       ]);
+
+      expect(await sendDeposit(id)).toEqual(deposited(id));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(wakeups).toHaveLength(1);
+
+      const second = "c56a4180-65aa-42ec-a945-5fd21dec0539";
+      const third = "c56a4180-65aa-42ec-a945-5fd21dec0540";
+      const fourth = "c56a4180-65aa-42ec-a945-5fd21dec0541";
+      expect(await sendDeposit(second)).toEqual(deposited(second));
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(await sendDeposit(third)).toEqual(deposited(third));
+      expect(await sendDeposit(fourth)).toEqual(deposited(fourth));
+      await vi.advanceTimersByTimeAsync(58_999);
+      expect(wakeups).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(wakeups).toEqual([
+        { pending: 1, token: token.token },
+        { pending: 2, token: token.token },
+        { pending: 4, token: token.token },
+      ]);
     } finally {
+      handler.close();
+      vi.useRealTimers();
       warning.mockRestore();
       store.close();
     }
