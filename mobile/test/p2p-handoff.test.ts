@@ -218,6 +218,26 @@ describe("phone to CLI handoff", () => {
     );
     expect(send).not.toHaveBeenCalled();
   });
+
+  it("fails an invalid message locally without handing it off to a holder", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "not-a-uuid",
+      sentAt: 1,
+      status: "queued",
+      text: "invalid id",
+    });
+    await useP2pStore.getState().start();
+    await vi.waitFor(async () =>
+      expect(await getMessageById("not-a-uuid", "1")).toMatchObject({
+        status: "failed",
+      })
+    );
+    expect(send).not.toHaveBeenCalled();
+    expect(handoff).not.toHaveBeenCalled();
+  });
+
   it("marks a send held when the CLI accepts and Bob does not", async () => {
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
@@ -561,7 +581,7 @@ describe("phone to CLI handoff", () => {
       direction: "out",
       id: pendingId,
       sentAt: 2,
-      status: "sending",
+      status: "queued",
       text: "pending",
     });
     connectionEstablished?.({ connId: 4, peerId: PEER_CLI_OTHER });
@@ -725,7 +745,7 @@ describe("phone to CLI handoff", () => {
       direction: "out",
       id: pendingId,
       sentAt: 2,
-      status: "sending",
+      status: "queued",
       text: "pending",
     });
     connectionEstablished?.({ connId: 20, peerId: PEER_CLI_OTHER });
@@ -776,7 +796,7 @@ describe("phone to CLI handoff", () => {
       direction: "out",
       id: pendingId,
       sentAt: 2,
-      status: "sending",
+      status: "queued",
       text: "pending",
     });
     connectionEstablished?.({ connId: 20, peerId: PEER_CLI });
@@ -813,7 +833,7 @@ describe("phone to CLI handoff", () => {
       direction: "out",
       id: pendingId,
       sentAt: 2,
-      status: "sending",
+      status: "queued",
       text: "pending",
     });
     lookupHandle.mockImplementation((handle: string) =>
@@ -823,7 +843,7 @@ describe("phone to CLI handoff", () => {
     await Effect.runPromise(Effect.sleep(50));
     expect(aliceLookups()).toHaveLength(1);
     expect(await getMessageById(pendingId)).toMatchObject({
-      status: "sending",
+      status: "queued",
     });
 
     useP2pStore.getState().invalidateOwnHolders();
@@ -874,7 +894,7 @@ describe("phone to CLI handoff", () => {
       direction: "out",
       id: pendingId,
       sentAt: 2,
-      status: "sending",
+      status: "queued",
       text: "pending",
     });
     connectedPeers.mockReturnValue([PEER_CLI]);

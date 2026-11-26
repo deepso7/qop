@@ -5,26 +5,6 @@ let failingRun:
   | { readonly matches: (sql: string) => boolean; readonly fired: () => void }
   | undefined;
 
-let pausedRun:
-  | {
-      readonly matches: (sql: string) => boolean;
-      readonly started: () => void;
-      readonly resume: Promise<true>;
-    }
-  | undefined;
-
-export const pauseNextRun = (matches: (sql: string) => boolean) => {
-  const started = Promise.withResolvers<true>();
-  const resume = Promise.withResolvers<true>();
-  pausedRun = {
-    matches,
-    started: () => started.resolve(true),
-    resume: resume.promise,
-  };
-
-  return { started: started.promise, resume: () => resume.resolve(true) };
-};
-
 /**
  * Makes the next `runAsync` whose SQL matches reject, like a storage error.
  * Resolves once that write has failed.
@@ -41,14 +21,6 @@ export const openDatabaseAsync = () => {
   const database = new DatabaseSync(":memory:");
 
   const runAsync = (sql: string, ...params: SQLInputValue[]) => {
-    if (pausedRun?.matches(sql)) {
-      const paused = pausedRun;
-      pausedRun = undefined;
-      paused.started();
-
-      return paused.resume.then(() => database.prepare(sql).run(...params));
-    }
-
     if (failingRun?.matches(sql)) {
       failingRun.fired();
       failingRun = undefined;

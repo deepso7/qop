@@ -2,8 +2,9 @@ import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  advanceMessageStatus,
   deleteAll,
-  failInterruptedMessages,
+  expediteMessageRetries,
   failRejectedHandoff,
   getContactByQid,
   getHolderInboxCursor,
@@ -13,10 +14,10 @@ import {
   listMessages,
   markConversationRead,
   markMessageHeld,
-  queueMessageRetry,
+  recordMessageRetry,
+  retryFailedMessage,
   setHolderInboxCursor,
   upsertContact,
-  advanceMessageStatus,
 } from "@/lib/db";
 import type { MessageInput } from "@/lib/db";
 
@@ -153,87 +154,11 @@ describe("message chronology", () => {
       direction: "out",
       id: "recent",
       sentAt: 200,
-      status: "sending",
+      status: "queued",
       text: "latest activity",
     });
     const conversations = await listConversations();
     expect(conversations.map(({ qid }) => qid)).toEqual(["2", "1"]);
-  });
-});
-
-describe("interrupted sends", () => {
-  it("makes only outgoing sending messages retryable without changing their contents", async () => {
-    const inputs: MessageInput[] = [
-      {
-        contactQid: "1",
-        direction: "out",
-        id: "sending",
-        sentAt: 100,
-        status: "sending",
-        text: "keep for retry",
-      },
-      {
-        contactQid: "1",
-        direction: "out",
-        id: "sent",
-        sentAt: 100,
-        status: "sent",
-        text: "delivered",
-      },
-      {
-        contactQid: "1",
-        direction: "out",
-        id: "failed",
-        sentAt: 100,
-        status: "failed",
-        text: "already failed",
-      },
-      {
-        contactQid: "1",
-        direction: "in",
-        id: "received",
-        sentAt: 100,
-        status: "received",
-        text: "incoming",
-      },
-      {
-        contactQid: "1",
-        direction: "in",
-        id: "incoming-sending",
-        sentAt: 100,
-        status: "sending",
-        text: "incoming state",
-      },
-    ];
-
-    await Promise.all(inputs.map((input) => insertMessage(input)));
-    const before = await listMessages("1");
-    await failInterruptedMessages();
-    const after = await listMessages("1");
-    expect(after).toEqual(
-      before.map((message) =>
-        message.id === "sending" ? { ...message, status: "queued" } : message
-      )
-    );
-    expect(await getMessageById("sending")).toEqual({
-      ...before[0],
-      status: "queued",
-    });
-    await failInterruptedMessages();
-    expect(await listMessages("1")).toEqual(after);
-  });
-
-  it("keeps held messages pending across restart", async () => {
-    await insertMessage({
-      contactQid: "1",
-      direction: "out",
-      id: "held",
-      sentAt: 100,
-      status: "held",
-      text: "waiting on CLI",
-    });
-    await failInterruptedMessages();
-    expect(await getMessageById("held")).toMatchObject({ status: "held" });
   });
 });
 
@@ -254,10 +179,7 @@ describe("delivery status transitions", () => {
         [2000, 4000, 8000, 16_000, 32_000, 60_000, 60_000],
         (delay, index) =>
           Effect.promise(async () => {
-            expect(await advanceMessageStatus("retry", "sending", "1")).toBe(
-              true
-            );
-            await queueMessageRetry("retry", "1");
+            expect(await recordMessageRetry("retry", "1")).toBe(1000 + delay);
             expect(await getMessageById("retry")).toMatchObject({
               attempts: index + 1,
               nextAttemptAt: 1000 + delay,
@@ -268,21 +190,92 @@ describe("delivery status transitions", () => {
       )
     );
 
-    await advanceMessageStatus("retry", "sending", "1");
-    await advanceMessageStatus("retry", "sent", "1");
-    await queueMessageRetry("retry", "1");
+    // An expedited retry writes nextAttemptAt = 0 so it retries immediately.
+    expect(await recordMessageRetry("retry", "1", true)).toBe(0);
     expect(await getMessageById("retry")).toMatchObject({
+      attempts: 8,
+      nextAttemptAt: 0,
+      status: "queued",
+    });
+
+    await advanceMessageStatus("retry", "sent", "1");
+    expect(await recordMessageRetry("retry", "1")).toBeNull();
+    expect(await getMessageById("retry")).toMatchObject({
+      attempts: 8,
       status: "sent",
-      attempts: 7,
     });
   });
+
+  it("resets backoff state when manually retrying a failed message", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "manual-retry",
+      sentAt: 100,
+      status: "queued",
+      text: "hello",
+    });
+    vi.setSystemTime(1000);
+    await recordMessageRetry("manual-retry", "1");
+    await recordMessageRetry("manual-retry", "1");
+    await advanceMessageStatus("manual-retry", "failed", "1");
+
+    expect(await retryFailedMessage("manual-retry", "1")).toBe(true);
+    expect(await getMessageById("manual-retry")).toMatchObject({
+      attempts: 0,
+      holderPeerId: null,
+      nextAttemptAt: 0,
+      status: "queued",
+    });
+    expect(await retryFailedMessage("manual-retry", "1")).toBe(false);
+  });
+
+  it("expedites queued retries for one contact or all contacts", async () => {
+    await upsertContact({
+      createdAt: 2,
+      deviceKey: "bob-device",
+      handle: "bob",
+      owner: "bob-owner",
+      peerId: "bob-peer",
+      qid: "2",
+    });
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "m1",
+      sentAt: 1,
+      status: "queued",
+      text: "one",
+    });
+    await insertMessage({
+      contactQid: "2",
+      direction: "out",
+      id: "m2",
+      sentAt: 1,
+      status: "queued",
+      text: "two",
+    });
+    vi.setSystemTime(1000);
+    await recordMessageRetry("m1", "1");
+    await recordMessageRetry("m2", "2");
+
+    await expediteMessageRetries("1");
+    expect(await getMessageById("m1", "1")).toMatchObject({ nextAttemptAt: 0 });
+    expect(await getMessageById("m2", "2")).toMatchObject({
+      nextAttemptAt: 3000,
+    });
+
+    await expediteMessageRetries();
+    expect(await getMessageById("m2", "2")).toMatchObject({ nextAttemptAt: 0 });
+  });
+
   it("does not let a late held clobber sent", async () => {
     await insertMessage({
       contactQid: "1",
       direction: "out",
       id: "race",
       sentAt: 100,
-      status: "sending",
+      status: "queued",
       text: "hello",
     });
     expect(await advanceMessageStatus("race", "sent", "1")).toBe(true);
@@ -305,7 +298,7 @@ describe("delivery status transitions", () => {
     });
   });
 
-  it("promotes held to failed when the CLI permanently rejects the id", async () => {
+  it("promotes held to failed when the holder permanently rejects the id", async () => {
     await insertMessage({
       contactQid: "1",
       direction: "out",
@@ -328,7 +321,7 @@ describe("delivery status transitions", () => {
       direction: "out",
       id: "held-by",
       sentAt: 100,
-      status: "sending",
+      status: "queued",
       text: "hello",
     });
     expect(await markMessageHeld("held-by", "cli-peer", "1")).toBe(true);
@@ -360,25 +353,6 @@ describe("delivery status transitions", () => {
       holderPeerId: null,
       status: "failed",
     });
-  });
-
-  it("lets a manual retry move failed back to sending", async () => {
-    await insertMessage({
-      contactQid: "1",
-      direction: "out",
-      id: "retry-send",
-      sentAt: 100,
-      status: "failed",
-      text: "hello",
-    });
-    expect(await advanceMessageStatus("retry-send", "sending", "1")).toBe(true);
-    expect(await getMessageById("retry-send")).toMatchObject({
-      holderPeerId: null,
-      status: "sending",
-    });
-    expect(await advanceMessageStatus("retry-send", "sending", "1")).toBe(
-      false
-    );
   });
 });
 
@@ -492,7 +466,7 @@ describe("message id dedupe", () => {
         direction: "out",
         id: sharedId,
         sentAt: 100,
-        status: "sending",
+        status: "queued",
         text: "to alice",
       })
     ).toBe(true);
@@ -538,7 +512,7 @@ describe("message id dedupe", () => {
         direction: "out",
         id: sharedId,
         sentAt: 100,
-        status: "sending",
+        status: "queued",
         text: "to alice",
       })
     ).toBe(true);
@@ -548,7 +522,7 @@ describe("message id dedupe", () => {
         direction: "out",
         id: sharedId,
         sentAt: 100,
-        status: "sending",
+        status: "queued",
         text: "to carol",
       })
     ).toBe(true);
@@ -559,14 +533,14 @@ describe("message id dedupe", () => {
     });
     expect(await getMessageById(sharedId, "2")).toMatchObject({
       holderPeerId: null,
-      status: "sending",
+      status: "queued",
     });
     await failRejectedHandoff(sharedId, "1");
     expect(await getMessageById(sharedId, "1")).toMatchObject({
       status: "failed",
     });
     expect(await getMessageById(sharedId, "2")).toMatchObject({
-      status: "sending",
+      status: "queued",
     });
   });
 });
@@ -582,7 +556,7 @@ describe("holder inbox cursors", () => {
     expect(await getHolderInboxCursor("other")).toBe(0);
   });
 
-  it("keeps v4 messages when migrating to holder cursors", async () => {
+  it("keeps v4 messages when migrating to v6", async () => {
     const sqlite = await import("expo-sqlite");
     const database = await sqlite.openDatabaseAsync("migration");
     await database.execAsync(`
@@ -614,6 +588,9 @@ describe("holder inbox cursors", () => {
       INSERT INTO messages(
         contact_qid, id, direction, text, sent_at, received_at, status
       ) VALUES ('1', 'kept', 'in', 'stay', 10, 11, 'received');
+      INSERT INTO messages(
+        contact_qid, id, direction, text, sent_at, received_at, status
+      ) VALUES ('1', 'legacy-sending', 'out', 'retry me', 12, 13, 'sending');
       PRAGMA user_version = 4;
     `);
     vi.resetModules();
@@ -623,6 +600,12 @@ describe("holder inbox cursors", () => {
     expect(await migrated.getMessageById("kept", "1")).toMatchObject({
       status: "received",
       text: "stay",
+    });
+    expect(await migrated.getMessageById("legacy-sending", "1")).toMatchObject({
+      attempts: 0,
+      nextAttemptAt: 0,
+      status: "queued",
+      text: "retry me",
     });
     expect(await migrated.getHolderInboxCursor("holder")).toBe(0);
     await migrated.setHolderInboxCursor("holder", 3);

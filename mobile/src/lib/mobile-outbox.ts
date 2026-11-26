@@ -1,114 +1,190 @@
-import { Effect, Queue, Semaphore } from "effect";
+import { Effect, Queue } from "effect";
 
 import type { StoredMessage } from "./db";
 
-interface OutboxDependencies {
-  readonly list: () => Promise<readonly StoredMessage[]>;
+export type DeliveryOutcome =
+  | { readonly kind: "aborted" }
+  | { readonly kind: "delivered" }
+  | { readonly kind: "failed" }
+  | { readonly kind: "retry"; readonly nextAttemptAt: number };
+
+export interface OutboxWakeOptions {
+  readonly contactQid?: string;
+  readonly expediteAll?: boolean;
+}
+
+export interface OutboxDependencies {
   readonly deliver: (
     message: StoredMessage,
-    signal: AbortSignal
-  ) => Promise<StoredMessage | null>;
-  readonly expedite: (qid?: string) => Promise<void>;
+    signal: AbortSignal,
+    wasExpedited: () => boolean
+  ) => Promise<DeliveryOutcome>;
+  readonly expedite: (contactQid?: string) => Promise<void>;
+  readonly list: () => Promise<readonly StoredMessage[]>;
   readonly reconcile: () => Promise<void>;
 }
 
-type OutboxEvent =
-  | { readonly _tag: "Wake" | "Tick" | "Reconciled" }
-  | {
-      readonly _tag: "Delivered";
-      readonly message: StoredMessage;
-      readonly result: StoredMessage | null;
-    };
+const MAX_IN_FLIGHT = 64;
+const MAX_ACTIVE_CONTACTS = 8;
+const HELD_RECONCILE_INTERVAL_MS = 30_000;
+const ERROR_RETRY_MS = 2000;
 
-const messageKey = (message: StoredMessage) =>
-  `${message.contactQid}:${message.id}`;
+const messageKey = (contactQid: string, id: string) => `${contactQid}:${id}`;
 
+/**
+ * Durable outbox scheduler backed directly by SQLite (no mirrored row cache).
+ *
+ * - Fresh messages (`attempts === 0`) and healthy contacts fan out up to 64 sends
+ *   across 8 contacts so online bursts stay fast.
+ * - Retrying contacts (`attempts > 0`) probe 1 message per backoff window so an
+ *   offline contact never triggers a parallel dial/RPC storm; once the probe
+ *   succeeds, remaining due messages for that contact fan out immediately.
+ * - Periodic held-receipt reconciliation runs on an independent timer so slow
+ *   holder polls never block new sends or peer-connect wakes.
+ */
 export const createMobileOutbox = ({
-  list,
   deliver,
   expedite,
+  list,
   reconcile,
 }: OutboxDependencies) => {
   const controller = new AbortController();
-  const events = Effect.runSync(Queue.unbounded<OutboxEvent>());
-  const slots = Effect.runSync(Semaphore.make(64));
-  const pending = new Map<string, StoredMessage>();
-  const inFlight = new Map<string, StoredMessage>();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let reconcileAt = Date.now() + 30_000;
-  let reconciling = false;
+  const wakes = Effect.runSync(Queue.unbounded<true>());
+  const inFlight = new Map<string, string>();
+  const contactCooldownUntil = new Map<string, number>();
+  const healthyContacts = new Set<string>();
 
-  const remember = (key: string, message: StoredMessage | null) => {
-    if (
-      message &&
-      (message.status === "queued" ||
-        message.status === "held" ||
-        message.status === "sending")
-    ) {
-      pending.set(key, message);
-    } else {
-      pending.delete(key);
+  let expediteSeq = 0;
+  let expeditedAllSeq = 0;
+  const expeditedContactSeq = new Map<string, number>();
+
+  let retryTimer: ReturnType<typeof setTimeout> | undefined;
+  let reconcileTimer: ReturnType<typeof setTimeout> | undefined;
+  let reconcileInFlight = false;
+
+  const notify = () => {
+    if (!controller.signal.aborted) {
+      Queue.offerUnsafe(wakes, true);
     }
   };
 
-  const arm = (at: number, refresh = false) => {
-    clearTimeout(timer);
+  const armRetry = (at: number) => {
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
 
     if (!controller.signal.aborted && Number.isFinite(at)) {
-      timer = setTimeout(
-        () => {
-          Queue.offerUnsafe(events, { _tag: refresh ? "Wake" : "Tick" });
-        },
-        Math.max(0, at - Date.now())
+      retryTimer = setTimeout(notify, Math.max(0, at - Date.now()));
+    }
+  };
+
+  const runPeriodicReconcile = () => {
+    reconcileTimer = undefined;
+
+    if (controller.signal.aborted || reconcileInFlight) {
+      return;
+    }
+
+    reconcileInFlight = true;
+    void reconcile()
+      .catch(() => {
+        // Reconcile is best-effort; retry on the next 30s tick if held rows remain.
+      })
+      .finally(() => {
+        reconcileInFlight = false;
+        notify();
+      });
+  };
+
+  const syncReconcileTimer = (hasHeld: boolean) => {
+    if (!hasHeld) {
+      clearTimeout(reconcileTimer);
+      reconcileTimer = undefined;
+
+      return;
+    }
+
+    if (!reconcileTimer && !reconcileInFlight && !controller.signal.aborted) {
+      reconcileTimer = setTimeout(
+        runPeriodicReconcile,
+        HELD_RECONCILE_INTERVAL_MS
       );
     }
   };
 
+  const makeExpeditedCheck = (qid: string, startedSeq: number) => () =>
+    Math.max(expeditedAllSeq, expeditedContactSeq.get(qid) ?? 0) > startedSeq;
+
   const dispatch = Effect.fnUntraced(function* (
     groups: ReadonlyMap<string, readonly StoredMessage[]>,
-    contacts: Map<string, number>
+    activePerContact: Map<string, number>
   ) {
     const ready = [...groups].toSorted(
-      ([a], [b]) => (contacts.get(a) ?? 0) - (contacts.get(b) ?? 0)
+      ([a], [b]) =>
+        (activePerContact.get(a) ?? 0) - (activePerContact.get(b) ?? 0)
     );
 
-    for (let round = 0; inFlight.size < 64; round += 1) {
+    for (let round = 0; inFlight.size < MAX_IN_FLIGHT; round += 1) {
       let started = false;
 
       for (const [qid, messages] of ready) {
         const message = messages[round];
 
+        if (!message || inFlight.size >= MAX_IN_FLIGHT) {
+          continue;
+        }
+
+        const activeForContact = activePerContact.get(qid) ?? 0;
+
         if (
-          !message ||
-          inFlight.size >= 64 ||
-          (!contacts.has(qid) && contacts.size >= 8)
+          activeForContact === 0 &&
+          activePerContact.size >= MAX_ACTIVE_CONTACTS
         ) {
           continue;
         }
 
+        // Probe backed-off contacts 1 message at a time until a send succeeds.
+        if (
+          message.attempts > 0 &&
+          !healthyContacts.has(qid) &&
+          activeForContact >= 1
+        ) {
+          continue;
+        }
+
+        const key = messageKey(qid, message.id);
+        const wasExpedited = makeExpeditedCheck(qid, expediteSeq);
+
         started = true;
-        inFlight.set(messageKey(message), message);
-        contacts.set(qid, (contacts.get(qid) ?? 0) + 1);
+        inFlight.set(key, qid);
+        activePerContact.set(qid, activeForContact + 1);
+
         yield* Effect.forkScoped(
-          slots
-            .withPermit(
-              Effect.promise((abort) => deliver(message, abort)).pipe(
-                Effect.catchCause(() =>
-                  Effect.succeed({
-                    ...message,
-                    nextAttemptAt: Date.now() + 2000,
-                  })
-                )
+          Effect.promise((signal) => deliver(message, signal, wasExpedited))
+            .pipe(
+              Effect.catchCause(() =>
+                Effect.succeed<DeliveryOutcome>({
+                  kind: "retry",
+                  nextAttemptAt: Date.now() + ERROR_RETRY_MS,
+                })
               )
             )
             .pipe(
-              Effect.tap((result) =>
+              Effect.tap((outcome) =>
                 Effect.sync(() => {
-                  Queue.offerUnsafe(events, {
-                    _tag: "Delivered",
-                    message,
-                    result,
-                  });
+                  inFlight.delete(key);
+
+                  if (outcome.kind === "delivered") {
+                    contactCooldownUntil.delete(qid);
+                    healthyContacts.add(qid);
+                  } else if (outcome.kind === "retry") {
+                    healthyContacts.delete(qid);
+
+                    if (!wasExpedited() && outcome.nextAttemptAt > Date.now()) {
+                      contactCooldownUntil.set(qid, outcome.nextAttemptAt);
+                    }
+                  }
+
+                  notify();
                 })
               )
             )
@@ -121,94 +197,62 @@ export const createMobileOutbox = ({
     }
   });
 
-  const refresh = Effect.promise(list).pipe(
-    Effect.tap((rows) =>
-      Effect.sync(() => {
-        pending.clear();
-
-        for (const row of rows) {
-          remember(messageKey(row), row);
-        }
-      })
-    )
-  );
-
   const sweep = Effect.gen(function* () {
-    const batch = yield* Queue.takeAll(events);
-    clearTimeout(timer);
+    yield* Queue.takeAll(wakes);
+    clearTimeout(retryTimer);
+    retryTimer = undefined;
 
-    for (const event of batch) {
-      if (event._tag === "Delivered") {
-        const key = messageKey(event.message);
-        inFlight.delete(key);
-        remember(key, event.result);
-      }
-    }
-
-    const reconciled = batch.some((event) => event._tag === "Reconciled");
-
-    if (reconciled) {
-      reconciling = false;
-      reconcileAt = Date.now() + 30_000;
-    }
-
-    if (reconciled || batch.some((event) => event._tag === "Wake")) {
-      yield* refresh;
-    }
-
+    const rows = yield* Effect.promise(list);
     const now = Date.now();
+    let hasHeld = false;
 
-    if (
-      !reconciling &&
-      now >= reconcileAt &&
-      [...pending.values()].some((row) => row.status === "held")
-    ) {
-      reconciling = true;
-      yield* Effect.forkScoped(
-        Effect.promise(reconcile).pipe(
-          Effect.catchCause(() => Effect.void),
-          Effect.tap(() =>
-            Effect.sync(() => {
-              Queue.offerUnsafe(events, { _tag: "Reconciled" });
-            })
-          )
-        )
-      );
-    }
+    const activePerContact = new Map<string, number>();
 
-    const contacts = new Map<string, number>();
-
-    for (const message of inFlight.values()) {
-      contacts.set(
-        message.contactQid,
-        (contacts.get(message.contactQid) ?? 0) + 1
-      );
+    for (const qid of inFlight.values()) {
+      activePerContact.set(qid, (activePerContact.get(qid) ?? 0) + 1);
     }
 
     const groups = new Map<string, StoredMessage[]>();
-    let next = Number.POSITIVE_INFINITY;
+    let nextWakeAt = Number.POSITIVE_INFINITY;
 
-    for (const [key, message] of pending) {
+    for (const row of rows) {
+      if (row.status === "held") {
+        hasHeld = true;
+        continue;
+      }
+
+      if (row.status !== "queued") {
+        continue;
+      }
+
+      const key = messageKey(row.contactQid, row.id);
+
       if (inFlight.has(key)) {
         continue;
       }
 
-      if (message.status === "held") {
-        if (!reconciling) {
-          next = Math.min(next, reconcileAt);
-        }
-      } else if (message.nextAttemptAt > now) {
-        next = Math.min(next, message.nextAttemptAt);
+      const cooldown =
+        row.attempts > 0 ? (contactCooldownUntil.get(row.contactQid) ?? 0) : 0;
+
+      const dueAt = Math.max(row.nextAttemptAt, cooldown);
+
+      if (dueAt > now) {
+        nextWakeAt = Math.min(nextWakeAt, dueAt);
+        continue;
+      }
+
+      const group = groups.get(row.contactQid);
+
+      if (group) {
+        group.push(row);
       } else {
-        const group = groups.get(message.contactQid) ?? [];
-        group.push(message);
-        groups.set(message.contactQid, group);
+        groups.set(row.contactQid, [row]);
       }
     }
 
-    yield* dispatch(groups, contacts);
-
-    arm(next);
+    syncReconcileTimer(hasHeld);
+    yield* dispatch(groups, activePerContact);
+    armRetry(nextWakeAt);
   });
 
   void Effect.runPromiseExit(
@@ -216,7 +260,7 @@ export const createMobileOutbox = ({
       Effect.forever(
         sweep.pipe(
           Effect.catchCause(() =>
-            Effect.sync(() => arm(Date.now() + 2000, true))
+            Effect.sync(() => armRetry(Date.now() + ERROR_RETRY_MS))
           )
         )
       )
@@ -224,31 +268,43 @@ export const createMobileOutbox = ({
     { signal: controller.signal }
   );
 
-  const wake = async (qid?: string, sync = false): Promise<void> => {
+  const wake = async (options?: OutboxWakeOptions): Promise<void> => {
     if (controller.signal.aborted) {
       return;
     }
 
-    if (qid || sync) {
-      await expedite(qid).catch(() => {
-        // A failed early wake keeps the persisted retry deadline.
+    const contactQid = options?.contactQid;
+    const expediteAll = options?.expediteAll === true;
+
+    if (contactQid !== undefined || expediteAll) {
+      expediteSeq += 1;
+
+      if (expediteAll) {
+        expeditedAllSeq = expediteSeq;
+        contactCooldownUntil.clear();
+      } else if (contactQid !== undefined) {
+        expeditedContactSeq.set(contactQid, expediteSeq);
+        contactCooldownUntil.delete(contactQid);
+      }
+
+      await expedite(contactQid).catch(() => {
+        // Keep the persisted retry deadline if expediting fails.
       });
     }
 
-    if (sync) {
-      reconcileAt = Date.now();
-    }
-
-    if (!controller.signal.aborted) {
-      Queue.offerUnsafe(events, { _tag: "Wake" });
-    }
+    notify();
   };
 
   return {
     close: () => {
       controller.abort();
-      clearTimeout(timer);
+      clearTimeout(retryTimer);
+      clearTimeout(reconcileTimer);
+      retryTimer = undefined;
+      reconcileTimer = undefined;
     },
+    isInFlight: (contactQid: string, id: string) =>
+      inFlight.has(messageKey(contactQid, id)),
     wake,
   };
 };

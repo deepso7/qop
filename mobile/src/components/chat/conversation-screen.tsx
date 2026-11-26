@@ -64,15 +64,7 @@ const getMessagePresentation = (item: StoredMessage) => {
     return { metaStatus: undefined, outgoing, tone: "failed" as const };
   }
 
-  if (item.status === "sending" || item.status === "queued") {
-    return {
-      metaStatus: "sending" as const,
-      outgoing,
-      tone: "pending" as const,
-    };
-  }
-
-  if (item.status === "held") {
+  if (item.status === "queued" || item.status === "held") {
     return {
       metaStatus: "sending" as const,
       outgoing,
@@ -90,11 +82,16 @@ const getMessagePresentation = (item: StoredMessage) => {
 const ConversationMessageRow = ({
   item,
   retry,
+  running,
 }: {
   item: StoredMessage;
   retry: (id: string) => void;
+  running: boolean;
 }) => {
   const { metaStatus, outgoing, tone } = getMessagePresentation(item);
+
+  const showWaitingToSend =
+    item.status === "queued" && (item.attempts > 0 || !running);
 
   return (
     <Message align={outgoing ? "end" : "start"}>
@@ -116,7 +113,7 @@ const ConversationMessageRow = ({
         {item.status === "held" ? (
           <MessageStatus disabled label="Waiting on your other device" />
         ) : null}
-        {item.status === "queued" ? (
+        {showWaitingToSend ? (
           <MessageStatus disabled label="Waiting to send" />
         ) : null}
       </MessageContent>
@@ -307,9 +304,13 @@ const ConversationScreen = ({ contact }: { contact: Contact }) => {
     [contact.qid, retryMessage]
   );
 
+  const isRunning = status === "running";
+
   const renderItem = React.useCallback<ListRenderItem<StoredMessage>>(
-    ({ item }) => <ConversationMessage item={item} retry={retry} />,
-    [retry]
+    ({ item }) => (
+      <ConversationMessage item={item} retry={retry} running={isRunning} />
+    ),
+    [isRunning, retry]
   );
 
   const submit = React.useCallback(() => {
