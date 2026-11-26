@@ -310,6 +310,88 @@ describe("phone to CLI handoff", () => {
     expect(send).toHaveBeenCalledOnce();
   });
 
+  it("ignores late handoff dials after a direct send succeeds so future holder connects still wake in-flight sends", async () => {
+    const lateHandoffGate = Promise.withResolvers<undefined>();
+    const lateHandoffConnected = Promise.withResolvers<undefined>();
+    const secondSendGate = Promise.withResolvers<undefined>();
+    const secondSendStarted = Promise.withResolvers<undefined>();
+    let sendCalls = 0;
+
+    try {
+      send.mockImplementation(async () => {
+        sendCalls += 1;
+
+        if (sendCalls === 1) {
+          return;
+        }
+
+        if (sendCalls === 2) {
+          secondSendStarted.resolve(undefined);
+          await secondSendGate.promise;
+        }
+
+        throw new Error("bob offline");
+      });
+
+      let handoffCalls = 0;
+
+      handoff.mockImplementation(async ({ endpoint, holderPeerId }) => {
+        handoffCalls += 1;
+
+        if (handoffCalls === 1) {
+          await lateHandoffGate.promise;
+          await endpoint.connect(holderPeerId).catch(() => {
+            // Late dial runs after sendStoredMessage already released dial tracking.
+          });
+          lateHandoffConnected.resolve(undefined);
+
+          return;
+        }
+
+        if (handoffCalls === 2) {
+          throw new HandoffUndeliveredError("holder offline");
+        }
+      });
+
+      await useP2pStore.getState().start();
+      const contact = await getContactByQid("1");
+
+      if (!contact) {
+        throw new Error("Missing contact fixture");
+      }
+
+      const firstId = useP2pStore.getState().sendMessage(contact, "direct ok");
+      await vi.waitFor(async () =>
+        expect(await getMessageById(firstId, "1")).toMatchObject({
+          status: "sent",
+        })
+      );
+
+      lateHandoffGate.resolve(undefined);
+      await lateHandoffConnected.promise;
+
+      const secondId = useP2pStore
+        .getState()
+        .sendMessage(contact, "needs holder wake");
+
+      await secondSendStarted.promise;
+
+      connectionEstablished?.({ connId: 42, peerId: PEER_CLI });
+      await Effect.runPromise(Effect.sleep(20));
+      secondSendGate.resolve(undefined);
+
+      await vi.waitFor(async () =>
+        expect(await getMessageById(secondId, "1")).toMatchObject({
+          holderPeerId: PEER_CLI,
+          status: "held",
+        })
+      );
+    } finally {
+      lateHandoffGate.resolve(undefined);
+      secondSendGate.resolve(undefined);
+    }
+  });
+
   it("marks a send held when the CLI accepts and Bob does not", async () => {
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");

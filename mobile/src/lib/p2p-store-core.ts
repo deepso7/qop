@@ -1112,10 +1112,11 @@ export const createP2pStore = ({
     messageKey: string
   ) => {
     const dialedPeers = new Set<string>();
+    let released = false;
 
     const trackedEndpoint: Parameters<typeof performSend>[0]["endpoint"] = {
       connect: (peerId, options) => {
-        if (!dialedPeers.has(peerId)) {
+        if (!released && !dialedPeers.has(peerId)) {
           dialedPeers.add(peerId);
           const keys = outboxDialingPeers.get(peerId);
 
@@ -1136,6 +1137,12 @@ export const createP2pStore = ({
     };
 
     const release = () => {
+      if (released) {
+        return;
+      }
+
+      released = true;
+
       for (const peerId of dialedPeers) {
         const keys = outboxDialingPeers.get(peerId);
 
@@ -1149,6 +1156,8 @@ export const createP2pStore = ({
           outboxDialingPeers.delete(peerId);
         }
       }
+
+      dialedPeers.clear();
     };
 
     return { release, trackedEndpoint };
