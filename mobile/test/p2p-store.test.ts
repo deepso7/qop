@@ -28,6 +28,7 @@ import {
   recordMessageRetry,
   upsertContact,
 } from "@/lib/db";
+import { IdentityVaultError } from "@/lib/identity-vault-core";
 import type { performSend } from "@/lib/p2p-send";
 import { performSend as sendToPeer } from "@/lib/p2p-send";
 import { createP2pStore } from "@/lib/p2p-store-core";
@@ -1058,12 +1059,16 @@ describe("connectTo", () => {
 describe("mailbox fallback and drain", () => {
   const PEER_MAILBOX = "12D3KooWMailboxTestPeerId11111111111111111111111111";
 
+  const mailbox = {
+    addr: `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/${PEER_MAILBOX}`,
+    peerId: PEER_MAILBOX,
+  };
+
   const makeMailboxStream = (
-    onRequest: (request: MailboxRequest) => Uint8Array
+    onRequest: (request: MailboxRequest) => Uint8Array | Promise<Uint8Array>
   ) => {
     const written: Uint8Array[] = [];
-    let replyChunks: Uint8Array[] = [];
-    let readIndex = 0;
+    let reply: Uint8Array | Promise<Uint8Array> | undefined;
 
     return {
       closeWrite: () => {
@@ -1077,14 +1082,14 @@ describe("mailbox fallback and drain", () => {
         }
 
         const request = Effect.runSync(decodeMailboxRequestV1(body));
-        replyChunks = [onRequest(request)];
+        reply = onRequest(request);
       },
       connId: 99,
       peerId: PEER_MAILBOX,
       protocolId: MAILBOX_PROTOCOL,
       read: () => {
-        const chunk = replyChunks[readIndex];
-        readIndex += 1;
+        const chunk = reply;
+        reply = undefined;
 
         return Promise.resolve(chunk);
       },
@@ -1096,6 +1101,69 @@ describe("mailbox fallback and drain", () => {
       },
     };
   };
+
+  it("stops a cold wake without waiting for a stalled native stream", async () => {
+    const lateStream = makeMailboxStream(() => {
+      throw new Error("cancelled stream received a request");
+    });
+
+    const stream =
+      Promise.withResolvers<Awaited<ReturnType<P2pEndpoint["openStream"]>>>();
+
+    const openStream = vi.fn(() => stream.promise);
+
+    const store = createP2pStore({
+      createEndpoint: () => ({
+        bindAppState: () => () => {},
+        endpoint: {
+          activeReservation: () => {},
+          close: () => Promise.resolve(closeReport),
+          connect,
+          connectedPeers: () => [PEER_MAILBOX],
+          disconnect,
+          isPeerReady: () => true,
+          on: () => () => {},
+          onClose: () => () => {},
+          openStream,
+          path,
+          waitPeerReady: () =>
+            Promise.resolve({
+              peerId: PEER_MAILBOX,
+              protocols: [MAILBOX_PROTOCOL],
+            }),
+        },
+      }),
+      getIdentityHandle: () => "alice",
+      loadDeviceSecretKey: () => Effect.succeed(new Uint8Array(32).fill(2)),
+      lookupDeviceKey,
+      lookupHandle,
+      mailboxPush: {
+        canWake: () => true,
+        notify: vi.fn(),
+        registerTask: vi.fn(),
+      },
+      mailboxes: [mailbox],
+      performSend: send,
+      randomUUID: () => crypto.randomUUID(),
+    });
+
+    const wake = store.getState().wakeMailbox();
+    const wakeFinished = vi.fn();
+    void wake.then(wakeFinished).catch(wakeFinished);
+
+    try {
+      await vi.waitFor(() => expect(openStream).toHaveBeenCalledOnce());
+      const stop = store.getState().stop();
+      await vi.waitFor(() => expect(wakeFinished).toHaveBeenCalledWith(false));
+      await stop;
+    } finally {
+      // SAFETY: Test double implements the Stream methods used by mailbox I/O.
+      stream.resolve(lateStream as never);
+      await wake;
+    }
+
+    await vi.waitFor(() => expect(lateStream.reset).toHaveBeenCalledOnce());
+  });
 
   it("deposits to the configured mailbox inside the outbox when direct delivery fails", async () => {
     const depositedIds: string[] = [];
@@ -1233,168 +1301,232 @@ describe("mailbox fallback and drain", () => {
     }
   });
 
-  it("drains mailbox on app resume without clobbering existing contact peerId", async () => {
-    const bobSecret = new Uint8Array(32).fill(7);
-    const aliceSecret = new Uint8Array(32).fill(2);
-    const bobPub = Effect.runSync(deviceKeyFromEd25519SecretKey(bobSecret));
-    const bobKeyHex = Effect.runSync(Schema.encodeEffect(Hex32)(bobPub));
-    const alicePub = Effect.runSync(deviceKeyFromEd25519SecretKey(aliceSecret));
-    const msgId = "c56a4180-65aa-42ec-a945-5fd21dec0538";
+  it.each(["resume", "cold wake", "wake after unlock"] as const)(
+    "drains mailbox on %s without clobbering existing contact peerId",
+    async (trigger) => {
+      const bobSecret = new Uint8Array(32).fill(7);
+      const aliceSecret = new Uint8Array(32).fill(2);
+      const bobPub = Effect.runSync(deviceKeyFromEd25519SecretKey(bobSecret));
+      const bobKeyHex = Effect.runSync(Schema.encodeEffect(Hex32)(bobPub));
 
-    const sealed = encodeBase64(
-      await createChatCipher(bobSecret).seal(
-        {
-          fromHandle: "bob",
-          id: msgId,
-          sentAt: 1_700_000_000_000,
-          text: "hello from mailbox",
-          v: 1,
-        },
-        alicePub
-      )
-    );
+      const alicePub = Effect.runSync(
+        deviceKeyFromEd25519SecretKey(aliceSecret)
+      );
 
-    const pendingItems: {
-      readonly envelope: string;
-      readonly id: string;
-      readonly senderDeviceKey: string;
-      readonly seq: number;
-      readonly storedAt: number;
-    }[] = [];
+      const msgId = "c56a4180-65aa-42ec-a945-5fd21dec0538";
 
-    const ackedSeqs: number[] = [];
-    let fetchCount = 0;
-    let resumeHandler: (() => void) | undefined;
+      const sealed = encodeBase64(
+        await createChatCipher(bobSecret).seal(
+          {
+            fromHandle: "bob",
+            id: msgId,
+            sentAt: 1_700_000_000_000,
+            text: "hello from mailbox",
+            v: 1,
+          },
+          alicePub
+        )
+      );
 
-    const store = createP2pStore({
-      createEndpoint: () => ({
-        bindAppState: () => () => {},
-        endpoint: {
-          activeReservation: () => {},
-          close: () => Promise.resolve(closeReport),
-          connect: () =>
-            Promise.resolve({
-              connectId: 1,
-              path: { kind: "direct" },
-              peerId: PEER_MAILBOX,
-            }),
-          connectedPeers: () => [PEER_MAILBOX],
-          disconnect: vi.fn(),
-          isPeerReady: () => true,
-          on: () => () => {},
-          onClose: () => () => {},
-          openStream: () =>
-            // SAFETY: Test double implements the Stream methods used by mailbox I/O.
-            Promise.resolve(
-              makeMailboxStream((request) => {
-                if (request.type === "fetch") {
-                  fetchCount += 1;
+      const pendingItems: {
+        readonly envelope: string;
+        readonly id: string;
+        readonly senderDeviceKey: string;
+        readonly seq: number;
+        readonly storedAt: number;
+      }[] = [];
+
+      const ackedSeqs: number[] = [];
+      let fetchCount = 0;
+      let resumeHandler: (() => void) | undefined;
+
+      const notify = vi.fn(() => Promise.resolve());
+      const closeEndpoint = vi.fn(() => Promise.resolve(closeReport));
+
+      const loadDeviceKey = vi.fn(
+        (): Effect.Effect<Uint8Array<ArrayBuffer>, IdentityVaultError> =>
+          Effect.succeed(aliceSecret)
+      );
+
+      if (trigger === "wake after unlock") {
+        loadDeviceKey.mockReturnValueOnce(
+          Effect.fail(new IdentityVaultError({ operation: "read" }))
+        );
+      }
+
+      const registerTask = vi.fn(() => Promise.resolve());
+
+      const store = createP2pStore({
+        createEndpoint: () => ({
+          bindAppState: () => () => {},
+          endpoint: {
+            activeReservation: () => {},
+            close: closeEndpoint,
+            connect: () =>
+              Promise.resolve({
+                connectId: 1,
+                path: { kind: "direct" },
+                peerId: PEER_MAILBOX,
+              }),
+            connectedPeers: () => [PEER_MAILBOX],
+            disconnect: vi.fn(),
+            isPeerReady: () => true,
+            on: () => () => {},
+            onClose: () => () => {},
+            openStream: () =>
+              // SAFETY: Test double implements the Stream methods used by mailbox I/O.
+              Promise.resolve(
+                makeMailboxStream((request) => {
+                  if (request.type === "fetch") {
+                    fetchCount += 1;
+
+                    return Effect.runSync(
+                      encodeMailboxResponseV1({
+                        hasMore: false,
+                        items: [...pendingItems],
+                        type: "messages",
+                        v: 1,
+                      })
+                    );
+                  }
+
+                  if (request.type === "ack") {
+                    return getMessageById(msgId).then((stored) => {
+                      expect(stored?.text).toBe("hello from mailbox");
+                      ackedSeqs.push(...request.seqs);
+                      pendingItems.length = 0;
+
+                      return Effect.runSync(
+                        encodeMailboxResponseV1({
+                          count: request.seqs.length,
+                          type: "acked",
+                          v: 1,
+                        })
+                      );
+                    });
+                  }
+
+                  if (request.type === "register-push") {
+                    expect(registerTask).toHaveBeenCalledOnce();
+
+                    return Effect.runSync(
+                      encodeMailboxResponseV1({ type: "push-registered", v: 1 })
+                    );
+                  }
 
                   return Effect.runSync(
                     encodeMailboxResponseV1({
-                      hasMore: false,
-                      items: [...pendingItems],
-                      type: "messages",
+                      reason: "invalid",
+                      type: "error",
                       v: 1,
                     })
                   );
-                }
-
-                if (request.type === "ack") {
-                  ackedSeqs.push(...request.seqs);
-                  pendingItems.length = 0;
-
-                  return Effect.runSync(
-                    encodeMailboxResponseV1({
-                      count: request.seqs.length,
-                      type: "acked",
-                      v: 1,
-                    })
-                  );
-                }
-
-                return Effect.runSync(
-                  encodeMailboxResponseV1({
-                    reason: "invalid",
-                    type: "error",
-                    v: 1,
-                  })
-                );
-              }) as never
-            ),
-          path: () => {},
-          waitPeerReady: () =>
-            Promise.resolve({
-              peerId: PEER_MAILBOX,
-              protocols: [MAILBOX_PROTOCOL],
-            }),
-        },
-      }),
-      getIdentityHandle: () => "alice",
-      loadDeviceSecretKey: () => Effect.succeed(aliceSecret),
-      lookupDeviceKey: () =>
-        Effect.succeed({
-          blockNumber: 1n,
-          deviceKey: bobKeyHex,
-          devices: [{ deviceKey: bobKeyHex, peerId: PEER_BOB }],
-          freshness: "fresh" as const,
-          handle: "bob",
-          nonce: 0n,
-          owner: "0x2222222222222222222222222222222222222222",
-          ownerVersion: 0,
-          peerId: PEER_BOB,
-          qid: 1n,
-          registeredAt: 1_700_000_000n,
+                }) as never
+              ),
+            path: () => {},
+            waitPeerReady: () =>
+              Promise.resolve({
+                peerId: PEER_MAILBOX,
+                protocols: [MAILBOX_PROTOCOL],
+              }),
+          },
         }),
-      lookupHandle,
-      mailboxes: [
-        {
-          addr: `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/${PEER_MAILBOX}`,
-          peerId: PEER_MAILBOX,
+        getIdentityHandle: () => "alice",
+        loadDeviceSecretKey: loadDeviceKey,
+        lookupDeviceKey: () =>
+          Effect.succeed({
+            blockNumber: 1n,
+            deviceKey: bobKeyHex,
+            devices: [{ deviceKey: bobKeyHex, peerId: PEER_BOB }],
+            freshness: "fresh" as const,
+            handle: "bob",
+            nonce: 0n,
+            owner: "0x2222222222222222222222222222222222222222",
+            ownerVersion: 0,
+            peerId: PEER_BOB,
+            qid: 1n,
+            registeredAt: 1_700_000_000n,
+          }),
+        lookupHandle,
+        mailboxPush: {
+          canWake: () => true,
+          deferOnKeyReadError: true,
+          notify,
+          registerTask,
         },
-      ],
-      performSend: vi.fn<typeof performSend>(),
-      randomUUID: () => crypto.randomUUID(),
-      subscribeAppResume: (handler) => {
-        resumeHandler = handler;
+        mailboxes: [
+          {
+            addr: `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/${PEER_MAILBOX}`,
+            peerId: PEER_MAILBOX,
+          },
+        ],
+        performSend: vi.fn<typeof performSend>(),
+        randomUUID: () => crypto.randomUUID(),
+        subscribeAppResume: (handler) => {
+          resumeHandler = handler;
 
-        return () => {
-          resumeHandler = undefined;
-        };
-      },
-    });
-
-    try {
-      await store.getState().start();
-      await vi.waitFor(() => expect(fetchCount).toBeGreaterThanOrEqual(1));
-      const contactBefore = await getContactByQid("1");
-      expect(contactBefore?.peerId).toBe(PEER_BOB);
-
-      // Enqueue message after the empty startup poll, then trigger app resume.
-      pendingItems.push({
-        envelope: sealed,
-        id: msgId,
-        senderDeviceKey: bobKeyHex,
-        seq: 1,
-        storedAt: 1_700_000_000_000,
+          return () => {
+            resumeHandler = undefined;
+          };
+        },
       });
 
-      resumeHandler?.();
+      try {
+        if (trigger === "resume") {
+          await store.getState().start();
+          await vi.waitFor(() => expect(fetchCount).toBeGreaterThanOrEqual(1));
+          expect(
+            await store.getState().registerMailboxPush({
+              platform: "fcm",
+              token: "device-token",
+            })
+          ).toEqual([PEER_MAILBOX]);
+        }
 
-      await vi.waitFor(async () => {
-        const stored = await getMessageById(msgId);
-        expect(stored?.text).toBe("hello from mailbox");
-      });
+        const contactBefore = await getContactByQid("1");
+        expect(contactBefore?.peerId).toBe(PEER_BOB);
 
-      await vi.waitFor(() => expect(ackedSeqs).toEqual([1]));
+        pendingItems.push({
+          envelope: sealed,
+          id: msgId,
+          senderDeviceKey: bobKeyHex,
+          seq: 1,
+          storedAt: 1_700_000_000_000,
+        });
 
-      // Existing contact peerId must NOT be clobbered to "".
-      const contactAfter = await getContactByQid("1");
-      expect(contactAfter?.peerId).toBe(PEER_BOB);
-    } finally {
-      await store.getState().stop();
+        if (trigger === "resume") {
+          resumeHandler?.();
+        } else {
+          if (trigger === "wake after unlock") {
+            expect(await store.getState().wakeMailbox()).toBe(false);
+            expect(notify).toHaveBeenCalledOnce();
+            expect(fetchCount).toBe(0);
+            expect(ackedSeqs).toEqual([]);
+            expect(await getMessageById(msgId)).toBeNull();
+            notify.mockClear();
+          }
+
+          expect(await store.getState().wakeMailbox()).toBe(true);
+          expect(store.getState().connection.status).toBe("stopped");
+          expect(closeEndpoint).toHaveBeenCalledOnce();
+        }
+
+        await vi.waitFor(async () => {
+          const stored = await getMessageById(msgId);
+          expect(stored?.text).toBe("hello from mailbox");
+        });
+
+        await vi.waitFor(() => expect(ackedSeqs).toEqual([1]));
+        await vi.waitFor(() => expect(notify).toHaveBeenCalledOnce());
+
+        // Existing contact peerId must NOT be clobbered to "".
+        const contactAfter = await getContactByQid("1");
+        expect(contactAfter?.peerId).toBe(PEER_BOB);
+      } finally {
+        await store.getState().stop();
+      }
     }
-  });
+  );
 
   it("bumps store revision when a drained message is saved even if the ACK fails", async () => {
     const bobSecret = new Uint8Array(32).fill(7);

@@ -4,14 +4,14 @@ import { DatabaseSync } from "node:sqlite";
 import type { SQLOutputValue } from "node:sqlite";
 
 import { encodeBase64 } from "@qop/protocol";
-import type { MailboxMessage } from "@qop/protocol";
+import type { MailboxMessage, MailboxPushTarget } from "@qop/protocol";
 import { Data, Effect } from "effect";
 
 const MODE_DIR = 0o700;
 const MODE_FILE = 0o600;
 const DB_FILE = "mailbox.db";
-const SCHEMA_VERSION = 1;
 const SQLITE_BUSY_TIMEOUT_MS = 5000;
+const PUSH_TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
 
 export const DEFAULT_MAILBOX_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 export const DEFAULT_MAX_ENVELOPES_PER_RECIPIENT = 256;
@@ -60,7 +60,13 @@ export interface MailboxStore {
   readonly deposit: (
     records: readonly DepositRecord[],
     nowMs: number
-  ) => Effect.Effect<readonly DepositedItem[], MailboxStoreError>;
+  ) => Effect.Effect<
+    {
+      readonly items: readonly DepositedItem[];
+      readonly insertedRecipients: ReadonlySet<string>;
+    },
+    MailboxStoreError
+  >;
   readonly fetch: (
     recipientDeviceKey: string,
     limit: number,
@@ -73,6 +79,19 @@ export interface MailboxStore {
   readonly pruneExpired: (
     nowMs: number
   ) => Effect.Effect<number, MailboxStoreError>;
+  readonly registerPush: (
+    deviceKey: string,
+    target: MailboxPushTarget,
+    nowMs: number
+  ) => Effect.Effect<void, MailboxStoreError>;
+  readonly pushTarget: (
+    deviceKey: string,
+    nowMs: number
+  ) => Effect.Effect<MailboxPushTarget | undefined, MailboxStoreError>;
+  readonly removePush: (
+    deviceKey: string,
+    target: MailboxPushTarget
+  ) => Effect.Effect<void, MailboxStoreError>;
 }
 
 const asUint8Array = (value: SQLOutputValue): Uint8Array => {
@@ -146,7 +165,7 @@ export const openMailboxStore = (
 
         const version = Number(versionRow?.user_version ?? 0);
 
-        if (version < SCHEMA_VERSION) {
+        if (version < 1) {
           db.exec(`
             CREATE TABLE IF NOT EXISTS envelopes (
               seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -165,7 +184,19 @@ export const openMailboxStore = (
               ON envelopes (expires_at);
             CREATE INDEX IF NOT EXISTS envelopes_sender_recipient_idx
               ON envelopes (sender_qid, recipient_device_key);
-            PRAGMA user_version = ${SCHEMA_VERSION};
+            PRAGMA user_version = 1;
+          `);
+        }
+
+        if (version < 2) {
+          db.exec(`
+            CREATE TABLE IF NOT EXISTS push_targets (
+              device_key TEXT PRIMARY KEY,
+              platform TEXT NOT NULL CHECK (platform IN ('apns', 'fcm')),
+              token TEXT NOT NULL,
+              expires_at INTEGER NOT NULL
+            ) STRICT;
+            PRAGMA user_version = 2;
           `);
         }
 
@@ -182,6 +213,12 @@ export const openMailboxStore = (
           ),
           deleteExpired: db.prepare(
             `DELETE FROM envelopes WHERE expires_at <= ?`
+          ),
+          deleteExpiredPush: db.prepare(
+            "DELETE FROM push_targets WHERE expires_at <= ?"
+          ),
+          deletePush: db.prepare(
+            "DELETE FROM push_targets WHERE device_key = ? AND platform = ? AND token = ?"
           ),
           deleteOne: db.prepare(
             `DELETE FROM envelopes WHERE recipient_device_key = ? AND seq = ?`
@@ -205,6 +242,16 @@ export const openMailboxStore = (
              WHERE recipient_device_key = ? AND expires_at > ?
              ORDER BY seq ASC
              LIMIT ?`
+          ),
+          selectPush: db.prepare(
+            "SELECT platform, token FROM push_targets WHERE device_key = ? AND expires_at > ?"
+          ),
+          upsertPush: db.prepare(
+            `INSERT INTO push_targets (device_key, platform, token, expires_at)
+             VALUES (?, ?, ?, ?)
+             ON CONFLICT(device_key) DO UPDATE SET
+               platform = excluded.platform, token = excluded.token,
+               expires_at = excluded.expires_at`
           ),
         };
       };
@@ -238,6 +285,7 @@ export const openMailboxStore = (
           try: () => {
             const expiresAt = nowMs + resolvedLimits.ttlMs;
             const accepted: DepositedItem[] = [];
+            const insertedRecipients = new Set<string>();
 
             db.exec("BEGIN IMMEDIATE");
 
@@ -308,6 +356,7 @@ export const openMailboxStore = (
                   nowMs,
                   expiresAt
                 );
+                insertedRecipients.add(record.recipientDeviceKey);
 
                 accepted.push({
                   id: record.id,
@@ -321,7 +370,7 @@ export const openMailboxStore = (
 
               db.exec("COMMIT");
 
-              return accepted;
+              return { insertedRecipients, items: accepted };
             } catch (error) {
               db.exec("ROLLBACK");
               throw error;
@@ -413,7 +462,11 @@ export const openMailboxStore = (
       const pruneExpired = (nowMs: number) =>
         Effect.try({
           catch: () => new MailboxStoreError({ operation: "write" }),
-          try: () => Number(deleteExpired.run(nowMs).changes),
+          try: () => {
+            statements.deleteExpiredPush.run(nowMs);
+
+            return Number(deleteExpired.run(nowMs).changes);
+          },
         });
 
       return {
@@ -424,6 +477,43 @@ export const openMailboxStore = (
         deposit,
         fetch,
         pruneExpired,
+        pushTarget: (deviceKey, nowMs) =>
+          Effect.try({
+            catch: () => new MailboxStoreError({ operation: "read" }),
+            try: (): MailboxPushTarget | undefined => {
+              const row = statements.selectPush.get(deviceKey, nowMs);
+
+              if (row?.platform === "apns" || row?.platform === "fcm") {
+                return {
+                  platform: row.platform,
+                  token: asString(row.token ?? null),
+                };
+              }
+            },
+          }),
+        registerPush: (deviceKey, target, nowMs) =>
+          Effect.try({
+            catch: () => new MailboxStoreError({ operation: "write" }),
+            try: () => {
+              statements.upsertPush.run(
+                deviceKey,
+                target.platform,
+                target.token,
+                nowMs + PUSH_TOKEN_TTL_MS
+              );
+            },
+          }),
+        removePush: (deviceKey, target) =>
+          Effect.try({
+            catch: () => new MailboxStoreError({ operation: "write" }),
+            try: () => {
+              statements.deletePush.run(
+                deviceKey,
+                target.platform,
+                target.token
+              );
+            },
+          }),
       } satisfies MailboxStore;
     },
   });

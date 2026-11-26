@@ -66,22 +66,30 @@ const getAppVariant = (): AppVariant => {
 const appVariant = getAppVariant();
 const variant = VARIANTS[appVariant];
 const iconRoot = `./assets/icons/${appVariant}`;
+const mailboxPush = process.env.EXPO_PUBLIC_QOP_MAILBOX_PUSH === "1";
+const firebaseConfig = process.env.GOOGLE_SERVICES_JSON;
+
+const android: NonNullable<ExpoConfig["android"]> = {
+  adaptiveIcon: {
+    backgroundColor: variant.backgroundColor,
+    foregroundImage: `${iconRoot}/android-foreground.png`,
+    monochromeImage: `${iconRoot}/android-monochrome.png`,
+  },
+  icon: `${iconRoot}/android-legacy.png`,
+  package: variant.identifier,
+  permissions: [
+    "android.permission.ACCESS_WIFI_STATE",
+    "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+  ],
+  predictiveBackGestureEnabled: false,
+};
+
+if (mailboxPush && firebaseConfig) {
+  android.googleServicesFile = firebaseConfig;
+}
 
 export default withAndroidConfigurationChanges({
-  android: {
-    adaptiveIcon: {
-      backgroundColor: variant.backgroundColor,
-      foregroundImage: `${iconRoot}/android-foreground.png`,
-      monochromeImage: `${iconRoot}/android-monochrome.png`,
-    },
-    icon: `${iconRoot}/android-legacy.png`,
-    package: variant.identifier,
-    permissions: [
-      "android.permission.ACCESS_WIFI_STATE",
-      "android.permission.CHANGE_WIFI_MULTICAST_STATE",
-    ],
-    predictiveBackGestureEnabled: false,
-  },
+  android,
   experiments: {
     reactCompiler: true,
     typedRoutes: true,
@@ -123,6 +131,17 @@ export default withAndroidConfigurationChanges({
     ],
     "expo-font",
     "expo-image",
+    [
+      "expo-notifications",
+      {
+        enableBackgroundRemoteNotifications: mailboxPush,
+        enableRemoteNotifications: mailboxPush,
+        mode:
+          process.env.QOP_APNS_ENVIRONMENT === "development"
+            ? "development"
+            : "production",
+      },
+    ],
     "expo-secure-store",
     "expo-sqlite",
     [

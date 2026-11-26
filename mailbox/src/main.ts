@@ -9,6 +9,7 @@ import { Effect } from "effect";
 import { createPublicClient, http, isAddress } from "viem";
 import type { Hex } from "viem";
 
+import { createPushWake } from "./push.ts";
 import { startMailboxServer } from "./server.ts";
 import type { MailboxRegistry } from "./server.ts";
 import { openMailboxStore } from "./store.ts";
@@ -154,6 +155,7 @@ const main = async () => {
     );
   }
 
+  const wake = await createPushWake(process.env);
   const store = await Effect.runPromise(openMailboxStore(dataDir, { ttlMs }));
 
   // One `eth_call` per cache miss: QOPIdentityRegistry clears `qidByDeviceKey`
@@ -182,6 +184,7 @@ const main = async () => {
     registry,
     relayAddrs,
     store,
+    wake,
   });
 
   const addrs = server.listenAddrs();

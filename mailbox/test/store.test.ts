@@ -29,6 +29,43 @@ const carolKey = `0x${"33".repeat(32)}`;
 const aliceQid = "1";
 
 describe("mailbox store", () => {
+  it("persists tokens per device and does not revoke replacements on stale provider errors", async () => {
+    const dir = await makeTempDir();
+    const oldToken = { platform: "fcm", token: "old-token" } as const;
+    const newToken = { platform: "fcm", token: "new-token" } as const;
+    const initial = await Effect.runPromise(openMailboxStore(dir));
+
+    try {
+      await Effect.runPromise(initial.registerPush(bobKey, oldToken, 1000));
+      await Effect.runPromise(initial.registerPush(bobKey, newToken, 1001));
+      await Effect.runPromise(initial.removePush(bobKey, oldToken));
+    } finally {
+      initial.close();
+    }
+
+    const reopened = await Effect.runPromise(openMailboxStore(dir));
+
+    try {
+      expect(
+        await Effect.runPromise(reopened.pushTarget(bobKey, 1002))
+      ).toEqual(newToken);
+      expect(
+        await Effect.runPromise(reopened.pushTarget(carolKey, 1002))
+      ).toBeUndefined();
+
+      const expiry = 1001 + 90 * 24 * 60 * 60 * 1000;
+      expect(
+        await Effect.runPromise(reopened.pushTarget(bobKey, expiry))
+      ).toBeUndefined();
+      await Effect.runPromise(reopened.pruneExpired(expiry));
+      expect(
+        await Effect.runPromise(reopened.pushTarget(bobKey, 1002))
+      ).toBeUndefined();
+    } finally {
+      reopened.close();
+    }
+  });
+
   it("deposits idempotently, fetches FIFO, and deletes only on matching recipient ack", async () => {
     const dir = await makeTempDir();
     const store = await Effect.runPromise(openMailboxStore(dir));
@@ -61,10 +98,11 @@ describe("mailbox store", () => {
         )
       );
 
-      expect(ids).toEqual([
+      expect(ids.items).toEqual([
         { id: id1, recipientDeviceKey: bobKey },
         { id: id2, recipientDeviceKey: bobKey },
       ]);
+      expect(ids.insertedRecipients).toEqual(new Set([bobKey]));
 
       // Retrying with newly-sealed HPKE bytes keeps the first envelope idempotently.
       const reSealedIds = await Effect.runPromise(
@@ -82,7 +120,10 @@ describe("mailbox store", () => {
         )
       );
 
-      expect(reSealedIds).toEqual([{ id: id1, recipientDeviceKey: bobKey }]);
+      expect(reSealedIds.items).toEqual([
+        { id: id1, recipientDeviceKey: bobKey },
+      ]);
+      expect(reSealedIds.insertedRecipients.size).toBe(0);
 
       const fetched = await Effect.runPromise(
         store.fetch(bobKey, 10, 128 * 1024, 1020)
@@ -184,7 +225,7 @@ describe("mailbox store", () => {
         )
       );
 
-      expect(partial).toEqual([
+      expect(partial.items).toEqual([
         {
           id: "33333333-3333-4333-8333-333333333333",
           recipientDeviceKey: bobSecondKey,
@@ -245,7 +286,7 @@ describe("mailbox store", () => {
         )
       );
 
-      expect(afterExpiry).toEqual([
+      expect(afterExpiry.items).toEqual([
         {
           id: "33333333-3333-4333-8333-333333333333",
           recipientDeviceKey: bobKey,

@@ -16,10 +16,14 @@ import {
 import { Effect } from "effect";
 import { bytesToHex } from "viem";
 import type { Hex } from "viem";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { loadOrCreateKey } from "../src/main.ts";
-import { createDeviceAuthorizer, startMailboxServer } from "../src/server.ts";
+import {
+  createDeviceAuthorizer,
+  createMailboxHandler,
+  startMailboxServer,
+} from "../src/server.ts";
 import type { MailboxRegistry } from "../src/server.ts";
 import { openMailboxStore } from "../src/store.ts";
 
@@ -55,6 +59,121 @@ const makeMockRegistry = (
 });
 
 describe("mailbox server hardening and transport", () => {
+  it("wakes after commit, deduplicates retries, and coalesces a burst per recipient", async () => {
+    const store = await Effect.runPromise(
+      openMailboxStore(await makeTempDir())
+    );
+
+    const sender = makeIdentity();
+    const recipient = makeIdentity();
+
+    const registry = makeMockRegistry(
+      new Map([
+        [sender.deviceKeyHex, 1n],
+        [recipient.deviceKeyHex, 2n],
+      ])
+    );
+
+    const token = { platform: "fcm", token: "test-recipient-token" } as const;
+    const wakeups: unknown[] = [];
+    const warning = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+
+    const handler = createMailboxHandler({
+      registry,
+      store,
+      wake: {
+        fcm: async (targetToken) => {
+          const pending = await Effect.runPromise(
+            store.fetch(recipient.deviceKeyHex, 32, 128 * 1024, Date.now())
+          );
+
+          wakeups.push({ pending: pending.items.length, token: targetToken });
+          throw new Error(`Provider rejected token ${targetToken}`);
+        },
+      },
+    });
+
+    try {
+      vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+      expect(
+        await Effect.runPromise(
+          handler.handleAuthorized(recipient.deviceKeyHex, "2", {
+            ...token,
+            type: "register-push",
+            v: 1,
+          })
+        )
+      ).toEqual({ type: "push-registered", v: 1 });
+
+      const sendDeposit = async (id: string) => {
+        const sealed = await createChatCipher(sender.secret).seal(
+          {
+            fromHandle: "alice",
+            id,
+            sentAt: Date.now(),
+            text: "private",
+            v: 1,
+          },
+          recipient.publicKey
+        );
+
+        return Effect.runPromise(
+          handler.handleAuthorized(sender.deviceKeyHex, "1", {
+            items: [
+              {
+                envelope: encodeBase64(sealed),
+                id,
+                recipientDeviceKey: recipient.deviceKeyHex,
+              },
+            ],
+            type: "deposit",
+            v: 1,
+          })
+        );
+      };
+
+      const id = "c56a4180-65aa-42ec-a945-5fd21dec0538";
+
+      const deposited = (messageId: string) => ({
+        items: [{ id: messageId, recipientDeviceKey: recipient.deviceKeyHex }],
+        type: "deposited",
+        v: 1,
+      });
+
+      expect(await sendDeposit(id)).toEqual(deposited(id));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(wakeups).toEqual([{ pending: 1, token: token.token }]);
+      expect(warning.mock.calls.flat()).toEqual([
+        "qop-mailbox push: FCM send failed; check project, sender permissions, and connectivity\n",
+      ]);
+
+      expect(await sendDeposit(id)).toEqual(deposited(id));
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(wakeups).toHaveLength(1);
+
+      const second = "c56a4180-65aa-42ec-a945-5fd21dec0539";
+      const third = "c56a4180-65aa-42ec-a945-5fd21dec0540";
+      const fourth = "c56a4180-65aa-42ec-a945-5fd21dec0541";
+      expect(await sendDeposit(second)).toEqual(deposited(second));
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(await sendDeposit(third)).toEqual(deposited(third));
+      expect(await sendDeposit(fourth)).toEqual(deposited(fourth));
+      await vi.advanceTimersByTimeAsync(58_999);
+      expect(wakeups).toHaveLength(2);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(wakeups).toEqual([
+        { pending: 1, token: token.token },
+        { pending: 2, token: token.token },
+        { pending: 4, token: token.token },
+      ]);
+    } finally {
+      handler.close();
+      vi.useRealTimers();
+      warning.mockRestore();
+      store.close();
+    }
+  });
+
   it("coalesces concurrent auth lookups and never caches transient RPC errors", async () => {
     let calls = 0;
     let shouldFail = true;

@@ -117,6 +117,18 @@ describe("mailbox wire codecs and stream exchange", () => {
       },
       { limit: MAILBOX_MAX_FETCH_LIMIT, type: "fetch" as const, v: 1 as const },
       { seqs: [1, 2, 3], type: "ack" as const, v: 1 as const },
+      {
+        platform: "apns" as const,
+        token: "abcd".repeat(16),
+        type: "register-push" as const,
+        v: 1 as const,
+      },
+      {
+        platform: "fcm" as const,
+        token: "native:device-token",
+        type: "register-push" as const,
+        v: 1 as const,
+      },
     ];
 
     await Promise.all(
@@ -148,6 +160,7 @@ describe("mailbox wire codecs and stream exchange", () => {
         v: 1 as const,
       },
       { count: 2, type: "acked" as const, v: 1 as const },
+      { type: "push-registered" as const, v: 1 as const },
       { reason: "quota" as const, type: "error" as const, v: 1 as const },
     ];
 

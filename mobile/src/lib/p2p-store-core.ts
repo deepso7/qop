@@ -9,12 +9,17 @@ import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
 import {
   depositToMailbox,
   drainMailbox,
+  exchangeMailbox,
   MAILBOX_PROTOCOL,
   PAIR_PROTOCOL,
   parseMailboxAddrs,
   SYNC_PROTOCOL,
 } from "@qop/protocol";
-import type { MailboxPeer, SyncInboxItem } from "@qop/protocol";
+import type {
+  MailboxPeer,
+  MailboxPushTarget,
+  SyncInboxItem,
+} from "@qop/protocol";
 import { Effect, Schema } from "effect";
 import { create } from "zustand";
 import type { StoreApi } from "zustand";
@@ -118,10 +123,14 @@ interface P2pActions {
     target: ConnectTarget
   ) => Promise<{ readonly peerId: string } | undefined>;
   readonly pairWaitPeerReady: (peerId: string) => Promise<void>;
+  readonly registerMailboxPush: (
+    target: MailboxPushTarget
+  ) => Promise<readonly string[]>;
   readonly retryMessage: (id: string, contactQid?: string) => Promise<void>;
   readonly sendMessage: (contact: Contact, text: string) => string;
   readonly start: () => Promise<void>;
   readonly stop: () => Promise<void>;
+  readonly wakeMailbox: () => Promise<boolean>;
 }
 
 type P2pStore = P2pActions & P2pState;
@@ -154,6 +163,12 @@ interface P2pDependencies {
   readonly getIdentityHandle: () => string | undefined;
   readonly listActiveDevices?: typeof listActiveDevices;
   readonly loadDeviceSecretKey: typeof loadDeviceSecretKey;
+  readonly mailboxPush?: {
+    readonly canWake: () => boolean;
+    readonly deferOnKeyReadError?: boolean;
+    readonly notify: () => Promise<void>;
+    readonly registerTask: () => Promise<void>;
+  };
   readonly lookupDeviceKey: typeof lookupDeviceKey;
   readonly lookupHandle: typeof lookupHandle;
   readonly lookupQid?: typeof lookupQid;
@@ -282,6 +297,12 @@ const raceMailboxAndHandoff = async (
   return mailboxOk ? { kind: "mailbox" } : { kind: "neither" };
 };
 
+const getConfiguredRelays = () =>
+  (process.env.EXPO_PUBLIC_RELAY_ADDRS ?? "")
+    .split(",")
+    .map((address) => address.trim())
+    .filter(Boolean);
+
 export const createP2pStore = ({
   createEndpoint,
   getIdentityHandle,
@@ -292,6 +313,7 @@ export const createP2pStore = ({
   lookupHandle,
   lookupQid,
   mailboxes: injectedMailboxes,
+  mailboxPush,
   performCatchup,
   performHandoff,
   performPoll,
@@ -303,6 +325,9 @@ export const createP2pStore = ({
   let chatCipher: ChatCipher | undefined;
   let unsubscribe: Unsubscribe[] = [];
   let generation = 0;
+  let activeMailboxWake: Promise<boolean> | undefined;
+  let cancelMailboxWake: (() => void) | undefined;
+  let mailboxWakeQueued = false;
   const inFlightJobs = new Set<Promise<unknown>>();
   /** Peer IDs currently dialed by outbox sends/handoffs -> originating message keys. */
   const outboxDialingPeers = new Map<string, Set<string>>();
@@ -1276,6 +1301,107 @@ export const createP2pStore = ({
     });
   };
 
+  const drainMailboxInbox = async (options: {
+    readonly cipher: ChatCipher;
+    readonly endpoint: P2pEndpoint;
+    readonly isOwningSession: () => boolean;
+    readonly mailboxes: readonly MailboxPeer[];
+    readonly onInserted: () => void;
+    readonly signal?: AbortSignal;
+  }) => {
+    const results = await Promise.allSettled(
+      options.mailboxes.map((peer) =>
+        Effect.runPromise(
+          drainMailbox({
+            cipher: options.cipher,
+            onMessage: async (frame, meta) => {
+              if (!options.isOwningSession()) {
+                return "abort";
+              }
+
+              const lookupResult = await Effect.runPromise(
+                lookupDeviceKey(meta.senderDeviceKey).pipe(Effect.result),
+                options.signal ? { signal: options.signal } : undefined
+              );
+
+              if (lookupResult._tag === "Failure") {
+                return "retry";
+              }
+
+              const senderAccount = lookupResult.success;
+
+              if (!senderAccount || senderAccount.handle !== frame.fromHandle) {
+                return "ack";
+              }
+
+              if (!options.isOwningSession()) {
+                return "abort";
+              }
+
+              const senderQid = senderAccount.qid.toString();
+              const existingContact = await getContactByQid(senderQid);
+
+              if (!existingContact) {
+                const handleOwner = await getContactByHandle(
+                  senderAccount.handle
+                );
+
+                if (handleOwner && handleOwner.qid !== senderQid) {
+                  // A stale local handle cannot be inserted under a second QID.
+                  return "ack";
+                }
+
+                if (!options.isOwningSession()) {
+                  return "abort";
+                }
+
+                await trackJob(
+                  upsertContact({
+                    createdAt: Number(senderAccount.registeredAt) * 1000,
+                    deviceKey: meta.senderDeviceKey,
+                    handle: senderAccount.handle,
+                    owner: senderAccount.owner,
+                    peerId: senderAccount.peerId ?? "",
+                    qid: senderQid,
+                  })
+                );
+              }
+
+              if (!options.isOwningSession()) {
+                return "abort";
+              }
+
+              const inserted = await trackJob(
+                insertMessage({
+                  contactQid: senderQid,
+                  direction: "in",
+                  id: frame.id,
+                  sentAt: frame.sentAt,
+                  status: "received",
+                  text: frame.text,
+                })
+              );
+
+              if (!options.isOwningSession()) {
+                return "abort";
+              }
+
+              if (inserted) {
+                options.onInserted();
+              }
+
+              return "ack";
+            },
+            openStream: () => openMailboxStream(options.endpoint, peer),
+          }),
+          options.signal ? { signal: options.signal } : undefined
+        )
+      )
+    );
+
+    return results.some((result) => result.status === "fulfilled");
+  };
+
   const depositPendingToMailboxes = (options: {
     readonly authEpoch: number;
     readonly cipher: ChatCipher;
@@ -2126,6 +2252,54 @@ export const createP2pStore = ({
       return id;
     },
 
+    registerMailboxPush: (target) => {
+      const currentEndpoint = endpoint;
+      const mailboxes = getConfiguredMailboxes();
+      const startGeneration = generation;
+
+      if (!mailboxPush || !currentEndpoint || mailboxes.length === 0) {
+        return Promise.resolve([]);
+      }
+
+      return trackJob(
+        (async () => {
+          await mailboxPush.registerTask();
+
+          if (!isCurrentGeneration(startGeneration)) {
+            return [];
+          }
+
+          const registrations = await Promise.allSettled(
+            mailboxes.map(async (peer) => {
+              const stream = await openMailboxStream(currentEndpoint, peer);
+
+              if (!isCurrentGeneration(startGeneration)) {
+                stream.reset();
+
+                return;
+              }
+
+              const result = await Effect.runPromise(
+                exchangeMailbox(stream, {
+                  ...target,
+                  type: "register-push",
+                  v: 1,
+                })
+              );
+
+              if (result.type === "push-registered") {
+                return peer.peerId;
+              }
+            })
+          );
+
+          return registrations.flatMap((result) =>
+            result.status === "fulfilled" && result.value ? [result.value] : []
+          );
+        })()
+      );
+    },
+
     start: async () => {
       const { status } = get().connection;
 
@@ -2135,6 +2309,7 @@ export const createP2pStore = ({
 
       const startGeneration = generation + 1;
       generation = startGeneration;
+      cancelMailboxWake?.();
       set({ connection: { status: "starting" } });
 
       try {
@@ -2146,10 +2321,7 @@ export const createP2pStore = ({
 
         set((state) => ({ revision: state.revision + 1 }));
 
-        const relays = (process.env.EXPO_PUBLIC_RELAY_ADDRS ?? "")
-          .split(",")
-          .map((address) => address.trim())
-          .filter(Boolean);
+        const relays = getConfiguredRelays();
 
         if (relays.length === 0) {
           throw new Error(
@@ -2273,92 +2445,21 @@ export const createP2pStore = ({
           mailboxPollInFlight = true;
 
           try {
-            await Promise.all(
-              configuredMailboxes.map((peer) =>
-                Effect.runPromise(
-                  drainMailbox({
-                    cipher,
-                    onMessage: async (frame, meta) => {
-                      if (!isOwningSession()) {
-                        return "abort";
-                      }
+            let inserted = false;
+            await drainMailboxInbox({
+              cipher,
+              endpoint: created,
+              isOwningSession,
+              mailboxes: configuredMailboxes,
+              onInserted: () => {
+                inserted = true;
+                set((state) => ({ revision: state.revision + 1 }));
+              },
+            });
 
-                      const lookupResult = await Effect.runPromise(
-                        lookupDeviceKey(meta.senderDeviceKey).pipe(
-                          Effect.result
-                        )
-                      );
-
-                      if (lookupResult._tag === "Failure") {
-                        return "retry";
-                      }
-
-                      const senderAccount = lookupResult.success;
-
-                      if (
-                        !senderAccount ||
-                        senderAccount.handle !== frame.fromHandle
-                      ) {
-                        // Revoked device or forged handle: drop from mailbox.
-                        return "ack";
-                      }
-
-                      if (!isOwningSession()) {
-                        return "abort";
-                      }
-
-                      const senderQid = senderAccount.qid.toString();
-                      const existingContact = await getContactByQid(senderQid);
-
-                      if (!existingContact) {
-                        const handleOwner = await getContactByHandle(
-                          senderAccount.handle
-                        );
-
-                        if (handleOwner && handleOwner.qid !== senderQid) {
-                          // Stale local row owns this handle; UNIQUE(handle) would throw forever.
-                          return "ack";
-                        }
-
-                        if (!isOwningSession()) {
-                          return "abort";
-                        }
-
-                        await upsertContact({
-                          createdAt: Number(senderAccount.registeredAt) * 1000,
-                          deviceKey: meta.senderDeviceKey,
-                          handle: senderAccount.handle,
-                          owner: senderAccount.owner,
-                          peerId: senderAccount.peerId ?? "",
-                          qid: senderQid,
-                        });
-                      }
-
-                      if (!isOwningSession()) {
-                        return "abort";
-                      }
-
-                      const inserted = await insertMessage({
-                        contactQid: senderQid,
-                        direction: "in",
-                        id: frame.id,
-                        sentAt: frame.sentAt,
-                        status: "received",
-                        text: frame.text,
-                      });
-
-                      // Publish UI updates immediately on new inserts without waiting for ACK or other mailboxes.
-                      if (inserted && isOwningSession()) {
-                        set((state) => ({ revision: state.revision + 1 }));
-                      }
-
-                      return "ack";
-                    },
-                    openStream: () => openMailboxStream(created, peer),
-                  }).pipe(Effect.orElseSucceed(() => 0))
-                )
-              )
-            );
+            if (inserted && isOwningSession()) {
+              await mailboxPush?.notify();
+            }
           } finally {
             mailboxPollInFlight = false;
 
@@ -2515,11 +2616,136 @@ export const createP2pStore = ({
 
     stop: async () => {
       generation += 1;
+      cancelMailboxWake?.();
       const activeEndpoint = endpoint;
       cleanupEndpoint(activeEndpoint);
       activeEndpoint?.close();
       set(initialState);
       await waitForInFlightJobs();
+    },
+
+    wakeMailbox: () => {
+      if (activeMailboxWake) {
+        mailboxWakeQueued = true;
+
+        return activeMailboxWake;
+      }
+
+      const mailboxes = getConfiguredMailboxes();
+
+      if (!mailboxPush || !mailboxPush.canWake() || mailboxes.length === 0) {
+        return Promise.resolve(false);
+      }
+
+      const wakeGeneration = generation;
+
+      const isCurrent = () =>
+        isCurrentGeneration(wakeGeneration) && mailboxPush.canWake();
+
+      const runWake = async () => {
+        const key = await Effect.runPromise(
+          loadDeviceSecretKey().pipe(Effect.result)
+        );
+
+        if (!isCurrent()) {
+          return false;
+        }
+
+        if (key._tag === "Failure") {
+          const { operation } = key.failure;
+
+          if (
+            operation === "missing-identity" ||
+            operation === "stale-install"
+          ) {
+            return false;
+          }
+
+          if (
+            mailboxPush.deferOnKeyReadError &&
+            (operation === "read" || operation === "install-state")
+          ) {
+            // Locked iOS wakes can alert locally; the mailbox retains the ciphertext until we can authenticate.
+            await mailboxPush.notify();
+
+            return false;
+          }
+
+          throw key.failure;
+        }
+
+        const secretKey = key.success;
+        // A cold wake starts only the mailbox transport, not the UI or outbox.
+        const cipher = createChatCipher(secretKey);
+
+        const wakeEndpoint = createEndpoint({
+          protocols: [MAILBOX_PROTOCOL],
+          relays: getConfiguredRelays(),
+          secretKey,
+        }).endpoint;
+
+        const budget = new AbortController();
+
+        const cancel = () => {
+          if (!budget.signal.aborted) {
+            budget.abort();
+            wakeEndpoint.close();
+          }
+        };
+
+        cancelMailboxWake = cancel;
+        const timer = setTimeout(cancel, 20_000);
+
+        try {
+          let delivered = false;
+          let reachedMailbox = false;
+          const canDrain = () => isCurrent() && !budget.signal.aborted;
+
+          do {
+            mailboxWakeQueued = false;
+            let inserted = false;
+
+            // oxlint-disable-next-line no-await-in-loop -- A wake during a drain queues the next pass; drains must not overlap.
+            const reached = await drainMailboxInbox({
+              cipher,
+              endpoint: wakeEndpoint,
+              isOwningSession: canDrain,
+              mailboxes,
+              onInserted: () => {
+                inserted = true;
+                set((state) => ({ revision: state.revision + 1 }));
+              },
+              signal: budget.signal,
+            });
+
+            reachedMailbox ||= reached;
+
+            if (inserted && isCurrent()) {
+              delivered = true;
+              // oxlint-disable-next-line no-await-in-loop -- iOS may suspend the task as soon as it resolves.
+              await mailboxPush.notify();
+            }
+          } while (mailboxWakeQueued && canDrain());
+
+          if (!reachedMailbox && !delivered && isCurrent()) {
+            throw new Error("Could not reach mailbox in background");
+          }
+
+          return delivered;
+        } finally {
+          clearTimeout(timer);
+          cancelMailboxWake = undefined;
+          cancel();
+        }
+      };
+
+      activeMailboxWake = trackJob(
+        runWake().finally(() => {
+          activeMailboxWake = undefined;
+        })
+      );
+
+      return activeMailboxWake;
     },
   }));
 

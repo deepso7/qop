@@ -10,6 +10,7 @@ import {
 } from "@qop/protocol";
 import type {
   MailboxError,
+  MailboxPushTarget,
   MailboxRequest,
   MailboxResponse,
   MailboxStream,
@@ -35,11 +36,31 @@ const STREAM_TIMEOUT_MS = 15_000;
 const DEFAULT_RATE_LIMIT_PER_MIN = 120;
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const MAX_RATE_LIMIT_PEERS = 4096;
+const MAX_PENDING_WAKEUPS = 32;
+const MAX_WAKE_RECIPIENTS = 4096;
+const RECIPIENT_WAKE_INTERVAL_MS = 60_000;
+const WAKE_WARNING_INTERVAL_MS = 60_000;
+
+const wakeWarnings = {
+  apns: "APNs send failed; check credentials, topic, environment, and connectivity",
+  capacity: "wake skipped: push capacity reached",
+  cleanup: "could not remove an expired push target",
+  fcm: "FCM send failed; check project, sender permissions, and connectivity",
+  lookup: "could not load a push target",
+} as const;
+
+type MailboxWakeProviders = Partial<
+  Record<
+    MailboxPushTarget["platform"],
+    ((token: string) => Promise<"unregistered" | undefined>) | undefined
+  >
+>;
 
 export interface MailboxHandlerDeps {
   readonly now?: (() => number) | undefined;
   readonly registry: MailboxRegistry;
   readonly store: MailboxStore;
+  readonly wake?: MailboxWakeProviders | undefined;
 }
 
 export type DeviceAuthResult =
@@ -220,6 +241,113 @@ const peerIdToDeviceKey = (peerId: string): string | null => {
 export const createMailboxHandler = (deps: MailboxHandlerDeps) => {
   const now = deps.now ?? Date.now;
   const authorizer = createDeviceAuthorizer(deps.registry, now);
+  const { wake } = deps;
+  let closed = false;
+  let pendingWakeups = 0;
+  const lastWakeWarning = new Map<keyof typeof wakeWarnings, number>();
+
+  const coolingDown = new Map<
+    string,
+    { queued: boolean; timer: ReturnType<typeof setTimeout> }
+  >();
+
+  const warnWake = (category: keyof typeof wakeWarnings) => {
+    const timestamp = now();
+    const last = lastWakeWarning.get(category);
+
+    if (last === undefined || timestamp - last >= WAKE_WARNING_INTERVAL_MS) {
+      lastWakeWarning.set(category, timestamp);
+      // Provider errors can include request bodies and credentials; log only fixed text.
+      process.stderr.write(`qop-mailbox push: ${wakeWarnings[category]}\n`);
+    }
+  };
+
+  const sendWake = (deviceKey: string) => {
+    if (!wake?.apns && !wake?.fcm) {
+      return;
+    }
+
+    if (pendingWakeups >= MAX_PENDING_WAKEUPS) {
+      warnWake("capacity");
+
+      return;
+    }
+
+    pendingWakeups += 1;
+
+    const send = async () => {
+      let failure: keyof typeof wakeWarnings = "lookup";
+
+      try {
+        const target = await Effect.runPromise(
+          deps.store.pushTarget(deviceKey, now())
+        );
+
+        if (!target) {
+          return;
+        }
+
+        failure = target.platform;
+
+        if ((await wake[target.platform]?.(target.token)) === "unregistered") {
+          failure = "cleanup";
+          await Effect.runPromise(deps.store.removePush(deviceKey, target));
+        }
+      } catch {
+        warnWake(failure);
+      } finally {
+        pendingWakeups -= 1;
+      }
+    };
+
+    void send();
+  };
+
+  const wakeRecipient = (deviceKey: string) => {
+    if (closed || (!wake?.apns && !wake?.fcm)) {
+      return;
+    }
+
+    const cooldown = coolingDown.get(deviceKey);
+
+    if (cooldown) {
+      cooldown.queued = true;
+
+      return;
+    }
+
+    if (coolingDown.size >= MAX_WAKE_RECIPIENTS) {
+      warnWake("capacity");
+
+      return;
+    }
+
+    const window = {
+      queued: false,
+      timer: setTimeout(() => {
+        coolingDown.delete(deviceKey);
+
+        if (window.queued) {
+          wakeRecipient(deviceKey);
+        }
+      }, RECIPIENT_WAKE_INTERVAL_MS),
+    };
+
+    window.timer.unref();
+    coolingDown.set(deviceKey, window);
+    sendWake(deviceKey);
+  };
+
+  const registerPush = (deviceKey: string, target: MailboxPushTarget) =>
+    wake?.[target.platform]
+      ? deps.store.registerPush(deviceKey, target, now()).pipe(
+          Effect.as({
+            type: "push-registered",
+            v: 1,
+          } satisfies MailboxResponse),
+          Effect.orElseSucceed(() => errorResponse("unavailable"))
+        )
+      : Effect.succeed(errorResponse("unavailable"));
 
   const handleAuthorized = (
     callerDeviceKey: string,
@@ -227,6 +355,12 @@ export const createMailboxHandler = (deps: MailboxHandlerDeps) => {
     request: MailboxRequest
   ): Effect.Effect<MailboxResponse> =>
     Effect.gen(function* () {
+      if (request.type === "register-push") {
+        const { platform, token } = request;
+
+        return yield* registerPush(callerDeviceKey, { platform, token });
+      }
+
       if (request.type === "fetch") {
         const result = yield* deps.store
           .fetch(
@@ -313,7 +447,9 @@ export const createMailboxHandler = (deps: MailboxHandlerDeps) => {
         (recipientDeviceKey) =>
           authorizer
             .authorize(recipientDeviceKey)
-            .pipe(Effect.map((auth) => [recipientDeviceKey, auth.status] as const)),
+            .pipe(
+              Effect.map((auth) => [recipientDeviceKey, auth.status] as const)
+            ),
         { concurrency: "unbounded" }
       );
 
@@ -354,8 +490,12 @@ export const createMailboxHandler = (deps: MailboxHandlerDeps) => {
         return errorResponse(storeErrorToReason(deposited.failure.operation));
       }
 
+      for (const deviceKey of deposited.success.insertedRecipients) {
+        wakeRecipient(deviceKey);
+      }
+
       return {
-        items: deposited.success,
+        items: deposited.success.items,
         type: "deposited",
         v: 1,
       } satisfies MailboxResponse;
@@ -383,6 +523,15 @@ export const createMailboxHandler = (deps: MailboxHandlerDeps) => {
 
   return {
     authorizeCaller: authorizer.authorize,
+    close: () => {
+      closed = true;
+
+      for (const { timer } of coolingDown.values()) {
+        clearTimeout(timer);
+      }
+
+      coolingDown.clear();
+    },
     handle,
     handleAuthorized,
   };
@@ -396,6 +545,7 @@ export interface MailboxServerConfig {
   readonly relayAddrs?: readonly string[] | undefined;
   readonly store: MailboxStore;
   readonly streamTimeoutMs?: number | undefined;
+  readonly wake?: MailboxWakeProviders | undefined;
 }
 
 export interface RunningMailboxServer {
@@ -417,6 +567,7 @@ export const startMailboxServer = (
   const handler = createMailboxHandler({
     registry: config.registry,
     store: config.store,
+    wake: config.wake,
   });
 
   const rateLimiter = createPeerRateLimiter(
@@ -516,6 +667,7 @@ export const startMailboxServer = (
   return {
     close: () => {
       clearInterval(pruneTimer);
+      handler.close();
       endpoint.close();
     },
     listenAddrs: () => endpoint.listenAddrs(),

@@ -18,8 +18,10 @@ import { MAX_ACTIVE_DEVICES } from "./limits.ts";
  * - `fetch{limit}`: fetch up to `limit` pending envelopes for the caller's own
  *   device key, oldest-first by mailbox `seq`.
  * - `ack{seqs}`: delete persisted envelopes for the caller's own device key.
+ * - `register-push{platform,token}`: replace the caller's own push token.
  */
 export const MAILBOX_PROTOCOL = "/qop/mailbox/1";
+export const MAILBOX_WAKE_DATA = { qopMailboxWake: "1" } as const;
 
 /** Fits 4 max-size base64 envelopes (~88 KiB) plus JSON framing with headroom. */
 export const MAX_MAILBOX_PAYLOAD_BYTES = 128 * 1024;
@@ -140,10 +142,37 @@ export { MailboxAckV1Schema as MailboxAckV1 };
 
 export type MailboxAckV1 = typeof MailboxAckV1Schema.Type;
 
+const pushRegistration = {
+  type: Schema.Literal("register-push"),
+  v: Schema.Literal(1),
+};
+
+const MailboxRegisterPush = Schema.Union([
+  Schema.Struct({
+    ...pushRegistration,
+    platform: Schema.Literal("apns"),
+    token: Schema.String.check(Schema.isPattern(/^(?:[a-f0-9]{2}){16,128}$/iu)),
+  }),
+  Schema.Struct({
+    ...pushRegistration,
+    platform: Schema.Literal("fcm"),
+    token: Schema.String.check(
+      Schema.isBetweenLength(1, 4096),
+      Schema.isPattern(/^[\w.:-]+$/u)
+    ),
+  }),
+]);
+
+export type MailboxPushTarget = Pick<
+  typeof MailboxRegisterPush.Type,
+  "platform" | "token"
+>;
+
 export const MailboxRequestV1Schema = Schema.Union([
   MailboxDepositV1Schema,
   MailboxFetchV1Schema,
   MailboxAckV1Schema,
+  MailboxRegisterPush,
 ]);
 
 export { MailboxRequestV1Schema as MailboxRequestV1 };
@@ -233,6 +262,10 @@ export const MailboxResponseV1Schema = Schema.Union([
   MailboxMessagesV1Schema,
   MailboxAckedV1Schema,
   MailboxErrorV1Schema,
+  Schema.Struct({
+    type: Schema.Literal("push-registered"),
+    v: Schema.Literal(1),
+  }),
 ]);
 
 export { MailboxResponseV1Schema as MailboxResponseV1 };

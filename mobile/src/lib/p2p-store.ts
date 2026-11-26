@@ -1,6 +1,8 @@
 import { Minip2p, bindAppState } from "@minip2p/react-native";
 import { randomUUID } from "expo-crypto";
-import { AppState } from "react-native";
+import { registerTaskAsync } from "expo-notifications";
+import { isTaskRegisteredAsync } from "expo-task-manager";
+import { AppState, Platform } from "react-native";
 
 import {
   selectAccount,
@@ -8,6 +10,11 @@ import {
   useIdentityStore,
 } from "./identity-store";
 import { loadDeviceSecretKey } from "./identity-vault";
+import {
+  mailboxPushEnabled,
+  MAILBOX_TASK,
+  notifyMailboxActivity,
+} from "./mailbox-notification";
 import { performSend } from "./p2p-send";
 import { createP2pStore } from "./p2p-store-core";
 import { performCatchup, performHandoff, performPoll } from "./p2p-sync";
@@ -48,6 +55,20 @@ export const useP2pStore = createP2pStore({
   lookupDeviceKey,
   lookupHandle,
   lookupQid,
+  mailboxPush: {
+    canWake: () => {
+      const { status } = useIdentityStore.getState();
+
+      return mailboxPushEnabled && (status === "loading" || status === "ready");
+    },
+    deferOnKeyReadError: Platform.OS === "ios",
+    notify: notifyMailboxActivity,
+    registerTask: async () => {
+      if (!(await isTaskRegisteredAsync(MAILBOX_TASK))) {
+        await registerTaskAsync(MAILBOX_TASK);
+      }
+    },
+  },
   performCatchup,
   performHandoff,
   performPoll,

@@ -50,6 +50,7 @@ export {
   MAILBOX_MAX_DEPOSIT_ITEMS,
   MAILBOX_MAX_FETCH_LIMIT,
   MAILBOX_PROTOCOL,
+  MAILBOX_WAKE_DATA,
   MailboxAckedV1,
   MailboxAckV1,
   MailboxCodecError,
@@ -67,6 +68,7 @@ export {
 } from "./mailbox.ts";
 
 export type {
+  MailboxPushTarget,
   MailboxAckedV1 as MailboxAcked,
   MailboxAckV1 as MailboxAck,
   MailboxDepositedItemV1 as MailboxDepositedItem,
