@@ -74,6 +74,14 @@ export const writeMailboxResponseTo = Effect.fn(
   );
 });
 
+const safeReset = (stream: { readonly reset?: () => void }) => {
+  try {
+    stream.reset?.();
+  } catch {
+    // Stream may already be closed or reset by the remote peer.
+  }
+};
+
 /** Write one request, half-close, and read one response with a deadline and reset on failure/interruption. */
 export const exchangeMailbox = Effect.fn("@qop/protocol/exchangeMailbox")(
   function* (
@@ -98,7 +106,7 @@ export const exchangeMailbox = Effect.fn("@qop/protocol/exchangeMailbox")(
         exit._tag === "Success"
           ? Effect.void
           : Effect.sync(() => {
-              stream.reset?.();
+              safeReset(stream);
             })
       )
     );

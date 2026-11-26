@@ -66,6 +66,14 @@ const deviceKeyToBytes = (hex: string): Uint8Array => {
   return hexToBytes(hex as Hex);
 };
 
+const safeReset = (stream: { readonly reset?: () => void }) => {
+  try {
+    stream.reset?.();
+  } catch {
+    // Stream may already be closed or reset by the remote peer.
+  }
+};
+
 const openStreamCancellable = (
   openStream: () => Promise<MailboxStream>
 ): Effect.Effect<MailboxStream, MailboxCodecError> =>
@@ -77,7 +85,7 @@ const openStreamCancellable = (
         const stream = await openStream();
 
         if (cancelled) {
-          stream.reset?.();
+          safeReset(stream);
 
           return;
         }
@@ -107,7 +115,7 @@ const openAndExchange = (
       const stream = yield* restore(openStreamCancellable(openStream));
 
       if (beforeWrite && !beforeWrite()) {
-        stream.reset?.();
+        safeReset(stream);
 
         return yield* new MailboxCodecError({ operation: "frame" });
       }
@@ -117,7 +125,7 @@ const openAndExchange = (
           exit._tag === "Success"
             ? Effect.void
             : Effect.sync(() => {
-                stream.reset?.();
+                safeReset(stream);
               })
         )
       );

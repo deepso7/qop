@@ -174,10 +174,11 @@ describe("mailbox server hardening and transport", () => {
       const sealed = await aliceCipher.seal(frame, bob.publicKey);
 
       // Unauthorized peer's stream is reset immediately without reading its body.
-      const rogueStream = await openMailboxStream(rogueEndpoint);
-
       const rogueResult = await Effect.runPromise(
-        exchangeMailbox(rogueStream, { limit: 4, type: "fetch", v: 1 }).pipe(
+        Effect.tryPromise(() => openMailboxStream(rogueEndpoint)).pipe(
+          Effect.flatMap((stream) =>
+            exchangeMailbox(stream, { limit: 4, type: "fetch", v: 1 })
+          ),
           Effect.result
         )
       );
@@ -251,11 +252,12 @@ describe("mailbox server hardening and transport", () => {
       );
 
       const rateLimitedRes = await Effect.runPromise(
-        exchangeMailbox(await openMailboxStream(aliceEndpoint), {
-          limit: 1,
-          type: "fetch",
-          v: 1,
-        }).pipe(Effect.result)
+        Effect.tryPromise(() => openMailboxStream(aliceEndpoint)).pipe(
+          Effect.flatMap((stream) =>
+            exchangeMailbox(stream, { limit: 1, type: "fetch", v: 1 })
+          ),
+          Effect.result
+        )
       );
 
       expect(rateLimitedRes._tag).toBe("Failure");

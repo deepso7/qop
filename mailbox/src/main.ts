@@ -1,13 +1,6 @@
 #!/usr/bin/env -S node
 import { randomBytes } from "node:crypto";
-import {
-  chmod,
-  link,
-  mkdir,
-  readFile,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { chmod, link, mkdir, open, readFile, unlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -77,10 +70,12 @@ export const loadOrCreateKey = async (dataDir: string): Promise<Uint8Array> => {
     `${KEY_FILE}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`
   );
 
-  await writeFile(tmpPath, created, { flag: "wx", mode: MODE_FILE });
+  const handle = await open(tmpPath, "wx", MODE_FILE);
 
   try {
-    await chmod(tmpPath, MODE_FILE);
+    await handle.writeFile(created);
+    await handle.chmod(MODE_FILE);
+    await handle.close();
     await link(tmpPath, keyPath);
 
     return created;
@@ -94,6 +89,7 @@ export const loadOrCreateKey = async (dataDir: string): Promise<Uint8Array> => {
 
     throw error;
   } finally {
+    await handle.close().catch(() => null);
     await unlink(tmpPath).catch(() => null);
   }
 };
@@ -205,10 +201,7 @@ const main = async () => {
   process.on("SIGTERM", shutdown);
 };
 
-if (
-  process.argv[1] &&
-  path.resolve(process.argv[1]) === path.resolve(import.meta.filename)
-) {
+if (import.meta.main) {
   try {
     await main();
   } catch (error) {

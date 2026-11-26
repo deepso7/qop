@@ -338,6 +338,10 @@ export const openMailboxStore = (
         Effect.try({
           catch: () => new MailboxStoreError({ operation: "read" }),
           try: () => {
+            if (EMPTY_MESSAGES_FRAME_BYTES > maxPayloadBytes) {
+              throw new Error("Empty messages frame exceeds maxPayloadBytes");
+            }
+
             // SAFETY: SELECT returns SQLite row objects matching the envelopes schema.
             const rows = selectPending.all(
               recipientDeviceKey,
