@@ -564,6 +564,68 @@ describe("automatic outbox", () => {
     expect(lookupDeviceKey).toHaveBeenCalledOnce();
   });
 
+  it("caches resolved secondary devices without blocking later wakes once messages are queued", async () => {
+    const secondaryPeer = PEER_ALICE;
+
+    const secondaryKey = Effect.runSync(
+      Schema.decodeUnknownEffect(PeerId)(secondaryPeer).pipe(
+        Effect.flatMap(deviceKeyFromPeerId),
+        Effect.flatMap((key) => Schema.encodeEffect(Hex32)(key))
+      )
+    );
+
+    const bobWithSecondary: RegistryAccount = {
+      ...bobAccount,
+      devices: [
+        ...bobAccount.devices,
+        { deviceKey: secondaryKey, peerId: secondaryPeer },
+      ],
+    };
+
+    const carolContact = {
+      createdAt: 2,
+      deviceKey: `0x${"33".repeat(32)}`,
+      handle: "carol",
+      owner: "0x0000000000000000000000000000000000000003",
+      peerId: "12D3KooWbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      qid: "2",
+    };
+
+    await upsertContact(carolContact);
+    send.mockRejectedValue(new Error("offline"));
+    lookupDeviceKey.mockReturnValue(Effect.succeed(bobWithSecondary));
+    lookupHandle.mockReturnValue(Effect.succeed(bobWithSecondary));
+
+    await useP2pStore.getState().start();
+    const bobContact = await getContactByQid("1");
+    const carol = await getContactByQid("2");
+
+    if (!bobContact || !carol) {
+      throw new Error("Missing contact fixtures");
+    }
+
+    // Carol has a queued message while Bob has none; Bob's secondary connects.
+    useP2pStore.getState().sendMessage(carol, "for carol");
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    connectionEstablished?.({ connId: 40, peerId: secondaryPeer });
+    await vi.waitFor(() => expect(lookupDeviceKey).toHaveBeenCalledOnce());
+
+    // Now Bob gets a queued message in backoff, and Bob's secondary reconnects.
+    const bobId = useP2pStore.getState().sendMessage(bobContact, "for bob");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(bobId, "1")).toMatchObject({
+        attempts: 1,
+        status: "queued",
+      })
+    );
+
+    send.mockResolvedValue();
+    connectionEstablished?.({ connId: 41, peerId: secondaryPeer });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(bobId, "1")).toMatchObject({ status: "sent" })
+    );
+  });
+
   it("resumes persisted retries after endpoint restart", async () => {
     send.mockRejectedValue(new Error("offline"));
     await useP2pStore.getState().start();

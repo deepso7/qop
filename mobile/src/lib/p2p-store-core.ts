@@ -157,9 +157,14 @@ interface P2pDependencies {
 const errorMessage = (error: Error | string) =>
   error instanceof Error ? error.message : String(error);
 
-const PEER_LOOKUP_MISS_TTL_MS = 60_000;
-const PEER_LOOKUP_MISS_MAX = 256;
+const PEER_LOOKUP_CACHE_TTL_MS = 60_000;
+const PEER_LOOKUP_CACHE_MAX = 256;
 const PEER_LOOKUP_MAX_CONCURRENT = 4;
+
+interface PeerLookupAccount {
+  readonly handle: string;
+  readonly qid: bigint;
+}
 
 const holderRosterChanged = (
   previous: readonly string[] | undefined,
@@ -255,14 +260,16 @@ export const createP2pStore = ({
   let holderCacheEpoch = 0;
   /** Connect-path peers absent from a successful roster read this epoch. */
   const holderDiscoverMisses = new Set<string>();
-  /** Bounded TTL cache for unknown connect-path peers so strangers cannot spam chain lookups. */
-  const peerLookupMisses = new Map<string, number>();
+
+  /** Bounded TTL cache of connect-path peer lookups so strangers cannot spam chain reads. */
+  const peerLookupCache = new Map<
+    string,
+    { readonly account: PeerLookupAccount | null; readonly expiresAt: number }
+  >();
 
   const peerLookupInFlight = new Map<
     string,
-    Promise<
-      { readonly handle: string; readonly qid: bigint } | null | undefined
-    >
+    Promise<PeerLookupAccount | null | undefined>
   >();
 
   let scheduledReconcile: Promise<void> | undefined;
@@ -304,7 +311,7 @@ export const createP2pStore = ({
     holderLookup = undefined;
     holderDiscoverLookup = undefined;
     holderDiscoverMisses.clear();
-    peerLookupMisses.clear();
+    peerLookupCache.clear();
     peerLookupInFlight.clear();
     scheduledReconcile = undefined;
     queuedReconcile = false;
@@ -1345,29 +1352,35 @@ export const createP2pStore = ({
       return yield* lookupDeviceKey(deviceKeyHex);
     });
 
-  const rememberPeerLookupMiss = (peerId: string) => {
-    if (peerLookupMisses.has(peerId)) {
-      peerLookupMisses.delete(peerId);
-    } else if (peerLookupMisses.size >= PEER_LOOKUP_MISS_MAX) {
-      const oldest = peerLookupMisses.keys().next().value;
+  const rememberPeerLookup = (
+    peerId: string,
+    account: PeerLookupAccount | null
+  ) => {
+    if (peerLookupCache.has(peerId)) {
+      peerLookupCache.delete(peerId);
+    } else if (peerLookupCache.size >= PEER_LOOKUP_CACHE_MAX) {
+      const oldest = peerLookupCache.keys().next().value;
 
       if (oldest !== undefined) {
-        peerLookupMisses.delete(oldest);
+        peerLookupCache.delete(oldest);
       }
     }
 
-    peerLookupMisses.set(peerId, Date.now() + PEER_LOOKUP_MISS_TTL_MS);
+    peerLookupCache.set(peerId, {
+      account,
+      expiresAt: Date.now() + PEER_LOOKUP_CACHE_TTL_MS,
+    });
   };
 
   const resolveUnknownPeerAccount = (peerId: string) => {
-    const missUntil = peerLookupMisses.get(peerId);
+    const cached = peerLookupCache.get(peerId);
 
-    if (missUntil !== undefined) {
-      if (missUntil > Date.now()) {
-        return Promise.resolve(null);
+    if (cached !== undefined) {
+      if (cached.expiresAt > Date.now()) {
+        return Promise.resolve(cached.account);
       }
 
-      peerLookupMisses.delete(peerId);
+      peerLookupCache.delete(peerId);
     }
 
     const existing = peerLookupInFlight.get(peerId);
@@ -1389,13 +1402,13 @@ export const createP2pStore = ({
         return;
       }
 
-      if (!lookedUp.success) {
-        rememberPeerLookupMiss(peerId);
+      const account = lookedUp.success
+        ? { handle: lookedUp.success.handle, qid: lookedUp.success.qid }
+        : null;
 
-        return null;
-      }
+      rememberPeerLookup(peerId, account);
 
-      return lookedUp.success;
+      return account;
     })();
 
     peerLookupInFlight.set(peerId, job);
@@ -1434,20 +1447,12 @@ export const createP2pStore = ({
     const qid = account.qid.toString();
 
     if (!(await hasQueuedMessages(qid))) {
-      rememberPeerLookupMiss(peerId);
-
       return null;
     }
 
     const candidate = await getContactByQid(qid);
 
-    if (!candidate || candidate.handle !== account.handle) {
-      rememberPeerLookupMiss(peerId);
-
-      return null;
-    }
-
-    return candidate;
+    return candidate && candidate.handle === account.handle ? candidate : null;
   };
 
   const handleConnectionEstablished = async (
