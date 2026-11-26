@@ -361,3 +361,216 @@ it("keeps a retry scheduled if expediting fails", async () => {
     worker.close();
   }
 });
+
+it("honors a fallback retry pause on a fresh row when storage writes fail", async () => {
+  vi.useFakeTimers();
+
+  let rows = [message("fresh-fail", "1", { attempts: 0, nextAttemptAt: 0 })];
+
+  const deliver = vi
+    .fn<(row: StoredMessage) => Promise<DeliveryOutcome>>()
+    .mockImplementationOnce(() =>
+      // Simulate storage write failure: attempts & nextAttemptAt stay 0 in SQLite.
+      Promise.resolve({ kind: "retry", nextAttemptAt: Date.now() + 2000 })
+    )
+    .mockImplementationOnce((row) => {
+      rows = rows.filter((item) => item.id !== row.id);
+
+      return Promise.resolve({ kind: "delivered" });
+    });
+
+  const worker = createMobileOutbox({
+    deliver,
+    expedite: () => Promise.resolve(),
+    list: () => Promise.resolve(rows),
+    reconcile: () => Promise.resolve(),
+  });
+
+  try {
+    await worker.wake();
+    await vi.waitFor(() => expect(deliver).toHaveBeenCalledOnce());
+
+    // Must wait the 2s fallback pause instead of spinning immediately.
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(deliver).toHaveBeenCalledOnce();
+
+    await vi.advanceTimersByTimeAsync(1100);
+    await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(2));
+    expect(rows).toEqual([]);
+  } finally {
+    worker.close();
+  }
+});
+
+it("does not re-dispatch a row that commits while a sweep read is in flight", async () => {
+  const firstDelivery = Promise.withResolvers<true>();
+  const pausedList = Promise.withResolvers<readonly StoredMessage[]>();
+  let rows = [message("once")];
+  let listCalls = 0;
+
+  const list = vi.fn(() => {
+    listCalls += 1;
+
+    if (listCalls === 2) {
+      return pausedList.promise;
+    }
+
+    return Promise.resolve(rows);
+  });
+
+  const deliver = vi.fn(
+    async (row: StoredMessage): Promise<DeliveryOutcome> => {
+      await firstDelivery.promise;
+      rows = rows.filter((item) => item.id !== row.id);
+
+      return { kind: "delivered" };
+    }
+  );
+
+  const worker = createMobileOutbox({
+    deliver,
+    expedite: () => Promise.resolve(),
+    list,
+    reconcile: () => Promise.resolve(),
+  });
+
+  try {
+    await worker.wake();
+    await vi.waitFor(() => expect(deliver).toHaveBeenCalledOnce());
+
+    // Start a second sweep whose read captures the stale queued snapshot.
+    const staleSnapshot = [...rows];
+    await worker.wake();
+    await vi.waitFor(() => expect(listCalls).toBe(2));
+
+    // Original delivery commits `sent` and clears `inFlight` before `list()` resolves.
+    firstDelivery.resolve(true);
+    await sleep(10);
+    pausedList.resolve(staleSnapshot);
+    await sleep(20);
+
+    expect(deliver).toHaveBeenCalledOnce();
+  } finally {
+    worker.close();
+    firstDelivery.resolve(true);
+    pausedList.resolve([]);
+  }
+});
+
+it("applies the probe limit and cooldown to fresh rows for a contact already in backoff", async () => {
+  vi.useFakeTimers();
+  const probe = Promise.withResolvers<true>();
+  let online = false;
+
+  let rows: StoredMessage[] = [
+    message("retrying", "1", { attempts: 1, nextAttemptAt: 0 }),
+  ];
+
+  const deliver = vi.fn(
+    async (row: StoredMessage): Promise<DeliveryOutcome> => {
+      if (!online) {
+        await probe.promise;
+        const nextAttemptAt = Date.now() + 4000;
+
+        rows = rows.map((item) =>
+          item.id === row.id ? { ...item, attempts: 2, nextAttemptAt } : item
+        );
+
+        return { kind: "retry", nextAttemptAt };
+      }
+
+      rows = rows.filter((item) => item.id !== row.id);
+
+      return { kind: "delivered" };
+    }
+  );
+
+  const worker = createMobileOutbox({
+    deliver,
+    expedite: () => Promise.resolve(),
+    list: () => Promise.resolve(rows),
+    reconcile: () => Promise.resolve(),
+  });
+
+  try {
+    await worker.wake();
+    await vi.waitFor(() => expect(deliver).toHaveBeenCalledOnce());
+
+    // Fresh messages arrive while the contact's retry probe is still running.
+    rows = [
+      ...rows,
+      message("fresh-1", "1"),
+      message("fresh-2", "1"),
+      message("fresh-3", "1"),
+    ];
+    await worker.wake();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(deliver).toHaveBeenCalledOnce();
+
+    // Probe fails -> fresh messages also honor the contact cooldown.
+    probe.resolve(true);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(deliver).toHaveBeenCalledOnce();
+
+    // After cooldown, contact comes online -> probe succeeds and remaining rows fan out.
+    online = true;
+    await vi.advanceTimersByTimeAsync(3100);
+    await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(5));
+    expect(rows).toEqual([]);
+  } finally {
+    worker.close();
+    probe.resolve(true);
+  }
+});
+
+it("keeps a row's unpersisted fallback pause even when a sibling succeeds", async () => {
+  vi.useFakeTimers();
+  const siblingDone = Promise.withResolvers<true>();
+  let rows = [message("failed-write", "1"), message("sibling", "1")];
+  let failedWriteCalls = 0;
+
+  const deliver = vi.fn(
+    async (row: StoredMessage): Promise<DeliveryOutcome> => {
+      if (row.id === "sibling") {
+        await siblingDone.promise;
+        rows = rows.filter((item) => item.id !== row.id);
+
+        return { kind: "delivered" };
+      }
+
+      failedWriteCalls += 1;
+
+      if (failedWriteCalls === 1) {
+        return { kind: "retry", nextAttemptAt: Date.now() + 2000 };
+      }
+
+      rows = rows.filter((item) => item.id !== row.id);
+
+      return { kind: "delivered" };
+    }
+  );
+
+  const worker = createMobileOutbox({
+    deliver,
+    expedite: () => Promise.resolve(),
+    list: () => Promise.resolve(rows),
+    reconcile: () => Promise.resolve(),
+  });
+
+  try {
+    await worker.wake();
+    await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(2));
+
+    // Sibling completes while failed-write is still in its 2s fallback pause.
+    siblingDone.resolve(true);
+    await vi.advanceTimersByTimeAsync(500);
+    expect(failedWriteCalls).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(1600);
+    await vi.waitFor(() => expect(failedWriteCalls).toBe(2));
+    expect(rows).toEqual([]);
+  } finally {
+    worker.close();
+    siblingDone.resolve(true);
+  }
+});

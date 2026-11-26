@@ -447,6 +447,93 @@ describe("automatic outbox", () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 
+  it("keeps retry backoff when an outbox dial connects then fails before ack", async () => {
+    connect.mockImplementation(() => {
+      connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
+
+      return Promise.resolve({
+        connectId: 1,
+        path: { kind: "direct" },
+        peerId: PEER_BOB,
+      });
+    });
+
+    send.mockImplementationOnce(async ({ endpoint }) => {
+      await endpoint.connect(PEER_BOB);
+      await vi.waitFor(() => expect(lookupDeviceKey).toHaveBeenCalled());
+      throw new Error("peer disconnected before ack");
+    });
+
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+
+    if (!contact) {
+      throw new Error("Missing contact");
+    }
+
+    const id = useP2pStore.getState().sendMessage(contact, "drop before ack");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({
+        attempts: 1,
+        status: "queued",
+      })
+    );
+
+    const row = await getMessageById(id);
+    expect(row?.nextAttemptAt).toBeGreaterThan(Date.now());
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it("preserves dial backoff even when retry write finishes before peer verification resolves", async () => {
+    const verifyGate = Promise.withResolvers<RegistryAccount>();
+    lookupDeviceKey.mockReturnValueOnce(
+      Effect.promise(() => verifyGate.promise)
+    );
+
+    connect.mockImplementation(() => {
+      connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
+
+      return Promise.resolve({
+        connectId: 1,
+        path: { kind: "direct" },
+        peerId: PEER_BOB,
+      });
+    });
+
+    send.mockImplementationOnce(async ({ endpoint }) => {
+      await endpoint.connect(PEER_BOB);
+      throw new Error("peer disconnected before ack");
+    });
+
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+
+    if (!contact) {
+      throw new Error("Missing contact");
+    }
+
+    const id = useP2pStore.getState().sendMessage(contact, "slow verify");
+
+    // Retry write commits and releases dial tracking before verify resolves.
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({
+        attempts: 1,
+        status: "queued",
+      })
+    );
+
+    const beforeVerify = await getMessageById(id);
+    expect(beforeVerify?.nextAttemptAt).toBeGreaterThan(Date.now());
+
+    // Now verification finishes; it must NOT clear the originating row's deadline.
+    verifyGate.resolve(bobAccount);
+    await sleep(30);
+
+    const afterVerify = await getMessageById(id);
+    expect(afterVerify?.nextAttemptAt).toBe(beforeVerify?.nextAttemptAt);
+    expect(send).toHaveBeenCalledOnce();
+  });
+
   it("resumes persisted retries after endpoint restart", async () => {
     send.mockRejectedValue(new Error("offline"));
     await useP2pStore.getState().start();

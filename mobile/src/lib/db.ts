@@ -567,16 +567,46 @@ export const retryFailedMessage = async (
 
 /** Clear retry backoff so due queued messages retry immediately. */
 export const expediteMessageRetries = async (
-  contactQid?: string
+  contactQid?: string,
+  excludeKeys?: ReadonlySet<string>
+): Promise<void> => {
+  const database = await getDatabase();
+  const excluded = excludeKeys ? [...excludeKeys] : [];
+  const clauses = ["direction = 'out'", "status = 'queued'"];
+  const params: string[] = [];
+
+  if (contactQid !== undefined) {
+    clauses.push("contact_qid = ?");
+    params.push(contactQid);
+  }
+
+  if (excluded.length > 0) {
+    clauses.push(
+      `(contact_qid || ':' || id) NOT IN (${excluded.map(() => "?").join(",")})`
+    );
+    params.push(...excluded);
+  }
+
+  await database.runAsync(
+    `UPDATE messages SET next_attempt_at = 0 WHERE ${clauses.join(" AND ")}`,
+    ...params
+  );
+};
+
+/** Clear only this row's retry deadline if it still matches what this attempt wrote. */
+export const clearMessageRetryDeadline = async (
+  id: string,
+  contactQid: string,
+  expectedNextAttemptAt: number
 ): Promise<void> => {
   const database = await getDatabase();
   await database.runAsync(
     `UPDATE messages
      SET next_attempt_at = 0
-     WHERE direction = 'out' AND status = 'queued'${
-       contactQid ? " AND contact_qid = ?" : ""
-     }`,
-    ...(contactQid ? [contactQid] : [])
+     WHERE id = ? AND contact_qid = ? AND status = 'queued' AND next_attempt_at = ?`,
+    id,
+    contactQid,
+    expectedNextAttemptAt
   );
 };
 

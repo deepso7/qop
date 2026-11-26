@@ -21,6 +21,7 @@ import {
 import type { ChatCipher, ChatFrame } from "./chat-wire";
 import {
   advanceMessageStatus,
+  clearMessageRetryDeadline,
   expediteMessageRetries,
   failRejectedHandoff,
   getContactByHandle,
@@ -58,6 +59,7 @@ import type {
   performCatchup,
   performHandoff,
   performPoll,
+  PerformSyncInput,
 } from "./p2p-sync";
 import type { lookupDeviceKey, lookupHandle, lookupQid } from "./registry";
 
@@ -182,9 +184,23 @@ const recordRetryOutcome = async (
     wasExpedited()
   );
 
-  return retryAt === null
-    ? { kind: "delivered" }
-    : { kind: "retry", nextAttemptAt: retryAt };
+  if (retryAt === null) {
+    return { kind: "delivered" };
+  }
+
+  // Re-check after the DB write: a peer wake arriving mid-write may have been overwritten.
+  if (retryAt > 0 && wasExpedited()) {
+    try {
+      await clearMessageRetryDeadline(message.id, message.contactQid, retryAt);
+
+      return { kind: "retry", nextAttemptAt: 0 };
+    } catch {
+      // Preserve the committed retry without double-incrementing attempts.
+      return { kind: "retry", nextAttemptAt: retryAt };
+    }
+  }
+
+  return { kind: "retry", nextAttemptAt: retryAt };
 };
 
 const uninitializedSetState: StoreApi<P2pStore>["setState"] = () => {
@@ -211,6 +227,8 @@ export const createP2pStore = ({
   let unsubscribe: Unsubscribe[] = [];
   let generation = 0;
   const inFlightJobs = new Set<Promise<unknown>>();
+  /** Peer IDs currently dialed by outbox sends/handoffs -> originating message keys. */
+  const outboxDialingPeers = new Map<string, Set<string>>();
   let outbox: ReturnType<typeof createMobileOutbox> | undefined;
 
   let cachedHolderPeerIds: readonly string[] | undefined;
@@ -259,6 +277,7 @@ export const createP2pStore = ({
   const cleanupEndpoint = (activeEndpoint: P2pEndpoint | undefined) => {
     outbox?.close();
     outbox = undefined;
+    outboxDialingPeers.clear();
     sessions.clear();
     holderCacheEpoch += 1;
     cachedHolderPeerIds = undefined;
@@ -571,7 +590,8 @@ export const createP2pStore = ({
     >,
     contact: Contact,
     jobGeneration: number,
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    syncEndpoint?: PerformSyncInput["endpoint"]
   ) => {
     const jobKey = `${message.contactQid}:${message.id}`;
     const existing = handoffJobs.get(jobKey);
@@ -587,6 +607,8 @@ export const createP2pStore = ({
       if (!own || !performHandoff || !activeEndpoint) {
         return;
       }
+
+      const handoffEndpoint = syncEndpoint ?? activeEndpoint;
 
       const roster = await resolveHolderPeerIds(activeEndpoint);
       const current = message.holderPeerId;
@@ -627,7 +649,7 @@ export const createP2pStore = ({
         try {
           await performHandoff({
             composedBy: own.deviceKey,
-            endpoint: activeEndpoint,
+            endpoint: handoffEndpoint,
             holderPeerId,
             own,
             record,
@@ -1085,6 +1107,53 @@ export const createP2pStore = ({
     return trackJob(job);
   };
 
+  const trackOutboxDials = (
+    activeEndpoint: P2pEndpoint,
+    messageKey: string
+  ) => {
+    const dialedPeers = new Set<string>();
+
+    const trackedEndpoint: Parameters<typeof performSend>[0]["endpoint"] = {
+      connect: (peerId, options) => {
+        if (!dialedPeers.has(peerId)) {
+          dialedPeers.add(peerId);
+          const keys = outboxDialingPeers.get(peerId);
+
+          if (keys) {
+            keys.add(messageKey);
+          } else {
+            outboxDialingPeers.set(peerId, new Set([messageKey]));
+          }
+        }
+
+        return activeEndpoint.connect(peerId, options);
+      },
+      connectedPeers: () => activeEndpoint.connectedPeers(),
+      openStream: (peerId, protocolId, options) =>
+        activeEndpoint.openStream(peerId, protocolId, options),
+      waitPeerReady: (peerId, options) =>
+        activeEndpoint.waitPeerReady(peerId, options),
+    };
+
+    const release = () => {
+      for (const peerId of dialedPeers) {
+        const keys = outboxDialingPeers.get(peerId);
+
+        if (!keys) {
+          continue;
+        }
+
+        keys.delete(messageKey);
+
+        if (keys.size === 0) {
+          outboxDialingPeers.delete(peerId);
+        }
+      }
+    };
+
+    return { release, trackedEndpoint };
+  };
+
   const sendStoredMessage = async (
     message: StoredMessage,
     contact: Contact,
@@ -1092,23 +1161,20 @@ export const createP2pStore = ({
     signal: AbortSignal,
     wasExpedited: () => boolean
   ): Promise<DeliveryOutcome> => {
+    if (signal.aborted || !isCurrentGeneration(jobGeneration)) {
+      return { kind: "aborted" };
+    }
+
     const handoffController = new AbortController();
+    let releaseDials: (() => void) | undefined;
 
     const abortHandoff = () => {
       handoffController.abort(signal.reason);
     };
 
-    if (signal.aborted) {
-      abortHandoff();
-    } else {
-      signal.addEventListener("abort", abortHandoff, { once: true });
-    }
+    signal.addEventListener("abort", abortHandoff, { once: true });
 
     try {
-      if (signal.aborted || !isCurrentGeneration(jobGeneration)) {
-        return { kind: "aborted" };
-      }
-
       const activeEndpoint = endpoint;
       const fromHandle = getIdentityHandle();
       const cipher = chatCipher;
@@ -1132,6 +1198,13 @@ export const createP2pStore = ({
         return { kind: "failed" };
       }
 
+      const { release, trackedEndpoint } = trackOutboxDials(
+        activeEndpoint,
+        `${message.contactQid}:${message.id}`
+      );
+
+      releaseDials = release;
+
       let terminal = false;
 
       const delivered = (async () => {
@@ -1139,7 +1212,7 @@ export const createP2pStore = ({
           await performSend({
             cipher,
             contact,
-            endpoint: activeEndpoint,
+            endpoint: trackedEndpoint,
             frame,
             sessions,
             signal,
@@ -1162,7 +1235,8 @@ export const createP2pStore = ({
             message,
             contact,
             jobGeneration,
-            handoffController.signal
+            handoffController.signal,
+            trackedEndpoint
           );
         } catch (error) {
           handoffRejected =
@@ -1225,6 +1299,7 @@ export const createP2pStore = ({
       }
     } finally {
       signal.removeEventListener("abort", abortHandoff);
+      releaseDials?.();
 
       if (isCurrentGeneration(jobGeneration)) {
         storeBridge.setState((state) => ({ revision: state.revision + 1 }));
@@ -1283,16 +1358,24 @@ export const createP2pStore = ({
     connection: PeerConnection,
     jobGeneration: number
   ) => {
+    // Snapshot originating outbox keys synchronously before any await so a dial
+    // that fails and releases before verify finishes cannot cancel its own backoff.
+    const dialingKeys = new Set(outboxDialingPeers.get(connection.peerId));
+    const fromOutboxDial = dialingKeys.size > 0;
+
     try {
       if (await isOwnHolderPeer(connection.peerId)) {
-        await scheduleReconcile(jobGeneration);
+        const reconcile = scheduleReconcile(jobGeneration);
 
-        if (
-          isCurrentGeneration(jobGeneration) &&
-          cachedHolderPeerIds?.includes(connection.peerId) === true
-        ) {
-          await outbox?.wake({ expediteAll: true });
+        if (isCurrentGeneration(jobGeneration)) {
+          await outbox?.wake({
+            excludeKeys: fromOutboxDial ? dialingKeys : undefined,
+            expediteAll: true,
+            skipInFlight: fromOutboxDial,
+          });
         }
+
+        await reconcile;
 
         return;
       }
@@ -1330,7 +1413,11 @@ export const createP2pStore = ({
         verified.success.qid === contact.qid &&
         isCurrentGeneration(jobGeneration)
       ) {
-        await outbox?.wake({ contactQid: contact.qid });
+        await outbox?.wake({
+          contactQid: contact.qid,
+          excludeKeys: fromOutboxDial ? dialingKeys : undefined,
+          skipInFlight: fromOutboxDial,
+        });
       }
     } catch {
       // Discovery hints cannot bypass backoff until membership is verified.

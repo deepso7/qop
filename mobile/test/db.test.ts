@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   advanceMessageStatus,
+  clearMessageRetryDeadline,
   deleteAll,
   expediteMessageRetries,
   failRejectedHandoff,
@@ -267,6 +268,43 @@ describe("delivery status transitions", () => {
 
     await expediteMessageRetries();
     expect(await getMessageById("m2", "2")).toMatchObject({ nextAttemptAt: 0 });
+  });
+
+  it("clears only the matching row and deadline without affecting siblings", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "m-target",
+      sentAt: 1,
+      status: "queued",
+      text: "target",
+    });
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "m-sibling",
+      sentAt: 2,
+      status: "queued",
+      text: "sibling",
+    });
+    vi.setSystemTime(1000);
+    const targetDeadline = await recordMessageRetry("m-target", "1");
+    const siblingDeadline = await recordMessageRetry("m-sibling", "1");
+
+    // Wrong expected deadline is a no-op.
+    await clearMessageRetryDeadline("m-target", "1", (targetDeadline ?? 0) + 1);
+    expect(await getMessageById("m-target", "1")).toMatchObject({
+      nextAttemptAt: targetDeadline,
+    });
+
+    // Exact expected deadline clears only m-target; m-sibling keeps its deadline.
+    await clearMessageRetryDeadline("m-target", "1", targetDeadline ?? 0);
+    expect(await getMessageById("m-target", "1")).toMatchObject({
+      nextAttemptAt: 0,
+    });
+    expect(await getMessageById("m-sibling", "1")).toMatchObject({
+      nextAttemptAt: siblingDeadline,
+    });
   });
 
   it("does not let a late held clobber sent", async () => {
