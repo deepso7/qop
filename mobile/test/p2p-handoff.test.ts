@@ -1,4 +1,4 @@
-import { RegistryReaderError } from "@qop/protocol";
+import { PeerVerificationError, RegistryReaderError } from "@qop/protocol";
 import type { SyncInboxItem } from "@qop/protocol";
 import { Effect } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -188,6 +188,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   await useP2pStore.getState().stop();
   vi.unstubAllEnvs();
 });
@@ -196,6 +197,266 @@ const aliceLookups = () =>
   lookupHandle.mock.calls.filter(([handle]) => handle === "alice");
 
 describe("phone to CLI handoff", () => {
+  it("periodic held reconciliation applies receipts without reconnecting", async () => {
+    vi.useFakeTimers();
+    const id = "c56a4180-65aa-42ec-a945-5fd21dec0571";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      holderPeerId: PEER_CLI,
+      id,
+      sentAt: 1,
+      status: "held",
+      text: "waiting",
+    });
+    await useP2pStore.getState().start();
+    await vi.waitFor(() => expect(poll).toHaveBeenCalled());
+    poll.mockResolvedValue([{ deliveredAt: 9, id, toQid: "1" }]);
+    await vi.advanceTimersByTimeAsync(30_100);
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({ status: "sent" })
+    );
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it("fails an invalid message locally without handing it off to a holder", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "not-a-uuid",
+      sentAt: 1,
+      status: "queued",
+      text: "invalid id",
+    });
+    await useP2pStore.getState().start();
+    await vi.waitFor(async () =>
+      expect(await getMessageById("not-a-uuid", "1")).toMatchObject({
+        status: "failed",
+      })
+    );
+    expect(send).not.toHaveBeenCalled();
+    expect(handoff).not.toHaveBeenCalled();
+  });
+
+  it("wakes queued sends on holder connect without waiting for a stalled poll", async () => {
+    const stalledPoll = Promise.withResolvers<[]>();
+    const heldId = "c56a4180-65aa-42ec-a945-5fd21dec0579";
+    const queuedId = "c56a4180-65aa-42ec-a945-5fd21dec0580";
+
+    try {
+      await insertMessage({
+        contactQid: "1",
+        direction: "out",
+        holderPeerId: PEER_CLI_OTHER,
+        id: heldId,
+        sentAt: 1,
+        status: "held",
+        text: "held on offline second holder",
+      });
+
+      await useP2pStore.getState().start();
+      await vi.waitFor(() => expect(poll).toHaveBeenCalled());
+      poll.mockReturnValue(stalledPoll.promise);
+
+      await insertMessage({
+        contactQid: "1",
+        direction: "out",
+        id: queuedId,
+        sentAt: 2,
+        status: "queued",
+        text: "needs fast handoff",
+      });
+
+      connectionEstablished?.({ connId: 9, peerId: PEER_CLI });
+      await vi.waitFor(async () =>
+        expect(await getMessageById(queuedId, "1")).toMatchObject({
+          holderPeerId: PEER_CLI,
+          status: "held",
+        })
+      );
+    } finally {
+      stalledPoll.resolve([]);
+    }
+  });
+
+  it("keeps retry backoff when a holder handoff dial connects then both send and handoff fail", async () => {
+    connectedPeers.mockReturnValue([]);
+    handoff.mockImplementationOnce(async ({ endpoint, holderPeerId }) => {
+      await endpoint.connect(holderPeerId).catch(() => {
+        // Trigger connectionEstablished as if the dial connected before failing.
+      });
+      connectionEstablished?.({ connId: 12, peerId: holderPeerId });
+      throw new HandoffUndeliveredError("holder dropped before reply");
+    });
+
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+
+    const id = useP2pStore.getState().sendMessage(contact, "holder drop");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id, "1")).toMatchObject({
+        attempts: 1,
+        status: "queued",
+      })
+    );
+
+    await Effect.runPromise(Effect.sleep(30));
+    const row = await getMessageById(id, "1");
+    expect(row?.nextAttemptAt).toBeGreaterThan(Date.now());
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it("ignores late handoff dials after a direct send succeeds so future holder connects still wake in-flight sends", async () => {
+    const lateHandoffGate = Promise.withResolvers<undefined>();
+    const lateHandoffConnected = Promise.withResolvers<undefined>();
+    const secondSendGate = Promise.withResolvers<undefined>();
+    const secondSendStarted = Promise.withResolvers<undefined>();
+    let sendCalls = 0;
+
+    try {
+      send.mockImplementation(async () => {
+        sendCalls += 1;
+
+        if (sendCalls === 1) {
+          return;
+        }
+
+        if (sendCalls === 2) {
+          secondSendStarted.resolve(undefined);
+          await secondSendGate.promise;
+        }
+
+        throw new Error("bob offline");
+      });
+
+      let handoffCalls = 0;
+
+      handoff.mockImplementation(async ({ endpoint, holderPeerId }) => {
+        handoffCalls += 1;
+
+        if (handoffCalls === 1) {
+          await lateHandoffGate.promise;
+          await endpoint.connect(holderPeerId).catch(() => {
+            // Late dial runs after sendStoredMessage already released dial tracking.
+          });
+          lateHandoffConnected.resolve(undefined);
+
+          return;
+        }
+
+        if (handoffCalls === 2) {
+          throw new HandoffUndeliveredError("holder offline");
+        }
+      });
+
+      await useP2pStore.getState().start();
+      const contact = await getContactByQid("1");
+
+      if (!contact) {
+        throw new Error("Missing contact fixture");
+      }
+
+      const firstId = useP2pStore.getState().sendMessage(contact, "direct ok");
+      await vi.waitFor(async () =>
+        expect(await getMessageById(firstId, "1")).toMatchObject({
+          status: "sent",
+        })
+      );
+
+      lateHandoffGate.resolve(undefined);
+      await lateHandoffConnected.promise;
+
+      const secondId = useP2pStore
+        .getState()
+        .sendMessage(contact, "needs holder wake");
+
+      await secondSendStarted.promise;
+
+      connectionEstablished?.({ connId: 42, peerId: PEER_CLI });
+      await Effect.runPromise(Effect.sleep(20));
+      secondSendGate.resolve(undefined);
+
+      await vi.waitFor(async () =>
+        expect(await getMessageById(secondId, "1")).toMatchObject({
+          holderPeerId: PEER_CLI,
+          status: "held",
+        })
+      );
+    } finally {
+      lateHandoffGate.resolve(undefined);
+      secondSendGate.resolve(undefined);
+    }
+  });
+
+  it("adopts an accepted holder handoff when direct send fails with a terminal error", async () => {
+    const handoffAccepted = Promise.withResolvers<undefined>();
+    const sendGate = Promise.withResolvers<undefined>();
+
+    try {
+      handoff.mockImplementationOnce(() => {
+        handoffAccepted.resolve(undefined);
+
+        return Promise.resolve();
+      });
+
+      send.mockImplementationOnce(async () => {
+        await sendGate.promise;
+        throw new PeerVerificationError({ operation: "reassigned" });
+      });
+
+      await useP2pStore.getState().start();
+      const contact = await getContactByQid("1");
+
+      if (!contact) {
+        throw new Error("Missing contact fixture");
+      }
+
+      const id = useP2pStore.getState().sendMessage(contact, "already held");
+      await handoffAccepted.promise;
+      sendGate.resolve(undefined);
+
+      await vi.waitFor(async () =>
+        expect(await getMessageById(id, "1")).toMatchObject({
+          holderPeerId: PEER_CLI,
+          status: "held",
+        })
+      );
+    } finally {
+      sendGate.resolve(undefined);
+    }
+  });
+
+  it("closes the outbox if a synchronous subscriber calls stop when status becomes running", async () => {
+    const queuedId = "c56a4180-65aa-42ec-a945-5fd21dec0588";
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: queuedId,
+      sentAt: 1,
+      status: "queued",
+      text: "do not dispatch after stop",
+    });
+
+    const unsubscribe = useP2pStore.subscribe((state) => {
+      if (state.connection.status === "running") {
+        void useP2pStore.getState().stop();
+      }
+    });
+
+    try {
+      await useP2pStore.getState().start();
+      await Effect.runPromise(Effect.sleep(30));
+      expect(send).not.toHaveBeenCalled();
+      expect(useP2pStore.getState().connection.status).toBe("stopped");
+    } finally {
+      unsubscribe();
+    }
+  });
+
   it("marks a send held when the CLI accepts and Bob does not", async () => {
     await useP2pStore.getState().start();
     const contact = await getContactByQid("1");
@@ -483,7 +744,7 @@ describe("phone to CLI handoff", () => {
 
     const first = useP2pStore.getState().sendMessage(contact, "one");
     await vi.waitFor(async () =>
-      expect(await getMessageById(first)).toMatchObject({ status: "failed" })
+      expect(await getMessageById(first)).toMatchObject({ status: "queued" })
     );
     expect(handoff).not.toHaveBeenCalled();
 
@@ -539,7 +800,7 @@ describe("phone to CLI handoff", () => {
       direction: "out",
       id: pendingId,
       sentAt: 2,
-      status: "sending",
+      status: "queued",
       text: "pending",
     });
     connectionEstablished?.({ connId: 4, peerId: PEER_CLI_OTHER });
@@ -703,7 +964,7 @@ describe("phone to CLI handoff", () => {
       direction: "out",
       id: pendingId,
       sentAt: 2,
-      status: "sending",
+      status: "queued",
       text: "pending",
     });
     connectionEstablished?.({ connId: 20, peerId: PEER_CLI_OTHER });
@@ -754,7 +1015,7 @@ describe("phone to CLI handoff", () => {
       direction: "out",
       id: pendingId,
       sentAt: 2,
-      status: "sending",
+      status: "queued",
       text: "pending",
     });
     connectionEstablished?.({ connId: 20, peerId: PEER_CLI });
@@ -791,7 +1052,7 @@ describe("phone to CLI handoff", () => {
       direction: "out",
       id: pendingId,
       sentAt: 2,
-      status: "sending",
+      status: "queued",
       text: "pending",
     });
     lookupHandle.mockImplementation((handle: string) =>
@@ -801,7 +1062,7 @@ describe("phone to CLI handoff", () => {
     await Effect.runPromise(Effect.sleep(50));
     expect(aliceLookups()).toHaveLength(1);
     expect(await getMessageById(pendingId)).toMatchObject({
-      status: "sending",
+      status: "queued",
     });
 
     useP2pStore.getState().invalidateOwnHolders();
@@ -852,7 +1113,7 @@ describe("phone to CLI handoff", () => {
       direction: "out",
       id: pendingId,
       sentAt: 2,
-      status: "sending",
+      status: "queued",
       text: "pending",
     });
     connectedPeers.mockReturnValue([PEER_CLI]);

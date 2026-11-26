@@ -422,7 +422,7 @@ describe("multi-device connection authorization", () => {
     );
 
     expect(Result.isFailure(mismatched) && mismatched.failure.operation).toBe(
-      "identity"
+      "reassigned"
     );
     expect(lookupHandle).toHaveBeenCalledOnce();
   });

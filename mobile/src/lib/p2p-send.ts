@@ -1,15 +1,17 @@
 import { deviceKeyBytesFromPeerId } from "@qop/identity";
-import { Effect } from "effect";
+import { Data, Effect } from "effect";
 
 import {
   CHAT_PROTOCOL,
   assertAckMatches,
   decodeAck,
+  encodeFrame,
   MAX_CHAT_PAYLOAD_BYTES,
 } from "./chat-wire";
 import type { ChatCipher, ChatFrame } from "./chat-wire";
 import type { Contact } from "./db";
 import type { createPeerSessions, PeerConnection } from "./p2p-sessions";
+import { PeerVerificationError } from "./p2p-sessions";
 
 interface SendStream extends PeerConnection {
   readonly closeWrite: () => void;
@@ -111,6 +113,16 @@ export const withTimeout = <A>(
 const asSendError = (cause: unknown) =>
   cause instanceof Error ? cause : new Error(String(cause));
 
+export class InvalidMessageError extends Data.TaggedError(
+  "InvalidMessageError"
+)<{ readonly message: string }> {}
+
+export const isTerminalSendError = (error: Error) =>
+  error instanceof InvalidMessageError ||
+  (error instanceof PeerVerificationError &&
+    (error.operation === "reassigned" ||
+      error.operation === "invalid-recipient"));
+
 export const performSend = async ({
   cipher,
   contact,
@@ -123,6 +135,12 @@ export const performSend = async ({
   let stream: SendStream | undefined;
 
   try {
+    try {
+      encodeFrame(frame);
+    } catch {
+      throw new InvalidMessageError({ message: "Invalid chat message" });
+    }
+
     await Effect.runPromise(
       Effect.gen(function* () {
         const startedAt = Date.now();

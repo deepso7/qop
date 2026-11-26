@@ -1,6 +1,6 @@
 import { deviceKeyBytesFromPeerId } from "@qop/identity";
 import { Effect } from "effect";
-import { describe, expect, it, vi } from "vitest";
+import { assert, describe, expect, it, vi } from "vitest";
 
 import {
   CHAT_PROTOCOL,
@@ -8,7 +8,11 @@ import {
   encodeAck,
   MAX_CHAT_PAYLOAD_BYTES,
 } from "@/lib/chat-wire";
-import { performSend as sendEncryptedChat, withTimeout } from "@/lib/p2p-send";
+import {
+  isTerminalSendError,
+  performSend as sendEncryptedChat,
+  withTimeout,
+} from "@/lib/p2p-send";
 import type { PerformSendInput } from "@/lib/p2p-send";
 import { createPeerSessions, PeerVerificationError } from "@/lib/p2p-sessions";
 import { RegistryReaderError } from "@/lib/registry-core";
@@ -118,6 +122,78 @@ const expectRemainingTimeout = (timeoutMs: number, overall: number) => {
 };
 
 describe("performSend", () => {
+  it.each([
+    { name: "absent", snapshot: null },
+    { name: "empty roster", snapshot: { ...account, devices: [] } },
+  ])(
+    "keeps missing recipient snapshots retryable: $name",
+    async ({ snapshot }) => {
+      const { endpoint, sessions, lookupHandle } = makeEndpoint(ackReader(id));
+      lookupHandle.mockReturnValue(Effect.succeed(snapshot));
+
+      const error = await performSend({
+        contact,
+        endpoint,
+        frame,
+        sessions,
+        timeoutMs: 50,
+      }).catch((error_: Error) => error_);
+
+      expect(error).toBeInstanceOf(PeerVerificationError);
+      assert(error instanceof Error);
+      expect(isTerminalSendError(error)).toBe(false);
+      expect(endpoint.openStream).not.toHaveBeenCalled();
+      expect(lookupHandle).toHaveBeenCalledOnce();
+    }
+  );
+
+  it("classifies fresh handle reassignment at the existing lookup without dialing", async () => {
+    const { endpoint, sessions, lookupHandle } = makeEndpoint(ackReader(id));
+    lookupHandle.mockReturnValue(Effect.succeed({ ...account, qid: 99n }));
+
+    const error = await performSend({
+      contact,
+      endpoint,
+      frame,
+      sessions,
+      timeoutMs: 50,
+    }).catch((error_: Error) => error_);
+
+    assert(error instanceof Error);
+    expect(isTerminalSendError(error)).toBe(true);
+    expect(error).toMatchObject({ operation: "reassigned" });
+    expect(lookupHandle).toHaveBeenCalledOnce();
+    expect(endpoint.connect).not.toHaveBeenCalled();
+  });
+
+  it("classifies invalid handles and messages as terminal", async () => {
+    const { endpoint, sessions, lookupHandle } = makeEndpoint(ackReader(id));
+    lookupHandle.mockReturnValue(
+      Effect.fail(new RegistryReaderError({ operation: "invalid-handle" }))
+    );
+    const input = { contact, endpoint, frame, sessions, timeoutMs: 50 };
+
+    const invalidHandle = await performSend(input).catch(
+      (error: Error) => error
+    );
+
+    const seal = vi.fn(() => Promise.resolve(new Uint8Array([1])));
+
+    const invalidMessage = await sendEncryptedChat({
+      ...input,
+      cipher: { seal },
+      frame: { ...frame, id: "invalid" },
+    }).catch((error: Error) => error);
+
+    assert(invalidHandle instanceof Error);
+    assert(invalidMessage instanceof Error);
+    expect(isTerminalSendError(invalidHandle)).toBe(true);
+    expect(isTerminalSendError(invalidMessage)).toBe(true);
+    expect(invalidMessage).toMatchObject({ _tag: "InvalidMessageError" });
+    expect(seal).not.toHaveBeenCalled();
+    expect(lookupHandle).toHaveBeenCalledOnce();
+    expect(endpoint.connect).not.toHaveBeenCalled();
+  });
   it("sends a signed envelope to the authorized device and accepts its ack", async () => {
     const peerId = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
 

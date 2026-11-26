@@ -1,18 +1,27 @@
 import { setTimeout as sleep } from "node:timers/promises";
 
-import { deviceKeyBytesFromPeerId } from "@qop/identity";
-import { Effect } from "effect";
+import {
+  deviceKeyBytesFromPeerId,
+  deviceKeyFromPeerId,
+  Hex32,
+  PeerId,
+} from "@qop/identity";
+import { Effect, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { CHAT_PROTOCOL, createChatCipher, encodeAck } from "@/lib/chat-wire";
 import {
+  advanceMessageStatus,
   deleteAll,
   getContactByQid,
   getMessageById,
   insertMessage,
+  listMessages,
+  recordMessageRetry,
   upsertContact,
 } from "@/lib/db";
 import type { performSend } from "@/lib/p2p-send";
+import { performSend as sendToPeer } from "@/lib/p2p-send";
 import { createP2pStore } from "@/lib/p2p-store-core";
 import type { P2pEndpoint } from "@/lib/p2p-store-core";
 import type {
@@ -20,8 +29,6 @@ import type {
   lookupHandle as LookupHandle,
 } from "@/lib/registry";
 import type { RegistryAccount } from "@/lib/registry-core";
-
-import { failNextRun } from "./support/sqlite";
 
 const PEER_BOB = "12D3KooWK99VoVxNE7XzyBwXEzW7xhK7Gpv85r9F3V3fyKSUKPH5";
 const PEER_ALICE = "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN";
@@ -87,7 +94,7 @@ const lookupDeviceKey = vi.fn((): ReturnType<typeof LookupDeviceKey> =>
   Effect.succeed(bobAccount)
 );
 
-const lookupHandle = vi.fn((): ReturnType<typeof LookupHandle> =>
+const lookupHandle = vi.fn<typeof LookupHandle>(() =>
   Effect.succeed(bobAccount)
 );
 
@@ -226,6 +233,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  vi.useRealTimers();
   await useP2pStore.getState().stop();
   vi.unstubAllEnvs();
 });
@@ -284,21 +292,432 @@ const resolvedUndefined = async (): Promise<undefined> => {
   await Promise.resolve();
 };
 
-describe("interrupted sends", () => {
-  it("recovers a persisted send before starting a new endpoint", async () => {
+describe("automatic outbox", () => {
+  it("wakes a connected contact in O(1) without looking up unrelated queued contacts", async () => {
+    const ids = new Map<string, string>();
+
+    const seed = async (qid: string) => {
+      if (qid !== "1") {
+        await upsertContact({
+          createdAt: 1,
+          deviceKey: `0x${qid.padStart(64, "0")}`,
+          handle: `contact${qid}`,
+          owner: bobAccount.owner,
+          peerId: `peer-${qid}`,
+          qid,
+        });
+      }
+
+      const id = crypto.randomUUID();
+      ids.set(qid, id);
+      await insertMessage({
+        contactQid: qid,
+        direction: "out",
+        id,
+        sentAt: 1,
+        status: "queued",
+        text: "waiting",
+      });
+
+      await Effect.runPromise(
+        Effect.forEach(
+          [0, 1, 2, 3, 4, 5],
+          () => Effect.promise(() => recordMessageRetry(id, qid)),
+          { concurrency: 1 }
+        )
+      );
+    };
+
+    await Promise.all(["2", "3", "4", "5", "6", "7", "8", "9"].map(seed));
+    await seed("1");
+
+    const bobMessageId = ids.get("1") ?? "";
+
+    lookupHandle.mockImplementation((handle) =>
+      Effect.succeed(handle === "bob" ? bobAccount : null)
+    );
+    await useP2pStore.getState().start();
+    lookupHandle.mockClear();
+
+    connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(bobMessageId, "1")).toMatchObject({
+        status: "sent",
+      })
+    );
+    expect(send).toHaveBeenCalledOnce();
+    // No O(N) lookupHandle scan across the other 8 queued contacts.
+    expect(lookupHandle).not.toHaveBeenCalled();
+  });
+
+  it("wakes a contact connecting from a secondary device via one device-key lookup", async () => {
+    const secondaryPeer =
+      "12D3KooWDGEF3VLEM7R3XWGJsqPCcSSjwRmuNw6JTQMVMNSSzwAz";
+
+    const secondaryKey = Schema.encodeSync(Hex32)(
+      Effect.runSync(
+        deviceKeyFromPeerId(Schema.decodeUnknownSync(PeerId)(secondaryPeer))
+      )
+    );
+
+    const multiDeviceBob: RegistryAccount = {
+      ...bobAccount,
+      devices: [
+        { deviceKey: bobDeviceKey, peerId: PEER_BOB },
+        { deviceKey: secondaryKey, peerId: secondaryPeer },
+      ],
+    };
+
+    const id = crypto.randomUUID();
     await insertMessage({
       contactQid: "1",
       direction: "out",
-      id: "interrupted",
+      id,
       sentAt: 1,
-      status: "sending",
+      status: "queued",
+      text: "waiting for desktop",
+    });
+    await recordMessageRetry(id, "1");
+
+    lookupDeviceKey.mockReturnValue(Effect.succeed(multiDeviceBob));
+    await useP2pStore.getState().start();
+    lookupHandle.mockClear();
+
+    connectionEstablished?.({ connId: 8, peerId: secondaryPeer });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id, "1")).toMatchObject({
+        status: "sent",
+      })
+    );
+    expect(send).toHaveBeenCalledOnce();
+    expect(lookupHandle).not.toHaveBeenCalled();
+  });
+
+  it("delivers after failure when an authorized peer comes online without manual retry", async () => {
+    send.mockRejectedValue(new Error("recipient offline"));
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+
+    if (!contact) {
+      throw new Error("Missing contact");
+    }
+
+    const id = useP2pStore.getState().sendMessage(contact, "queued hello");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({
+        attempts: 1,
+        status: "queued",
+      })
+    );
+    const queued = await getMessageById(id);
+    send.mockResolvedValue();
+    connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({
+        status: "sent",
+        text: "queued hello",
+      })
+    );
+    expect(Date.now()).toBeLessThan(queued?.nextAttemptAt ?? 0);
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls.map(([input]) => input.frame.id)).toEqual([id, id]);
+  });
+
+  it("retries immediately when the peer connects while an offline attempt is still in flight", async () => {
+    const firstAttempt = Promise.withResolvers<undefined>();
+    send.mockReturnValueOnce(firstAttempt.promise).mockResolvedValueOnce();
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+
+    if (!contact) {
+      throw new Error("Missing contact");
+    }
+
+    const id = useP2pStore.getState().sendMessage(contact, "in-flight wake");
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+
+    // Bob comes online before the first attempt times out.
+    connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
+    await vi.waitFor(() => expect(lookupDeviceKey).toHaveBeenCalled());
+
+    firstAttempt.reject(new Error("first dial timed out"));
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({ status: "sent" })
+    );
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps retry backoff when an outbox dial connects then fails before ack", async () => {
+    connect.mockImplementation(() => {
+      connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
+
+      return Promise.resolve({
+        connectId: 1,
+        path: { kind: "direct" },
+        peerId: PEER_BOB,
+      });
+    });
+
+    send.mockImplementationOnce(async ({ endpoint }) => {
+      await endpoint.connect(PEER_BOB);
+      await vi.waitFor(() => expect(lookupDeviceKey).toHaveBeenCalled());
+      throw new Error("peer disconnected before ack");
+    });
+
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+
+    if (!contact) {
+      throw new Error("Missing contact");
+    }
+
+    const id = useP2pStore.getState().sendMessage(contact, "drop before ack");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({
+        attempts: 1,
+        status: "queued",
+      })
+    );
+
+    const row = await getMessageById(id);
+    expect(row?.nextAttemptAt).toBeGreaterThan(Date.now());
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it("preserves dial backoff even when retry write finishes before peer verification resolves", async () => {
+    const verifyGate = Promise.withResolvers<RegistryAccount>();
+    lookupDeviceKey.mockReturnValueOnce(
+      Effect.promise(() => verifyGate.promise)
+    );
+
+    connect.mockImplementation(() => {
+      connectionEstablished?.({ connId: 7, peerId: PEER_BOB });
+
+      return Promise.resolve({
+        connectId: 1,
+        path: { kind: "direct" },
+        peerId: PEER_BOB,
+      });
+    });
+
+    send.mockImplementationOnce(async ({ endpoint }) => {
+      await endpoint.connect(PEER_BOB);
+      throw new Error("peer disconnected before ack");
+    });
+
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+
+    if (!contact) {
+      throw new Error("Missing contact");
+    }
+
+    const id = useP2pStore.getState().sendMessage(contact, "slow verify");
+
+    // Retry write commits and releases dial tracking before verify resolves.
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({
+        attempts: 1,
+        status: "queued",
+      })
+    );
+
+    const beforeVerify = await getMessageById(id);
+    expect(beforeVerify?.nextAttemptAt).toBeGreaterThan(Date.now());
+
+    // Now verification finishes; it must NOT clear the originating row's deadline.
+    verifyGate.resolve(bobAccount);
+    await sleep(30);
+
+    const afterVerify = await getMessageById(id);
+    expect(afterVerify?.nextAttemptAt).toBe(beforeVerify?.nextAttemptAt);
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it("caches unknown-peer lookup misses so repeated stranger connects do not spam registry reads", async () => {
+    send.mockRejectedValue(new Error("offline"));
+    lookupDeviceKey.mockReturnValue(Effect.succeed(null));
+
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+
+    useP2pStore.getState().sendMessage(contact, "queued for bob");
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    lookupDeviceKey.mockClear();
+
+    for (let i = 0; i < 5; i += 1) {
+      connectionEstablished?.({ connId: 20 + i, peerId: PEER_ALICE });
+    }
+
+    await vi.waitFor(() => expect(lookupDeviceKey).toHaveBeenCalledOnce());
+    await sleep(30);
+
+    for (let i = 0; i < 5; i += 1) {
+      connectionEstablished?.({ connId: 30 + i, peerId: PEER_ALICE });
+    }
+
+    await sleep(30);
+    expect(lookupDeviceKey).toHaveBeenCalledOnce();
+  });
+
+  it("caches resolved secondary devices without blocking later wakes once messages are queued", async () => {
+    const secondaryPeer = PEER_ALICE;
+
+    const secondaryKey = Effect.runSync(
+      Schema.decodeUnknownEffect(PeerId)(secondaryPeer).pipe(
+        Effect.flatMap(deviceKeyFromPeerId),
+        Effect.flatMap((key) => Schema.encodeEffect(Hex32)(key))
+      )
+    );
+
+    const bobWithSecondary: RegistryAccount = {
+      ...bobAccount,
+      devices: [
+        ...bobAccount.devices,
+        { deviceKey: secondaryKey, peerId: secondaryPeer },
+      ],
+    };
+
+    const carolContact = {
+      createdAt: 2,
+      deviceKey: `0x${"33".repeat(32)}`,
+      handle: "carol",
+      owner: "0x0000000000000000000000000000000000000003",
+      peerId: "12D3KooWbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      qid: "2",
+    };
+
+    await upsertContact(carolContact);
+    send.mockRejectedValue(new Error("offline"));
+    lookupDeviceKey.mockReturnValue(Effect.succeed(bobWithSecondary));
+    lookupHandle.mockReturnValue(Effect.succeed(bobWithSecondary));
+
+    await useP2pStore.getState().start();
+    const bobContact = await getContactByQid("1");
+    const carol = await getContactByQid("2");
+
+    if (!bobContact || !carol) {
+      throw new Error("Missing contact fixtures");
+    }
+
+    // Carol has a queued message while Bob has none; Bob's secondary connects.
+    useP2pStore.getState().sendMessage(carol, "for carol");
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    connectionEstablished?.({ connId: 40, peerId: secondaryPeer });
+    await vi.waitFor(() => expect(lookupDeviceKey).toHaveBeenCalledOnce());
+
+    // Now Bob gets a queued message in backoff, and Bob's secondary reconnects.
+    const bobId = useP2pStore.getState().sendMessage(bobContact, "for bob");
+    await vi.waitFor(async () =>
+      expect(await getMessageById(bobId, "1")).toMatchObject({
+        attempts: 1,
+        status: "queued",
+      })
+    );
+
+    send.mockResolvedValue();
+    connectionEstablished?.({ connId: 41, peerId: secondaryPeer });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(bobId, "1")).toMatchObject({ status: "sent" })
+    );
+  });
+
+  it("resumes persisted retries after endpoint restart", async () => {
+    send.mockRejectedValue(new Error("offline"));
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+
+    if (!contact) {
+      throw new Error("Missing contact");
+    }
+
+    const id = useP2pStore.getState().sendMessage(contact, "survives restart");
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    await useP2pStore.getState().stop();
+    send.mockResolvedValue();
+    await useP2pStore.getState().start();
+    vi.useFakeTimers();
+    await vi.advanceTimersByTimeAsync(2100);
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({ status: "sent" })
+    );
+    expect(send.mock.calls.map(([input]) => input.frame.id)).toEqual([id, id]);
+  });
+
+  it("keeps terminal handle reassignment failed and does not send to its new owner", async () => {
+    send.mockImplementation(sendToPeer);
+    lookupHandle.mockReturnValue(Effect.succeed({ ...bobAccount, qid: 99n }));
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+
+    if (!contact) {
+      throw new Error("Missing contact");
+    }
+
+    const id = useP2pStore
+      .getState()
+      .sendMessage(contact, "not for the new owner");
+
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({ status: "failed" })
+    );
+    appResumeHandler?.();
+    await sleep(20);
+    expect(await getMessageById(id)).toMatchObject({ status: "failed" });
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it("resets backoff attempts and bumps revision on manual retry of a failed message", async () => {
+    const id = crypto.randomUUID();
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id,
+      sentAt: 1,
+      status: "queued",
+      text: "manual retry",
+    });
+    await recordMessageRetry(id, "1");
+    await recordMessageRetry(id, "1");
+    await advanceMessageStatus(id, "failed", "1");
+
+    send.mockRejectedValueOnce(new Error("still offline"));
+    await useP2pStore.getState().start();
+    const before = useP2pStore.getState().revision;
+
+    await useP2pStore.getState().retryMessage(id, "1");
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id, "1")).toMatchObject({
+        attempts: 1,
+        status: "queued",
+      })
+    );
+    expect(useP2pStore.getState().revision).toBeGreaterThan(before);
+  });
+});
+
+describe("interrupted sends", () => {
+  it("delivers a persisted queued message when starting a new endpoint", async () => {
+    await insertMessage({
+      contactQid: "1",
+      direction: "out",
+      id: "c56a4180-65aa-42ec-a945-5fd21dec0572",
+      sentAt: 1,
+      status: "queued",
       text: "hello",
     });
     await useP2pStore.getState().start();
-    expect(await getMessageById("interrupted")).toMatchObject({
-      status: "failed",
-    });
-    expect(send).not.toHaveBeenCalled();
+    await vi.waitFor(async () =>
+      expect(
+        await getMessageById("c56a4180-65aa-42ec-a945-5fd21dec0572")
+      ).toMatchObject({ status: "sent" })
+    );
+    expect(send).toHaveBeenCalledOnce();
   });
 
   it("makes an endpoint-interrupted send retryable with its original ID", async () => {
@@ -306,56 +725,39 @@ describe("interrupted sends", () => {
     closed?.(closeReport);
     pending.reject(new Error("connection closed"));
     await vi.waitFor(async () =>
-      expect(await getMessageById(id)).toMatchObject({ status: "failed" })
+      expect(await getMessageById(id)).toMatchObject({ status: "queued" })
     );
     await useP2pStore.getState().start();
     await useP2pStore.getState().retryMessage(id);
-    expect(await getMessageById(id)).toMatchObject({
-      id,
-      status: "sent",
-      text: "hello",
-    });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({
+        id,
+        status: "sent",
+        text: "hello",
+      })
+    );
     expect(send).toHaveBeenCalledTimes(2);
     expect(send).toHaveBeenLastCalledWith(
       expect.objectContaining({ frame: expect.objectContaining({ id }) })
     );
   });
 
-  it("recovers an interrupted send before stop finishes", async () => {
+  it("keeps an interrupted send queued before stop finishes", async () => {
     const { id, pending } = await beginSend();
     const stopped = useP2pStore.getState().stop();
     pending.reject(new Error("connection closed"));
     await stopped;
-    expect(await getMessageById(id)).toMatchObject({ status: "failed" });
+    expect(await getMessageById(id)).toMatchObject({ status: "queued" });
   });
 
-  it("tears down and recovers interrupted sends on driverFailed", async () => {
+  it("tears down and keeps interrupted sends queued on driverFailed", async () => {
     const { id, pending } = await beginSend();
     expect(useP2pStore.getState().connection.status).toBe("running");
     driverFailed?.({ detail: "native panic" });
     pending.reject(new Error("driver failed"));
     await vi.waitFor(async () =>
-      expect(await getMessageById(id)).toMatchObject({ status: "failed" })
+      expect(await getMessageById(id)).toMatchObject({ status: "queued" })
     );
-    expect(useP2pStore.getState().connection).toEqual({
-      reason: "native panic",
-      status: "failed",
-    });
-  });
-
-  it("keeps the failure reason when send recovery hits a storage error", async () => {
-    const { pending } = await beginSend();
-
-    // Fail the recovery's failInterruptedMessages write.
-    const recoveryFailed = failNextRun((sql) =>
-      sql.includes("WHERE direction = 'out' AND status = 'sending'")
-    );
-
-    driverFailed?.({ detail: "native panic" });
-    pending.reject(new Error("driver failed"));
-    await recoveryFailed;
-    // Let the recovery's catch run before asserting.
-    await sleep(0);
     expect(useP2pStore.getState().connection).toEqual({
       reason: "native panic",
       status: "failed",
@@ -367,16 +769,18 @@ describe("interrupted sends", () => {
     closed?.(closeReport);
     pending.reject(new Error("connection closed"));
     await vi.waitFor(async () =>
-      expect(await getMessageById(id)).toMatchObject({ status: "failed" })
+      expect(await getMessageById(id)).toMatchObject({ status: "queued" })
     );
     expect(useP2pStore.getState().connection.status).toBe("failed");
     // retryMessage should call start itself — no prior start() from the test.
     await useP2pStore.getState().retryMessage(id);
-    expect(await getMessageById(id)).toMatchObject({
-      id,
-      status: "sent",
-      text: "hello",
-    });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({
+        id,
+        status: "sent",
+        text: "hello",
+      })
+    );
     expect(useP2pStore.getState().connection.status).toBe("running");
     expect(send).toHaveBeenCalledTimes(2);
   });
@@ -386,11 +790,11 @@ describe("interrupted sends", () => {
     closed?.(closeReport);
     pending.reject(new Error("connection closed"));
     await vi.waitFor(async () =>
-      expect(await getMessageById(id)).toMatchObject({ status: "failed" })
+      expect(await getMessageById(id)).toMatchObject({ status: "queued" })
     );
-    await useP2pStore.getState().start();
     const retryPending = Promise.withResolvers<undefined>();
     send.mockReturnValueOnce(retryPending.promise);
+    await useP2pStore.getState().start();
 
     const first = useP2pStore.getState().retryMessage(id);
     const second = useP2pStore.getState().retryMessage(id);
@@ -398,7 +802,9 @@ describe("interrupted sends", () => {
     retryPending.resolve(await resolvedUndefined());
     await Promise.all([first, second]);
 
-    expect(await getMessageById(id)).toMatchObject({ status: "sent" });
+    await vi.waitFor(async () =>
+      expect(await getMessageById(id)).toMatchObject({ status: "sent" })
+    );
   });
 
   it("retries after a capped stop cancels an abandoned retry", async () => {
@@ -406,9 +812,8 @@ describe("interrupted sends", () => {
     closed?.(closeReport);
     pending.reject(new Error("connection closed"));
     await vi.waitFor(async () =>
-      expect(await getMessageById(id)).toMatchObject({ status: "failed" })
+      expect(await getMessageById(id)).toMatchObject({ status: "queued" })
     );
-    await useP2pStore.getState().start();
 
     const abandoned = Promise.withResolvers<undefined>();
     let cancelled = false;
@@ -419,6 +824,8 @@ describe("interrupted sends", () => {
 
       return abandoned.promise;
     });
+
+    await useP2pStore.getState().start();
     const oldRetry = useP2pStore.getState().retryMessage(id);
     await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2));
 
@@ -429,17 +836,21 @@ describe("interrupted sends", () => {
       await vi.advanceTimersByTimeAsync(5000);
       await stopped;
       expect(cancelled).toBe(true);
-      expect(await getMessageById(id)).toMatchObject({ status: "failed" });
+      expect(await getMessageById(id)).toMatchObject({ status: "queued" });
 
       const freshRetry = useP2pStore.getState().retryMessage(id);
       await vi.advanceTimersByTimeAsync(5000);
       await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(3));
       await freshRetry;
-      expect(await getMessageById(id)).toMatchObject({ status: "sent" });
+      await vi.waitFor(async () =>
+        expect(await getMessageById(id)).toMatchObject({ status: "sent" })
+      );
 
       abandoned.resolve(await resolvedUndefined());
       await oldRetry;
-      expect(await getMessageById(id)).toMatchObject({ status: "sent" });
+      await vi.waitFor(async () =>
+        expect(await getMessageById(id)).toMatchObject({ status: "sent" })
+      );
     } finally {
       vi.useRealTimers();
     }
@@ -448,6 +859,35 @@ describe("interrupted sends", () => {
 
 describe("inbound chat streams", () => {
   const messageId = "c56a4180-65aa-42ec-a945-5fd21dec0538";
+
+  it("acks freshly sealed retries of the same id but stores one message", async () => {
+    await useP2pStore.getState().start();
+    const firstEnvelope = await inboundFrame(messageId);
+    const retryEnvelope = await inboundFrame(messageId);
+    expect(retryEnvelope).not.toEqual(firstEnvelope);
+
+    const receive = async (envelope: Uint8Array) => {
+      const stream = makeInboundStream(envelope);
+      onStream?.(stream);
+      await vi.waitFor(() => expect(stream.closeWrite).toHaveBeenCalledOnce());
+      expect(stream.write).toHaveBeenCalledWith(
+        encodeAck({ ack: messageId, v: 1 })
+      );
+      expect(stream.reset).not.toHaveBeenCalled();
+    };
+
+    await receive(firstEnvelope);
+    await receive(retryEnvelope);
+
+    expect(await listMessages("1")).toEqual([
+      expect.objectContaining({
+        direction: "in",
+        id: messageId,
+        status: "received",
+        text: "hello inbound",
+      }),
+    ]);
+  });
 
   it("acks a verified inbound frame and stores it", async () => {
     await useP2pStore.getState().start();
