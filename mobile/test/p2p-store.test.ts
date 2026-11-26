@@ -1279,6 +1279,7 @@ describe("mailbox fallback and drain", () => {
 
       const closeEndpoint = vi.fn(() => Promise.resolve(closeReport));
       const loadForegroundKey = vi.fn(() => Effect.succeed(aliceSecret));
+      const prepare = vi.fn(() => Promise.resolve());
 
       const store = createP2pStore({
         createEndpoint: () => ({
@@ -1327,6 +1328,16 @@ describe("mailbox fallback and drain", () => {
                     );
                   }
 
+                  if (request.type === "register-push") {
+                    expect(prepare).toHaveBeenCalledExactlyOnceWith(
+                      aliceSecret
+                    );
+
+                    return Effect.runSync(
+                      encodeMailboxResponseV1({ type: "push-registered", v: 1 })
+                    );
+                  }
+
                   return Effect.runSync(
                     encodeMailboxResponseV1({
                       reason: "invalid",
@@ -1365,7 +1376,7 @@ describe("mailbox fallback and drain", () => {
           canWake: () => true,
           loadKey: () => Promise.resolve(aliceSecret),
           notifyDelivered,
-          saveKey: vi.fn(),
+          prepare,
         },
         mailboxes: [
           {
@@ -1388,6 +1399,12 @@ describe("mailbox fallback and drain", () => {
         if (trigger === "resume") {
           await store.getState().start();
           await vi.waitFor(() => expect(fetchCount).toBeGreaterThanOrEqual(1));
+          expect(
+            await store.getState().registerMailboxPush({
+              platform: "fcm",
+              token: "device-token",
+            })
+          ).toEqual([PEER_MAILBOX]);
         }
 
         const contactBefore = await getContactByQid("1");

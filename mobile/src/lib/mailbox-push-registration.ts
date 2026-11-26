@@ -1,14 +1,9 @@
 import { parseMailboxAddrs } from "@qop/protocol";
 import { Schema } from "effect";
 import * as Notifications from "expo-notifications";
-import { isTaskRegisteredAsync } from "expo-task-manager";
 import { AppState, Platform } from "react-native";
 
-import {
-  MAILBOX_CHANNEL,
-  MAILBOX_TASK,
-  mailboxPushEnabled,
-} from "./mailbox-notification";
+import { MAILBOX_CHANNEL, mailboxPushEnabled } from "./mailbox-notification";
 import { useP2pStore } from "./p2p-store";
 
 const REFRESH_MS = 24 * 60 * 60 * 1000;
@@ -70,22 +65,16 @@ export const startMailboxPushRegistration = () => {
         return;
       }
 
-      if (!(await isTaskRegisteredAsync(MAILBOX_TASK))) {
-        await Notifications.registerTaskAsync(MAILBOX_TASK);
-      }
+      const registered = await useP2pStore.getState().registerMailboxPush({
+        platform: token.type === "ios" ? "apns" : "fcm",
+        token: token.data,
+      });
 
-      if (!stopped) {
-        const registered = await useP2pStore.getState().registerMailboxPush({
-          platform: token.type === "ios" ? "apns" : "fcm",
-          token: token.data,
-        });
-
-        if (
-          registered.length === peers.size &&
-          (!latestToken || latestToken.data === token.data)
-        ) {
-          nextRefresh = Date.now() + REFRESH_MS;
-        }
+      if (
+        registered.length === peers.size &&
+        (!latestToken || latestToken.data === token.data)
+      ) {
+        nextRefresh = Date.now() + REFRESH_MS;
       }
     };
 

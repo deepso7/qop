@@ -167,7 +167,7 @@ interface P2pDependencies {
     readonly canWake: () => boolean;
     readonly loadKey: () => Promise<Uint8Array | undefined>;
     readonly notifyDelivered: () => Promise<void>;
-    readonly saveKey: (secretKey: Uint8Array) => Promise<void>;
+    readonly prepare: (secretKey: Uint8Array) => Promise<void>;
   };
   readonly lookupDeviceKey: typeof lookupDeviceKey;
   readonly lookupHandle: typeof lookupHandle;
@@ -2260,7 +2260,11 @@ export const createP2pStore = ({
             return [];
           }
 
-          await mailboxPush.saveKey(secretKey);
+          await mailboxPush.prepare(secretKey);
+
+          if (!isCurrentGeneration(startGeneration)) {
+            return [];
+          }
 
           const registrations = await Promise.allSettled(
             mailboxes.map(async (peer) => {
