@@ -1,5 +1,13 @@
+#!/usr/bin/env -S node
 import { randomBytes } from "node:crypto";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  link,
+  mkdir,
+  readFile,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -32,7 +40,19 @@ const parseAddrs = (raw: string | undefined, fallback: readonly string[]) => {
     .filter((entry) => entry.length > 0);
 };
 
-/** Load the 32-byte mailbox identity key, creating it only when absent. */
+const readValidatedKey = async (keyPath: string): Promise<Uint8Array> => {
+  const existing = await readFile(keyPath);
+
+  if (existing.byteLength !== KEY_BYTES) {
+    throw new Error(
+      `Invalid mailbox key at ${keyPath}: expected ${KEY_BYTES} bytes, got ${existing.byteLength}`
+    );
+  }
+
+  return new Uint8Array(existing);
+};
+
+/** Load the 32-byte mailbox identity key, atomically publishing a new one only when absent. */
 export const loadOrCreateKey = async (dataDir: string): Promise<Uint8Array> => {
   await mkdir(dataDir, { mode: MODE_DIR, recursive: true });
   await chmod(dataDir, MODE_DIR);
@@ -40,15 +60,7 @@ export const loadOrCreateKey = async (dataDir: string): Promise<Uint8Array> => {
   const keyPath = path.join(dataDir, KEY_FILE);
 
   try {
-    const existing = await readFile(keyPath);
-
-    if (existing.byteLength !== KEY_BYTES) {
-      throw new Error(
-        `Invalid mailbox key at ${keyPath}: expected ${KEY_BYTES} bytes, got ${existing.byteLength}`
-      );
-    }
-
-    return new Uint8Array(existing);
+    return await readValidatedKey(keyPath);
   } catch (error) {
     // SAFETY: Node.js fs errors are Error instances with a string errno `code`.
     const errno = error as NodeJS.ErrnoException;
@@ -59,10 +71,31 @@ export const loadOrCreateKey = async (dataDir: string): Promise<Uint8Array> => {
   }
 
   const created = new Uint8Array(randomBytes(KEY_BYTES));
-  await writeFile(keyPath, created, { mode: MODE_FILE });
-  await chmod(keyPath, MODE_FILE);
 
-  return created;
+  const tmpPath = path.join(
+    dataDir,
+    `${KEY_FILE}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`
+  );
+
+  await writeFile(tmpPath, created, { flag: "wx", mode: MODE_FILE });
+
+  try {
+    await chmod(tmpPath, MODE_FILE);
+    await link(tmpPath, keyPath);
+
+    return created;
+  } catch (error) {
+    // SAFETY: Node.js fs errors are Error instances with a string errno `code`.
+    const errno = error as NodeJS.ErrnoException;
+
+    if (errno.code === "EEXIST") {
+      return await readValidatedKey(keyPath);
+    }
+
+    throw error;
+  } finally {
+    await unlink(tmpPath).catch(() => null);
+  }
 };
 
 const main = async () => {
@@ -86,6 +119,14 @@ const main = async () => {
 
   if (!Number.isFinite(ttlDays) || ttlDays <= 0) {
     throw new Error("QOP_MAILBOX_TTL_DAYS must be a positive number");
+  }
+
+  const ttlMs = Math.round(ttlDays * DAY_MS);
+
+  if (!Number.isSafeInteger(ttlMs) || ttlMs <= 0) {
+    throw new Error(
+      "QOP_MAILBOX_TTL_DAYS converts to an invalid millisecond TTL"
+    );
   }
 
   const dataDir =
@@ -117,9 +158,7 @@ const main = async () => {
     );
   }
 
-  const store = await Effect.runPromise(
-    openMailboxStore(dataDir, { ttlMs: Math.round(ttlDays * DAY_MS) })
-  );
+  const store = await Effect.runPromise(openMailboxStore(dataDir, { ttlMs }));
 
   // One `eth_call` per cache miss: QOPIdentityRegistry clears `qidByDeviceKey`
   // on removeDevice/wipeDevices/recoverOwner, so `qid > 0n` iff active.

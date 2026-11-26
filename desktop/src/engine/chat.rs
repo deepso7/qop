@@ -216,8 +216,8 @@ pub async fn deliver<C: Chain>(
     }
 
     match deliver_direct(ctx, recipient, frame, account).await {
-        Ok((delivered_device, rejected_devices)) => {
-            if !ctx.mailboxes.is_empty() && ctx.auth.allowed_at(auth_epoch) {
+        Ok((delivered_device, rejected_devices, saw_pause)) => {
+            if !saw_pause && !ctx.mailboxes.is_empty() && ctx.auth.allowed_at(auth_epoch) {
                 let remaining: Vec<_> = account
                     .devices
                     .iter()
@@ -287,11 +287,15 @@ async fn deliver_direct<C: Chain>(
     frame: &ChatFrame,
     account: &Account,
 ) -> Result<
-    (alloy_primitives::B256, std::collections::HashSet<alloy_primitives::B256>),
+    (
+        alloy_primitives::B256,
+        std::collections::HashSet<alloy_primitives::B256>,
+        bool,
+    ),
     (DeliverError, std::collections::HashSet<alloy_primitives::B256>),
 > {
     let peers = ctx.auth.recipient_peers(recipient, account);
-    let (mut stream, rejected_devices) = first_authorized(ctx, recipient, peers).await?;
+    let (mut stream, rejected_devices, saw_pause) = first_authorized(ctx, recipient, peers).await?;
     let Some(delivered_device) = device_key_from_peer(&stream.peer) else {
         stream.reset();
         return Err((DeliverError::Transport, rejected_devices));
@@ -314,7 +318,7 @@ async fn deliver_direct<C: Chain>(
         stream.reset();
     }
     match result {
-        Ok(()) => Ok((delivered_device, rejected_devices)),
+        Ok(()) => Ok((delivered_device, rejected_devices, saw_pause)),
         Err(error) => Err((error, rejected_devices)),
     }
 }
@@ -348,7 +352,11 @@ async fn first_authorized<C: Chain>(
     recipient: &Contact,
     peers: Vec<minip2p::PeerId>,
 ) -> Result<
-    (Stream, std::collections::HashSet<alloy_primitives::B256>),
+    (
+        Stream,
+        std::collections::HashSet<alloy_primitives::B256>,
+        bool,
+    ),
     (DeliverError, std::collections::HashSet<alloy_primitives::B256>),
 > {
     let mut dials = JoinSet::new();
@@ -359,11 +367,17 @@ async fn first_authorized<C: Chain>(
     }
     let mut error = DeliverError::Transport;
     let mut rejected_devices = std::collections::HashSet::new();
+    let mut saw_pause = false;
     let deadline = tokio::time::Instant::now() + DIAL_BUDGET;
     loop {
         match tokio::time::timeout_at(deadline, dials.join_next()).await {
-            Ok(Some(Ok((_device_key, Ok(stream))))) => return Ok((stream, rejected_devices)),
+            Ok(Some(Ok((_device_key, Ok(stream))))) => {
+                return Ok((stream, rejected_devices, saw_pause));
+            }
             Ok(Some(Ok((device_key, Err(failed))))) => {
+                if failed.pauses() {
+                    saw_pause = true;
+                }
                 if failed.blocks_mailbox_fallback()
                     && let Some(key) = device_key
                 {

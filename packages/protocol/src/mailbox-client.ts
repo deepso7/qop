@@ -177,7 +177,7 @@ export const depositToMailbox = Effect.fn("@qop/protocol/depositToMailbox")(
       const batch = items.slice(offset, offset + MAILBOX_MAX_DEPOSIT_ITEMS);
       const batchKeys = new Set(batch.map((item) => item.recipientDeviceKey));
 
-      const response = yield* openAndExchange(
+      const exchangeResult = yield* openAndExchange(
         options.openStream,
         {
           items: batch,
@@ -185,7 +185,17 @@ export const depositToMailbox = Effect.fn("@qop/protocol/depositToMailbox")(
           v: 1,
         },
         options.beforeWrite
-      );
+      ).pipe(Effect.result);
+
+      if (exchangeResult._tag === "Failure") {
+        if (accepted.size > 0) {
+          break;
+        }
+
+        return yield* exchangeResult.failure;
+      }
+
+      const response = exchangeResult.success;
 
       if (response.type === "deposited") {
         for (const item of response.items) {

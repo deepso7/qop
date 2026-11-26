@@ -818,6 +818,7 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
       return;
     }
 
+    const authEpoch = sessions.authorizationEpoch();
     mailboxPollInFlight = true;
 
     runHandler(
@@ -827,7 +828,7 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
           drainMailbox({
             cipher,
             onMessage: async (frame, meta) => {
-              if (guardSensitive()) {
+              if (!isAuthCurrent(authEpoch)) {
                 return "abort";
               }
 
@@ -837,6 +838,10 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
 
               if (lookupResult._tag === "Failure") {
                 return "retry";
+              }
+
+              if (!isAuthCurrent(authEpoch)) {
+                return "abort";
               }
 
               const senderAccount = lookupResult.success;

@@ -1263,6 +1263,7 @@ describe("mailbox fallback and drain", () => {
     }[] = [];
 
     const ackedSeqs: number[] = [];
+    let fetchCount = 0;
     let resumeHandler: (() => void) | undefined;
 
     const store = createP2pStore({
@@ -1287,6 +1288,8 @@ describe("mailbox fallback and drain", () => {
             Promise.resolve(
               makeMailboxStream((request) => {
                 if (request.type === "fetch") {
+                  fetchCount += 1;
+
                   return Effect.runSync(
                     encodeMailboxResponseV1({
                       hasMore: false,
@@ -1363,10 +1366,11 @@ describe("mailbox fallback and drain", () => {
 
     try {
       await store.getState().start();
+      await vi.waitFor(() => expect(fetchCount).toBeGreaterThanOrEqual(1));
       const contactBefore = await getContactByQid("1");
       expect(contactBefore?.peerId).toBe(PEER_BOB);
 
-      // Enqueue message while app is "backgrounded", then trigger app resume.
+      // Enqueue message after the empty startup poll, then trigger app resume.
       pendingItems.push({
         envelope: sealed,
         id: msgId,
@@ -1382,7 +1386,7 @@ describe("mailbox fallback and drain", () => {
         expect(stored?.text).toBe("hello from mailbox");
       });
 
-      expect(ackedSeqs).toEqual([1]);
+      await vi.waitFor(() => expect(ackedSeqs).toEqual([1]));
 
       // Existing contact peerId must NOT be clobbered to "".
       const contactAfter = await getContactByQid("1");
@@ -1413,6 +1417,11 @@ describe("mailbox fallback and drain", () => {
       )
     );
 
+    let fetchCount = 0;
+    let ackAttempts = 0;
+    let releaseMessage = false;
+    let resumeHandler: (() => void) | undefined;
+
     const store = createP2pStore({
       createEndpoint: () => ({
         bindAppState: () => () => {},
@@ -1435,23 +1444,29 @@ describe("mailbox fallback and drain", () => {
             Promise.resolve(
               makeMailboxStream((request) => {
                 if (request.type === "fetch") {
+                  fetchCount += 1;
+
                   return Effect.runSync(
                     encodeMailboxResponseV1({
                       hasMore: false,
-                      items: [
-                        {
-                          envelope: sealed,
-                          id: msgId,
-                          senderDeviceKey: bobKeyHex,
-                          seq: 1,
-                          storedAt: 1_700_000_000_000,
-                        },
-                      ],
+                      items: releaseMessage
+                        ? [
+                            {
+                              envelope: sealed,
+                              id: msgId,
+                              senderDeviceKey: bobKeyHex,
+                              seq: 1,
+                              storedAt: 1_700_000_000_000,
+                            },
+                          ]
+                        : [],
                       type: "messages",
                       v: 1,
                     })
                   );
                 }
+
+                ackAttempts += 1;
 
                 return Effect.runSync(
                   encodeMailboxResponseV1({
@@ -1495,20 +1510,30 @@ describe("mailbox fallback and drain", () => {
       ],
       performSend: vi.fn<typeof performSend>(),
       randomUUID: () => crypto.randomUUID(),
+      subscribeAppResume: (handler) => {
+        resumeHandler = handler;
+
+        return () => {
+          resumeHandler = undefined;
+        };
+      },
     });
 
     try {
-      const initialRevision = store.getState().revision;
       await store.getState().start();
+      await vi.waitFor(() => expect(fetchCount).toBeGreaterThanOrEqual(1));
+      const postStartRevision = store.getState().revision;
+
+      releaseMessage = true;
+      resumeHandler?.();
 
       await vi.waitFor(async () => {
         const stored = await getMessageById(msgId);
         expect(stored?.text).toBe("saved before ack error");
       });
 
-      await vi.waitFor(() => {
-        expect(store.getState().revision).toBeGreaterThan(initialRevision);
-      });
+      await vi.waitFor(() => expect(ackAttempts).toBeGreaterThanOrEqual(1));
+      expect(store.getState().revision).toBeGreaterThan(postStartRevision);
     } finally {
       await store.getState().stop();
     }

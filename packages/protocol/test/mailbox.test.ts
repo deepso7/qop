@@ -288,12 +288,21 @@ describe("mailbox wire codecs and stream exchange", () => {
 
     const reset = vi.fn();
 
+    const validReply = await Effect.runPromise(
+      encodeMailboxResponseV1(response)
+    );
+
+    let delayedReads = 0;
+
     const stalled = await Effect.runPromise(
       exchangeMailbox(
         {
           closeWrite: () => {},
           read: async () => {
-            await Effect.runPromise(Effect.sleep("500 millis"));
+            await Effect.runPromise(Effect.sleep("120 millis"));
+            delayedReads += 1;
+
+            return delayedReads === 1 ? validReply : undefined;
           },
           reset,
           write: () => Promise.resolve(),
@@ -443,11 +452,20 @@ describe("mailbox client deposit and drain safeguards", () => {
     const sealed = encodeBase64(await aliceCipher.seal(frame, bobPub));
 
     const ackedSeqs: number[] = [];
+    const visitedSeqs: number[] = [];
 
     const count = await Effect.runPromise(
       drainMailbox({
         cipher: bobCipher,
-        onMessage: (_f, meta) => (meta.seq === 1 ? "retry" : "abort"),
+        onMessage: (_f, meta) => {
+          visitedSeqs.push(meta.seq);
+
+          if (meta.seq === 1) {
+            return "retry";
+          }
+
+          return meta.seq === 2 ? "abort" : "ack";
+        },
         openStream: () =>
           Promise.resolve(
             makeMockMailboxStream((req) => {
@@ -481,6 +499,13 @@ describe("mailbox client deposit and drain safeguards", () => {
                       seq: 2,
                       storedAt: 1_700_000_000_000,
                     },
+                    {
+                      envelope: sealed,
+                      id: sampleId,
+                      senderDeviceKey: aliceKey,
+                      seq: 3,
+                      storedAt: 1_700_000_000_000,
+                    },
                   ],
                   type: "messages",
                   v: 1,
@@ -492,6 +517,7 @@ describe("mailbox client deposit and drain safeguards", () => {
     );
 
     expect(count).toBe(0);
+    expect(visitedSeqs).toEqual([1, 2]);
     expect(ackedSeqs).toEqual([]);
   });
 

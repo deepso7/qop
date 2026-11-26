@@ -234,6 +234,32 @@ describe("mailbox server hardening and transport", () => {
         v: 1,
       });
 
+      // Exceeding maxRequestsPerMinute (4) resets subsequent streams immediately.
+      await Effect.runPromise(
+        exchangeMailbox(await openMailboxStream(aliceEndpoint), {
+          limit: 1,
+          type: "fetch",
+          v: 1,
+        })
+      );
+      await Effect.runPromise(
+        exchangeMailbox(await openMailboxStream(aliceEndpoint), {
+          limit: 1,
+          type: "fetch",
+          v: 1,
+        })
+      );
+
+      const rateLimitedRes = await Effect.runPromise(
+        exchangeMailbox(await openMailboxStream(aliceEndpoint), {
+          limit: 1,
+          type: "fetch",
+          v: 1,
+        }).pipe(Effect.result)
+      );
+
+      expect(rateLimitedRes._tag).toBe("Failure");
+
       // Bob comes online later, fetches, decrypts, and ACKs.
       const bobEndpoint = Minip2p.create({
         listen: ["/ip4/127.0.0.1/udp/0/quic-v1"],

@@ -2226,9 +2226,7 @@ export const createP2pStore = ({
           set({ connection: { reason: error, status: "failed" } });
         };
 
-        const configuredMailboxes =
-          injectedMailboxes ??
-          parseMailboxAddrs(process.env.EXPO_PUBLIC_QOP_MAILBOX_ADDRS);
+        const configuredMailboxes = getConfiguredMailboxes();
 
         let mailboxPollInFlight = false;
         let mailboxPollQueued = false;
@@ -2251,7 +2249,6 @@ export const createP2pStore = ({
           }
 
           mailboxPollInFlight = true;
-          let insertedAny = false;
 
           try {
             await Promise.all(
@@ -2319,7 +2316,7 @@ export const createP2pStore = ({
                         return "abort";
                       }
 
-                      await insertMessage({
+                      const inserted = await insertMessage({
                         contactQid: senderQid,
                         direction: "in",
                         id: frame.id,
@@ -2328,7 +2325,10 @@ export const createP2pStore = ({
                         text: frame.text,
                       });
 
-                      insertedAny = true;
+                      // Publish UI updates immediately on new inserts without waiting for ACK or other mailboxes.
+                      if (inserted && isOwningSession()) {
+                        set((state) => ({ revision: state.revision + 1 }));
+                      }
 
                       return "ack";
                     },
@@ -2338,11 +2338,6 @@ export const createP2pStore = ({
               )
             );
           } finally {
-            // Refresh UI whenever local inserts succeeded, even if the subsequent ACK failed.
-            if (insertedAny && isOwningSession()) {
-              set((state) => ({ revision: state.revision + 1 }));
-            }
-
             mailboxPollInFlight = false;
 
             if (mailboxPollQueued && isOwningSession()) {
