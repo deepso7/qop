@@ -14,6 +14,7 @@ pub mod eip712;
 pub mod framing;
 pub mod identity;
 pub(crate) mod json;
+pub mod mailbox;
 pub mod pairing;
 pub mod status;
 pub mod sync;
@@ -24,6 +25,11 @@ pub use eip712::{DeviceIntent, EcdsaSignature, IdentityDomain, IntentError};
 pub use framing::{FrameReader, Oversized};
 pub use identity::{
     device_key_from_peer_id, device_key_from_secret, pairing_fingerprint, peer_id_from_device_key,
+};
+pub use mailbox::{
+    MAILBOX_MAX_ACK_SEQS, MAILBOX_MAX_DEPOSIT_ITEMS, MAILBOX_MAX_FETCH_LIMIT, MAILBOX_PROTOCOL,
+    MAX_MAILBOX_PAYLOAD_BYTES, MailboxCodecError, MailboxDepositItem, MailboxDepositedItem,
+    MailboxMessage, MailboxRequest, MailboxResponse,
 };
 pub use pairing::{
     PAIR_PROTOCOL, PAIRING_FRAME_MAX_BYTES, PairingError, PairingFrame, PairingOffer,

@@ -45,12 +45,23 @@ impl Desktop {
     }
 
     fn start_on(dir: &Path, chain: &FakeChain, api: &FakeApi, listen: &str) -> Desktop {
+        Self::start_with_mailboxes(dir, chain, api, listen, vec![])
+    }
+
+    fn start_with_mailboxes(
+        dir: &Path,
+        chain: &FakeChain,
+        api: &FakeApi,
+        listen: &str,
+        mailboxes: Vec<String>,
+    ) -> Desktop {
         let config = Config {
             rpc_url: "http://unused".into(),
             registry: REGISTRY,
             chain_id: U256::from(CHAIN_ID),
             api_url: None,
             relays: vec![],
+            mailboxes,
             listen: vec![listen.into()],
         };
         let store = Store::open(dir).expect("store");
@@ -1352,4 +1363,230 @@ async fn refuses_sync_from_other_accounts_and_while_paused() {
     assert_eq!(phone.hand_off(&record).await, held(HANDOFF_ID));
     desktop.stop().await;
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn delivers_offline_via_mailbox_and_drains_on_reconnect() {
+    use crate::wire::mailbox::{
+        MAILBOX_PROTOCOL, MAX_MAILBOX_PAYLOAD_BYTES, MailboxMessage, MailboxResponse,
+    };
+    use std::sync::Mutex;
+
+    struct StoredEnvelope {
+        recipient: String,
+        sender: String,
+        id: String,
+        envelope: String,
+        seq: u64,
+    }
+
+    // Minimal QUIC /qop/mailbox/1 node storing opaque envelopes keyed by recipient device key.
+    let stored: Arc<Mutex<Vec<StoredEnvelope>>> = Arc::new(Mutex::new(Vec::new()));
+    let stored_server = stored.clone();
+    let (mailbox_node, mut mailbox_events) = Node::start(NodeConfig {
+        secret: [0x44u8; 32],
+        agent_version: "qop-mailbox-test".into(),
+        protocols: vec![MAILBOX_PROTOCOL.into()],
+        inbound_stream_limits: vec![],
+        relays: vec![],
+        listen: vec!["/ip4/127.0.0.1/udp/0/quic-v1".into()],
+        max_unread: MAX_MAILBOX_PAYLOAD_BYTES,
+    })
+    .expect("mailbox node");
+    let mailbox_addr = mailbox_node.listen_addrs()[0].clone();
+
+    let server_task = tokio::spawn(async move {
+        let _keep_node = mailbox_node;
+        let mut next_seq = 1u64;
+        while let Some(event) = mailbox_events.recv().await {
+            if let NodeEvent::InboundStream(mut stream) = event {
+                let stored = stored_server.clone();
+                let seq_base = next_seq;
+                next_seq += 100;
+                tokio::spawn(async move {
+                    let Ok(bytes) = stream.read_to_end(MAX_MAILBOX_PAYLOAD_BYTES).await else {
+                        return;
+                    };
+                    let Ok(req) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+                        return;
+                    };
+                    let caller_key =
+                        crate::wire::identity::device_key_from_peer_id(&stream.peer.to_string())
+                            .map(|k| format!("{k:#x}"))
+                            .unwrap_or_default();
+                    let response = match req.get("type").and_then(|v| v.as_str()) {
+                        Some("deposit") => {
+                            let mut deposited_items = Vec::new();
+                            if let Some(items) = req.get("items").and_then(|v| v.as_array()) {
+                                let mut guard = stored.lock().unwrap();
+                                for (i, item) in items.iter().enumerate() {
+                                    let id = item["id"].as_str().unwrap_or_default().to_string();
+                                    let rcpt = item["recipientDeviceKey"]
+                                        .as_str()
+                                        .unwrap_or_default()
+                                        .to_lowercase();
+                                    let env = item["envelope"]
+                                        .as_str()
+                                        .unwrap_or_default()
+                                        .to_string();
+                                    guard.push(StoredEnvelope {
+                                        recipient: rcpt.clone(),
+                                        sender: caller_key.clone(),
+                                        id: id.clone(),
+                                        envelope: env,
+                                        seq: seq_base + i as u64,
+                                    });
+                                    deposited_items.push(serde_json::json!({
+                                        "id": id,
+                                        "recipientDeviceKey": rcpt,
+                                    }));
+                                }
+                            }
+                            serde_json::json!({ "v": 1, "type": "deposited", "items": deposited_items })
+                        }
+                        Some("fetch") => {
+                            let guard = stored.lock().unwrap();
+                            let items: Vec<serde_json::Value> = guard
+                                .iter()
+                                .filter(|e| e.recipient == caller_key)
+                                .map(|e| {
+                                    serde_json::json!({
+                                        "seq": e.seq,
+                                        "id": e.id,
+                                        "senderDeviceKey": e.sender,
+                                        "storedAt": 1_700_000_000_000u64,
+                                        "envelope": e.envelope,
+                                    })
+                                })
+                                .collect();
+                            let payload = serde_json::json!({
+                                "v": 1,
+                                "type": "messages",
+                                "items": items,
+                                "hasMore": false,
+                            });
+                            // Verify server payload satisfies the strict Rust wire decoder.
+                            let encoded = serde_json::to_vec(&payload).unwrap();
+                            assert!(matches!(
+                                MailboxResponse::decode(&encoded),
+                                Ok(MailboxResponse::Messages { .. })
+                            ));
+                            let _ = std::mem::size_of::<MailboxMessage>();
+                            payload
+                        }
+                        Some("ack") => {
+                            let seqs: Vec<u64> = req["seqs"]
+                                .as_array()
+                                .map(|arr| arr.iter().filter_map(|v| v.as_u64()).collect())
+                                .unwrap_or_default();
+                            let mut guard = stored.lock().unwrap();
+                            let before = guard.len();
+                            guard.retain(|e| !(e.recipient == caller_key && seqs.contains(&e.seq)));
+                            let count = before - guard.len();
+                            serde_json::json!({ "v": 1, "type": "acked", "count": count })
+                        }
+                        _ => serde_json::json!({ "v": 1, "type": "error", "reason": "invalid" }),
+                    };
+                    let _ = stream
+                        .send_message(serde_json::to_vec(&response).unwrap())
+                        .await;
+                });
+            }
+        }
+    });
+
+    // 1. Alice (Rust Desktop) sends to offline Bob with the mailbox configured.
+    let (alice_dir, alice_listen) = linked_dir("mailbox-alice");
+    let (chain, api) = (chat_chain(), FakeApi::down());
+    let mut alice = Desktop::start_with_mailboxes(
+        &alice_dir,
+        &chain,
+        &api,
+        &alice_listen,
+        vec![mailbox_addr.clone()],
+    );
+    alice.wait_for("alice ready", ready).await;
+    alice.send(Command::StartChat("bob".into()));
+    let phase = alice
+        .wait_for("bob resolved", |p| {
+            linked(p).is_some_and(|l| matches!(l.new_chat, NewChat::Resolved { .. }))
+        })
+        .await;
+    let NewChat::Resolved { conversation, .. } = &linked(&phase).unwrap().new_chat else {
+        unreachable!();
+    };
+    alice.send(Command::Send {
+        conversation: conversation.clone(),
+        text: "offline from rust desktop".into(),
+    });
+    alice
+        .wait_for("alice marked sent via mailbox", |p| {
+            bob_message(p, |m| {
+                m.text == "offline from rust desktop"
+                    && m.direction == Direction::Sent(MessageStatus::Sent)
+            })
+        })
+        .await;
+    alice.stop().await;
+    assert_eq!(stored.lock().unwrap().len(), 1);
+
+    // 2. Bob (Rust Desktop) comes online later and drains the mailbox automatically.
+    let bob_dir = fresh_dir("mailbox-bob");
+    let bob_store = Store::open(&bob_dir).unwrap();
+    let bob_key = device_key_from_secret(BOB_SECRET);
+    let bob_keys = KeyStore::File {
+        path: bob_dir.join("device.key"),
+    };
+    bob_keys.save(&BOB_SECRET).unwrap();
+    bob_store
+        .save_identity(&crate::store::Identity {
+            qid: U256::from(BOB_QID),
+            handle: "bob".into(),
+            device_key: bob_key,
+            chain_id: U256::from(CHAIN_ID),
+            registry: REGISTRY,
+            linked: true,
+        })
+        .unwrap();
+    drop(bob_store);
+
+    let bob_chain = chat_chain();
+    bob_chain.set_membership(Some(BOB_QID));
+    bob_chain.add_account(super::testing::account_with(
+        QID,
+        "alice",
+        vec![device_key_from_secret(DESKTOP_SECRET)],
+    ));
+    let mut bob = Desktop::start_with_mailboxes(
+        &bob_dir,
+        &bob_chain,
+        &api,
+        "/ip4/127.0.0.1/udp/0/quic-v1",
+        vec![mailbox_addr],
+    );
+    bob.wait_for("bob received from mailbox", |p| {
+        linked(p).is_some_and(|l| {
+            l.conversations.iter().any(|c| {
+                c.messages.iter().any(|m| {
+                    m.text == "offline from rust desktop" && m.direction == Direction::Received
+                })
+            })
+        })
+    })
+    .await;
+    // Inbox updates publish immediately after local insert, before ACK finishes;
+    // wait briefly for the background ACK to clear the mailbox.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    while !stored.lock().unwrap().is_empty() {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "mailbox entry was not ACKed"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+
+    bob.stop().await;
+    server_task.abort();
+    std::fs::remove_dir_all(alice_dir).unwrap();
+    std::fs::remove_dir_all(bob_dir).unwrap();
 }

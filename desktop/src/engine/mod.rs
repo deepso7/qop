@@ -28,6 +28,7 @@ pub mod auth;
 pub mod chat;
 pub mod enrollment;
 pub mod lifecycle;
+pub mod mailbox;
 pub mod outbox;
 pub mod pairing;
 pub mod sync;
@@ -61,8 +62,8 @@ use crate::store::{Identity, Store};
 use crate::wire::chat_envelope::ChatCipher;
 use crate::wire::{
     CHAT_PROTOCOL, ChatFrame, DeviceActionApproval, DeviceActionStatus, DeviceActionStatusError,
-    MAX_SYNC_PAYLOAD_BYTES, OutboxStatus, PAIR_PROTOCOL, SYNC_PROTOCOL, device_key_from_peer_id,
-    device_key_from_secret,
+    MAILBOX_PROTOCOL, MAX_MAILBOX_PAYLOAD_BYTES, MAX_SYNC_PAYLOAD_BYTES, OutboxStatus,
+    PAIR_PROTOCOL, SYNC_PROTOCOL, device_key_from_peer_id, device_key_from_secret,
 };
 use auth::{Auth, SelfVerdict};
 use chat::ChatContext;
@@ -358,6 +359,8 @@ pub struct Engine<C: Chain, A: Api> {
     sync_inbound: Arc<AtomicUsize>,
     /// Inbound pairing streams being served.
     pairing: Arc<AtomicUsize>,
+    /// Concurrent mailbox drain tasks (capped at 1).
+    mailbox_polling: Arc<AtomicUsize>,
 }
 
 impl Engine<RegistryReader, ApiClient> {
@@ -409,6 +412,7 @@ impl<C: Chain, A: Api> Engine<C, A> {
             chat_inbound: Arc::new(Semaphore::new(chat::MAX_INBOUND_STREAMS)),
             sync_inbound: Arc::default(),
             pairing: Arc::default(),
+            mailbox_polling: Arc::default(),
         }
     }
 
@@ -534,6 +538,7 @@ impl<C: Chain, A: Api> Engine<C, A> {
                 PAIR_PROTOCOL.into(),
                 CHAT_PROTOCOL.into(),
                 SYNC_PROTOCOL.into(),
+                MAILBOX_PROTOCOL.into(),
             ],
             inbound_stream_limits: vec![(
                 CHAT_PROTOCOL.into(),
@@ -541,8 +546,8 @@ impl<C: Chain, A: Api> Engine<C, A> {
             )],
             relays: self.config.relays.clone(),
             listen: self.config.listen.clone(),
-            // Sync's frame cap is the largest of the three protocols'.
-            max_unread: MAX_SYNC_PAYLOAD_BYTES,
+            // Mailbox and sync carry the largest framed payloads.
+            max_unread: MAX_MAILBOX_PAYLOAD_BYTES.max(MAX_SYNC_PAYLOAD_BYTES),
         };
         match Node::start(config) {
             Ok((node, events)) => {
@@ -1068,6 +1073,9 @@ impl<C: Chain, A: Api> Engine<C, A> {
                 {
                     self.poll();
                 }
+                if ticks.is_multiple_of(8) {
+                    self.poll_mailboxes();
+                }
                 self.flush(None);
             }
             _ => {
@@ -1173,6 +1181,7 @@ impl<C: Chain, A: Api> Engine<C, A> {
             SelfVerdict::Member(block) => {
                 self.self_block = Some(block);
                 self.set_messaging(Messaging::Ready);
+                self.poll_mailboxes();
                 self.flush(None);
             }
             SelfVerdict::Removed => self.revoke(identity.clone()),
@@ -1189,7 +1198,29 @@ impl<C: Chain, A: Api> Engine<C, A> {
             auth: self.auth.clone(),
             chain: self.chain.clone(),
             store: self.store.clone(),
+            mailboxes: self.config.mailboxes.clone(),
         })
+    }
+
+    /// Drains configured mailboxes in the background when messaging is ready.
+    fn poll_mailboxes(&self) {
+        if self.config.mailboxes.is_empty() {
+            return;
+        }
+        let Some(ctx) = self.inbound_context() else {
+            return;
+        };
+        let Some(slot) = InboundSlot::take(&self.mailbox_polling, 1) else {
+            return;
+        };
+        let internal = self.internal.clone();
+        tokio::spawn(async move {
+            let _slot = slot;
+            mailbox::drain_all(&ctx, now_ms, move |received| {
+                let _ = internal.send(Internal::Received(received));
+            })
+            .await;
+        });
     }
 
     /// A context for an inbound stream while messaging is ready.

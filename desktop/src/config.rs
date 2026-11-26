@@ -9,6 +9,7 @@
 //! | `QOP_REGISTRY_CHAIN_ID` | Chain ID | `31337` |
 //! | `QOP_API_URL` | Device-action API (status polling) | none: status is unknown |
 //! | `QOP_RELAY_ADDRS` | Comma-separated relay peer addresses | none: LAN only |
+//! | `QOP_MAILBOX_ADDRS` | Comma-separated mailbox peer addresses | none: direct only |
 //! | `QOP_LISTEN_ADDRS` | Comma-separated listen multiaddrs | dual-stack QUIC, ephemeral ports |
 //!
 //! Public endpoints only; nothing here is secret. Production values are not baked in yet: they
@@ -26,6 +27,8 @@ pub struct Config {
     /// Without a trailing slash.
     pub api_url: Option<String>,
     pub relays: Vec<String>,
+    /// Mailbox multiaddrs for offline store-and-forward delivery.
+    pub mailboxes: Vec<String>,
     /// Listen multiaddrs; empty means dual-stack QUIC on ephemeral ports.
     pub listen: Vec<String>,
 }
@@ -90,6 +93,7 @@ impl Config {
             chain_id,
             api_url,
             relays: list("QOP_RELAY_ADDRS"),
+            mailboxes: list("QOP_MAILBOX_ADDRS"),
             listen: list("QOP_LISTEN_ADDRS"),
         })
     }

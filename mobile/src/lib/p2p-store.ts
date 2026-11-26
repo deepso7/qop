@@ -11,7 +11,12 @@ import { loadDeviceSecretKey } from "./identity-vault";
 import { performSend } from "./p2p-send";
 import { createP2pStore } from "./p2p-store-core";
 import { performCatchup, performHandoff, performPoll } from "./p2p-sync";
-import { lookupDeviceKey, lookupHandle, lookupQid } from "./registry";
+import {
+  listActiveDevices,
+  lookupDeviceKey,
+  lookupHandle,
+  lookupQid,
+} from "./registry";
 
 export const useP2pStore = createP2pStore({
   createEndpoint: (options) => {
@@ -38,6 +43,7 @@ export const useP2pStore = createP2pStore({
       qid,
     };
   },
+  listActiveDevices,
   loadDeviceSecretKey,
   lookupDeviceKey,
   lookupHandle,

@@ -3,6 +3,7 @@ import { expect, it, vi } from "vitest";
 
 import {
   createChatCipher,
+  inspectChatEnvelope,
   MAX_CHAT_ENVELOPE_BYTES,
 } from "../src/chat-envelope.ts";
 import { encodeFrame } from "../src/chat-wire.ts";
@@ -55,6 +56,9 @@ it("seals independent copies for the recipient and the sender's other devices", 
 
 it("rejects wrong signers, tampering, plaintext, invalid keys, and malformed envelopes", async () => {
   const envelope = await alice.cipher.seal(frame, bob.key);
+  const inspected = inspectChatEnvelope(envelope);
+  expect(inspected.sender).toEqual(alice.key);
+  expect(inspected.recipient).toEqual(bob.key);
   await expect(bob.cipher.open(envelope, bob.key)).rejects.toThrow();
 
   const tamper = (index: number) => {

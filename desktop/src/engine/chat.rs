@@ -16,6 +16,7 @@ use tokio::time::timeout;
 
 use super::Chain;
 use super::auth::{Auth, Contact, VerifyError};
+use super::mailbox;
 use crate::node::{NodeError, NodeHandle, Stream};
 use crate::rpc::Account;
 use crate::store::{Store, StoreError};
@@ -39,6 +40,7 @@ pub struct ChatContext<C> {
     pub auth: Arc<Auth>,
     pub chain: C,
     pub store: Arc<Mutex<Store>>,
+    pub mailboxes: Vec<String>,
 }
 
 impl<C> ChatContext<C> {
@@ -177,22 +179,137 @@ impl DeliverError {
     }
 }
 
-/// Delivers `frame` to `recipient`, whose handle `account` was just looked up as.
+impl DeliverError {
+    /// Whether this failure says the recipient's identity/authorization was rejected or messaging
+    /// must pause, so mailbox fallback must not mask it with cached membership.
+    fn blocks_mailbox_fallback(&self) -> bool {
+        self.pauses()
+            || matches!(
+                self,
+                Self::Unauthorized | Self::Unverified(VerifyError::Identity)
+            )
+    }
+
+    fn dial_priority(&self) -> u8 {
+        if self.pauses() {
+            3
+        } else if self.blocks_mailbox_fallback() {
+            2
+        } else if matches!(self, Self::Timeout) {
+            1
+        } else {
+            0
+        }
+    }
+}
+
+/// Delivers `frame` to `recipient`, whose handle `account` was looked up under `auth_epoch`.
 pub async fn deliver<C: Chain>(
     ctx: &ChatContext<C>,
     recipient: &Contact,
     frame: &ChatFrame,
     account: &Account,
+    auth_epoch: u64,
 ) -> Result<(), DeliverError> {
+    if !ctx.auth.allowed_at(auth_epoch) {
+        return Err(DeliverError::Unauthorized);
+    }
+
+    match deliver_direct(ctx, recipient, frame, account).await {
+        Ok((delivered_device, rejected_devices, saw_pause)) => {
+            if !saw_pause && !ctx.mailboxes.is_empty() && ctx.auth.allowed_at(auth_epoch) {
+                let remaining: Vec<_> = account
+                    .devices
+                    .iter()
+                    .copied()
+                    .filter(|device| {
+                        *device != delivered_device && !rejected_devices.contains(device)
+                    })
+                    .collect();
+                if !remaining.is_empty() {
+                    // Best-effort background fan-out so a slow/down mailbox never stalls live chat.
+                    let node = ctx.node.clone();
+                    let mailboxes = ctx.mailboxes.clone();
+                    let cipher = ctx.cipher.clone();
+                    let auth = ctx.auth.clone();
+                    let frame = frame.clone();
+                    tokio::spawn(async move {
+                        let _ = mailbox::deposit(
+                            &node,
+                            &mailboxes,
+                            &cipher,
+                            &auth,
+                            auth_epoch,
+                            &frame,
+                            &remaining,
+                        )
+                        .await;
+                    });
+                }
+            }
+            Ok(())
+        }
+        Err((direct_error, rejected_devices)) => {
+            // Never mask auth/revocation/stale-chain errors or a mid-flight invalidation behind a mailbox deposit.
+            if !ctx.auth.allowed_at(auth_epoch) {
+                return Err(DeliverError::Unauthorized);
+            }
+            let eligible_devices: Vec<_> = account
+                .devices
+                .iter()
+                .copied()
+                .filter(|device| !rejected_devices.contains(device))
+                .collect();
+            if !direct_error.blocks_mailbox_fallback()
+                && !ctx.mailboxes.is_empty()
+                && !eligible_devices.is_empty()
+                && mailbox::deposit(
+                    &ctx.node,
+                    &ctx.mailboxes,
+                    &ctx.cipher,
+                    &ctx.auth,
+                    auth_epoch,
+                    frame,
+                    &eligible_devices,
+                )
+                .await
+            {
+                return Ok(());
+            }
+            Err(direct_error)
+        }
+    }
+}
+
+async fn deliver_direct<C: Chain>(
+    ctx: &ChatContext<C>,
+    recipient: &Contact,
+    frame: &ChatFrame,
+    account: &Account,
+) -> Result<
+    (
+        alloy_primitives::B256,
+        std::collections::HashSet<alloy_primitives::B256>,
+        bool,
+    ),
+    (DeliverError, std::collections::HashSet<alloy_primitives::B256>),
+> {
     let peers = ctx.auth.recipient_peers(recipient, account);
-    let mut stream = timeout(DIAL_BUDGET, first_authorized(ctx, recipient, peers))
-        .await
-        .map_err(|_| DeliverError::Timeout)??;
-    let sealed = device_key_from_peer(&stream.peer)
-        .and_then(|device| ctx.cipher.seal(frame, &device.0).ok());
-    let Some(envelope) = sealed else {
+    let (mut stream, rejected_devices, pausing_error) =
+        first_authorized(ctx, recipient, peers).await?;
+    let Some(delivered_device) = device_key_from_peer(&stream.peer) else {
         stream.reset();
-        return Err(DeliverError::Transport);
+        return Err((
+            pausing_error.unwrap_or(DeliverError::Transport),
+            rejected_devices,
+        ));
+    };
+    let Ok(envelope) = ctx.cipher.seal(frame, &delivered_device.0) else {
+        stream.reset();
+        return Err((
+            pausing_error.unwrap_or(DeliverError::Transport),
+            rejected_devices,
+        ));
     };
     // Recheck immediately before writing: a sleep or stall may have invalidated it.
     if !ctx.auth.allowed()
@@ -201,13 +318,19 @@ pub async fn deliver<C: Chain>(
             .is_verified(stream.conn(), &stream.peer, recipient.qid)
     {
         stream.reset();
-        return Err(DeliverError::Unauthorized);
+        return Err((
+            pausing_error.unwrap_or(DeliverError::Unauthorized),
+            rejected_devices,
+        ));
     }
     let result = exchange(&mut stream, envelope, &frame.id).await;
     if result.is_err() {
         stream.reset();
     }
-    result
+    match result {
+        Ok(()) => Ok((delivered_device, rejected_devices, pausing_error.is_some())),
+        Err(error) => Err((pausing_error.unwrap_or(error), rejected_devices)),
+    }
 }
 
 /// Writes the frame and reads the ACK, both within `ACK_TIMEOUT`: a write waits while the node's
@@ -232,27 +355,60 @@ async fn exchange(stream: &mut Stream, frame: Vec<u8>, id: &str) -> Result<(), D
 }
 
 /// Dials every peer at once; the first authorized stream wins. Dropping the set aborts the other
-/// dials, and any stream they still hold resets.
+/// dials, and any stream they still hold resets. Preserves observed pause or identity/auth
+/// rejections across later transport failures, the outer dial budget, and surviving fan-out/fallback.
 async fn first_authorized<C: Chain>(
     ctx: &ChatContext<C>,
     recipient: &Contact,
     peers: Vec<minip2p::PeerId>,
-) -> Result<Stream, DeliverError> {
+) -> Result<
+    (
+        Stream,
+        std::collections::HashSet<alloy_primitives::B256>,
+        Option<DeliverError>,
+    ),
+    (DeliverError, std::collections::HashSet<alloy_primitives::B256>),
+> {
     let mut dials = JoinSet::new();
     for peer in peers {
         let (ctx, recipient) = (ctx.clone(), recipient.clone());
-        dials.spawn(async move { dial(&ctx, &recipient, &peer).await });
+        let device_key = device_key_from_peer(&peer);
+        dials.spawn(async move { (device_key, dial(&ctx, &recipient, &peer).await) });
     }
     let mut error = DeliverError::Transport;
-    while let Some(joined) = dials.join_next().await {
-        match joined {
-            Ok(Ok(stream)) => return Ok(stream),
-            // Keep the most telling failure: one that should pause wins.
-            Ok(Err(failed)) if failed.pauses() || !error.pauses() => error = failed,
-            _ => {}
+    let mut rejected_devices = std::collections::HashSet::new();
+    let mut pausing_error: Option<DeliverError> = None;
+    let deadline = tokio::time::Instant::now() + DIAL_BUDGET;
+    loop {
+        match tokio::time::timeout_at(deadline, dials.join_next()).await {
+            Ok(Some(Ok((_device_key, Ok(stream))))) => {
+                return Ok((stream, rejected_devices, pausing_error));
+            }
+            Ok(Some(Ok((device_key, Err(failed))))) => {
+                if failed.pauses() && pausing_error.is_none() {
+                    pausing_error = Some(failed);
+                }
+                if failed.blocks_mailbox_fallback()
+                    && let Some(key) = device_key
+                {
+                    rejected_devices.insert(key);
+                }
+                if failed.dial_priority() >= error.dial_priority() {
+                    error = failed;
+                }
+            }
+            Ok(Some(Err(_))) => {}
+            Ok(None) => return Err((error, rejected_devices)),
+            Err(_) => {
+                let final_error = if error.blocks_mailbox_fallback() {
+                    error
+                } else {
+                    DeliverError::Timeout
+                };
+                return Err((final_error, rejected_devices));
+            }
         }
     }
-    Err(error)
 }
 
 async fn dial<C: Chain>(

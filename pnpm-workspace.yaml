@@ -9,6 +9,7 @@ catalog:
 packages:
   - api
   - cli
+  - mailbox
   - mobile
   - packages/*
   - web

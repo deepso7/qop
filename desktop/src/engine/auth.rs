@@ -178,8 +178,14 @@ impl Auth {
     }
 
     /// Whether this device's own membership is verified; messaging stops while it is not.
+    /// Advancing the epoch on a ready-to-paused transition ensures deposits started before the
+    /// pause fail their pre-write check even if messaging becomes ready again.
     pub fn set_ready(&self, ready: bool) {
-        self.lock().ready = ready;
+        let mut inner = self.lock();
+        if inner.ready && !ready {
+            inner.epoch += 1;
+        }
+        inner.ready = ready;
     }
 
     /// Observes the clocks (the engine's once-a-second tick). Returns how many invalidations
@@ -195,12 +201,24 @@ impl Auth {
     /// Whether a chat read or write may proceed now: own membership verified and no lifecycle
     /// invalidation since the last check (which this consumes, invalidating everything).
     pub fn allowed(&self) -> bool {
+        self.allowed_epoch().is_some()
+    }
+
+    /// Current authorization epoch if messaging is currently allowed (ready and no pending
+    /// lifecycle invalidation). Captures the epoch before a send starts so a later invalidate and
+    /// re-ready cannot let an in-flight fallback or background fan-out write a stale roster.
+    pub fn allowed_epoch(&self) -> Option<u64> {
         let mut inner = self.lock();
         if inner.lifecycle.take_invalidation(self.clock.as_ref()) {
             inner.invalidate();
-            return false;
+            return None;
         }
-        inner.ready
+        inner.ready.then_some(inner.epoch)
+    }
+
+    /// Whether messaging is still allowed and still in `expected_epoch`.
+    pub fn allowed_at(&self, expected_epoch: u64) -> bool {
+        self.allowed_epoch() == Some(expected_epoch)
     }
 
     /// Whether `conn` (still to `peer`) holds a live authorization for account `qid`.

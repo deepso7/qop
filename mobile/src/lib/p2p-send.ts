@@ -43,6 +43,8 @@ export interface PerformSendInput {
   readonly sessions: ReturnType<typeof createPeerSessions>;
   readonly endpoint: SendEndpoint;
   readonly frame: ChatFrame;
+  readonly onDelivered?: (peerId: string) => void;
+  readonly onRejectedPeer?: (peerId: string) => void;
   readonly signal?: AbortSignal;
   readonly timeoutMs: number;
 }
@@ -128,6 +130,8 @@ export const performSend = async ({
   contact,
   endpoint,
   frame,
+  onDelivered,
+  onRejectedPeer,
   signal,
   sessions,
   timeoutMs,
@@ -227,6 +231,7 @@ export const performSend = async ({
             });
 
             assertAckMatches(ack, frame.id);
+            onDelivered?.(opened.peerId);
           }).pipe(
             Effect.timeoutOrElse({
               duration: attemptTimeout,
@@ -259,6 +264,13 @@ export const performSend = async ({
           stream?.reset();
           stream = undefined;
           lastError = asSendError(result.failure);
+
+          if (
+            result.failure instanceof PeerVerificationError ||
+            lastError.message === "Chat connection is no longer authorized"
+          ) {
+            onRejectedPeer?.(peerId);
+          }
 
           if (mark.committed) {
             return yield* Effect.fail(lastError);
