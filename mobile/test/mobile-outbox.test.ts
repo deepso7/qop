@@ -21,6 +21,81 @@ const message = (id: string, contactQid = "1"): StoredMessage => ({
 afterEach(() => vi.useRealTimers());
 
 it.each([false, true])(
+  "keeps sends flowing during single-flight reconciliation (failure: %s)",
+  async (failure) => {
+    vi.useFakeTimers();
+    const poll = Promise.withResolvers<true>();
+
+    let rows = [
+      { ...message("held"), status: "held" as const },
+      { ...message("retry"), nextAttemptAt: Date.now() + 35_000 },
+    ];
+
+    const list = vi.fn(() => Promise.resolve(rows));
+
+    const reconcile = vi.fn(async () => {
+      await poll.promise;
+
+      if (failure) {
+        throw new Error("holder unavailable");
+      }
+
+      rows = rows.filter((row) => row.id !== "held");
+    });
+
+    const deliver = vi.fn((row: StoredMessage) => {
+      rows = rows.filter((item) => item.id !== row.id);
+
+      return Promise.resolve({ ...row, status: "sent" as const });
+    });
+
+    const worker = createMobileOutbox({
+      list,
+      deliver,
+      reconcile,
+      expedite: () => Promise.resolve(),
+    });
+
+    try {
+      await worker.wake();
+      await vi.waitFor(() => expect(list).toHaveBeenCalledOnce());
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(reconcile).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(5000);
+      expect(deliver).toHaveBeenCalledOnce();
+      expect(deliver.mock.calls[0]?.[0].id).toBe("retry");
+
+      rows.push(message("new", "2"));
+      await worker.wake();
+      await vi.waitFor(() => expect(deliver).toHaveBeenCalledTimes(2));
+      expect(deliver.mock.calls[1]?.[0].id).toBe("new");
+
+      await worker.wake(undefined, true);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(reconcile).toHaveBeenCalledOnce();
+      expect(vi.getTimerCount()).toBe(0);
+
+      const reads = list.mock.calls.length;
+      poll.resolve(true);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(list).toHaveBeenCalledTimes(reads + 1);
+      await vi.advanceTimersByTimeAsync(30_000);
+      await vi.waitFor(() =>
+        expect(reconcile).toHaveBeenCalledTimes(failure ? 2 : 1)
+      );
+
+      if (!failure) {
+        expect(vi.getTimerCount()).toBe(0);
+      }
+    } finally {
+      worker.close();
+      poll.resolve(true);
+    }
+  }
+);
+
+it.each([false, true])(
   "keeps the stored deadline when wake and delivery share a batch (expedited: %s)",
   async (expedited) => {
     vi.useFakeTimers();

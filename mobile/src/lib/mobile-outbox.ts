@@ -13,7 +13,7 @@ interface OutboxDependencies {
 }
 
 type OutboxEvent =
-  | { readonly _tag: "Wake" | "Tick" }
+  | { readonly _tag: "Wake" | "Tick" | "Reconciled" }
   | {
       readonly _tag: "Delivered";
       readonly message: StoredMessage;
@@ -36,6 +36,7 @@ export const createMobileOutbox = ({
   const inFlight = new Map<string, StoredMessage>();
   let timer: ReturnType<typeof setTimeout> | undefined;
   let reconcileAt = Date.now() + 30_000;
+  let reconciling = false;
 
   const remember = (key: string, message: StoredMessage | null) => {
     if (
@@ -144,19 +145,35 @@ export const createMobileOutbox = ({
       }
     }
 
-    if (batch.some((event) => event._tag === "Wake")) {
+    const reconciled = batch.some((event) => event._tag === "Reconciled");
+
+    if (reconciled) {
+      reconciling = false;
+      reconcileAt = Date.now() + 30_000;
+    }
+
+    if (reconciled || batch.some((event) => event._tag === "Wake")) {
       yield* refresh;
     }
 
     const now = Date.now();
 
     if (
+      !reconciling &&
       now >= reconcileAt &&
       [...pending.values()].some((row) => row.status === "held")
     ) {
-      yield* Effect.promise(reconcile);
-      reconcileAt = Date.now() + 30_000;
-      yield* refresh;
+      reconciling = true;
+      yield* Effect.forkScoped(
+        Effect.promise(reconcile).pipe(
+          Effect.catchCause(() => Effect.void),
+          Effect.tap(() =>
+            Effect.sync(() => {
+              Queue.offerUnsafe(events, { _tag: "Reconciled" });
+            })
+          )
+        )
+      );
     }
 
     const contacts = new Map<string, number>();
@@ -177,7 +194,9 @@ export const createMobileOutbox = ({
       }
 
       if (message.status === "held") {
-        next = Math.min(next, reconcileAt);
+        if (!reconciling) {
+          next = Math.min(next, reconcileAt);
+        }
       } else if (message.nextAttemptAt > now) {
         next = Math.min(next, message.nextAttemptAt);
       } else {
