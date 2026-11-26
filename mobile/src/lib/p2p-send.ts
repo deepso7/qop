@@ -1,13 +1,13 @@
+import { deviceKeyBytesFromPeerId } from "@qop/identity";
 import { Effect } from "effect";
 
 import {
   CHAT_PROTOCOL,
   assertAckMatches,
   decodeAck,
-  encodeFrame,
   MAX_CHAT_PAYLOAD_BYTES,
 } from "./chat-wire";
-import type { ChatFrame } from "./chat-wire";
+import type { ChatCipher, ChatFrame } from "./chat-wire";
 import type { Contact } from "./db";
 import type { createPeerSessions, PeerConnection } from "./p2p-sessions";
 
@@ -36,6 +36,7 @@ interface SendEndpoint {
 }
 
 export interface PerformSendInput {
+  readonly cipher: Pick<ChatCipher, "seal">;
   readonly contact: Pick<Contact, "handle" | "qid">;
   readonly sessions: ReturnType<typeof createPeerSessions>;
   readonly endpoint: SendEndpoint;
@@ -111,6 +112,7 @@ const asSendError = (cause: unknown) =>
   cause instanceof Error ? cause : new Error(String(cause));
 
 export const performSend = async ({
+  cipher,
   contact,
   endpoint,
   frame,
@@ -180,7 +182,12 @@ export const performSend = async ({
             stream = opened;
             sessions.opened(opened);
             yield* sessions.verify(opened, contact.handle);
-            mark.committed = true;
+
+            const envelope = yield* Effect.tryPromise({
+              catch: asSendError,
+              try: () =>
+                cipher.seal(frame, deviceKeyBytesFromPeerId(opened.peerId)),
+            });
 
             if (!sessions.isVerified(opened, contact.qid)) {
               return yield* Effect.fail(
@@ -188,9 +195,11 @@ export const performSend = async ({
               );
             }
 
+            mark.committed = true;
+
             yield* Effect.tryPromise({
               catch: asSendError,
-              try: () => opened.write(encodeFrame(frame)),
+              try: () => opened.write(envelope),
             });
             opened.closeWrite();
 

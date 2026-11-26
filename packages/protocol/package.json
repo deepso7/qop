@@ -12,9 +12,12 @@
     "typecheck": "tsc --project tsconfig.json"
   },
   "dependencies": {
+    "@noble/curves": "2.4.0",
+    "@panva/hpke-noble": "1.1.7",
     "@qop/identity": "workspace:*",
     "@scure/base": "2.4.0",
     "effect": "catalog:",
+    "hpke": "1.1.7",
     "viem": "2.58.0"
   },
   "devDependencies": {

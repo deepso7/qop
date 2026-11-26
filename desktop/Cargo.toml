@@ -17,7 +17,12 @@ hot = ["rune/hot"]
 alloy-primitives = { version = "1.7.3", features = ["k256"] }
 alloy-sol-types = "1.7.3"
 base64 = "0.23.1"
+ed25519-dalek = "3.0.0"
 getrandom = "0.3"
+hpke = { version = "0.13.0", default-features = false, features = [
+  "alloc",
+  "x25519",
+] }
 if-addrs = "0.15.0"
 keyring = { version = "3", default-features = false, features = [
   "apple-native",

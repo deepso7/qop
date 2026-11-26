@@ -6,6 +6,11 @@ import { Hex32, PeerId } from "./wire-codecs.ts";
 
 const ED25519_PEER_ID_PREFIX = Uint8Array.from([0, 36, 8, 1, 18, 32]);
 
+export const deviceKeyBytesFromPeerId = (peerId: string) =>
+  Schema.decodeUnknownSync(PeerId)(peerId).subarray(
+    ED25519_PEER_ID_PREFIX.length
+  );
+
 export class DeviceKeyError extends Data.TaggedError("DeviceKeyError")<{
   readonly cause?: unknown;
   readonly operation: "decode" | "derive-peer-id" | "derive-public-key";

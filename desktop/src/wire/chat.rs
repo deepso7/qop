@@ -1,11 +1,11 @@
-//! `/qop/chat/1` frames and ACKs (`chat-wire.ts`). Unlike pairing and sync,
+//! Chat plaintext and ACK codecs (`chat-wire.ts`). Unlike pairing and sync,
 //! these decoders ignore unknown fields so newer senders stay readable.
 
 use serde_json::Value;
 
 use super::json::{self, Obj, Parsed};
 
-pub const CHAT_PROTOCOL: &str = "/qop/chat/1";
+pub const CHAT_PROTOCOL: &str = "/qop/chat/2";
 pub const MAX_CHAT_PAYLOAD_BYTES: usize = 16 * 1024;
 
 /// Longest message text, in UTF-16 code units.

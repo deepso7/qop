@@ -1,18 +1,24 @@
 import { Minip2p, PeerDisconnectedError } from "@minip2p/node";
-import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
+import {
+  deviceKeyBytesFromPeerId,
+  deviceKeyFromPeerId,
+  Hex32,
+  PeerId,
+} from "@qop/identity";
 import {
   assertAckMatches,
   CHAT_PROTOCOL,
+  createChatCipher,
   createPeerSessions,
   decodeAck,
-  decodeFrame,
   encodeAck,
-  encodeFrame,
+  MAX_CHAT_ENVELOPE_BYTES,
   MAX_CHAT_PAYLOAD_BYTES,
   PeerVerificationError,
   SYNC_PROTOCOL,
 } from "@qop/protocol";
 import type {
+  ChatCipher,
   ChatFrame,
   InboxRecordV1,
   PeerConnection,
@@ -124,6 +130,7 @@ const concatChunks = (chunks: readonly Uint8Array[], byteLength: number) => {
 
 const readUntilEof = async (
   read: () => Promise<Uint8Array | undefined>,
+  limit: number,
   chunks: Uint8Array[] = [],
   byteLength = 0
 ): Promise<Uint8Array> => {
@@ -135,13 +142,13 @@ const readUntilEof = async (
 
   const nextLength = byteLength + chunk.byteLength;
 
-  if (nextLength > MAX_CHAT_PAYLOAD_BYTES) {
-    throw new Error("Chat frame exceeds 16 KB");
+  if (nextLength > limit) {
+    throw new Error("Chat payload exceeds its size limit");
   }
 
   chunks.push(chunk);
 
-  return readUntilEof(read, chunks, nextLength);
+  return readUntilEof(read, limit, chunks, nextLength);
 };
 
 /** Preserve disconnect so setup can retry once; map other transport failures. */
@@ -155,7 +162,7 @@ const asDeliverError = (cause: unknown) =>
     ? cause
     : new CliOutboxDeliverError({ operation: "transport" });
 
-/** Connect, wait for Identify, open `/qop/chat/1`, then authorize the live stream. */
+/** Connect, wait for Identify, open chat, then authorize the live stream. */
 export const openAuthorizedChatStream = Effect.fn(
   "qop.openAuthorizedChatStream"
 )(function* (
@@ -239,6 +246,7 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
   sessions: ReturnType<typeof createPeerSessions>,
   recipient: { readonly handle: string; readonly qid: string },
   frame: ChatFrame,
+  cipher: Pick<ChatCipher, "seal">,
   account?: RegistryAccount
 ) {
   // Success is a non-empty roster; an empty roster fails inside recipientPeerIds.
@@ -298,6 +306,11 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
 
   // A verified stream is committed — there is no fallback loop after a write.
   return yield* Effect.gen(function* () {
+    const envelope = yield* Effect.tryPromise({
+      catch: asDeliverError,
+      try: () => cipher.seal(frame, deviceKeyBytesFromPeerId(stream.peerId)),
+    });
+
     // Recheck immediately before write: SIGCONT/stall can invalidate after verify.
     if (!sessions.isVerified(stream, recipient.qid)) {
       return yield* Effect.fail(
@@ -308,14 +321,14 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
     yield* Effect.tryPromise({
       catch: asDeliverError,
       try: async () => {
-        await stream.write(encodeFrame(frame));
+        await stream.write(envelope);
         stream.closeWrite();
       },
     });
 
     const ackBytes = yield* Effect.tryPromise({
       catch: asDeliverError,
-      try: () => readUntilEof(() => stream.read()),
+      try: () => readUntilEof(() => stream.read(), MAX_CHAT_PAYLOAD_BYTES),
     }).pipe(
       Effect.timeoutOrElse({
         duration: OUTBOUND_ACK_TIMEOUT_MS,
@@ -398,10 +411,14 @@ const handleCliInboundSync = Effect.fn("qop.handleCliInboundSync")(function* (
   }
 });
 
-const decodeInboundChatFrame = (bytes: Uint8Array) =>
-  Effect.try({
+const decodeInboundChatFrame = (
+  bytes: Uint8Array,
+  peerId: string,
+  cipher: ChatCipher
+) =>
+  Effect.tryPromise({
     catch: () => new Error(UNREADABLE_INBOUND_CHAT),
-    try: () => decodeFrame(bytes),
+    try: () => cipher.open(bytes, deviceKeyBytesFromPeerId(peerId)),
   });
 
 /**
@@ -410,6 +427,7 @@ const decodeInboundChatFrame = (bytes: Uint8Array) =>
  * fibers before the caller's `messages.db` close.
  */
 export const createHolder = Effect.fn("qop.createHolder")(function* ({
+  cipher,
   endpoint,
   identity,
   lifecycle,
@@ -419,6 +437,7 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
   reader,
   sessions,
 }: {
+  readonly cipher: ChatCipher;
   readonly endpoint: HolderEndpoint;
   readonly identity: HolderIdentity;
   readonly lifecycle: ArmedProcessLifecycle;
@@ -458,6 +477,7 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
         sessions,
         { handle: record.toHandle, qid: record.toQid },
         record.frame,
+        cipher,
         account
       );
     },
@@ -538,7 +558,8 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
             const bytes = yield* Effect.tryPromise({
               catch: (cause) =>
                 cause instanceof Error ? cause : new Error(String(cause)),
-              try: () => readUntilEof(() => stream.read()),
+              try: () =>
+                readUntilEof(() => stream.read(), MAX_CHAT_ENVELOPE_BYTES),
             }).pipe(
               Effect.timeoutOrElse({
                 duration: INBOUND_READ_TIMEOUT_MS,
@@ -547,7 +568,11 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
               })
             );
 
-            const frame = yield* decodeInboundChatFrame(bytes);
+            const frame = yield* decodeInboundChatFrame(
+              bytes,
+              stream.peerId,
+              cipher
+            );
 
             if (guardSensitive()) {
               stream.reset();
@@ -726,6 +751,7 @@ export const runStart = Effect.fn("qop.start")(function* (
         );
 
         return yield* createHolder({
+          cipher: createChatCipher(secretKey),
           endpoint,
           identity,
           lifecycle,

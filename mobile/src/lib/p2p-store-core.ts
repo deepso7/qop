@@ -11,8 +11,8 @@ import { Effect } from "effect";
 import { create } from "zustand";
 import type { StoreApi } from "zustand";
 
-import { CHAT_PROTOCOL, encodeAck } from "./chat-wire";
-import type { ChatFrame } from "./chat-wire";
+import { CHAT_PROTOCOL, createChatCipher, encodeAck } from "./chat-wire";
+import type { ChatCipher, ChatFrame } from "./chat-wire";
 import {
   advanceMessageStatus,
   failInterruptedMessages,
@@ -170,6 +170,7 @@ export const createP2pStore = ({
   subscribeAppResume,
 }: P2pDependencies) => {
   let endpoint: P2pEndpoint | undefined;
+  let chatCipher: ChatCipher | undefined;
   let unsubscribe: Unsubscribe[] = [];
   let generation = 0;
   let recoveryOperation: Promise<void> = Promise.resolve();
@@ -248,6 +249,7 @@ export const createP2pStore = ({
 
     if (endpoint === activeEndpoint) {
       endpoint = undefined;
+      chatCipher = undefined;
     }
   };
 
@@ -299,7 +301,8 @@ export const createP2pStore = ({
 
   const receiveChatStream = async (
     stream: Stream,
-    jobGeneration: number
+    jobGeneration: number,
+    cipher: ChatCipher
   ): Promise<void> => {
     try {
       if (isCurrentGeneration(jobGeneration)) {
@@ -312,7 +315,8 @@ export const createP2pStore = ({
           isCurrentGeneration(jobGeneration)
             ? Effect.runPromise(sessions.verify(connection, fromHandle))
             : Promise.resolve(null),
-        10_000
+        10_000,
+        cipher
       );
 
       if (
@@ -1078,8 +1082,9 @@ export const createP2pStore = ({
 
       const activeEndpoint = endpoint;
       const fromHandle = getIdentityHandle();
+      const cipher = chatCipher;
 
-      if (!activeEndpoint || !fromHandle) {
+      if (!activeEndpoint || !fromHandle || !cipher) {
         if (!isCurrentGeneration(jobGeneration)) {
           return;
         }
@@ -1100,6 +1105,7 @@ export const createP2pStore = ({
       const delivered = (async () => {
         try {
           await performSend({
+            cipher,
             contact,
             endpoint: activeEndpoint,
             frame,
@@ -1466,6 +1472,8 @@ export const createP2pStore = ({
           return;
         }
 
+        const cipher = createChatCipher(secretKey);
+
         const binding = createEndpoint({
           agentVersion: "qop/0.1.0",
           protocols: [CHAT_PROTOCOL, PAIR_PROTOCOL, SYNC_PROTOCOL],
@@ -1482,6 +1490,7 @@ export const createP2pStore = ({
         }
 
         endpoint = created;
+        chatCipher = cipher;
 
         // Online means Identify finished, not just a transport path: streams
         // cannot open before peerReady.
@@ -1604,7 +1613,7 @@ export const createP2pStore = ({
               generation === startGeneration &&
               stream.protocolId === CHAT_PROTOCOL
             ) {
-              void trackJob(receiveChatStream(stream, startGeneration));
+              void trackJob(receiveChatStream(stream, startGeneration, cipher));
             } else {
               stream.reset();
             }

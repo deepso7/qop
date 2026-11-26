@@ -40,6 +40,7 @@ import {
   encodePairingOfferV1,
   encodeSyncRequestV1,
   encodeSyncResponseV1,
+  createChatCipher,
   pairingFingerprint,
   registryAbi,
   verifyApprovalDigest,
@@ -1789,6 +1790,19 @@ export const VECTORS_DIR = new URL(
 export const buildDesktopVectors = async () => {
   const files = {
     "approval.json": await approvalVectors(),
+    "chat-envelope.json": {
+      envelope: bytesToHex(
+        await createChatCipher(new Uint8Array(32), () =>
+          new Uint8Array(32).fill(2)
+        ).seal(
+          FRAME,
+          await Effect.runPromise(
+            deviceKeyFromEd25519SecretKey(new Uint8Array(32).fill(1))
+          )
+        )
+      ),
+      frame: FRAME,
+    },
     "chat.json": chatVectors(),
     "device-action-status.json": await statusVectors(),
     "eip712.json": await eip712Vectors(),

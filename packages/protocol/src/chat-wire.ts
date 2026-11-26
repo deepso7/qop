@@ -1,7 +1,7 @@
 import { Handle } from "@qop/identity";
 import { Schema } from "effect";
 
-export const CHAT_PROTOCOL = "/qop/chat/1";
+export const CHAT_PROTOCOL = "/qop/chat/2";
 export const MAX_CHAT_PAYLOAD_BYTES = 16 * 1024;
 
 const Uuid = Schema.String.check(

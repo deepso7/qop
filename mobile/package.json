@@ -2,7 +2,7 @@
   "name": "mobile",
   "version": "1.0.0",
   "private": true,
-  "main": "expo-router/entry",
+  "main": "index.ts",
   "scripts": {
     "dev": "APP_VARIANT=development expo start",
     "preview": "APP_VARIANT=preview expo start",
