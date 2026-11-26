@@ -438,6 +438,7 @@ export const createPeerSessions = ({
   };
 
   return {
+    authorizationEpoch: () => verifyEpoch,
     clear,
     closed,
     invalidateAuthorization,

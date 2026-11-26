@@ -114,9 +114,9 @@ pub async fn deliver_one<C: Chain>(
         ctx.store().put(&waiting(&latest, note, now_ms()))?;
         Ok(Outcome::Waiting { pauses })
     };
-    if !ctx.auth.allowed() {
+    let Some(auth_epoch) = ctx.auth.allowed_epoch() else {
         return wait("unauthorized", false);
-    }
+    };
     let account = match ctx.chain.lookup_handle(latest.to_handle.clone()).await {
         Ok(Some(account)) => account,
         Ok(None) => return wait("Account was not found.", false),
@@ -136,7 +136,7 @@ pub async fn deliver_one<C: Chain>(
         qid: account.qid,
         handle: account.handle.clone(),
     };
-    match chat::deliver(ctx, &recipient, &latest.frame, &account).await {
+    match chat::deliver(ctx, &recipient, &latest.frame, &account, auth_epoch).await {
         Ok(()) => {
             let sent = OutboxRecord {
                 last_error: None,

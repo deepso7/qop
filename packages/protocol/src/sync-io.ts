@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 
-import type { PeerConnection } from "./p2p-sessions.ts";
+import { readBoundedChunks, writeFramedBytes } from "./stream-io.ts";
+import type { HalfCloseStream } from "./stream-io.ts";
 import {
   decodeSyncRequestV1,
   decodeSyncResponseV1,
@@ -12,76 +13,26 @@ import {
 import type { SyncRequestV1, SyncResponseV1 } from "./sync.ts";
 
 /** Half-close duplex used by phone and CLI `/qop/sync/1`. Bind methods at the call. */
-export interface SyncStream extends PeerConnection {
-  readonly closeWrite: () => void;
-  readonly read: () => Promise<Uint8Array | undefined>;
-  readonly reset: () => void;
-  readonly write: (data: Uint8Array) => Promise<void>;
-}
+export type SyncStream = HalfCloseStream;
 
-const concatChunks = (chunks: readonly Uint8Array[], byteLength: number) => {
-  const bytes = new Uint8Array(byteLength);
-  let offset = 0;
-
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  return bytes;
-};
-
-const readChunks = (
-  read: () => Promise<Uint8Array | undefined>,
-  chunks: Uint8Array[] = [],
-  byteLength = 0
-): Effect.Effect<Uint8Array, SyncCodecError> =>
-  Effect.gen(function* () {
-    const chunk = yield* Effect.tryPromise({
-      catch: () => new SyncCodecError({ operation: "frame" }),
-      try: () => read(),
-    });
-
-    if (!chunk) {
-      return concatChunks(chunks, byteLength);
-    }
-
-    const nextLength = byteLength + chunk.byteLength;
-
-    if (nextLength > MAX_SYNC_PAYLOAD_BYTES) {
-      return yield* new SyncCodecError({ operation: "oversized" });
-    }
-
-    chunks.push(chunk);
-
-    return yield* readChunks(read, chunks, nextLength);
-  });
+const syncError = (operation: "frame" | "oversized") =>
+  new SyncCodecError({ operation });
 
 /** Read one sync request from a half-closed stream (write, then closeWrite). */
 export const readSyncRequest = Effect.fn("@qop/protocol/readSyncRequest")(
   (read: () => Promise<Uint8Array | undefined>) =>
-    readChunks(read).pipe(Effect.flatMap(decodeSyncRequestV1))
+    readBoundedChunks(read, MAX_SYNC_PAYLOAD_BYTES, syncError).pipe(
+      Effect.flatMap(decodeSyncRequestV1)
+    )
 );
 
 /** Read one sync response from a half-closed stream. */
 export const readSyncResponse = Effect.fn("@qop/protocol/readSyncResponse")(
   (read: () => Promise<Uint8Array | undefined>) =>
-    readChunks(read).pipe(Effect.flatMap(decodeSyncResponseV1))
+    readBoundedChunks(read, MAX_SYNC_PAYLOAD_BYTES, syncError).pipe(
+      Effect.flatMap(decodeSyncResponseV1)
+    )
 );
-
-/** A closed stream throws from write/closeWrite; keep that a typed failure, not a defect. */
-const sendFrame = (
-  write: (data: Uint8Array) => Promise<void>,
-  closeWrite: () => void,
-  bytes: Uint8Array
-) =>
-  Effect.tryPromise({
-    catch: () => new SyncCodecError({ operation: "frame" }),
-    try: async () => {
-      await write(bytes);
-      closeWrite();
-    },
-  });
 
 export const writeSyncRequest = Effect.fn("@qop/protocol/writeSyncRequest")(
   function* (
@@ -90,7 +41,7 @@ export const writeSyncRequest = Effect.fn("@qop/protocol/writeSyncRequest")(
     frame: SyncRequestV1
   ) {
     const bytes = yield* encodeSyncRequestV1(frame);
-    yield* sendFrame(write, closeWrite, bytes);
+    yield* writeFramedBytes(write, closeWrite, bytes, () => syncError("frame"));
   }
 );
 
@@ -101,7 +52,7 @@ export const writeSyncResponse = Effect.fn("@qop/protocol/writeSyncResponse")(
     frame: SyncResponseV1
   ) {
     const bytes = yield* encodeSyncResponseV1(frame);
-    yield* sendFrame(write, closeWrite, bytes);
+    yield* writeFramedBytes(write, closeWrite, bytes, () => syncError("frame"));
   }
 );
 

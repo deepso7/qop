@@ -74,6 +74,33 @@ const read = (bytes: Uint8Array) => {
   };
 };
 
+/** Verify envelope bounds, keys, and sender signature without decrypting. */
+export interface InspectedChatEnvelope {
+  readonly recipient: Uint8Array;
+  readonly sender: Uint8Array;
+}
+
+export const inspectChatEnvelope = (
+  bytes: Uint8Array
+): InspectedChatEnvelope => {
+  const { recipient, sender, signature, signed } = read(bytes);
+
+  if (
+    !isDeviceKey(sender) ||
+    !isDeviceKey(recipient) ||
+    !ed25519.verify(signature, concat(SIGNATURE_DOMAIN, signed), sender, {
+      zip215: false,
+    })
+  ) {
+    throw new Error("Invalid chat envelope");
+  }
+
+  return {
+    recipient: new Uint8Array(recipient),
+    sender: new Uint8Array(sender),
+  };
+};
+
 /** Opens only mail for this device; the caller still authorizes the sender against the registry. */
 export const createChatCipher = (
   secretKey: Uint8Array,

@@ -2,10 +2,18 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 import {
   deviceKeyBytesFromPeerId,
+  deviceKeyFromEd25519SecretKey,
   deviceKeyFromPeerId,
   Hex32,
   PeerId,
 } from "@qop/identity";
+import {
+  decodeMailboxRequestV1,
+  encodeBase64,
+  encodeMailboxResponseV1,
+  MAILBOX_PROTOCOL,
+} from "@qop/protocol";
+import type { MailboxRequest } from "@qop/protocol";
 import { Effect, Schema } from "effect";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -1044,5 +1052,465 @@ describe("connectTo", () => {
     isPeerReady.mockReturnValue(false);
     await useP2pStore.getState().start();
     expect(runningConnection().connectedPeerIds).toEqual([]);
+  });
+});
+
+describe("mailbox fallback and drain", () => {
+  const PEER_MAILBOX = "12D3KooWMailboxTestPeerId11111111111111111111111111";
+
+  const makeMailboxStream = (
+    onRequest: (request: MailboxRequest) => Uint8Array
+  ) => {
+    const written: Uint8Array[] = [];
+    let replyChunks: Uint8Array[] = [];
+    let readIndex = 0;
+
+    return {
+      closeWrite: () => {
+        const total = written.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+        const body = new Uint8Array(total);
+        let offset = 0;
+
+        for (const chunk of written) {
+          body.set(chunk, offset);
+          offset += chunk.byteLength;
+        }
+
+        const request = Effect.runSync(decodeMailboxRequestV1(body));
+        replyChunks = [onRequest(request)];
+      },
+      connId: 99,
+      peerId: PEER_MAILBOX,
+      protocolId: MAILBOX_PROTOCOL,
+      read: () => {
+        const chunk = replyChunks[readIndex];
+        readIndex += 1;
+
+        return Promise.resolve(chunk);
+      },
+      reset: vi.fn(),
+      write: (data: Uint8Array) => {
+        written.push(data);
+
+        return Promise.resolve();
+      },
+    };
+  };
+
+  it("deposits to the configured mailbox inside the outbox when direct delivery fails", async () => {
+    const depositedIds: string[] = [];
+    let mailboxUnavailable = false;
+
+    const directSend = vi
+      .fn<typeof performSend>()
+      .mockRejectedValue(new Error("Recipient offline"));
+
+    const store = createP2pStore({
+      createEndpoint: () => ({
+        bindAppState: () => () => {},
+        endpoint: {
+          activeReservation: () => {},
+          close: () => Promise.resolve(closeReport),
+          connect: () =>
+            Promise.resolve({
+              connectId: 1,
+              path: { kind: "direct" },
+              peerId: PEER_MAILBOX,
+            }),
+          connectedPeers: () => [PEER_MAILBOX],
+          disconnect: vi.fn(),
+          isPeerReady: () => true,
+          on: () => () => {},
+          onClose: () => () => {},
+          openStream: () =>
+            // SAFETY: Test double implements the Stream methods used by mailbox I/O.
+            Promise.resolve(
+              makeMailboxStream((request) => {
+                if (request.type === "fetch") {
+                  return Effect.runSync(
+                    encodeMailboxResponseV1({
+                      hasMore: false,
+                      items: [],
+                      type: "messages",
+                      v: 1,
+                    })
+                  );
+                }
+
+                if (request.type === "deposit") {
+                  if (mailboxUnavailable) {
+                    return Effect.runSync(
+                      encodeMailboxResponseV1({
+                        reason: "unavailable",
+                        type: "error",
+                        v: 1,
+                      })
+                    );
+                  }
+
+                  const ids = request.items.map((item) => item.id);
+                  depositedIds.push(...ids);
+
+                  return Effect.runSync(
+                    encodeMailboxResponseV1({
+                      items: request.items.map((item) => ({
+                        id: item.id,
+                        recipientDeviceKey: item.recipientDeviceKey,
+                      })),
+                      type: "deposited",
+                      v: 1,
+                    })
+                  );
+                }
+
+                return Effect.runSync(
+                  encodeMailboxResponseV1({ count: 0, type: "acked", v: 1 })
+                );
+              }) as never
+            ),
+          path: () => {},
+          waitPeerReady: () =>
+            Promise.resolve({
+              peerId: PEER_MAILBOX,
+              protocols: [MAILBOX_PROTOCOL],
+            }),
+        },
+      }),
+      getIdentityHandle: () => "alice",
+      listActiveDevices: () =>
+        Effect.succeed([{ deviceKey: bobDeviceKey, peerId: PEER_BOB }]),
+      loadDeviceSecretKey: () => Effect.succeed(new Uint8Array(32).fill(2)),
+      lookupDeviceKey,
+      lookupHandle,
+      mailboxes: [
+        {
+          addr: `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/${PEER_MAILBOX}`,
+          peerId: PEER_MAILBOX,
+        },
+      ],
+      performSend: directSend,
+      randomUUID: () => crypto.randomUUID(),
+    });
+
+    try {
+      await store.getState().start();
+      const contact = await getContactByQid("1");
+
+      if (!contact) {
+        throw new Error("Missing contact fixture");
+      }
+
+      const id = store.getState().sendMessage(contact, "offline via mailbox");
+
+      await vi.waitFor(async () => {
+        const stored = await getMessageById(id);
+        expect(stored?.status).toBe("sent");
+      });
+      expect(depositedIds).toContain(id);
+
+      mailboxUnavailable = true;
+
+      const retryId = store
+        .getState()
+        .sendMessage(contact, "retry until mailbox recovers");
+
+      await vi.waitFor(async () => {
+        const stored = await getMessageById(retryId);
+        expect(stored?.status).toBe("queued");
+        expect(stored?.attempts).toBeGreaterThanOrEqual(1);
+      });
+
+      mailboxUnavailable = false;
+      await store.getState().retryMessage(retryId, contact.qid);
+
+      await vi.waitFor(async () => {
+        const stored = await getMessageById(retryId);
+        expect(stored?.status).toBe("sent");
+      });
+      expect(depositedIds).toContain(retryId);
+    } finally {
+      await store.getState().stop();
+    }
+  });
+
+  it("drains mailbox on app resume without clobbering existing contact peerId", async () => {
+    const bobSecret = new Uint8Array(32).fill(7);
+    const aliceSecret = new Uint8Array(32).fill(2);
+    const bobPub = Effect.runSync(deviceKeyFromEd25519SecretKey(bobSecret));
+    const bobKeyHex = Effect.runSync(Schema.encodeEffect(Hex32)(bobPub));
+    const alicePub = Effect.runSync(deviceKeyFromEd25519SecretKey(aliceSecret));
+    const msgId = "c56a4180-65aa-42ec-a945-5fd21dec0538";
+
+    const sealed = encodeBase64(
+      await createChatCipher(bobSecret).seal(
+        {
+          fromHandle: "bob",
+          id: msgId,
+          sentAt: 1_700_000_000_000,
+          text: "hello from mailbox",
+          v: 1,
+        },
+        alicePub
+      )
+    );
+
+    const pendingItems: {
+      readonly envelope: string;
+      readonly id: string;
+      readonly senderDeviceKey: string;
+      readonly seq: number;
+      readonly storedAt: number;
+    }[] = [];
+
+    const ackedSeqs: number[] = [];
+    let resumeHandler: (() => void) | undefined;
+
+    const store = createP2pStore({
+      createEndpoint: () => ({
+        bindAppState: () => () => {},
+        endpoint: {
+          activeReservation: () => {},
+          close: () => Promise.resolve(closeReport),
+          connect: () =>
+            Promise.resolve({
+              connectId: 1,
+              path: { kind: "direct" },
+              peerId: PEER_MAILBOX,
+            }),
+          connectedPeers: () => [PEER_MAILBOX],
+          disconnect: vi.fn(),
+          isPeerReady: () => true,
+          on: () => () => {},
+          onClose: () => () => {},
+          openStream: () =>
+            // SAFETY: Test double implements the Stream methods used by mailbox I/O.
+            Promise.resolve(
+              makeMailboxStream((request) => {
+                if (request.type === "fetch") {
+                  return Effect.runSync(
+                    encodeMailboxResponseV1({
+                      hasMore: false,
+                      items: [...pendingItems],
+                      type: "messages",
+                      v: 1,
+                    })
+                  );
+                }
+
+                if (request.type === "ack") {
+                  ackedSeqs.push(...request.seqs);
+                  pendingItems.length = 0;
+
+                  return Effect.runSync(
+                    encodeMailboxResponseV1({
+                      count: request.seqs.length,
+                      type: "acked",
+                      v: 1,
+                    })
+                  );
+                }
+
+                return Effect.runSync(
+                  encodeMailboxResponseV1({
+                    reason: "invalid",
+                    type: "error",
+                    v: 1,
+                  })
+                );
+              }) as never
+            ),
+          path: () => {},
+          waitPeerReady: () =>
+            Promise.resolve({
+              peerId: PEER_MAILBOX,
+              protocols: [MAILBOX_PROTOCOL],
+            }),
+        },
+      }),
+      getIdentityHandle: () => "alice",
+      loadDeviceSecretKey: () => Effect.succeed(aliceSecret),
+      lookupDeviceKey: () =>
+        Effect.succeed({
+          blockNumber: 1n,
+          deviceKey: bobKeyHex,
+          devices: [{ deviceKey: bobKeyHex, peerId: PEER_BOB }],
+          freshness: "fresh" as const,
+          handle: "bob",
+          nonce: 0n,
+          owner: "0x2222222222222222222222222222222222222222",
+          ownerVersion: 0,
+          peerId: PEER_BOB,
+          qid: 1n,
+          registeredAt: 1_700_000_000n,
+        }),
+      lookupHandle,
+      mailboxes: [
+        {
+          addr: `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/${PEER_MAILBOX}`,
+          peerId: PEER_MAILBOX,
+        },
+      ],
+      performSend: vi.fn<typeof performSend>(),
+      randomUUID: () => crypto.randomUUID(),
+      subscribeAppResume: (handler) => {
+        resumeHandler = handler;
+
+        return () => {
+          resumeHandler = undefined;
+        };
+      },
+    });
+
+    try {
+      await store.getState().start();
+      const contactBefore = await getContactByQid("1");
+      expect(contactBefore?.peerId).toBe(PEER_BOB);
+
+      // Enqueue message while app is "backgrounded", then trigger app resume.
+      pendingItems.push({
+        envelope: sealed,
+        id: msgId,
+        senderDeviceKey: bobKeyHex,
+        seq: 1,
+        storedAt: 1_700_000_000_000,
+      });
+
+      resumeHandler?.();
+
+      await vi.waitFor(async () => {
+        const stored = await getMessageById(msgId);
+        expect(stored?.text).toBe("hello from mailbox");
+      });
+
+      expect(ackedSeqs).toEqual([1]);
+
+      // Existing contact peerId must NOT be clobbered to "".
+      const contactAfter = await getContactByQid("1");
+      expect(contactAfter?.peerId).toBe(PEER_BOB);
+    } finally {
+      await store.getState().stop();
+    }
+  });
+
+  it("bumps store revision when a drained message is saved even if the ACK fails", async () => {
+    const bobSecret = new Uint8Array(32).fill(7);
+    const aliceSecret = new Uint8Array(32).fill(2);
+    const bobPub = Effect.runSync(deviceKeyFromEd25519SecretKey(bobSecret));
+    const bobKeyHex = Effect.runSync(Schema.encodeEffect(Hex32)(bobPub));
+    const alicePub = Effect.runSync(deviceKeyFromEd25519SecretKey(aliceSecret));
+    const msgId = "d56a4180-65aa-42ec-a945-5fd21dec0538";
+
+    const sealed = encodeBase64(
+      await createChatCipher(bobSecret).seal(
+        {
+          fromHandle: "bob",
+          id: msgId,
+          sentAt: 1_700_000_000_000,
+          text: "saved before ack error",
+          v: 1,
+        },
+        alicePub
+      )
+    );
+
+    const store = createP2pStore({
+      createEndpoint: () => ({
+        bindAppState: () => () => {},
+        endpoint: {
+          activeReservation: () => {},
+          close: () => Promise.resolve(closeReport),
+          connect: () =>
+            Promise.resolve({
+              connectId: 1,
+              path: { kind: "direct" },
+              peerId: PEER_MAILBOX,
+            }),
+          connectedPeers: () => [PEER_MAILBOX],
+          disconnect: vi.fn(),
+          isPeerReady: () => true,
+          on: () => () => {},
+          onClose: () => () => {},
+          openStream: () =>
+            // SAFETY: Test double implements the Stream methods used by mailbox I/O.
+            Promise.resolve(
+              makeMailboxStream((request) => {
+                if (request.type === "fetch") {
+                  return Effect.runSync(
+                    encodeMailboxResponseV1({
+                      hasMore: false,
+                      items: [
+                        {
+                          envelope: sealed,
+                          id: msgId,
+                          senderDeviceKey: bobKeyHex,
+                          seq: 1,
+                          storedAt: 1_700_000_000_000,
+                        },
+                      ],
+                      type: "messages",
+                      v: 1,
+                    })
+                  );
+                }
+
+                return Effect.runSync(
+                  encodeMailboxResponseV1({
+                    reason: "unavailable",
+                    type: "error",
+                    v: 1,
+                  })
+                );
+              }) as never
+            ),
+          path: () => {},
+          waitPeerReady: () =>
+            Promise.resolve({
+              peerId: PEER_MAILBOX,
+              protocols: [MAILBOX_PROTOCOL],
+            }),
+        },
+      }),
+      getIdentityHandle: () => "alice",
+      loadDeviceSecretKey: () => Effect.succeed(aliceSecret),
+      lookupDeviceKey: () =>
+        Effect.succeed({
+          blockNumber: 1n,
+          deviceKey: bobKeyHex,
+          devices: [{ deviceKey: bobKeyHex, peerId: PEER_BOB }],
+          freshness: "fresh" as const,
+          handle: "bob",
+          nonce: 0n,
+          owner: "0x2222222222222222222222222222222222222222",
+          ownerVersion: 0,
+          peerId: PEER_BOB,
+          qid: 1n,
+          registeredAt: 1_700_000_000n,
+        }),
+      lookupHandle,
+      mailboxes: [
+        {
+          addr: `/ip4/127.0.0.1/udp/4001/quic-v1/p2p/${PEER_MAILBOX}`,
+          peerId: PEER_MAILBOX,
+        },
+      ],
+      performSend: vi.fn<typeof performSend>(),
+      randomUUID: () => crypto.randomUUID(),
+    });
+
+    try {
+      const initialRevision = store.getState().revision;
+      await store.getState().start();
+
+      await vi.waitFor(async () => {
+        const stored = await getMessageById(msgId);
+        expect(stored?.text).toBe("saved before ack error");
+      });
+
+      await vi.waitFor(() => {
+        expect(store.getState().revision).toBeGreaterThan(initialRevision);
+      });
+    } finally {
+      await store.getState().stop();
+    }
   });
 });

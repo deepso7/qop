@@ -11,7 +11,10 @@ import {
   createChatCipher,
   createPeerSessions,
   decodeAck,
+  depositToMailbox,
+  drainMailbox,
   encodeAck,
+  MAILBOX_PROTOCOL,
   MAX_CHAT_ENVELOPE_BYTES,
   MAX_CHAT_PAYLOAD_BYTES,
   PeerVerificationError,
@@ -21,6 +24,7 @@ import type {
   ChatCipher,
   ChatFrame,
   InboxRecordV1,
+  MailboxPeer,
   PeerConnection,
   RegistryAccount,
   RegistryReaderError,
@@ -29,7 +33,12 @@ import type {
 } from "@qop/protocol";
 import { Effect, FiberSet, Schema, Semaphore } from "effect";
 
-import { CliConfigError, cliRelays, configuredRegistry } from "./config.ts";
+import {
+  CliConfigError,
+  cliMailboxes,
+  cliRelays,
+  configuredRegistry,
+} from "./config.ts";
 import type { createCliIdentityStore } from "./identity-store.ts";
 import {
   CliOutboxStoreError,
@@ -157,10 +166,25 @@ const catchOpenStreamError = (cause: unknown) =>
     ? cause
     : new CliOutboxDeliverError({ operation: "transport" });
 
-const asDeliverError = (cause: unknown) =>
-  cause instanceof CliOutboxDeliverError
-    ? cause
-    : new CliOutboxDeliverError({ operation: "transport" });
+const isVerificationRejection = (cause: unknown): boolean =>
+  (cause instanceof CliOutboxDeliverError &&
+    cause.operation === "unauthorized") ||
+  (cause instanceof PeerVerificationError &&
+    (cause.operation === "identity" ||
+      cause.operation === "reassigned" ||
+      cause.operation === "invalid-recipient"));
+
+const asDeliverError = (cause: unknown) => {
+  if (cause instanceof CliOutboxDeliverError) {
+    return cause;
+  }
+
+  if (isVerificationRejection(cause)) {
+    return new CliOutboxDeliverError({ operation: "unauthorized" });
+  }
+
+  return new CliOutboxDeliverError({ operation: "transport" });
+};
 
 /** Connect, wait for Identify, open chat, then authorize the live stream. */
 export const openAuthorizedChatStream = Effect.fn(
@@ -260,12 +284,22 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
   // Claim is in the same uninterruptible region as the open's tail so an
   // interrupt cannot land after verify's onExit has popped and before reset.
   let claimedStream: ChatStream | undefined;
+  let verificationRejection: CliOutboxDeliverError | undefined;
 
   const dial = (peerId: string) =>
     Effect.uninterruptibleMask((restore) =>
       restore(
         openAuthorizedChatStream(transport, sessions, peerId, recipient)
       ).pipe(
+        Effect.tapError((cause) =>
+          Effect.sync(() => {
+            if (isVerificationRejection(cause)) {
+              verificationRejection ??= new CliOutboxDeliverError({
+                operation: "unauthorized",
+              });
+            }
+          })
+        ),
         Effect.flatMap((stream) =>
           Effect.suspend(() => {
             if (claimedStream !== undefined) {
@@ -290,7 +324,7 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
       orElse: () =>
         Effect.fail(new CliOutboxDeliverError({ operation: "timeout" })),
     }),
-    Effect.mapError(asDeliverError),
+    Effect.mapError((cause) => verificationRejection ?? asDeliverError(cause)),
     Effect.onExit((exit) => {
       if (exit._tag === "Success" || claimedStream === undefined) {
         return Effect.void;
@@ -348,6 +382,8 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
         assertAckMatches(ack, frame.id);
       },
     });
+
+    return stream.peerId;
   }).pipe(
     Effect.onExit((exit) =>
       exit._tag === "Success"
@@ -421,6 +457,20 @@ const decodeInboundChatFrame = (
     try: () => cipher.open(bytes, deviceKeyBytesFromPeerId(peerId)),
   });
 
+const deviceKeysFromAccount = (
+  account?: RegistryAccount
+): readonly string[] => {
+  if (!account) {
+    return [];
+  }
+
+  if (account.devices.length > 0) {
+    return account.devices.map((device) => device.deviceKey);
+  }
+
+  return account.deviceKey ? [account.deviceKey] : [];
+};
+
 /**
  * Holder wiring: inbound dispatch, outbox flush, and FiberSet handlers.
  * FiberSet is acquired here so LIFO finalizers interrupt (and await) those
@@ -428,9 +478,11 @@ const decodeInboundChatFrame = (
  */
 export const createHolder = Effect.fn("qop.createHolder")(function* ({
   cipher,
+  connectAddrs,
   endpoint,
   identity,
   lifecycle,
+  mailboxes = [],
   messages,
   options = {},
   out,
@@ -438,9 +490,14 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
   sessions,
 }: {
   readonly cipher: ChatCipher;
+  readonly connectAddrs?: (
+    addrs: readonly [string, ...string[]],
+    options?: { readonly timeoutMs?: number }
+  ) => Promise<ChatDialResult>;
   readonly endpoint: HolderEndpoint;
   readonly identity: HolderIdentity;
   readonly lifecycle: ArmedProcessLifecycle;
+  readonly mailboxes?: readonly MailboxPeer[] | undefined;
   readonly messages: CliOutboxStore;
   readonly options?: {
     readonly message?: string | undefined;
@@ -460,6 +517,66 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
     return false;
   };
 
+  const openMailboxStream = async (peer: MailboxPeer) => {
+    if (!endpoint.connectedPeers().includes(peer.peerId)) {
+      await (connectAddrs
+        ? connectAddrs([peer.addr], { timeoutMs: CHAT_CONNECT_TIMEOUT_MS })
+        : endpoint.connect(peer.peerId, {
+            timeoutMs: CHAT_CONNECT_TIMEOUT_MS,
+          }));
+    }
+
+    await endpoint.waitPeerReady(peer.peerId, {
+      timeoutMs: CHAT_CONNECT_TIMEOUT_MS,
+    });
+
+    return endpoint.openStream(peer.peerId, MAILBOX_PROTOCOL, {
+      timeoutMs: CHAT_CONNECT_TIMEOUT_MS,
+    });
+  };
+
+  const isAuthCurrent = (expectedEpoch: number) =>
+    !guardSensitive() && sessions.authorizationEpoch() === expectedEpoch;
+
+  const depositForDevices = (
+    frame: ChatFrame,
+    recipientDeviceKeys: readonly string[],
+    expectedAuthEpoch: number
+  ): Effect.Effect<boolean> =>
+    Effect.gen(function* () {
+      let pending = [
+        ...new Set(recipientDeviceKeys.map((key) => key.toLowerCase())),
+      ];
+
+      if (pending.length === 0) {
+        return true;
+      }
+
+      let acceptedAny = false;
+
+      for (const peer of mailboxes) {
+        if (pending.length === 0 || !isAuthCurrent(expectedAuthEpoch)) {
+          break;
+        }
+
+        const result = yield* depositToMailbox({
+          beforeWrite: () => isAuthCurrent(expectedAuthEpoch),
+          cipher,
+          frame,
+          openStream: () => openMailboxStream(peer),
+          recipientDeviceKeys: pending,
+        }).pipe(Effect.result);
+
+        if (result._tag === "Success" && result.success.length > 0) {
+          acceptedAny = true;
+          const accepted = new Set(result.success);
+          pending = pending.filter((key) => !accepted.has(key));
+        }
+      }
+
+      return acceptedAny;
+    });
+
   const runHandler = yield* FiberSet.makeRuntime();
   const chatInbound = Semaphore.makeUnsafe(MAX_INBOUND_STREAMS);
   let syncInbound = 0;
@@ -472,6 +589,8 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
         );
       }
 
+      const authEpoch = sessions.authorizationEpoch();
+
       return deliverChatFrame(
         endpoint,
         sessions,
@@ -479,6 +598,56 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
         record.frame,
         cipher,
         account
+      ).pipe(
+        Effect.tap((deliveredPeerId) => {
+          if (mailboxes.length === 0 || !isAuthCurrent(authEpoch)) {
+            return Effect.void;
+          }
+
+          const deliveredKeyHex = `0x${Buffer.from(
+            deviceKeyBytesFromPeerId(deliveredPeerId)
+          ).toString("hex")}`.toLowerCase();
+
+          const remaining = deviceKeysFromAccount(account).filter(
+            (key) => key.toLowerCase() !== deliveredKeyHex
+          );
+
+          if (remaining.length === 0) {
+            return Effect.void;
+          }
+
+          // Background best-effort fan-out so a slow/down mailbox never stalls live chat.
+          return Effect.sync(() => {
+            runHandler(
+              depositForDevices(record.frame, remaining, authEpoch).pipe(
+                Effect.ignore
+              )
+            );
+          });
+        }),
+        Effect.asVoid,
+        Effect.catch((directError) => {
+          // Never mask own-auth invalidation behind a mailbox deposit.
+          if (
+            mailboxes.length === 0 ||
+            directError.operation === "unauthorized" ||
+            !isAuthCurrent(authEpoch)
+          ) {
+            return Effect.fail(directError);
+          }
+
+          const targetKeys = deviceKeysFromAccount(account);
+
+          if (targetKeys.length === 0) {
+            return Effect.fail(directError);
+          }
+
+          return depositForDevices(record.frame, targetKeys, authEpoch).pipe(
+            Effect.flatMap((deposited) =>
+              deposited ? Effect.void : Effect.fail(directError)
+            )
+          );
+        })
       );
     },
     lookupHandle: reader.lookupHandle,
@@ -642,41 +811,135 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
     );
   });
 
-  out.log(`CLI messaging ready for @${identity.handle} (${identity.peerId}).`);
-  out.log(
-    "SIGCONT, stall observe, and verify-boundary invalidation are armed."
-  );
+  let mailboxPollInFlight = false;
 
-  yield* outbox.resume();
+  const pollMailboxes = () => {
+    if (mailboxes.length === 0 || mailboxPollInFlight || guardSensitive()) {
+      return;
+    }
 
-  if (options.to && options.message) {
-    if (guardSensitive()) {
-      out.error("Authorization was invalidated. Try sending again.");
-    } else {
-      const recipient = yield* reader.lookupHandle(options.to);
+    mailboxPollInFlight = true;
 
-      if (recipient) {
-        yield* outbox.enqueue(
-          newOutboxRecord({
-            frame: {
-              fromHandle: identity.handle,
-              id: crypto.randomUUID(),
-              sentAt: Date.now(),
-              text: options.message,
-              v: 1,
+    runHandler(
+      Effect.forEach(
+        mailboxes,
+        (peer) =>
+          drainMailbox({
+            cipher,
+            onMessage: async (frame, meta) => {
+              if (guardSensitive()) {
+                return "abort";
+              }
+
+              const lookupResult = await Effect.runPromise(
+                reader.lookupDeviceKey(meta.senderDeviceKey).pipe(Effect.result)
+              );
+
+              if (lookupResult._tag === "Failure") {
+                return "retry";
+              }
+
+              const senderAccount = lookupResult.success;
+
+              if (!senderAccount || senderAccount.handle !== frame.fromHandle) {
+                // Revoked sender or forged handle: drop from mailbox.
+                return "ack";
+              }
+
+              const record: InboxRecordV1 = {
+                frame,
+                fromQid: senderAccount.qid.toString(),
+                receivedAt: Date.now(),
+                v: 1,
+              };
+
+              const persisted = await Effect.runPromise(
+                messages.putInbox(record).pipe(Effect.result)
+              );
+
+              if (persisted._tag === "Failure") {
+                out.error(describeCliOutboxStoreError(persisted.failure));
+
+                // Drop deterministic conflicts so they cannot head-of-line block.
+                return persisted.failure.operation === "conflict"
+                  ? "ack"
+                  : "retry";
+              }
+
+              if (persisted.success.inserted) {
+                out.log(`@${frame.fromHandle}: ${frame.text}`);
+              }
+
+              return "ack";
             },
-            now: Date.now(),
-            toHandle: recipient.handle,
-            toQid: recipient.qid.toString(),
+            openStream: () => openMailboxStream(peer),
+          }).pipe(Effect.ignore),
+        { concurrency: "unbounded" }
+      ).pipe(
+        Effect.ensuring(
+          Effect.sync(() => {
+            mailboxPollInFlight = false;
           })
-        );
+        )
+      )
+    );
+  };
+
+  const mailboxPollTimer =
+    mailboxes.length > 0
+      ? setInterval(() => {
+          pollMailboxes();
+        }, 15_000)
+      : null;
+
+  return yield* Effect.gen(function* () {
+    out.log(
+      `CLI messaging ready for @${identity.handle} (${identity.peerId}).`
+    );
+    out.log(
+      "SIGCONT, stall observe, and verify-boundary invalidation are armed."
+    );
+
+    pollMailboxes();
+    yield* outbox.resume();
+
+    if (options.to && options.message) {
+      if (guardSensitive()) {
+        out.error("Authorization was invalidated. Try sending again.");
       } else {
-        out.error(`Account @${options.to} was not found.`);
+        const recipient = yield* reader.lookupHandle(options.to);
+
+        if (recipient) {
+          yield* outbox.enqueue(
+            newOutboxRecord({
+              frame: {
+                fromHandle: identity.handle,
+                id: crypto.randomUUID(),
+                sentAt: Date.now(),
+                text: options.message,
+                v: 1,
+              },
+              now: Date.now(),
+              toHandle: recipient.handle,
+              toQid: recipient.qid.toString(),
+            })
+          );
+        } else {
+          out.error(`Account @${options.to} was not found.`);
+        }
       }
     }
-  }
 
-  yield* outbox.run;
+    return yield* outbox.run;
+  }).pipe(
+    Effect.ensuring(
+      Effect.sync(() => {
+        if (mailboxPollTimer) {
+          clearInterval(mailboxPollTimer);
+        }
+      })
+    )
+  );
 });
 
 export const runStart = Effect.fn("qop.start")(function* (
@@ -738,11 +1001,12 @@ export const runStart = Effect.fn("qop.start")(function* (
         const messages = yield* openCliOutboxStore(store.root);
         const secretKey = yield* store.loadSecret();
         const relays = cliRelays();
+        const mailboxes = cliMailboxes();
 
         const chatConfig = {
           agentVersion: "qop-cli/0.1.0",
           inboundStreamLimits: { [CHAT_PROTOCOL]: MAX_INBOUND_STREAMS },
-          protocols: [CHAT_PROTOCOL, SYNC_PROTOCOL],
+          protocols: [CHAT_PROTOCOL, SYNC_PROTOCOL, MAILBOX_PROTOCOL],
           secretKey,
         };
 
@@ -752,9 +1016,11 @@ export const runStart = Effect.fn("qop.start")(function* (
 
         return yield* createHolder({
           cipher: createChatCipher(secretKey),
+          connectAddrs: (addrs, opts) => endpoint.connect(addrs, opts),
           endpoint,
           identity,
           lifecycle,
+          mailboxes,
           messages,
           options,
           out: {

@@ -31,9 +31,79 @@ export {
 
 export type { ChatFrame, ChatAck } from "./chat-wire.ts";
 
-export { createChatCipher, MAX_CHAT_ENVELOPE_BYTES } from "./chat-envelope.ts";
+export {
+  createChatCipher,
+  inspectChatEnvelope,
+  MAX_CHAT_ENVELOPE_BYTES,
+} from "./chat-envelope.ts";
 
-export type { ChatCipher } from "./chat-envelope.ts";
+export type { ChatCipher, InspectedChatEnvelope } from "./chat-envelope.ts";
+
+export {
+  decodeBase64,
+  decodeMailboxRequestV1,
+  decodeMailboxResponseV1,
+  encodeBase64,
+  encodeMailboxRequestV1,
+  encodeMailboxResponseV1,
+  MAILBOX_MAX_ACK_SEQS,
+  MAILBOX_MAX_DEPOSIT_ITEMS,
+  MAILBOX_MAX_FETCH_LIMIT,
+  MAILBOX_PROTOCOL,
+  MailboxAckedV1,
+  MailboxAckV1,
+  MailboxCodecError,
+  MailboxDepositedItemV1,
+  MailboxDepositedV1,
+  MailboxDepositItemV1,
+  MailboxDepositV1,
+  MailboxErrorV1,
+  MailboxFetchV1,
+  MailboxMessagesV1,
+  MailboxMessageV1,
+  MailboxRequestV1,
+  MailboxResponseV1,
+  MAX_MAILBOX_PAYLOAD_BYTES,
+} from "./mailbox.ts";
+
+export type {
+  MailboxAckedV1 as MailboxAcked,
+  MailboxAckV1 as MailboxAck,
+  MailboxDepositedItemV1 as MailboxDepositedItem,
+  MailboxDepositedV1 as MailboxDeposited,
+  MailboxDepositItemV1 as MailboxDepositItem,
+  MailboxDepositV1 as MailboxDeposit,
+  MailboxErrorV1 as MailboxError,
+  MailboxFetchV1 as MailboxFetch,
+  MailboxMessagesV1 as MailboxMessages,
+  MailboxMessageV1 as MailboxMessage,
+  MailboxRequestV1 as MailboxRequest,
+  MailboxResponseV1 as MailboxResponse,
+} from "./mailbox.ts";
+
+export {
+  depositToMailbox,
+  drainMailbox,
+  MAILBOX_MAX_DRAIN_PAGES,
+  parseMailboxAddrs,
+} from "./mailbox-client.ts";
+
+export type {
+  MailboxDepositOptions,
+  MailboxDrainOptions,
+  MailboxItemDisposition,
+  MailboxPeer,
+} from "./mailbox-client.ts";
+
+export {
+  exchangeMailbox,
+  readMailboxRequestFrom,
+  readMailboxResponseFrom,
+  writeMailboxRequestTo,
+  writeMailboxResponseTo,
+} from "./mailbox-io.ts";
+
+export type { MailboxStream } from "./mailbox-io.ts";
 
 export type { SessionContact, SessionContactInput } from "./contacts.ts";
 

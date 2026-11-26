@@ -43,6 +43,7 @@ export interface PerformSendInput {
   readonly sessions: ReturnType<typeof createPeerSessions>;
   readonly endpoint: SendEndpoint;
   readonly frame: ChatFrame;
+  readonly onDelivered?: (peerId: string) => void;
   readonly signal?: AbortSignal;
   readonly timeoutMs: number;
 }
@@ -128,6 +129,7 @@ export const performSend = async ({
   contact,
   endpoint,
   frame,
+  onDelivered,
   signal,
   sessions,
   timeoutMs,
@@ -227,6 +229,7 @@ export const performSend = async ({
             });
 
             assertAckMatches(ack, frame.id);
+            onDelivered?.(opened.peerId);
           }).pipe(
             Effect.timeoutOrElse({
               duration: attemptTimeout,

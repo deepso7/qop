@@ -1,5 +1,5 @@
 import { ChainId } from "@qop/identity";
-import { createRegistryReader } from "@qop/protocol";
+import { createRegistryReader, parseMailboxAddrs } from "@qop/protocol";
 import type { RegistryReadClient } from "@qop/protocol";
 import { Data, Effect, Schema } from "effect";
 import { createPublicClient, http, isAddress } from "viem";
@@ -15,6 +15,9 @@ export const cliRelays = () =>
     .split(",")
     .map((address) => address.trim())
     .filter(Boolean);
+
+export const cliMailboxes = () =>
+  parseMailboxAddrs(process.env.QOP_MAILBOX_ADDRS);
 
 export const configuredRegistry = Effect.fn("cli.configuredRegistry")(
   function* () {

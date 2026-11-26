@@ -287,6 +287,34 @@ importers:
         specifier: 5.1.1
         version: 5.1.1(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.1))
 
+  mailbox:
+    dependencies:
+      '@minip2p/node':
+        specifier: 0.15.0
+        version: 0.15.0
+      '@qop/identity':
+        specifier: workspace:*
+        version: link:../packages/identity
+      '@qop/protocol':
+        specifier: workspace:*
+        version: link:../packages/protocol
+      effect:
+        specifier: 'catalog:'
+        version: 4.1.4
+      viem:
+        specifier: 2.58.0
+        version: 2.58.0(typescript@7.0.2)(zod@4.6.7)
+    devDependencies:
+      '@types/node':
+        specifier: 26.6.6
+        version: 26.6.6
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vitest:
+        specifier: 5.1.1
+        version: 5.1.1(@types/node@26.6.6)(vite@8.3.8(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(yaml@2.9.1))
+
   mobile:
     dependencies:
       '@expo/material-symbols':

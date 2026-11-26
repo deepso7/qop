@@ -6,8 +6,15 @@ import type {
   Unsubscribe,
 } from "@minip2p/react-native";
 import { deviceKeyFromPeerId, Hex32, PeerId } from "@qop/identity";
-import { PAIR_PROTOCOL, SYNC_PROTOCOL } from "@qop/protocol";
-import type { SyncInboxItem } from "@qop/protocol";
+import {
+  depositToMailbox,
+  drainMailbox,
+  MAILBOX_PROTOCOL,
+  PAIR_PROTOCOL,
+  parseMailboxAddrs,
+  SYNC_PROTOCOL,
+} from "@qop/protocol";
+import type { MailboxPeer, SyncInboxItem } from "@qop/protocol";
 import { Effect, Schema } from "effect";
 import { create } from "zustand";
 import type { StoreApi } from "zustand";
@@ -62,7 +69,12 @@ import type {
   performPoll,
   PerformSyncInput,
 } from "./p2p-sync";
-import type { lookupDeviceKey, lookupHandle, lookupQid } from "./registry";
+import type {
+  listActiveDevices,
+  lookupDeviceKey,
+  lookupHandle,
+  lookupQid,
+} from "./registry";
 
 /** The local endpoint's lifecycle. Peer data exists only while running. */
 export type P2pConnection =
@@ -140,10 +152,12 @@ interface P2pDependencies {
     readonly bindAppState: () => Unsubscribe;
   };
   readonly getIdentityHandle: () => string | undefined;
+  readonly listActiveDevices?: typeof listActiveDevices;
   readonly loadDeviceSecretKey: typeof loadDeviceSecretKey;
   readonly lookupDeviceKey: typeof lookupDeviceKey;
   readonly lookupHandle: typeof lookupHandle;
   readonly lookupQid?: typeof lookupQid;
+  readonly mailboxes?: readonly MailboxPeer[];
   readonly performCatchup?: typeof performCatchup;
   readonly performHandoff?: typeof performHandoff;
   readonly performPoll?: typeof performPoll;
@@ -221,14 +235,63 @@ const uninitializedSetState: StoreApi<P2pStore>["setState"] = () => {
   throw new Error("P2P store used before initialization");
 };
 
+/**
+ * Race mailbox deposit against an already-running holder handoff so a slow
+ * mailbox never stalls an accepted handoff (and vice versa).
+ */
+const raceMailboxAndHandoff = async (
+  mailboxTask: Promise<boolean>,
+  handoffTask: Promise<string | undefined>,
+  mailboxController: AbortController,
+  handoffController: AbortController
+): Promise<
+  | { readonly kind: "mailbox" }
+  | { readonly holderPeerId: string; readonly kind: "held" }
+  | { readonly kind: "neither" }
+> => {
+  const first = await Promise.race([
+    mailboxTask.then((ok) => ({ ok, winner: "mailbox" as const })),
+    handoffTask.then((holderPeerId) => ({
+      holderPeerId,
+      winner: "handoff" as const,
+    })),
+  ]);
+
+  if (first.winner === "mailbox") {
+    if (first.ok) {
+      handoffController.abort();
+      void handoffTask;
+
+      return { kind: "mailbox" };
+    }
+
+    const holderPeerId = await handoffTask;
+
+    return holderPeerId ? { holderPeerId, kind: "held" } : { kind: "neither" };
+  }
+
+  if (first.holderPeerId) {
+    mailboxController.abort();
+    void mailboxTask;
+
+    return { holderPeerId: first.holderPeerId, kind: "held" };
+  }
+
+  const mailboxOk = await mailboxTask;
+
+  return mailboxOk ? { kind: "mailbox" } : { kind: "neither" };
+};
+
 export const createP2pStore = ({
   createEndpoint,
   getIdentityHandle,
   getOwnDevice,
+  listActiveDevices,
   loadDeviceSecretKey,
   lookupDeviceKey,
   lookupHandle,
   lookupQid,
+  mailboxes: injectedMailboxes,
   performCatchup,
   performHandoff,
   performPoll,
@@ -1191,6 +1254,310 @@ export const createP2pStore = ({
     return { release, trackedEndpoint };
   };
 
+  const getConfiguredMailboxes = () =>
+    injectedMailboxes ??
+    parseMailboxAddrs(process.env.EXPO_PUBLIC_QOP_MAILBOX_ADDRS);
+
+  const openMailboxStream = async (
+    targetEndpoint: Pick<
+      P2pEndpoint,
+      "connect" | "connectedPeers" | "openStream" | "waitPeerReady"
+    >,
+    peer: MailboxPeer
+  ) => {
+    if (!targetEndpoint.connectedPeers().includes(peer.peerId)) {
+      await targetEndpoint.connect([peer.addr], { timeoutMs: 10_000 });
+    }
+
+    await targetEndpoint.waitPeerReady(peer.peerId, { timeoutMs: 10_000 });
+
+    return targetEndpoint.openStream(peer.peerId, MAILBOX_PROTOCOL, {
+      timeoutMs: 10_000,
+    });
+  };
+
+  const depositPendingToMailboxes = (options: {
+    readonly authEpoch: number;
+    readonly cipher: ChatCipher;
+    readonly continueInBackgroundGeneration?: number | undefined;
+    readonly frame: ChatFrame;
+    readonly isAborted: () => boolean;
+    readonly mailboxes: readonly MailboxPeer[];
+    readonly recipientDeviceKeys: readonly string[];
+    readonly signal?: AbortSignal | undefined;
+    readonly targetEndpoint: Pick<
+      P2pEndpoint,
+      "connect" | "connectedPeers" | "openStream" | "waitPeerReady"
+    >;
+  }): Promise<boolean> =>
+    Effect.runPromise(
+      Effect.gen(function* () {
+        const isAllowed = () =>
+          !options.isAborted() &&
+          sessions.authorizationEpoch() === options.authEpoch;
+
+        let pending = [
+          ...new Set(
+            options.recipientDeviceKeys.map((key) => key.toLowerCase())
+          ),
+        ];
+
+        let acceptedAny = false;
+
+        for (let index = 0; index < options.mailboxes.length; index += 1) {
+          if (pending.length === 0 || !isAllowed()) {
+            break;
+          }
+
+          const peer = options.mailboxes[index];
+
+          if (!peer) {
+            continue;
+          }
+
+          const deposited = yield* depositToMailbox({
+            beforeWrite: isAllowed,
+            cipher: options.cipher,
+            frame: options.frame,
+            openStream: () => openMailboxStream(options.targetEndpoint, peer),
+            recipientDeviceKeys: pending,
+          }).pipe(Effect.result);
+
+          if (deposited._tag === "Success" && deposited.success.length > 0) {
+            acceptedAny = true;
+            const accepted = new Set(deposited.success);
+            pending = pending.filter((key) => !accepted.has(key));
+
+            // Settle the handoff race on the first confirmed receipt and keep
+            // fanning out any remaining devices to later mailboxes in the background.
+            if (options.continueInBackgroundGeneration !== undefined) {
+              const bgGeneration = options.continueInBackgroundGeneration;
+              const remainingMailboxes = options.mailboxes.slice(index + 1);
+
+              if (pending.length > 0 && remainingMailboxes.length > 0) {
+                void trackJob(
+                  depositPendingToMailboxes({
+                    authEpoch: options.authEpoch,
+                    cipher: options.cipher,
+                    frame: options.frame,
+                    isAborted: () => !isCurrentGeneration(bgGeneration),
+                    mailboxes: remainingMailboxes,
+                    recipientDeviceKeys: pending,
+                    targetEndpoint: options.targetEndpoint,
+                  }).catch(() => false)
+                );
+              }
+
+              return true;
+            }
+          }
+        }
+
+        return acceptedAny;
+      }),
+      options.signal ? { signal: options.signal } : undefined
+    ).catch(() => false);
+
+  const depositToConfiguredMailbox = async ({
+    authEpoch,
+    cipher,
+    contactQid,
+    continueInBackgroundGeneration,
+    excludePeerId,
+    frame,
+    isAborted,
+    signal,
+    targetEndpoint,
+  }: {
+    readonly authEpoch: number;
+    readonly cipher: ChatCipher;
+    readonly contactQid: string;
+    readonly continueInBackgroundGeneration?: number | undefined;
+    readonly excludePeerId?: string | undefined;
+    readonly frame: ChatFrame;
+    readonly isAborted: () => boolean;
+    readonly signal?: AbortSignal | undefined;
+    readonly targetEndpoint: Pick<
+      P2pEndpoint,
+      "connect" | "connectedPeers" | "openStream" | "waitPeerReady"
+    >;
+  }): Promise<boolean> => {
+    const configuredMailboxes = getConfiguredMailboxes();
+
+    if (
+      configuredMailboxes.length === 0 ||
+      isAborted() ||
+      sessions.authorizationEpoch() !== authEpoch ||
+      !listActiveDevices
+    ) {
+      return false;
+    }
+
+    const devices = await Effect.runPromise(
+      listActiveDevices(BigInt(contactQid)).pipe(
+        Effect.orElseSucceed(
+          (): readonly {
+            readonly deviceKey: string;
+            readonly peerId: string;
+          }[] => []
+        )
+      ),
+      signal ? { signal } : undefined
+    ).catch(() => []);
+
+    const recipientDevices = devices
+      .filter((device) => device.peerId !== excludePeerId)
+      .map((device) => device.deviceKey);
+
+    if (
+      recipientDevices.length === 0 ||
+      isAborted() ||
+      sessions.authorizationEpoch() !== authEpoch
+    ) {
+      return false;
+    }
+
+    return depositPendingToMailboxes({
+      authEpoch,
+      cipher,
+      continueInBackgroundGeneration,
+      frame,
+      isAborted,
+      mailboxes: configuredMailboxes,
+      recipientDeviceKeys: recipientDevices,
+      signal,
+      targetEndpoint,
+    });
+  };
+
+  const fanOutToOtherDevices = (
+    activeEndpoint: P2pEndpoint,
+    cipher: ChatCipher,
+    contactQid: string,
+    deliveredPeerId: string | undefined,
+    frame: ChatFrame,
+    jobGeneration: number,
+    authEpoch: number
+  ) => {
+    if (!deliveredPeerId) {
+      return;
+    }
+
+    void trackJob(
+      depositToConfiguredMailbox({
+        authEpoch,
+        cipher,
+        contactQid,
+        excludePeerId: deliveredPeerId,
+        frame,
+        isAborted: () => !isCurrentGeneration(jobGeneration),
+        targetEndpoint: activeEndpoint,
+      }).catch(() => false)
+    );
+  };
+
+  const settleAfterDirectFailure = async (options: {
+    readonly activeEndpoint: P2pEndpoint;
+    readonly authEpoch: number;
+    readonly cipher: ChatCipher;
+    readonly contact: Contact;
+    readonly frame: ChatFrame;
+    readonly handedOff: Promise<string | undefined>;
+    readonly handoffController: AbortController;
+    readonly isAborted: () => boolean;
+    readonly isHandoffRejected: () => boolean;
+    readonly jobGeneration: number;
+    readonly message: StoredMessage;
+    readonly signal: AbortSignal;
+    readonly terminal: boolean;
+    readonly wasExpedited: () => boolean;
+  }): Promise<DeliveryOutcome> => {
+    const {
+      activeEndpoint,
+      authEpoch,
+      cipher,
+      contact,
+      frame,
+      handedOff,
+      handoffController,
+      isAborted,
+      isHandoffRejected,
+      jobGeneration,
+      message,
+      signal,
+      terminal,
+      wasExpedited,
+    } = options;
+
+    let fallback: Awaited<ReturnType<typeof raceMailboxAndHandoff>>;
+
+    if (terminal || getConfiguredMailboxes().length === 0) {
+      if (terminal) {
+        handoffController.abort();
+      }
+
+      const holderPeerId = await handedOff;
+
+      fallback = holderPeerId
+        ? { holderPeerId, kind: "held" }
+        : { kind: "neither" };
+    } else {
+      const mailboxController = new AbortController();
+
+      const abortMailbox = () => {
+        mailboxController.abort(signal.reason);
+      };
+
+      signal.addEventListener("abort", abortMailbox, { once: true });
+
+      fallback = await raceMailboxAndHandoff(
+        depositToConfiguredMailbox({
+          authEpoch,
+          cipher,
+          contactQid: contact.qid,
+          continueInBackgroundGeneration: jobGeneration,
+          frame,
+          isAborted: () => isAborted() || mailboxController.signal.aborted,
+          signal: mailboxController.signal,
+          targetEndpoint: activeEndpoint,
+        }),
+        handedOff,
+        mailboxController,
+        handoffController
+      ).finally(() => {
+        signal.removeEventListener("abort", abortMailbox);
+      });
+    }
+
+    if (isAborted()) {
+      return { kind: "aborted" };
+    }
+
+    if (fallback.kind === "mailbox") {
+      await advanceMessageStatus(message.id, "sent", message.contactQid);
+
+      return { kind: "delivered" };
+    }
+
+    if (fallback.kind === "held") {
+      await markMessageHeld(
+        message.id,
+        fallback.holderPeerId,
+        message.contactQid
+      );
+
+      return { kind: "delivered" };
+    }
+
+    if (terminal || isHandoffRejected()) {
+      await advanceMessageStatus(message.id, "failed", message.contactQid);
+
+      return { kind: "failed" };
+    }
+
+    return await recordRetryOutcome(message, wasExpedited);
+  };
+
   const sendStoredMessage = async (
     message: StoredMessage,
     contact: Contact,
@@ -1218,6 +1585,7 @@ export const createP2pStore = ({
       const activeEndpoint = endpoint;
       const fromHandle = getIdentityHandle();
       const cipher = chatCipher;
+      const authEpoch = sessions.authorizationEpoch();
 
       if (!activeEndpoint || !fromHandle || !cipher) {
         return await recordRetryOutcome(message, wasExpedited);
@@ -1247,6 +1615,8 @@ export const createP2pStore = ({
 
       let terminal = false;
 
+      let deliveredPeerId: string | undefined;
+
       const delivered = (async () => {
         try {
           await performSend({
@@ -1254,6 +1624,9 @@ export const createP2pStore = ({
             contact,
             endpoint: trackedEndpoint,
             frame,
+            onDelivered: (peerId) => {
+              deliveredPeerId = peerId;
+            },
             sessions,
             signal,
             timeoutMs: 10_000,
@@ -1292,36 +1665,38 @@ export const createP2pStore = ({
       }
 
       if (bobAcked) {
-        // Prefer sent as soon as Bob ACKs. Do not wait for holder dial/timeout.
+        // Prefer sent as soon as Bob ACKs. Fan out to his other devices in the background.
         await advanceMessageStatus(message.id, "sent", message.contactQid);
         void handedOff;
+        fanOutToOtherDevices(
+          activeEndpoint,
+          cipher,
+          contact.qid,
+          deliveredPeerId,
+          frame,
+          jobGeneration,
+          authEpoch
+        );
 
         return { kind: "delivered" };
       }
 
-      if (terminal) {
-        handoffController.abort();
-      }
-
-      const holderPeerId = await handedOff;
-
-      if (isAborted()) {
-        return { kind: "aborted" };
-      }
-
-      if (holderPeerId) {
-        await markMessageHeld(message.id, holderPeerId, message.contactQid);
-
-        return { kind: "delivered" };
-      }
-
-      if (terminal || handoffRejected) {
-        await advanceMessageStatus(message.id, "failed", message.contactQid);
-
-        return { kind: "failed" };
-      }
-
-      return await recordRetryOutcome(message, wasExpedited);
+      return await settleAfterDirectFailure({
+        activeEndpoint,
+        authEpoch,
+        cipher,
+        contact,
+        frame,
+        handedOff,
+        handoffController,
+        isAborted,
+        isHandoffRejected: () => handoffRejected,
+        jobGeneration,
+        message,
+        signal,
+        terminal,
+        wasExpedited,
+      });
     } catch {
       if (isAborted()) {
         return { kind: "aborted" };
@@ -1770,7 +2145,12 @@ export const createP2pStore = ({
 
         const binding = createEndpoint({
           agentVersion: "qop/0.1.0",
-          protocols: [CHAT_PROTOCOL, PAIR_PROTOCOL, SYNC_PROTOCOL],
+          protocols: [
+            CHAT_PROTOCOL,
+            PAIR_PROTOCOL,
+            SYNC_PROTOCOL,
+            MAILBOX_PROTOCOL,
+          ],
           relays,
           secretKey,
         });
@@ -1846,6 +2226,132 @@ export const createP2pStore = ({
           set({ connection: { reason: error, status: "failed" } });
         };
 
+        const configuredMailboxes =
+          injectedMailboxes ??
+          parseMailboxAddrs(process.env.EXPO_PUBLIC_QOP_MAILBOX_ADDRS);
+
+        let mailboxPollInFlight = false;
+        let mailboxPollQueued = false;
+        const owningDeviceKey = getOwnDevice?.()?.deviceKey;
+
+        const isOwningSession = () =>
+          isCurrentGeneration(startGeneration) &&
+          (owningDeviceKey === undefined ||
+            getOwnDevice?.()?.deviceKey === owningDeviceKey);
+
+        const pollMailboxes = async () => {
+          if (configuredMailboxes.length === 0 || !isOwningSession()) {
+            return;
+          }
+
+          if (mailboxPollInFlight) {
+            mailboxPollQueued = true;
+
+            return;
+          }
+
+          mailboxPollInFlight = true;
+          let insertedAny = false;
+
+          try {
+            await Promise.all(
+              configuredMailboxes.map((peer) =>
+                Effect.runPromise(
+                  drainMailbox({
+                    cipher,
+                    onMessage: async (frame, meta) => {
+                      if (!isOwningSession()) {
+                        return "abort";
+                      }
+
+                      const lookupResult = await Effect.runPromise(
+                        lookupDeviceKey(meta.senderDeviceKey).pipe(
+                          Effect.result
+                        )
+                      );
+
+                      if (lookupResult._tag === "Failure") {
+                        return "retry";
+                      }
+
+                      const senderAccount = lookupResult.success;
+
+                      if (
+                        !senderAccount ||
+                        senderAccount.handle !== frame.fromHandle
+                      ) {
+                        // Revoked device or forged handle: drop from mailbox.
+                        return "ack";
+                      }
+
+                      if (!isOwningSession()) {
+                        return "abort";
+                      }
+
+                      const senderQid = senderAccount.qid.toString();
+                      const existingContact = await getContactByQid(senderQid);
+
+                      if (!existingContact) {
+                        const handleOwner = await getContactByHandle(
+                          senderAccount.handle
+                        );
+
+                        if (handleOwner && handleOwner.qid !== senderQid) {
+                          // Stale local row owns this handle; UNIQUE(handle) would throw forever.
+                          return "ack";
+                        }
+
+                        if (!isOwningSession()) {
+                          return "abort";
+                        }
+
+                        await upsertContact({
+                          createdAt: Number(senderAccount.registeredAt) * 1000,
+                          deviceKey: meta.senderDeviceKey,
+                          handle: senderAccount.handle,
+                          owner: senderAccount.owner,
+                          peerId: senderAccount.peerId ?? "",
+                          qid: senderQid,
+                        });
+                      }
+
+                      if (!isOwningSession()) {
+                        return "abort";
+                      }
+
+                      await insertMessage({
+                        contactQid: senderQid,
+                        direction: "in",
+                        id: frame.id,
+                        sentAt: frame.sentAt,
+                        status: "received",
+                        text: frame.text,
+                      });
+
+                      insertedAny = true;
+
+                      return "ack";
+                    },
+                    openStream: () => openMailboxStream(created, peer),
+                  }).pipe(Effect.orElseSucceed(() => 0))
+                )
+              )
+            );
+          } finally {
+            // Refresh UI whenever local inserts succeeded, even if the subsequent ACK failed.
+            if (insertedAny && isOwningSession()) {
+              set((state) => ({ revision: state.revision + 1 }));
+            }
+
+            mailboxPollInFlight = false;
+
+            if (mailboxPollQueued && isOwningSession()) {
+              mailboxPollQueued = false;
+              void trackJob(pollMailboxes());
+            }
+          }
+        };
+
         unsubscribe = [
           binding.bindAppState(),
           ...(subscribeAppResume
@@ -1855,6 +2361,7 @@ export const createP2pStore = ({
                     sessions.invalidateAuthorization();
                     invalidateOwnHolderPeerIds();
                     void scheduleReconcile(startGeneration);
+                    void trackJob(pollMailboxes());
                     void outbox?.wake({ expediteAll: true });
                   }
                 }),
@@ -1918,6 +2425,19 @@ export const createP2pStore = ({
           return;
         }
 
+        const mailboxPollInterval =
+          configuredMailboxes.length > 0
+            ? setInterval(() => {
+                void trackJob(pollMailboxes());
+              }, 15_000)
+            : null;
+
+        if (mailboxPollInterval !== null) {
+          unsubscribe.push(() => {
+            clearInterval(mailboxPollInterval);
+          });
+        }
+
         outbox = createMobileOutbox({
           deliver: (message, signal, wasExpedited) =>
             trackJob(
@@ -1959,6 +2479,7 @@ export const createP2pStore = ({
 
         if (generation === startGeneration) {
           void outbox.wake();
+          void trackJob(pollMailboxes());
           void scheduleReconcile(startGeneration);
         }
       } catch (error) {

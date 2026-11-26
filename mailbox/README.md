@@ -1,0 +1,44 @@
+# `@qop/mailbox`
+
+Self-hostable encrypted store-and-forward mailbox node for QOP (`/qop/mailbox/1`).
+
+The mailbox stores only signed per-device HPKE envelopes (`chat-envelope.ts`) in SQLite and never sees plaintext message bodies. Callers authenticate by their minip2p Ed25519 transport peer ID, checked against `qidByDeviceKey` on the on-chain QOP registry.
+
+> **v1 scope:** Clients point at configured mailbox addresses via `QOP_MAILBOX_ADDRS` / `EXPO_PUBLIC_QOP_MAILBOX_ADDRS` and mark mailbox-accepted messages as `sent`. Per-recipient mailbox discovery and separate stored-vs-delivered receipts are follow-ups.
+
+## Run locally or self-host
+
+```bash
+QOP_RPC_URL=http://127.0.0.1:8545 \
+QOP_REGISTRY_ADDRESS=0x... \
+QOP_LISTEN_ADDRS=/ip4/0.0.0.0/udp/19877/quic-v1 \
+pnpm --filter @qop/mailbox run start
+```
+
+On startup it prints its peer ID and bound listen multiaddr(s):
+
+```text
+qop-mailbox peerId=12D3KooW...
+qop-mailbox addr=/ip4/0.0.0.0/udp/19877/quic-v1/p2p/12D3KooW...
+```
+
+> **Note:** `0.0.0.0` is a bind wildcard printed as-is by minip2p. For remote clients, replace `/ip4/0.0.0.0/` with the host's reachable public IP (or `/dns4/<host>/`) while keeping the UDP port and `/p2p/<peerId>`, then pass it to clients:
+>
+> ```bash
+> # CLI / Desktop
+> QOP_MAILBOX_ADDRS=/dns4/mailbox.example.com/udp/19877/quic-v1/p2p/12D3KooW...
+> # Mobile
+> EXPO_PUBLIC_QOP_MAILBOX_ADDRS=/dns4/mailbox.example.com/udp/19877/quic-v1/p2p/12D3KooW...
+> ```
+
+## Configuration
+
+| Variable | Default | Description |
+| --- | --- | --- |
+| `QOP_RPC_URL` | required | JSON-RPC URL for the QOP registry chain |
+| `QOP_REGISTRY_ADDRESS` | required | QOP registry contract address |
+| `QOP_REGISTRY_CHAIN_ID` | `31337` | Expected chain ID (verified against RPC at startup) |
+| `QOP_LISTEN_ADDRS` | `/ip4/0.0.0.0/udp/19877/quic-v1` | Comma-separated minip2p listen multiaddrs |
+| `QOP_RELAY_ADDRS` | empty | Optional minip2p relay multiaddrs for NAT traversal |
+| `QOP_MAILBOX_DATA_DIR` | `~/.qop-mailbox` | Directory for `mailbox.key` and `mailbox.db` |
+| `QOP_MAILBOX_TTL_DAYS` | `30` | Envelope retention window before automatic expiry |
