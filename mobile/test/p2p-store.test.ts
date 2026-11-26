@@ -534,6 +534,36 @@ describe("automatic outbox", () => {
     expect(send).toHaveBeenCalledOnce();
   });
 
+  it("caches unknown-peer lookup misses so repeated stranger connects do not spam registry reads", async () => {
+    send.mockRejectedValue(new Error("offline"));
+    lookupDeviceKey.mockReturnValue(Effect.succeed(null));
+
+    await useP2pStore.getState().start();
+    const contact = await getContactByQid("1");
+
+    if (!contact) {
+      throw new Error("Missing contact fixture");
+    }
+
+    useP2pStore.getState().sendMessage(contact, "queued for bob");
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    lookupDeviceKey.mockClear();
+
+    for (let i = 0; i < 5; i += 1) {
+      connectionEstablished?.({ connId: 20 + i, peerId: PEER_ALICE });
+    }
+
+    await vi.waitFor(() => expect(lookupDeviceKey).toHaveBeenCalledOnce());
+    await sleep(30);
+
+    for (let i = 0; i < 5; i += 1) {
+      connectionEstablished?.({ connId: 30 + i, peerId: PEER_ALICE });
+    }
+
+    await sleep(30);
+    expect(lookupDeviceKey).toHaveBeenCalledOnce();
+  });
+
   it("resumes persisted retries after endpoint restart", async () => {
     send.mockRejectedValue(new Error("offline"));
     await useP2pStore.getState().start();

@@ -157,6 +157,10 @@ interface P2pDependencies {
 const errorMessage = (error: Error | string) =>
   error instanceof Error ? error.message : String(error);
 
+const PEER_LOOKUP_MISS_TTL_MS = 60_000;
+const PEER_LOOKUP_MISS_MAX = 256;
+const PEER_LOOKUP_MAX_CONCURRENT = 4;
+
 const holderRosterChanged = (
   previous: readonly string[] | undefined,
   next: readonly string[]
@@ -251,6 +255,16 @@ export const createP2pStore = ({
   let holderCacheEpoch = 0;
   /** Connect-path peers absent from a successful roster read this epoch. */
   const holderDiscoverMisses = new Set<string>();
+  /** Bounded TTL cache for unknown connect-path peers so strangers cannot spam chain lookups. */
+  const peerLookupMisses = new Map<string, number>();
+
+  const peerLookupInFlight = new Map<
+    string,
+    Promise<
+      { readonly handle: string; readonly qid: bigint } | null | undefined
+    >
+  >();
+
   let scheduledReconcile: Promise<void> | undefined;
   let queuedReconcile = false;
   let reconcileSeq = 0;
@@ -290,6 +304,8 @@ export const createP2pStore = ({
     holderLookup = undefined;
     holderDiscoverLookup = undefined;
     holderDiscoverMisses.clear();
+    peerLookupMisses.clear();
+    peerLookupInFlight.clear();
     scheduledReconcile = undefined;
     queuedReconcile = false;
     reconcileSeq += 1;
@@ -1329,6 +1345,74 @@ export const createP2pStore = ({
       return yield* lookupDeviceKey(deviceKeyHex);
     });
 
+  const rememberPeerLookupMiss = (peerId: string) => {
+    if (peerLookupMisses.has(peerId)) {
+      peerLookupMisses.delete(peerId);
+    } else if (peerLookupMisses.size >= PEER_LOOKUP_MISS_MAX) {
+      const oldest = peerLookupMisses.keys().next().value;
+
+      if (oldest !== undefined) {
+        peerLookupMisses.delete(oldest);
+      }
+    }
+
+    peerLookupMisses.set(peerId, Date.now() + PEER_LOOKUP_MISS_TTL_MS);
+  };
+
+  const resolveUnknownPeerAccount = (peerId: string) => {
+    const missUntil = peerLookupMisses.get(peerId);
+
+    if (missUntil !== undefined) {
+      if (missUntil > Date.now()) {
+        return Promise.resolve(null);
+      }
+
+      peerLookupMisses.delete(peerId);
+    }
+
+    const existing = peerLookupInFlight.get(peerId);
+
+    if (existing) {
+      return existing;
+    }
+
+    if (peerLookupInFlight.size >= PEER_LOOKUP_MAX_CONCURRENT) {
+      return Promise.resolve(null);
+    }
+
+    const job = (async () => {
+      const lookedUp = await Effect.runPromise(
+        lookupPeerAccount(peerId).pipe(Effect.timeout(10_000), Effect.result)
+      );
+
+      if (lookedUp._tag !== "Success") {
+        return;
+      }
+
+      if (!lookedUp.success) {
+        rememberPeerLookupMiss(peerId);
+
+        return null;
+      }
+
+      return lookedUp.success;
+    })();
+
+    peerLookupInFlight.set(peerId, job);
+
+    const removeWhenDone = async () => {
+      await Promise.allSettled([job]);
+
+      if (peerLookupInFlight.get(peerId) === job) {
+        peerLookupInFlight.delete(peerId);
+      }
+    };
+
+    void removeWhenDone();
+
+    return job;
+  };
+
   const findQueuedContactForPeer = async (
     peerId: string,
     jobGeneration: number
@@ -1340,30 +1424,30 @@ export const createP2pStore = ({
       return local;
     }
 
-    // Fallback for secondary devices: O(1) lookup by the connecting peer's key.
-    const lookedUp = await Effect.runPromise(
-      lookupPeerAccount(peerId).pipe(Effect.timeout(10_000), Effect.result)
-    );
+    // Fallback for secondary devices: O(1) throttled lookup by the connecting peer's key.
+    const account = await resolveUnknownPeerAccount(peerId);
 
-    if (
-      lookedUp._tag !== "Success" ||
-      !lookedUp.success ||
-      !isCurrentGeneration(jobGeneration)
-    ) {
+    if (!account || !isCurrentGeneration(jobGeneration)) {
       return null;
     }
 
-    const qid = lookedUp.success.qid.toString();
+    const qid = account.qid.toString();
 
     if (!(await hasQueuedMessages(qid))) {
+      rememberPeerLookupMiss(peerId);
+
       return null;
     }
 
     const candidate = await getContactByQid(qid);
 
-    return candidate && candidate.handle === lookedUp.success.handle
-      ? candidate
-      : null;
+    if (!candidate || candidate.handle !== account.handle) {
+      rememberPeerLookupMiss(peerId);
+
+      return null;
+    }
+
+    return candidate;
   };
 
   const handleConnectionEstablished = async (
