@@ -271,7 +271,8 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
   recipient: { readonly handle: string; readonly qid: string },
   frame: ChatFrame,
   cipher: Pick<ChatCipher, "seal">,
-  account?: RegistryAccount
+  account?: RegistryAccount,
+  rejectedPeers?: Set<string>
 ) {
   // Success is a non-empty roster; an empty roster fails inside recipientPeerIds.
   const peerIds = yield* sessions
@@ -293,7 +294,12 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
       ).pipe(
         Effect.tapError((cause) =>
           Effect.sync(() => {
-            if (isVerificationRejection(cause)) {
+            if (
+              isVerificationRejection(cause) ||
+              (cause instanceof PeerVerificationError &&
+                cause.operation === "rpc")
+            ) {
+              rejectedPeers?.add(peerId);
               verificationRejection ??= new CliOutboxDeliverError({
                 operation: "unauthorized",
               });
@@ -385,6 +391,7 @@ export const deliverChatFrame = Effect.fn("qop.deliverChatFrame")(function* (
 
     return stream.peerId;
   }).pipe(
+    Effect.mapError((error) => verificationRejection ?? error),
     Effect.onExit((exit) =>
       exit._tag === "Success"
         ? Effect.void
@@ -590,6 +597,7 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
       }
 
       const authEpoch = sessions.authorizationEpoch();
+      const rejectedPeers = new Set<string>();
 
       return deliverChatFrame(
         endpoint,
@@ -597,19 +605,25 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
         { handle: record.toHandle, qid: record.toQid },
         record.frame,
         cipher,
-        account
+        account,
+        rejectedPeers
       ).pipe(
         Effect.tap((deliveredPeerId) => {
           if (mailboxes.length === 0 || !isAuthCurrent(authEpoch)) {
             return Effect.void;
           }
 
-          const deliveredKeyHex = `0x${Buffer.from(
-            deviceKeyBytesFromPeerId(deliveredPeerId)
-          ).toString("hex")}`.toLowerCase();
+          const excludedKeys = new Set<string>([
+            `0x${Buffer.from(
+              deviceKeyBytesFromPeerId(deliveredPeerId)
+            ).toString("hex")}`.toLowerCase(),
+            ...[...rejectedPeers].map((peerId) =>
+              `0x${Buffer.from(deviceKeyBytesFromPeerId(peerId)).toString("hex")}`.toLowerCase()
+            ),
+          ]);
 
           const remaining = deviceKeysFromAccount(account).filter(
-            (key) => key.toLowerCase() !== deliveredKeyHex
+            (key) => !excludedKeys.has(key.toLowerCase())
           );
 
           if (remaining.length === 0) {
@@ -627,10 +641,11 @@ export const createHolder = Effect.fn("qop.createHolder")(function* ({
         }),
         Effect.asVoid,
         Effect.catch((directError) => {
-          // Never mask own-auth invalidation behind a mailbox deposit.
+          // Never mask own-auth invalidation or peer verification rejections behind a mailbox deposit.
           if (
             mailboxes.length === 0 ||
             directError.operation === "unauthorized" ||
+            rejectedPeers.size > 0 ||
             !isAuthCurrent(authEpoch)
           ) {
             return Effect.fail(directError);

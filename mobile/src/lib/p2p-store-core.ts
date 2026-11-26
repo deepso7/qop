@@ -53,7 +53,7 @@ import type { DeliveryOutcome } from "./mobile-outbox";
 import { readVerifiedChat } from "./p2p-receive";
 import { isTerminalSendError, withTimeout } from "./p2p-send";
 import type { performSend } from "./p2p-send";
-import { createPeerSessions } from "./p2p-sessions";
+import { createPeerSessions, PeerVerificationError } from "./p2p-sessions";
 import type { PeerConnection } from "./p2p-sessions";
 import {
   HANDOFF_REJECTED_MESSAGE,
@@ -1363,7 +1363,7 @@ export const createP2pStore = ({
     cipher,
     contactQid,
     continueInBackgroundGeneration,
-    excludePeerId,
+    excludePeerIds,
     frame,
     isAborted,
     signal,
@@ -1373,7 +1373,7 @@ export const createP2pStore = ({
     readonly cipher: ChatCipher;
     readonly contactQid: string;
     readonly continueInBackgroundGeneration?: number | undefined;
-    readonly excludePeerId?: string | undefined;
+    readonly excludePeerIds?: ReadonlySet<string> | undefined;
     readonly frame: ChatFrame;
     readonly isAborted: () => boolean;
     readonly signal?: AbortSignal | undefined;
@@ -1406,7 +1406,7 @@ export const createP2pStore = ({
     ).catch(() => []);
 
     const recipientDevices = devices
-      .filter((device) => device.peerId !== excludePeerId)
+      .filter((device) => !excludePeerIds?.has(device.peerId))
       .map((device) => device.deviceKey);
 
     if (
@@ -1435,6 +1435,7 @@ export const createP2pStore = ({
     cipher: ChatCipher,
     contactQid: string,
     deliveredPeerId: string | undefined,
+    rejectedPeerIds: ReadonlySet<string>,
     frame: ChatFrame,
     jobGeneration: number,
     authEpoch: number
@@ -1443,12 +1444,15 @@ export const createP2pStore = ({
       return;
     }
 
+    const excludePeerIds = new Set(rejectedPeerIds);
+    excludePeerIds.add(deliveredPeerId);
+
     void trackJob(
       depositToConfiguredMailbox({
         authEpoch,
         cipher,
         contactQid,
-        excludePeerId: deliveredPeerId,
+        excludePeerIds,
         frame,
         isAborted: () => !isCurrentGeneration(jobGeneration),
         targetEndpoint: activeEndpoint,
@@ -1469,6 +1473,7 @@ export const createP2pStore = ({
     readonly jobGeneration: number;
     readonly message: StoredMessage;
     readonly signal: AbortSignal;
+    readonly skipMailboxFallback: boolean;
     readonly terminal: boolean;
     readonly wasExpedited: () => boolean;
   }): Promise<DeliveryOutcome> => {
@@ -1485,13 +1490,18 @@ export const createP2pStore = ({
       jobGeneration,
       message,
       signal,
+      skipMailboxFallback,
       terminal,
       wasExpedited,
     } = options;
 
     let fallback: Awaited<ReturnType<typeof raceMailboxAndHandoff>>;
 
-    if (terminal || getConfiguredMailboxes().length === 0) {
+    if (
+      terminal ||
+      skipMailboxFallback ||
+      getConfiguredMailboxes().length === 0
+    ) {
       if (terminal) {
         handoffController.abort();
       }
@@ -1614,8 +1624,9 @@ export const createP2pStore = ({
       releaseDials = release;
 
       let terminal = false;
-
+      let skipMailboxFallback = false;
       let deliveredPeerId: string | undefined;
+      const rejectedPeerIds = new Set<string>();
 
       const delivered = (async () => {
         try {
@@ -1627,6 +1638,10 @@ export const createP2pStore = ({
             onDelivered: (peerId) => {
               deliveredPeerId = peerId;
             },
+            onRejectedPeer: (peerId) => {
+              rejectedPeerIds.add(peerId);
+              skipMailboxFallback = true;
+            },
             sessions,
             signal,
             timeoutMs: 10_000,
@@ -1635,6 +1650,11 @@ export const createP2pStore = ({
           return true;
         } catch (error) {
           terminal = error instanceof Error && isTerminalSendError(error);
+          skipMailboxFallback ||=
+            terminal ||
+            error instanceof PeerVerificationError ||
+            (error instanceof Error &&
+              error.message === "Chat connection is no longer authorized");
 
           return false;
         }
@@ -1673,6 +1693,7 @@ export const createP2pStore = ({
           cipher,
           contact.qid,
           deliveredPeerId,
+          rejectedPeerIds,
           frame,
           jobGeneration,
           authEpoch
@@ -1694,6 +1715,7 @@ export const createP2pStore = ({
         jobGeneration,
         message,
         signal,
+        skipMailboxFallback,
         terminal,
         wasExpedited,
       });
